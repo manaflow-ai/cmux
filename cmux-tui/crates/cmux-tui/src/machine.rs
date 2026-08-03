@@ -5,7 +5,7 @@
 //! presentation snapshot so cloud, SSH, local-socket, and future transports
 //! can share the same Ratatui rail without sharing provider implementation.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
@@ -354,6 +354,12 @@ pub enum MachineRequest {
         expected_version: u64,
         name: String,
     },
+    /// Rename a row owned by the client-local catalog. This changes only the
+    /// current process's presentation; it never rewrites SSH or cmux config.
+    RenameClientMachine {
+        machine: MachineKey,
+        name: String,
+    },
     DeleteManagedMachine {
         machine: MachineKey,
         expected_version: u64,
@@ -517,6 +523,14 @@ pub struct MachineCreationSource {
     pub subtitle: String,
 }
 
+/// A client-local destination advertised by a native connection source.
+/// `target` is opaque to the picker and is passed back to the owning route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineConnectionTarget {
+    pub target: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct MachineUiState {
     pub snapshot: MachineSnapshot,
@@ -528,7 +542,9 @@ pub struct MachineUiState {
     pub connect_accepts_pairing_code: bool,
     pub rail_selection: MachineRailSelection,
     pub creation_sources: Vec<MachineCreationSource>,
+    pub connection_targets: Vec<MachineConnectionTarget>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
+    client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
 }
@@ -620,7 +636,9 @@ impl MachineUiState {
             connect_accepts_pairing_code: false,
             rail_selection: MachineRailSelection::Machine,
             creation_sources: Vec::new(),
+            connection_targets: Vec::new(),
             workspace_creation: HashMap::new(),
+            client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
             managed_workspaces: HashMap::new(),
         };
@@ -670,6 +688,24 @@ impl MachineUiState {
 
     pub fn is_provider_machine(&self, machine: MachineKey) -> bool {
         self.workspace_creation.contains_key(&machine)
+    }
+
+    pub fn set_client_renamable_machines(
+        &mut self,
+        machines: impl IntoIterator<Item = MachineKey>,
+    ) {
+        self.client_renamable_machines = machines.into_iter().collect();
+    }
+
+    pub fn extend_client_renamable_machines(
+        &mut self,
+        machines: impl IntoIterator<Item = MachineKey>,
+    ) {
+        self.client_renamable_machines.extend(machines);
+    }
+
+    pub fn is_client_machine_renamable(&self, machine: MachineKey) -> bool {
+        self.client_renamable_machines.contains(&machine)
     }
 
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {

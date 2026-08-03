@@ -208,6 +208,22 @@ impl ProviderMachineController {
                 let key = self.local.connect_machine(&target)?;
                 self.switch_local(key)
             }
+            MachineRequest::RenameClientMachine { machine, name }
+                if self.local.contains(machine) =>
+            {
+                let name = self.local.rename_machine(machine, &name)?;
+                let ui = self.provider.ui_state_for_open_connection();
+                let mut result = MachineActionResult::ui(self.merge_local_ui(ui));
+                // Provider update streams capture the local overlay at
+                // subscription time. Replace that capture before a later
+                // provider refresh can restore the old display name.
+                result.restart_updates = true;
+                Ok(if self.active_local == Some(machine) {
+                    result.with_session_label(name)
+                } else {
+                    result
+                })
+            }
             MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
                 let switching_provider = self.pending_provider_switch;
@@ -277,7 +293,7 @@ impl ProviderMachineController {
     fn merge_local_ui(&self, ui: MachineUiState) -> MachineUiState {
         merge_local_machine_ui_for_provider_switch(
             ui,
-            &self.local.snapshot_with_active(self.active_local),
+            &self.local.ui_state_with_active(self.active_local),
             self.active_local,
             self.pending_provider_switch,
         )
@@ -288,13 +304,13 @@ impl ProviderMachineController {
         ui: MachineUiState,
         active_local: Option<MachineKey>,
     ) -> MachineUiState {
-        merge_local_machine_ui(ui, &self.local.snapshot_with_active(active_local), active_local)
+        merge_local_machine_ui(ui, &self.local.ui_state_with_active(active_local), active_local)
     }
 
     fn subscribe_ui_updates(&self) -> anyhow::Result<MachineUpdateStream> {
         let provider_updates = self.provider.subscribe_ui_updates()?;
         let (provider_receiver, provider_stop, provider_worker) = provider_updates.into_parts();
-        let local_snapshot = self.local.snapshot_with_active(self.active_local);
+        let local_ui = self.local.ui_state_with_active(self.active_local);
         let active_local = self.active_local;
         let pending_provider_switch = self.pending_provider_switch;
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -309,7 +325,7 @@ impl ProviderMachineController {
                                 MachineUpdate::Ui(ui) => MachineUpdate::Ui(Box::new(
                                     merge_local_machine_ui_for_provider_switch(
                                         *ui,
-                                        &local_snapshot,
+                                        &local_ui,
                                         active_local,
                                         pending_provider_switch,
                                     ),
@@ -680,6 +696,9 @@ impl ProviderMachineRuntime {
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
                 ))
+            }
+            MachineRequest::RenameClientMachine { .. } => {
+                anyhow::bail!(localization::catalog().sidebar.client_machine_unavailable)
             }
             MachineRequest::DeleteManagedMachine { machine, expected_version } => {
                 let machine_id = self.machine_id(machine)?;
@@ -1668,11 +1687,22 @@ fn append_notice_once(notice: &mut Option<String>, message: impl Into<String>) {
 
 fn merge_local_machine_ui(
     mut ui: MachineUiState,
-    local: &MachineSnapshot,
+    local: &MachineUiState,
     active_local: Option<MachineKey>,
 ) -> MachineUiState {
-    ui.snapshot.machines.extend(local.machines.iter().cloned());
-    ui.snapshot.capabilities.connect |= local.capabilities.connect;
+    ui.snapshot.machines.extend(local.snapshot.machines.iter().cloned());
+    ui.snapshot.capabilities.create |= local.snapshot.capabilities.create;
+    ui.snapshot.capabilities.connect |= local.snapshot.capabilities.connect;
+    ui.creation_sources.extend(local.creation_sources.iter().cloned());
+    ui.connection_targets.extend(local.connection_targets.iter().cloned());
+    ui.extend_client_renamable_machines(
+        local
+            .snapshot
+            .machines
+            .iter()
+            .filter(|machine| local.is_client_machine_renamable(machine.key))
+            .map(|machine| machine.key),
+    );
     if let Some(active) = active_local {
         ui.snapshot.active = Some(active);
         ui.session_available = true;
@@ -1688,7 +1718,7 @@ fn merge_local_machine_ui(
 
 fn merge_local_machine_ui_for_provider_switch(
     ui: MachineUiState,
-    local: &MachineSnapshot,
+    local: &MachineUiState,
     active_local: Option<MachineKey>,
     pending_provider_switch: bool,
 ) -> MachineUiState {
@@ -4160,7 +4190,7 @@ mod tests {
         let provider_key = provider.snapshot.active.unwrap();
         provider.request = Some(MachineRequest::Switch(provider_key));
         let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
-        let local = MachineSnapshot {
+        let mut local = MachineUiState::new(MachineSnapshot {
             machines: vec![MachineDescriptor {
                 key: local_key,
                 id: "mini".into(),
@@ -4170,7 +4200,8 @@ mod tests {
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities { create: false, connect: true },
-        };
+        });
+        local.set_client_renamable_machines([local_key]);
 
         let merged = merge_local_machine_ui(provider, &local, Some(local_key));
 
@@ -4193,7 +4224,7 @@ mod tests {
         });
         provider.request = Some(MachineRequest::ReconnectProvider);
         let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
-        let local = MachineSnapshot {
+        let mut local = MachineUiState::new(MachineSnapshot {
             machines: vec![MachineDescriptor {
                 key: local_key,
                 id: "mini".into(),
@@ -4203,7 +4234,8 @@ mod tests {
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities::default(),
-        };
+        });
+        local.set_client_renamable_machines([local_key]);
 
         let merged = merge_local_machine_ui(provider, &local, Some(local_key));
 
@@ -4464,6 +4496,24 @@ mod tests {
         assert!(
             !controller.pending_provider_switch,
             "the committed local selection supersedes the automatic pairing handoff"
+        );
+        let renamed = controller
+            .perform_request(MachineRequest::RenameClientMachine {
+                machine: local_key,
+                name: "Renamed mini".into(),
+            })
+            .unwrap();
+        assert!(renamed.restart_updates);
+        assert_eq!(renamed.session_label.as_deref(), Some("Renamed mini"));
+        assert_eq!(
+            renamed
+                .ui
+                .snapshot
+                .machines
+                .iter()
+                .find(|machine| machine.key == local_key)
+                .map(|machine| machine.name.as_str()),
+            Some("Renamed mini")
         );
         let failed = controller.perform_request(MachineRequest::Switch(offline_key));
         assert!(failed.is_err());

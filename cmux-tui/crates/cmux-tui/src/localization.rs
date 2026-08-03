@@ -696,6 +696,9 @@ pub(crate) struct SidebarMessages {
     pub unavailable: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
+    pub ssh_hosts: &'static str,
+    pub type_to_filter: &'static str,
+    pub other_host: &'static str,
     pub personal_scope: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
@@ -737,6 +740,8 @@ pub(crate) struct SidebarMessages {
     pub machine_managed_authority_invalid: &'static str,
     pub machine_catalog_create_unsupported: &'static str,
     pub machine_creation_source_unavailable: &'static str,
+    pub machine_name_required: &'static str,
+    pub client_machine_unavailable: &'static str,
     pub prototype_machine_added: &'static str,
     pub machine_catalog_provider_actions_unsupported: &'static str,
     pub machine_catalog_updates_failed: &'static str,
@@ -1299,6 +1304,9 @@ OPTIONS:
         unavailable: "unavailable",
         connect_prompt: "Host address or pairing code",
         connect_host_prompt: "Host address",
+        ssh_hosts: "SSH hosts",
+        type_to_filter: "type to filter",
+        other_host: "Other host…",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -1340,6 +1348,8 @@ OPTIONS:
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
         machine_catalog_create_unsupported: "This machine catalog cannot create machines",
         machine_creation_source_unavailable: "This machine creation source is unavailable",
+        machine_name_required: "Machine name is required",
+        client_machine_unavailable: "This client-owned machine is unavailable",
         prototype_machine_added: "Added prototype machine",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
@@ -1780,6 +1790,9 @@ ID とセッション:
         unavailable: "利用不可",
         connect_prompt: "ホストアドレスまたはペアリングコード",
         connect_host_prompt: "ホストアドレス",
+        ssh_hosts: "SSH ホスト",
+        type_to_filter: "入力して絞り込み",
+        other_host: "その他のホスト…",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -1821,6 +1834,8 @@ ID とセッション:
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
         machine_catalog_create_unsupported: "このマシンカタログではマシンを作成できません",
         machine_creation_source_unavailable: "このマシン作成元は利用できません",
+        machine_name_required: "マシン名を入力してください",
+        client_machine_unavailable: "このクライアント管理マシンは利用できません",
         prototype_machine_added: "プロトタイプマシンを追加しました",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
@@ -2032,6 +2047,20 @@ mod tests {
         );
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Other host…");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "その他のホスト…");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
+            "Machine name is required"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_name_required,
+            "マシン名を入力してください"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"

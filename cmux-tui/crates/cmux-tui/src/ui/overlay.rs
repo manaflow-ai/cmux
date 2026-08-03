@@ -230,6 +230,34 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         }
         draw_border(buf, level.rect, border);
 
+        if depth == 0
+            && let Some(search) = menu.search.as_mut()
+        {
+            let title_x = x + 2;
+            let title_w = width.saturating_sub(4) as usize;
+            let prefix = format!(" {} · ", search.label);
+            let prefix_w = prefix.width().min(title_w);
+            let search_style = base.add_modifier(Modifier::BOLD);
+            buf.set_stringn(title_x, y, &prefix, title_w, search_style);
+            let value_x = title_x + prefix_w as u16;
+            let value_w = title_w.saturating_sub(prefix_w);
+            if search.input.as_str().is_empty() {
+                let placeholder = format!("{} ", search.placeholder);
+                buf.set_stringn(
+                    value_x,
+                    y,
+                    &placeholder,
+                    value_w,
+                    base.add_modifier(Modifier::DIM),
+                );
+            } else if value_w > 0 {
+                let (shown, _) = search.input.visible_text_and_cursor(value_w.saturating_sub(1));
+                buf.set_stringn(value_x, y, &shown, value_w, search_style);
+                let cursor_x = value_x + shown.width().min(value_w.saturating_sub(1)) as u16;
+                buf.set_stringn(cursor_x, y, "▏", 1, search_style);
+            }
+        }
+
         let pad = ContextMenu::PAD;
         let inner_x = x + 1;
         let inner_y = y + 1;

@@ -3282,6 +3282,7 @@ pub enum OmnibarHit {
 /// A context-menu entry: what activating it does (the label is derived).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    RenameClientMachine(MachineKey),
     RenameManagedMachine(MachineKey),
     DeleteManagedMachine(MachineKey),
     RestoreManagedMachine(MachineKey),
@@ -3302,6 +3303,7 @@ pub enum MenuAction {
     BrowserCopyUrl(PaneId),
     BrowserActivate(PaneId),
     RenameTab(PaneId),
+    RenameSurface(SurfaceId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
     NewPaneSmart(PaneId),
@@ -3323,13 +3325,17 @@ pub enum MenuAction {
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
     CreateMachineFrom(usize),
+    ConnectMachineTarget(usize),
+    ConnectOtherMachine,
 }
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         let menu = &localization::catalog().menu;
         match self {
-            MenuAction::RenameManagedMachine(_) => localization::catalog().sidebar.rename_machine,
+            MenuAction::RenameClientMachine(_) | MenuAction::RenameManagedMachine(_) => {
+                localization::catalog().sidebar.rename_machine
+            }
             MenuAction::DeleteManagedMachine(_) => localization::catalog().sidebar.delete_machine,
             MenuAction::RestoreManagedMachine(_) => localization::catalog().sidebar.restore_machine,
             MenuAction::PurgeManagedMachine(_) => localization::catalog().sidebar.purge_machine,
@@ -3366,7 +3372,9 @@ impl MenuAction {
             }
             MenuAction::BrowserCopyUrl(_) => "Copy URL",
             MenuAction::BrowserActivate(_) => "Show in Chrome",
-            MenuAction::RenameTab(_) => localization::catalog().action_label(Action::RenameTab),
+            MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
+                localization::catalog().action_label(Action::RenameTab)
+            }
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
             MenuAction::NewPaneSmart(_) => {
@@ -3399,6 +3407,8 @@ impl MenuAction {
                 "Provider action"
             }
             MenuAction::CreateMachineFrom(_) => localization::catalog().sidebar.new_machine,
+            MenuAction::ConnectMachineTarget(_) => localization::catalog().sidebar.connect_machine,
+            MenuAction::ConnectOtherMachine => localization::catalog().sidebar.other_host,
         }
     }
 }
@@ -3568,6 +3578,25 @@ impl MenuLevel {
         self.scroll_offset =
             self.scroll_offset.min(self.items.len().saturating_sub(self.visible_rows));
     }
+
+    fn replace_items(&mut self, items: Vec<MenuItem>) {
+        let items: Arc<[MenuItem]> = items.into();
+        self.all_items = items.clone();
+        self.items = items;
+        self.selected = self.items.iter().position(MenuItem::selectable).unwrap_or(0);
+        self.scroll_offset = 0;
+        self.visible_rows = self.items.len();
+        self.fitted_rows = None;
+        self.rect.height = self.items.len() as u16 + 2;
+    }
+}
+
+pub(crate) struct MenuSearch {
+    pub label: String,
+    pub placeholder: String,
+    pub input: TextInput,
+    items: Arc<[MenuItem]>,
+    fallback: Arc<[MenuItem]>,
 }
 
 /// Right-click context menu overlay. The rect includes the border chrome;
@@ -3576,6 +3605,7 @@ impl MenuLevel {
 /// spans the full inner row including those padding cells.
 pub struct ContextMenu {
     pub levels: Vec<MenuLevel>,
+    pub(crate) search: Option<MenuSearch>,
     right_press: (u16, u16),
     right_drag_moved: bool,
     captured_resources: Vec<(MenuAction, Option<MenuActionResource>)>,
@@ -3607,10 +3637,89 @@ impl ContextMenu {
         }
         ContextMenu {
             levels: vec![MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), items)],
+            search: None,
             right_press: (x, y),
             right_drag_moved: false,
             captured_resources: Vec::new(),
         }
+    }
+
+    fn searchable(
+        x: u16,
+        y: u16,
+        label: impl Into<String>,
+        placeholder: impl Into<String>,
+        items: Vec<MenuItem>,
+        fallback: Vec<MenuItem>,
+    ) -> Self {
+        let label = label.into();
+        let placeholder = placeholder.into();
+        let search_items: Arc<[MenuItem]> = items.into();
+        let fallback: Arc<[MenuItem]> = fallback.into();
+        let mut visible = search_items.to_vec();
+        if !visible.is_empty() && !fallback.is_empty() {
+            visible.push(MenuItem::Separator);
+        }
+        visible.extend(fallback.iter().cloned());
+        let mut level = MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), visible);
+        let search_width = label.width() + placeholder.width() + 9;
+        level.rect.width = level.rect.width.max(search_width.min(u16::MAX as usize) as u16);
+        ContextMenu {
+            levels: vec![level],
+            search: Some(MenuSearch {
+                label,
+                placeholder,
+                input: TextInput::new(String::new()),
+                items: search_items,
+                fallback,
+            }),
+            right_press: (x, y),
+            right_drag_moved: false,
+            captured_resources: Vec::new(),
+        }
+    }
+
+    fn refresh_search(&mut self) {
+        let Some(search) = self.search.as_ref() else { return };
+        let query = search.input.as_str().trim().to_lowercase();
+        let terms = query.split_whitespace().collect::<Vec<_>>();
+        let mut visible = search
+            .items
+            .iter()
+            .filter(|item| {
+                terms.is_empty()
+                    || item.label().is_some_and(|label| {
+                        let label = label.to_lowercase();
+                        terms.iter().all(|term| label.contains(term))
+                    })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !visible.is_empty() && !search.fallback.is_empty() {
+            visible.push(MenuItem::Separator);
+        }
+        visible.extend(search.fallback.iter().cloned());
+        self.levels.truncate(1);
+        if let Some(level) = self.levels.first_mut() {
+            level.replace_items(visible);
+        }
+    }
+
+    fn insert_search_text(&mut self, text: &str) -> bool {
+        let changed = self.search.as_mut().is_some_and(|search| search.input.insert_str(text));
+        if changed {
+            self.refresh_search();
+        }
+        changed
+    }
+
+    fn handle_search_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(search) = self.search.as_mut() else { return false };
+        let changed = search.input.handle_key(key) == InputEvent::Changed;
+        if changed {
+            self.refresh_search();
+        }
+        true
     }
 
     fn actions(&self) -> Vec<MenuAction> {
@@ -3625,7 +3734,10 @@ impl ContextMenu {
         }
 
         let mut actions = Vec::new();
-        if let Some(level) = self.levels.first() {
+        if let Some(search) = self.search.as_ref() {
+            collect(&search.items, &mut actions);
+            collect(&search.fallback, &mut actions);
+        } else if let Some(level) = self.levels.first() {
             collect(&level.all_items, &mut actions);
         }
         actions
@@ -3703,7 +3815,11 @@ impl ContextMenu {
             }
         }
 
-        self.levels.iter().any(|level| level.all_items.iter().any(item_targets_provider))
+        if let Some(search) = self.search.as_ref() {
+            search.items.iter().chain(search.fallback.iter()).any(item_targets_provider)
+        } else {
+            self.levels.iter().any(|level| level.all_items.iter().any(item_targets_provider))
+        }
     }
 
     fn action_at(&self, depth: usize, item: usize) -> Option<MenuAction> {
@@ -3875,6 +3991,7 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
 /// What a committed rename prompt applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptTarget {
+    ClientMachine(MachineKey),
     ManagedMachine(MachineKey),
     ConfirmDeleteManagedMachine(MachineKey),
     ConfirmPurgeManagedMachine(MachineKey),
@@ -4299,6 +4416,7 @@ struct RenderedMenuLevel {
 enum MenuActionResource {
     Surface(SurfaceId),
     MachineCreationSource(String),
+    MachineConnectionTarget(String),
     ManagedWorkspace { machine: MachineKey, id: String, version: u64 },
     ProviderScope { machine: Option<MachineKey>, id: String },
     ProviderAction { machine: Option<MachineKey>, id: String },
@@ -8344,6 +8462,7 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
+            MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
             MenuAction::BrowserBack(pane)
             | MenuAction::BrowserForward(pane)
             | MenuAction::BrowserReload(pane)
@@ -8392,6 +8511,11 @@ impl App {
                 .creation_sources
                 .get(index)
                 .map(|source| MenuActionResource::MachineCreationSource(source.id.clone())),
+            MenuAction::ConnectMachineTarget(index) => {
+                self.machine_ui.as_ref()?.connection_targets.get(index).map(|target| {
+                    MenuActionResource::MachineConnectionTarget(target.target.clone())
+                })
+            }
             _ => None,
         }
     }
@@ -11180,6 +11304,9 @@ impl App {
             clear_omnibar_selection(state);
             state.input.insert_str(&text);
             Ok(RenderAction::Draw)
+        } else if let Some(menu) = self.menu.as_mut() {
+            menu.insert_search_text(&text);
+            Ok(RenderAction::Draw)
         } else if self.machine_sidebar_focused() {
             Ok(RenderAction::Draw)
         } else if self.tabs_sidebar_focused() {
@@ -12178,6 +12305,15 @@ impl App {
         self.machine_ui.as_ref()?.managed_machine(key).cloned()
     }
 
+    fn request_rename_client_machine(&mut self, key: MachineKey, name: String) {
+        if !self.machine_ui.as_ref().is_some_and(|ui| ui.is_client_machine_renamable(key)) {
+            return;
+        }
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::RenameClientMachine { machine: key, name });
+        }
+    }
+
     fn request_rename_managed_machine(&mut self, key: MachineKey, name: String) {
         let Some(machine) = self.managed_machine(key).filter(|machine| {
             machine.status == ManagedMachineStatus::Active && machine.capabilities.rename
@@ -12247,6 +12383,36 @@ impl App {
             machine.name,
             PromptTarget::ManagedMachine(key),
         ));
+    }
+
+    fn open_rename_client_machine_prompt(&mut self, key: MachineKey) {
+        let Some(ui) = self.machine_ui.as_ref().filter(|ui| ui.is_client_machine_renamable(key))
+        else {
+            return;
+        };
+        let Some(name) = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.key == key)
+            .map(|machine| machine.name.clone())
+        else {
+            return;
+        };
+        self.cancel_pty_mouse_drag();
+        self.prompt = Some(Prompt::new(
+            localization::catalog().sidebar.rename_machine,
+            name,
+            PromptTarget::ClientMachine(key),
+        ));
+    }
+
+    fn open_rename_machine_prompt(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some() {
+            self.open_rename_managed_machine_prompt(key);
+        } else {
+            self.open_rename_client_machine_prompt(key);
+        }
     }
 
     fn open_delete_managed_machine_prompt(&mut self, key: MachineKey) {
@@ -12527,6 +12693,11 @@ impl App {
             return self.handle_prompt_key(key);
         }
         if self.menu.is_some() {
+            if let Some(text) = input.text_for_direct_input()
+                && self.menu.as_mut().is_some_and(|menu| menu.insert_search_text(text))
+            {
+                return Ok(RenderAction::Draw);
+            }
             return self.handle_menu_key(key);
         }
         if self.omnibar.is_some() {
@@ -12629,12 +12800,14 @@ impl App {
                 targets.get(current).copied()
             {
                 let managed = machine.managed_machine(machine_key);
+                let client_renamable = machine.is_client_machine_renamable(machine_key);
                 match key.code {
                     KeyCode::Char('r')
-                        if managed.is_some_and(|managed| {
-                            managed.status == ManagedMachineStatus::Active
-                                && managed.capabilities.rename
-                        }) =>
+                        if client_renamable
+                            || managed.is_some_and(|managed| {
+                                managed.status == ManagedMachineStatus::Active
+                                    && managed.capabilities.rename
+                            }) =>
                     {
                         Some(MachineRailCommand::Rename(machine_key))
                     }
@@ -12686,7 +12859,7 @@ impl App {
                 }
             }
             Some(MachineRailCommand::Rename(machine)) => {
-                self.open_rename_managed_machine_prompt(machine);
+                self.open_rename_machine_prompt(machine);
             }
             Some(MachineRailCommand::Delete(machine)) => {
                 self.open_delete_managed_machine_prompt(machine);
@@ -12703,7 +12876,7 @@ impl App {
                 self.open_machine_creation_menu(1, 3);
             }
             Some(MachineRailCommand::Connect) => {
-                self.prompt = Some(self.connect_machine_prompt());
+                self.open_machine_connection_menu(1, 3);
             }
             None => {}
         }
@@ -12741,6 +12914,37 @@ impl App {
                 self.capture_menu_resources();
             }
         }
+    }
+
+    fn open_machine_connection_menu(&mut self, x: u16, y: u16) {
+        if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
+            self.prompt = Some(self.connect_machine_prompt());
+            return;
+        }
+        let targets =
+            self.machine_ui.as_ref().map(|ui| ui.connection_targets.clone()).unwrap_or_default();
+        if targets.is_empty() {
+            self.prompt = Some(self.connect_machine_prompt());
+            return;
+        }
+        let targets = targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| MenuItem::LabeledAction {
+                label: target.name.clone(),
+                action: MenuAction::ConnectMachineTarget(index),
+            })
+            .collect::<Vec<_>>();
+        let messages = &localization::catalog().sidebar;
+        self.menu = Some(ContextMenu::searchable(
+            x,
+            y,
+            messages.ssh_hosts,
+            messages.type_to_filter,
+            targets,
+            vec![MenuItem::Action(MenuAction::ConnectOtherMachine)],
+        ));
+        self.capture_menu_resources();
     }
 
     fn connect_machine_prompt(&self) -> Prompt {
@@ -13102,6 +13306,12 @@ impl App {
             }
             return;
         }
+        if let PromptTarget::ClientMachine(key) = prompt.target {
+            if !input.trim().is_empty() {
+                self.request_rename_client_machine(key, input);
+            }
+            return;
+        }
         if let PromptTarget::ManagedMachine(key) = prompt.target {
             if !input.is_empty() {
                 self.request_rename_managed_machine(key, input);
@@ -13224,6 +13434,7 @@ impl App {
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
             PromptTarget::ConnectMachine(_)
+            | PromptTarget::ClientMachine(_)
             | PromptTarget::ManagedMachine(_)
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
@@ -13469,8 +13680,16 @@ impl App {
                 menu.select_next();
                 Ok(RenderAction::Draw)
             }
+            KeyCode::Left if menu.search.is_some() => {
+                menu.handle_search_key(&key);
+                Ok(RenderAction::Draw)
+            }
             KeyCode::Left => {
                 menu.close_submenu();
+                Ok(RenderAction::Draw)
+            }
+            KeyCode::Right if menu.search.is_some() => {
+                menu.handle_search_key(&key);
                 Ok(RenderAction::Draw)
             }
             KeyCode::Right => {
@@ -13491,7 +13710,10 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            _ => Ok(RenderAction::Draw), // swallow while a menu is open
+            _ => {
+                menu.handle_search_key(&key);
+                Ok(RenderAction::Draw) // swallow while a menu is open
+            }
         }
     }
 
@@ -13723,11 +13945,35 @@ impl App {
 
     fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
         let Some(pane) = pane else { return };
-        let Some(tab) = self.tree.pane(pane).and_then(|p| p.tabs.get(p.active_tab)) else {
+        let Some(surface) = self
+            .tree
+            .pane(pane)
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+            .map(|tab| tab.surface)
+        else {
             return;
         };
-        let buffer = tab.name.clone().unwrap_or_default();
-        let prompt = Prompt::new("Rename tab", buffer, PromptTarget::Surface(tab.surface));
+        self.open_rename_surface_prompt(surface);
+    }
+
+    fn open_rename_surface_prompt(&mut self, surface: SurfaceId) {
+        let Some(buffer) = self
+            .tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == surface)
+            .map(|tab| tab.name.clone().unwrap_or_default())
+        else {
+            return;
+        };
+        let prompt = Prompt::new(
+            localization::catalog().action_label(Action::RenameTab),
+            buffer,
+            PromptTarget::Surface(surface),
+        );
         self.cancel_pty_mouse_drag();
         self.prompt = Some(prompt);
     }
@@ -13972,6 +14218,9 @@ impl App {
             return Ok(());
         }
         match action {
+            MenuAction::RenameClientMachine(key) => {
+                self.open_rename_client_machine_prompt(key);
+            }
             MenuAction::RenameManagedMachine(key) => {
                 self.open_rename_managed_machine_prompt(key);
             }
@@ -14041,6 +14290,7 @@ impl App {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuAction::RenameSurface(surface) => self.open_rename_surface_prompt(surface),
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
@@ -14120,6 +14370,20 @@ impl App {
                 if let (Some(ui), Some(source_id)) = (self.machine_ui.as_mut(), source_id) {
                     ui.request = Some(MachineRequest::CreateFrom { source_id });
                 }
+            }
+            MenuAction::ConnectMachineTarget(index) => {
+                let target = self
+                    .machine_ui
+                    .as_ref()
+                    .and_then(|ui| ui.connection_targets.get(index))
+                    .map(|target| target.target.clone());
+                if let (Some(ui), Some(target)) = (self.machine_ui.as_mut(), target) {
+                    ui.request =
+                        Some(MachineRequest::Connect { target, route: MachineConnectRoute::Local });
+                }
+            }
+            MenuAction::ConnectOtherMachine => {
+                self.prompt = Some(self.connect_machine_prompt());
             }
         }
         Ok(())
@@ -16054,7 +16318,7 @@ impl App {
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
-                    self.prompt = Some(self.connect_machine_prompt());
+                    self.open_machine_connection_menu(x, y);
                 }
                 Hit::ProviderScope => {
                     self.focus = FocusTarget::MachineRail;
@@ -17046,6 +17310,12 @@ impl App {
                             }
                         }
                         groups.push(self.menu_group(actions));
+                    } else if self
+                        .machine_ui
+                        .as_ref()
+                        .is_some_and(|ui| ui.is_client_machine_renamable(key))
+                    {
+                        groups.push(self.menu_group([MenuAction::RenameClientMachine(key)]));
                     }
                 }
                 Some(Hit::Workspace { id, .. }) => {
@@ -17083,6 +17353,9 @@ impl App {
                         }
                         groups.push(self.menu_group(actions));
                     }
+                }
+                Some(Hit::SidebarTab { surface, .. }) => {
+                    groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
                 }
                 _ => {}
             }
@@ -17571,7 +17844,8 @@ fn action_prepares_pty_release(action: Action) -> bool {
 fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     !matches!(
         action,
-        MenuAction::RenameManagedMachine(_)
+        MenuAction::RenameClientMachine(_)
+            | MenuAction::RenameManagedMachine(_)
             | MenuAction::DeleteManagedMachine(_)
             | MenuAction::RestoreManagedMachine(_)
             | MenuAction::PurgeManagedMachine(_)
@@ -17585,10 +17859,13 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::BrowserEditUrl(_)
             | MenuAction::BrowserCopyUrl(_)
             | MenuAction::RenameTab(_)
+            | MenuAction::RenameSurface(_)
             | MenuAction::CopyTabId(_)
             | MenuAction::CopyPaneId(_)
             | MenuAction::SelectProviderScope(_)
             | MenuAction::InvokeProviderAction(_)
+            | MenuAction::ConnectMachineTarget(_)
+            | MenuAction::ConnectOtherMachine
     )
 }
 
@@ -17789,14 +18066,14 @@ mod tests {
     use crate::localization;
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-        MachineCapabilities, MachineController, MachineCreationSource, MachineDescriptor,
-        MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus,
-        MachineUiState, MachineUpdate, ManagedMachineCapabilities, ManagedMachineDescriptor,
-        ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
-        ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
-        ProviderActionDescriptor, ProviderActionFieldDescriptor, ProviderActionFieldKind,
-        ProviderActionTarget, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
-        ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+        MachineCapabilities, MachineConnectionTarget, MachineController, MachineCreationSource,
+        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
+        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
+        ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
+        ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
+        ProviderActionFieldKind, ProviderActionTarget, ProviderActionValue, ProviderPresentation,
+        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -21210,6 +21487,35 @@ mod tests {
         assert!(menu.close_submenu());
         assert_eq!(menu.levels.len(), 1);
         assert!(!menu.close_submenu());
+    }
+
+    #[test]
+    fn searchable_context_menu_filters_large_catalogs_and_keeps_fallback() {
+        let items = (0..4_096)
+            .map(|index| MenuItem::LabeledAction {
+                label: format!("cloud-mac-{index:04}"),
+                action: MenuAction::ConnectMachineTarget(index),
+            })
+            .collect::<Vec<_>>();
+        let mut menu = ContextMenu::searchable(
+            10,
+            5,
+            "SSH hosts",
+            "type to filter",
+            items,
+            vec![MenuItem::Action(MenuAction::ConnectOtherMachine)],
+        );
+
+        assert_eq!(menu.actions().len(), 4_097);
+        assert!(menu.insert_search_text("3999"));
+        assert_eq!(menu.levels[0].items.len(), 3);
+        assert_eq!(menu.levels[0].items[0].label(), Some("cloud-mac-3999"));
+        assert_eq!(menu.levels[0].items[1], MenuItem::Separator);
+        assert_eq!(menu.levels[0].items[2].action(), Some(MenuAction::ConnectOtherMachine));
+        assert_eq!(menu.selected_action(), Some(MenuAction::ConnectMachineTarget(3_999)));
+
+        assert!(menu.handle_search_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL,)));
+        assert_eq!(menu.levels[0].items.len(), 4_098);
     }
 
     #[test]
@@ -31862,6 +32168,174 @@ mod tests {
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn tabs_column_context_menu_renames_the_exact_clicked_tab() {
+        let (mux, first) = test_mux("tabs-column-rename-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 22,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(app.tree.active_surface(), Some(second.id));
+        let clicked = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarTab { surface, .. } if *surface == first.id)
+                    .then_some(*rect)
+            })
+            .unwrap();
+
+        app.open_context_menu(clicked.x, clicked.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::RenameSurface(first.id)))
+        );
+        app.activate_menu(MenuAction::RenameSurface(first.id)).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Surface(first.id))
+        );
+        app.prompt.as_mut().unwrap().input.insert_str("first renamed");
+        app.commit_prompt();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        let tree = app.session.tree();
+        let renamed = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == first.id)
+            .and_then(|tab| tab.name.as_deref());
+        assert_eq!(renamed, Some("first renamed"));
+        assert_eq!(mux.active_surface(), Some(second.id));
+    }
+
+    #[test]
+    fn client_machine_context_menu_renames_without_provider_mutation() {
+        let mux = Mux::new("client-machine-rename-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let key = MachineKey(7);
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key,
+                id: "current".into(),
+                name: "Build host".into(),
+                subtitle: "local".into(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(key),
+            capabilities: MachineCapabilities { create: false, connect: true },
+        });
+        ui.set_client_renamable_machines([key]);
+        app.machine_ui = Some(ui);
+        app.sync_layout((100, 14));
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let clicked = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: hit_key, .. } if *hit_key == key)
+                    .then_some(*rect)
+            })
+            .unwrap();
+
+        app.open_context_menu(clicked.x, clicked.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::RenameClientMachine(key)))
+        );
+        app.activate_menu(MenuAction::RenameClientMachine(key)).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ClientMachine(key))
+        );
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("Renamed host");
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RenameClientMachine {
+                machine: key,
+                name: "Renamed host".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn ssh_config_connection_menu_binds_the_selected_alias() {
+        let mux = Mux::new("ssh-config-picker-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: false, connect: true },
+        });
+        ui.connection_targets = vec![
+            MachineConnectionTarget { target: "buildbox".into(), name: "buildbox".into() },
+            MachineConnectionTarget { target: "mini".into(), name: "mini".into() },
+        ];
+        app.machine_ui = Some(ui);
+
+        app.open_machine_connection_menu(1, 3);
+        assert_eq!(app.menu.as_ref().unwrap().levels[0].items[0].label(), Some("buildbox"));
+        assert_eq!(
+            app.menu
+                .as_ref()
+                .and_then(|menu| menu.search.as_ref())
+                .map(|search| search.label.as_str()),
+            Some("SSH hosts")
+        );
+        assert!(matches!(
+            app.menu
+                .as_ref()
+                .and_then(|menu| menu.captured_resource(MenuAction::ConnectMachineTarget(0))),
+            Some(Some(super::MenuActionResource::MachineConnectionTarget(target)))
+                if target == "buildbox"
+        ));
+        for character in "mini".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)).unwrap();
+        }
+        assert_eq!(app.menu.as_ref().unwrap().levels[0].items[0].label(), Some("mini"));
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Connect {
+                target: "mini".into(),
+                route: MachineConnectRoute::Local,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.activate_menu(MenuAction::ConnectOtherMachine).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ConnectMachine(MachineConnectRoute::Local))
+        );
     }
 
     #[test]

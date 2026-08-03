@@ -4,13 +4,19 @@ The optional machine rail adds a connection layer to the native column stack. Se
 
 The feature is disabled by default. It activates when `machine_sidebar.enabled` is `true`, `machine_sidebar.create_sources` is nonempty, or the `machines` array contains at least one valid entry. An active static catalog always starts with the current local session, labeled with the local hostname and `local`, followed by configured Unix-socket and SSH targets. A configured machine with id `current` is skipped because that id belongs to the local entry.
 
+There is no master or slave role. The rail follows capabilities available to this client. A laptop can expose SSH and VM targets, while a headless Linux session can expose Docker devboxes through the same source contract. A client with no machine targets, creation sources, or enabled machine sidebar keeps the rail hidden. Host location does not change the model.
+
 ## Layout and input
 
 Machine, workspace, and tab columns use the same rail renderer, selection treatment, two-line entries, and divider. `sidebar.columns` controls their order and widths. Every divider remains independently draggable, and all columns preserve at least 40 pane columns. A narrow terminal hides machines first, then tabs.
 
 `Ctrl-b S` focuses the workspace rail. Left or `h` and Right or `l` traverse adjacent configured columns. Up/Down or `k`/`j` changes the current selection. Enter activates it, and Esc returns to the active pane. Mouse clicks focus a column directly. Every divider resizes only its column.
 
-The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ new machine` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
+Right-click a client-owned machine or any tab in the tabs column to rename that exact row. Provider-owned machine renames remain capability-gated and versioned by the provider. Client-owned machine names last for the current process only; tab names remain session state.
+
+The static catalog shows `+ Connect machine`. It discovers concrete aliases from `Host` directives in `~/.ssh/config` and recursively follows `Include` directives. Wildcard and negated patterns are omitted. Type while the native picker is open to filter large host catalogs, then use Up/Down and Enter. `Other host…` remains available for one `host` or `user@host` without whitespace. Either path adds an SSH target for the current process and connects to its `main` session. SSH performs final config resolution, so aliases retain their configured hostname, user, port, proxy, and identity settings. Temporary targets and renamed machine labels are not written to configuration.
+
+`+ new machine` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
 
 ## Static targets
 

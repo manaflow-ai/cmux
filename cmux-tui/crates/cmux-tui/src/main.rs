@@ -1636,6 +1636,11 @@ impl MachineController for StaticMachineController {
                     format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
                 Ok(self.notice(message))
             }
+            MachineRequest::RenameClientMachine { machine, name } => {
+                let name = self.runtime.rename_machine(machine, &name)?;
+                let result = MachineActionResult::ui(self.runtime.ui_state(self.active));
+                Ok(if machine == self.active { result.with_session_label(name) } else { result })
+            }
             MachineRequest::SelectProviderScope(_)
             | MachineRequest::InvokeProviderAction { .. }
             | MachineRequest::ReconnectProvider => Ok(self.notice(
