@@ -209,7 +209,7 @@ final class SleepyFaceView: NSView {
             tint: NSColor(srgbRed: 0.34, green: 0.30, blue: 0.60, alpha: 1)
         ) { [weak self] in
             guard let self else { return }
-            Task { await power.lockMacNow() }
+            Task { await self.power.lockMacNow() }
         }
         let sleepDisplay = SleepyPixelButton(
             title: String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"),
@@ -217,7 +217,7 @@ final class SleepyFaceView: NSView {
             tint: NSColor(srgbRed: 0.28, green: 0.40, blue: 0.62, alpha: 1)
         ) { [weak self] in
             guard let self else { return }
-            Task { await power.sleepDisplayNow() }
+            Task { await self.power.sleepDisplayNow() }
         }
         lowPowerButton.configure(
             title: "",
