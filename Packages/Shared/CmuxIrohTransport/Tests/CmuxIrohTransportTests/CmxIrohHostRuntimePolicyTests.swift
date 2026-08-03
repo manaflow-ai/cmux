@@ -7,6 +7,40 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func truncatedEmbeddedDiscoveryFallsBackToAuthoritativeDiscovery() async throws {
+        let fixture = try HostRuntimeFixture()
+        let truncated = CmxIrohDiscoveryResponse(
+            routeContractVersion: fixture.discovery.routeContractVersion,
+            revision: fixture.discovery.revision,
+            bindings: [],
+            relayFleet: fixture.discovery.relayFleet,
+            lanRendezvous: fixture.discovery.lanRendezvous,
+            grantVerificationKeys: fixture.discovery.grantVerificationKeys
+        )
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            embedDiscoveryInRegistration: true,
+            embeddedRegistrationDiscovery: truncated
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
         let fixture = try HostRuntimeFixture()
         let discovery = try HostRuntimeFixture.discovery(
