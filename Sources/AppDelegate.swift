@@ -10936,6 +10936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let fourTabSetup = env["CMUX_UI_TEST_BONSPLIT_FOUR_TAB_SETUP"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -11000,6 +11001,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let workspaceTitle = "UITest Workspace"
             let alphaTitle = "UITest Alpha"
             let betaTitle = "UITest Beta"
+            let gammaTitle = "UITest Gamma"
+            let deltaTitle = "UITest Delta"
             tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
             workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
             tabManager.newSurface()
@@ -11010,6 +11013,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            var gammaPanelId: UUID?
+            var deltaPanelId: UUID?
+            if fourTabSetup {
+                tabManager.newSurface()
+                guard let createdGammaPanelId = workspace.focusedPanelId,
+                      createdGammaPanelId != alphaPanelId,
+                      createdGammaPanelId != betaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create third surface"])
+                    return
+                }
+                gammaPanelId = createdGammaPanelId
+                workspace.setPanelCustomTitle(panelId: createdGammaPanelId, title: gammaTitle)
+
+                tabManager.newSurface()
+                guard let createdDeltaPanelId = workspace.focusedPanelId,
+                      createdDeltaPanelId != alphaPanelId,
+                      createdDeltaPanelId != betaPanelId,
+                      createdDeltaPanelId != createdGammaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create fourth surface"])
+                    return
+                }
+                deltaPanelId = createdDeltaPanelId
+                workspace.setPanelCustomTitle(panelId: createdDeltaPanelId, title: deltaTitle)
+            }
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
@@ -11060,8 +11087,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
                 "betaTitle": betaTitle,
+                "gammaTitle": fourTabSetup ? gammaTitle : "",
+                "deltaTitle": fourTabSetup ? deltaTitle : "",
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
+                "gammaPanelId": gammaPanelId?.uuidString ?? "",
+                "deltaPanelId": deltaPanelId?.uuidString ?? "",
             ])
             self.startBonsplitTabDragUITestRecorder(
                 workspaceId: workspace.id,
