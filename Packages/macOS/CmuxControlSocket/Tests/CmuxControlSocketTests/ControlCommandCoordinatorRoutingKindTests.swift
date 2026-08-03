@@ -131,6 +131,38 @@ struct ControlCommandCoordinatorRoutingKindTests {
         #expect(coordinator.routingSelectors(["surface_id": .string(stranger.uuidString)]).surfaceID == stranger)
     }
 
+    /// Non-routing target keys resolved through the same helper need the kind
+    /// they actually mean: `return_to` is a surface, while `from_tab_id` and
+    /// `to_tab_id` are workspaces despite the name (they are matched against a
+    /// window's workspace list).
+    @Test func secondaryTargetKeysUseTheKindTheyActuallyMean() {
+        let (coordinator, handles) = coordinatorWithOneRefPerKind()
+
+        #expect(coordinator.resolveIdentifier("surface:1", forParamKey: "return_to") == handles.surface)
+        #expect(coordinator.resolveIdentifier("workspace:1", forParamKey: "return_to") == nil)
+
+        for key in ["from_tab_id", "to_tab_id"] {
+            #expect(coordinator.resolveIdentifier("workspace:1", forParamKey: key) == handles.workspace)
+            #expect(coordinator.resolveIdentifier("surface:1", forParamKey: key) == nil)
+        }
+    }
+
+    /// The Window Dock alias belongs to the routing `workspace_id` only. The
+    /// ordering/reference workspace keys take part in no aliasing, so a window
+    /// identity is wrong-kind there.
+    @Test func onlyRoutingWorkspaceIDTakesTheWindowAlias() {
+        let (coordinator, handles) = coordinatorWithOneRefPerKind()
+
+        #expect(coordinator.resolveIdentifier("window:1", forParamKey: "workspace_id") == handles.window)
+        for key in [
+            "reference_workspace_id", "group_reference_workspace_id",
+            "before_workspace_id", "after_workspace_id",
+        ] {
+            #expect(coordinator.resolveIdentifier("window:1", forParamKey: key) == nil)
+            #expect(coordinator.resolveIdentifier("workspace:1", forParamKey: key) == handles.workspace)
+        }
+    }
+
     @Test func registryRejectsRefsOutsideTheRequestedKinds() {
         var registry = ControlHandleRegistry()
         let surfaceID = UUID()

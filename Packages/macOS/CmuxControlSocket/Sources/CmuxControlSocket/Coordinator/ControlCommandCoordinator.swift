@@ -297,18 +297,27 @@ public final class ControlCommandCoordinator {
         return handles.uuid(forRef: ref, kinds: kinds)
     }
 
-    /// The handle kinds each routing/target param key accepts as a `kind:N` ref.
+    /// The handle kinds each routing/target param key accepts.
     ///
-    /// Only the two aliases the protocol really uses are widened: `tab:N` for
-    /// surfaces (handled inside the registry), and a *window* identity passed as
-    /// `workspace_id`, which the Window Dock does legitimately.
+    /// Only two aliases are widened, and only where the protocol really uses
+    /// them: `tab:N` for surfaces (handled inside the registry), and a *window*
+    /// identity passed as the routing `workspace_id`, which the Window Dock does
+    /// legitimately because a Dock owner id IS its owning window's id. The
+    /// ordering/reference workspace keys take part in no such aliasing, so they
+    /// stay `.workspace` only.
+    ///
+    /// `from_tab_id`/`to_tab_id` are workspaces despite the name: they are
+    /// matched against a window's workspace list, not against surfaces.
     static let expectedHandleKinds: [String: [ControlHandleKind]] = [
         "window_id": [.window],
         "workspace_id": [.workspace, .window],
-        "reference_workspace_id": [.workspace, .window],
-        "before_workspace_id": [.workspace, .window],
-        "after_workspace_id": [.workspace, .window],
+        "reference_workspace_id": [.workspace],
+        "group_reference_workspace_id": [.workspace],
+        "before_workspace_id": [.workspace],
+        "after_workspace_id": [.workspace],
         "_cmux_remote_workspace_id": [.workspace],
+        "from_tab_id": [.workspace],
+        "to_tab_id": [.workspace],
         "group_id": [.workspaceGroup],
         "before_group_id": [.workspaceGroup],
         "after_group_id": [.workspaceGroup],
@@ -321,6 +330,7 @@ public final class ControlCommandCoordinator {
         "terminal_id": [.surface],
         "tab_id": [.surface],
         "panel_id": [.surface],
+        "return_to": [.surface],
     ]
 
     /// Whether a param is present and not JSON `null` (matches legacy
