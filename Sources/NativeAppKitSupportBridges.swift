@@ -1,5 +1,11 @@
 import Bonsplit
+import AVKit
 import CmuxAppKitSupportUI
+import CmuxFeedback
+import CmuxFoundation
+import CmuxSidebarRemoteRender
+import CmuxSwiftRender
+import CmuxSwiftRenderUI
 @_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
@@ -323,6 +329,267 @@ struct MobilePairingPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
         .accessibilityIdentifier("MobilePairingPanel")
+    }
+}
+
+struct AccountSignInPanelView: View {
+    let panel: AccountSignInPanel
+    let appearance: PanelAppearance
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        ScrollView {
+            NativeAccountSignInViewBridge(model: panel.model, automaticallyStartsSignIn: true)
+                .padding(24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
+        .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
+        .contentShape(Rectangle())
+        .onTapGesture { onRequestPanelFocus() }
+        .accessibilityIdentifier("AccountSignInPanel")
+    }
+}
+
+struct SidebarProBadge: View {
+    var body: some View { NativeProBadgeViewBridge() }
+}
+
+struct SimulatorFocusOwnershipBridge: NSViewRepresentable {
+    let panel: SimulatorPanel
+
+    func makeNSView(context: Context) -> SimulatorFocusOwnershipView {
+        let view = SimulatorFocusOwnershipView()
+        view.update(panel: panel)
+        return view
+    }
+
+    func updateNSView(_ view: SimulatorFocusOwnershipView, context: Context) {
+        view.update(panel: panel)
+    }
+
+    static func dismantleNSView(_ view: SimulatorFocusOwnershipView, coordinator: Void) {
+        view.teardown()
+    }
+}
+
+struct HoverTrackingRepresentable: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> HoverTrackingNSView {
+        HoverTrackingNSView(onChange: onChange)
+    }
+
+    func updateNSView(_ view: HoverTrackingNSView, context: Context) {
+        view.onChange = onChange
+    }
+}
+
+struct ResizeGripperRepresentable: NSViewRepresentable {
+    let onBegin: () -> (CGFloat, CGFloat)
+    let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
+    let onEnd: () -> Void
+
+    func makeNSView(context: Context) -> ResizeGripperNSView {
+        ResizeGripperNSView()
+    }
+
+    func updateNSView(_ view: ResizeGripperNSView, context: Context) {
+        view.onBegin = onBegin
+        view.onDrag = onDrag
+        view.onEnd = onEnd
+    }
+}
+
+struct GPUSpinner: NSViewRepresentable {
+    let style: GPUSpinnerStyle
+    let color: NSColor
+
+    func makeNSView(context: Context) -> GPUSpinnerNSView {
+        let view = GPUSpinnerNSView(frame: .zero)
+        view.style = style
+        view.color = color
+        return view
+    }
+
+    func updateNSView(_ view: GPUSpinnerNSView, context: Context) {
+        view.style = style
+        view.color = color
+    }
+}
+
+struct FilePreviewImageView: NSViewRepresentable {
+    let panel: FilePreviewPanel
+    let revision: Int
+    let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
+
+    func makeNSView(context: Context) -> FilePreviewImageContainerView {
+        panel.nativeViewSessions.image.view(
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    func updateNSView(_ view: FilePreviewImageContainerView, context: Context) {
+        panel.nativeViewSessions.image.update(
+            view,
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+}
+
+struct FilePreviewPDFView: NSViewRepresentable {
+    let panel: FilePreviewPanel
+    let revision: Int
+    let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
+
+    func makeNSView(context: Context) -> FilePreviewPDFContainerView {
+        panel.nativeViewSessions.pdf.view(
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    func updateNSView(_ view: FilePreviewPDFContainerView, context: Context) {
+        panel.nativeViewSessions.pdf.update(
+            view,
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+}
+
+struct FilePreviewMediaView: NSViewRepresentable {
+    let panel: FilePreviewPanel
+    let revision: Int
+    let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        panel.nativeViewSessions.media.view(
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        panel.nativeViewSessions.media.update(
+            view,
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+}
+
+struct SessionIndexTableView: NSViewRepresentable {
+    let rows: [SessionIndexTableRow]
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
+
+    func makeCoordinator() -> SessionIndexTableController { SessionIndexTableController() }
+
+    func makeNSView(context: Context) -> SessionIndexTableContainerView {
+        context.coordinator.makeContainerView()
+    }
+
+    func updateNSView(_ view: SessionIndexTableContainerView, context: Context) {
+        context.coordinator.apply(
+            rows: rows,
+            environment: SessionIndexTableEnvironmentSnapshot(
+                colorScheme: colorScheme == .dark ? .dark : .light,
+                globalFontMagnificationPercent: globalFontMagnificationPercent
+            )
+        )
+    }
+
+    static func dismantleNSView(
+        _ view: SessionIndexTableContainerView,
+        coordinator: SessionIndexTableController
+    ) {
+        coordinator.dismantle()
+    }
+}
+
+struct NativeFeedbackComposerBridge: NSViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(dismiss: dismiss) }
+
+    func makeNSViewController(context: Context) -> SidebarFeedbackComposerSheet {
+        let coordinator = context.coordinator
+        return SidebarFeedbackComposerSheet { coordinator.dismiss() }
+    }
+
+    func updateNSViewController(
+        _ viewController: SidebarFeedbackComposerSheet,
+        context: Context
+    ) {
+        context.coordinator.dismissAction = dismiss
+    }
+
+    @MainActor
+    final class Coordinator {
+        var dismissAction: DismissAction
+        init(dismiss: DismissAction) { dismissAction = dismiss }
+        func dismiss() { dismissAction() }
+    }
+}
+
+struct NativeCustomSidebarSurfaceBridge: NSViewRepresentable {
+    let fileURL: URL
+    let dataContext: [String: SwiftValue]
+    let dispatch: SidebarActionDispatch
+    let contentInsets: CustomSidebarContentInsets
+    let rendersInProcess: Bool
+    let clientStore: RenderWorkerClientStore
+
+    func makeNSView(context: Context) -> CustomSidebarSurface {
+        CustomSidebarSurface(
+            fileURL: fileURL,
+            dataContext: dataContext,
+            dispatch: dispatch,
+            contentInsets: contentInsets,
+            rendersInProcess: rendersInProcess,
+            clientStore: clientStore
+        )
+    }
+
+    func updateNSView(_ view: CustomSidebarSurface, context: Context) {
+        view.update(
+            fileURL: fileURL,
+            dataContext: dataContext,
+            dispatch: dispatch,
+            contentInsets: contentInsets,
+            rendersInProcess: rendersInProcess
+        )
+    }
+
+    static func dismantleNSView(_ view: CustomSidebarSurface, coordinator: ()) {
+        view.teardown()
     }
 }
 
