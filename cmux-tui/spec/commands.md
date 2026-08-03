@@ -3327,60 +3327,16 @@ Example:
 
 ## Proposed Hooks Config
 
-Hooks are proposed protocol v10 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
+Hooks are proposed protocol vNext config, not a protocol-v10 socket command.
+Event-specific arrays such as `on-bell` and `on-agent-done` are superseded by
+versioned subscriptions over the canonical session journal. The subscription
+manifest, delivery receipts, loop prevention, agent adapter mapping, authority,
+and replay semantics are specified in
+[`session-journal.md`](session-journal.md#hook-subscriptions).
 
-Schema:
-
-```text
-object{
-  hooks?: object{
-    on-bell?: array<HookCommand>,
-    on-agent-blocked?: array<HookCommand>,
-    on-agent-done?: array<HookCommand>,
-    on-surface-exit?: array<HookCommand>
-  }
-}
-
-HookCommand =
-  object{
-    argv: array<string>,
-    cwd?: string|null,
-    timeout_ms?: uint64,
-    env?: object<string,string>
-  }
-| object{
-    command: string,
-    cwd?: string|null,
-    timeout_ms?: uint64,
-    env?: object<string,string>
-  }
-```
-
-Exactly one of `argv` or `command` is required. `argv` executes directly. `command` executes through the session shell as `shell -lc <command>`. The default timeout is 5000 ms. Hook failures are reported through the debug log and may post a `warning` notification; they must not block the mux event loop indefinitely.
-
-Common environment:
-
-| Env var | Meaning |
-| --- | --- |
-| `CMUX_MUX_SESSION` | Session name |
-| `CMUX_TUI_SOCKET` | Unix socket path when available |
-| `CMUX_MUX_EVENT` | Hook event name |
-| `CMUX_MUX_SURFACE` | Surface id when the event is surface-scoped |
-| `CMUX_MUX_WORKSPACE` | Workspace id when known |
-| `CMUX_MUX_SCREEN` | Screen id when known |
-| `CMUX_MUX_PANE` | Pane id when known |
-| `CMUX_MUX_AGENT_STATE` | Agent state for agent hooks |
-| `CMUX_MUX_AGENT_SOURCE` | Agent source for agent hooks |
-| `CMUX_MUX_AGENT_SESSION` | Upstream agent session id when reported |
-
-Hook event mapping:
-
-| Hook | Trigger |
-| --- | --- |
-| `on-bell` | Implemented `bell` event |
-| `on-agent-blocked` | Proposed agent state becomes `blocked` |
-| `on-agent-done` | Proposed agent state becomes `done` |
-| `on-surface-exit` | Implemented surface exits and is reaped |
+The strict runtime config parser still rejects hook manifests. Implementing the
+parser before the dispatcher and journal cursor contract would create a config
+surface with no durable delivery semantics.
 
 ## Compatibility Notes
 

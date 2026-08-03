@@ -310,7 +310,10 @@ covered cursor, it replays through the captured head before live delivery. A
 generation mismatch or expired cursor sends a fresh snapshot with
 `reset_reason`; a cursor ahead of head returns `cursor.invalid`. One atomic
 transaction produces one `session.delta` batch with `previous_revision` and
-the new revision. The journal retains at most 4096 batches and 16 MiB.
+the new revision. Durable resource batches are append-only. A registry upgraded
+from the earlier bounded store preserves its oldest retained revision and sends
+a fresh snapshot when a requested cursor predates that boundary. Transport
+stream queues remain bounded independently.
 
 Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow

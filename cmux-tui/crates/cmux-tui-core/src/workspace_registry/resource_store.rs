@@ -151,13 +151,6 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            DELETE FROM resource_agent_projections
            WHERE terminal_id = NEW.public_id;
          END;
-         CREATE TABLE IF NOT EXISTS resource_events (
-           revision INTEGER PRIMARY KEY NOT NULL,
-           previous_revision INTEGER NOT NULL,
-           origin TEXT NOT NULL,
-           idempotency_key TEXT NOT NULL,
-           deltas_json TEXT NOT NULL
-         );
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);",
     )?;
@@ -328,7 +321,6 @@ impl WorkspaceRegistry {
         );
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
@@ -382,20 +374,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -670,7 +660,6 @@ impl WorkspaceRegistry {
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replayed);
@@ -715,20 +704,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            Some(patch),
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -761,7 +748,6 @@ impl WorkspaceRegistry {
             anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
-        let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
         if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replay);
@@ -836,20 +822,18 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            None,
+            result,
+            deltas,
         )?;
-        prune_resource_events(&tx)?;
+        prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -859,7 +843,7 @@ impl WorkspaceRegistry {
         if enabled {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
-                 BEFORE INSERT ON resource_events
+                 BEFORE INSERT ON session_journal
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1129,9 +1113,12 @@ impl WorkspaceRegistry {
         }
         let oldest_revision = self
             .connection
-            .query_row("SELECT MIN(revision) FROM resource_events", [], |row| {
-                row.get::<_, Option<i64>>(0)
-            })?
+            .query_row(
+                "SELECT MIN(resource_revision) FROM session_journal
+                 WHERE resource_revision IS NOT NULL",
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
             .map(|revision| {
                 u64::try_from(revision).context("stored resource event revision is negative")
             })
@@ -1144,10 +1131,11 @@ impl WorkspaceRegistry {
             );
         }
         let mut statement = self.connection.prepare(
-            "SELECT previous_revision, revision, deltas_json
-             FROM resource_events
-             WHERE revision > ?1
-             ORDER BY revision ASC",
+            "SELECT previous_resource_revision, resource_revision,
+                    json_extract(payload_json, '$.changes')
+             FROM session_journal
+             WHERE resource_revision > ?1
+             ORDER BY resource_revision ASC",
         )?;
         let batches = statement
             .query_map(

@@ -46,6 +46,7 @@ documented for cmux frontends and compatibility adapters:
 | [`frontends.md`](frontends.md) | Private frontend synchronization |
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
+| [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
 Private protocol-v10 compatibility does not imply `cmux.protocol/1`
 compatibility. High-level SDK packages expose it only through a path named

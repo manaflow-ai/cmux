@@ -66,8 +66,10 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy,
+    JournalSensitivity, JournalSubject, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

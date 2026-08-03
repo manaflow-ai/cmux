@@ -29,6 +29,7 @@ use crate::resource::{
 mod effect_store;
 mod public_projection_store;
 mod resource_store;
+mod session_journal;
 mod terminal_exit_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
@@ -38,7 +39,7 @@ pub use effect_store::{
 };
 use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
-    initialize_resource_input_receipt_retention, prune_resource_events, recover_resource_effects,
+    initialize_resource_input_receipt_retention, recover_resource_effects,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -56,8 +57,16 @@ use resource_store::{
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
+pub use session_journal::{
+    JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
+    JournalSubject, SessionJournalPage, SessionJournalRecord,
+};
+use session_journal::{
+    append_resource_journal_record, create_session_journal_schema,
+    migrate_resource_events_to_session_journal,
+};
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -464,6 +473,7 @@ impl WorkspaceRegistry {
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
                 tx.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
                     [],
@@ -475,6 +485,31 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(8) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
                 tx.commit()?;
             }
             Some(6) => {
@@ -494,6 +529,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -514,6 +550,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -527,7 +564,9 @@ impl WorkspaceRegistry {
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -538,7 +577,9 @@ impl WorkspaceRegistry {
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -550,7 +591,9 @@ impl WorkspaceRegistry {
                 migrate_resource_mutations_to_session_scope(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -572,6 +615,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_events_to_session_journal(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -585,6 +629,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
                 tx.execute(
                     "INSERT INTO meta(key, value) VALUES('schema_version', ?1)",
                     [SCHEMA_VERSION.to_string()],
@@ -1484,20 +1529,18 @@ impl WorkspaceRegistry {
                 active_workspace.map(WorkspacePublicId::as_str),
                 previous_topology,
             )?;
-            tx.execute(
-                "INSERT INTO resource_events(
-                   revision, previous_revision, origin, idempotency_key, deltas_json
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
-                params![
-                    sqlite_resource_revision,
-                    i64::try_from(previous_resource_revision)
-                        .context("resource revision exceeds SQLite integer range")?,
-                    mutation.origin,
-                    mutation.id,
-                    canonical_json(&resource_deltas)?,
-                ],
+            append_resource_journal_record(
+                &tx,
+                resource_revision.expect("resource revision for projected workspace mutation"),
+                previous_resource_revision,
+                &mutation.origin,
+                &mutation.id,
+                event_kind,
+                None,
+                result,
+                &resource_deltas,
             )?;
-            prune_resource_events(&tx)?;
+            resource_store::prune_resource_mutations(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })

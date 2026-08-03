@@ -3,8 +3,6 @@ use super::*;
 use crate::resource::ResourceError;
 use serde_json::json;
 
-const RESOURCE_EVENT_CAPACITY: usize = 4096;
-const RESOURCE_EVENT_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
 /// a pruning query on every event. A running registry may temporarily retain
@@ -638,7 +636,6 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let created_path_json = canonical_json(created_path)?;
-        let deltas_json = canonical_json(deltas)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
         let stored = read_creation_record(&tx, correlation_key)?.ok_or_else(|| {
@@ -685,18 +682,16 @@ impl WorkspaceRegistry {
                 sqlite_revision,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            operation,
+            Some(patch),
+            result,
+            deltas,
         )?;
         let changed = tx.execute(
             "UPDATE resource_creation_receipts
@@ -708,7 +703,7 @@ impl WorkspaceRegistry {
         anyhow::ensure!(changed == 1, "resource creation receipt changed during commit");
         // Once the receipt is terminal, this mutation belongs to the ordinary
         // replay window and must count toward a boundary compaction.
-        prune_resource_events(&tx)?;
+        resource_store::prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -820,7 +815,8 @@ impl WorkspaceRegistry {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let outcome_json = canonical_json(&serde_json::to_value(outcome)?)?;
+        let outcome_value = serde_json::to_value(outcome)?;
+        let outcome_json = canonical_json(&outcome_value)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
         let (stored_operation, stored_fingerprint, state, _) =
@@ -844,26 +840,22 @@ impl WorkspaceRegistry {
             let revision = previous_revision
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-            let sqlite_revision =
-                i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-            let deltas_json = canonical_json(deltas)?;
             tx.execute(
                 "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
                 [revision.to_string()],
             )?;
-            tx.execute(
-                "INSERT INTO resource_events(
-                   revision, previous_revision, origin, idempotency_key, deltas_json
-                 ) VALUES(?1, ?2, 'resource-api', ?3, ?4)",
-                params![
-                    sqlite_revision,
-                    i64::try_from(previous_revision)
-                        .context("resource revision exceeds SQLite range")?,
-                    idempotency_key,
-                    deltas_json,
-                ],
+            append_resource_journal_record(
+                &tx,
+                revision,
+                previous_revision,
+                "resource-api",
+                idempotency_key,
+                operation,
+                None,
+                &outcome_value,
+                deltas,
             )?;
-            prune_resource_events(&tx)?;
+            resource_store::prune_resource_mutations(&tx)?;
             revision
         } else {
             previous_revision
@@ -943,7 +935,6 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
         let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
-        let deltas_json = canonical_json(deltas)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
         let commit = commit_resource_effect_patch_in_transaction(
@@ -955,7 +946,7 @@ impl WorkspaceRegistry {
             patch,
             result,
             &outcome_json,
-            &deltas_json,
+            deltas,
         )?;
         tx.commit()?;
         Ok(commit)
@@ -991,7 +982,6 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
         let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
-        let deltas_json = canonical_json(deltas)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
 
@@ -1029,7 +1019,7 @@ impl WorkspaceRegistry {
             patch,
             result,
             &outcome_json,
-            &deltas_json,
+            deltas,
         )?;
         tx.commit()?;
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
@@ -1070,7 +1060,7 @@ fn commit_resource_effect_patch_in_transaction(
     patch: &ResourcePatch,
     result: &Value,
     outcome_json: &str,
-    deltas_json: &str,
+    deltas: &Value,
 ) -> anyhow::Result<ResourcePatchCommit> {
     let (stored_operation, stored_fingerprint, state, _) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
@@ -1099,18 +1089,19 @@ fn commit_resource_effect_patch_in_transaction(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],
     )?;
-    transaction.execute(
-        "INSERT INTO resource_events(
-           revision, previous_revision, origin, idempotency_key, deltas_json
-         ) VALUES(?1, ?2, 'resource-api', ?3, ?4)",
-        params![
-            sqlite_revision,
-            i64::try_from(previous_revision).context("resource revision exceeds SQLite range")?,
-            idempotency_key,
-            deltas_json,
-        ],
+    let outcome = serde_json::from_str::<Value>(outcome_json)?;
+    append_resource_journal_record(
+        transaction,
+        revision,
+        previous_revision,
+        "resource-api",
+        idempotency_key,
+        operation,
+        Some(patch),
+        &outcome,
+        deltas,
     )?;
-    prune_resource_events(transaction)?;
+    resource_store::prune_resource_mutations(transaction)?;
     transaction.execute(
         "UPDATE resource_effect_receipts
          SET state = 'committed', outcome_json = ?2, committed_revision = ?3
@@ -1360,40 +1351,6 @@ fn prune_resource_input_receipts(transaction: &Transaction<'_>) -> anyhow::Resul
         ),
         [i64::try_from(RESOURCE_INPUT_RECEIPT_CAPACITY)?],
     )?;
-    Ok(())
-}
-
-pub(super) fn prune_resource_events(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let rows = {
-        let mut statement = transaction.prepare(
-            "SELECT revision, length(deltas_json)
-             FROM resource_events
-             ORDER BY revision DESC
-             LIMIT ?1",
-        )?;
-        statement
-            .query_map([i64::try_from(RESOURCE_EVENT_CAPACITY)?], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let mut retained_bytes = 0usize;
-    let mut oldest_retained = None;
-    for (revision, bytes) in rows {
-        let bytes = usize::try_from(bytes).context("resource event size is negative")?;
-        if oldest_retained.is_some()
-            && bytes > RESOURCE_EVENT_BYTE_CAPACITY.saturating_sub(retained_bytes)
-        {
-            break;
-        }
-        retained_bytes = retained_bytes.saturating_add(bytes);
-        oldest_retained = Some(revision);
-    }
-    if let Some(oldest_retained) = oldest_retained {
-        transaction
-            .execute("DELETE FROM resource_events WHERE revision < ?1", [oldest_retained])?;
-    }
-    resource_store::prune_resource_mutations(transaction)?;
     Ok(())
 }
 

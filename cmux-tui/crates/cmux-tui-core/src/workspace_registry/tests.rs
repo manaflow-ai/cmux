@@ -635,10 +635,27 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
     assert_eq!(
         registry
             .connection
-            .query_row("SELECT COUNT(*) FROM resource_events", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
             .unwrap(),
         1
     );
+    let journal = registry.session_journal_after(0, 1).unwrap();
+    assert_eq!(journal.records[0].kind, "workspace.create");
+    for (kind, id) in [
+        ("workspace", workspace(1, "one", "One").public_id.to_string()),
+        ("screen", screen_id(1).to_string()),
+        ("pane", pane_id(1).to_string()),
+        ("tab", tab_id(1).to_string()),
+        ("terminal", terminal_resource(TERMINAL_ONE).to_string()),
+    ] {
+        assert!(
+            journal.records[0]
+                .subjects
+                .iter()
+                .any(|subject| subject.kind == kind && subject.id == id),
+            "missing {kind} journal subject {id}"
+        );
+    }
     assert_eq!(
         registry
             .connection
@@ -1228,7 +1245,7 @@ fn resource_patch_failure_rolls_back_every_projection_and_log() {
         "resource_tabs",
         "resource_terminals",
         "resource_mutations",
-        "resource_events",
+        "session_journal",
     ] {
         let count = registry
             .connection
