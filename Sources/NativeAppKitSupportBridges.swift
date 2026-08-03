@@ -4,6 +4,7 @@ import CmuxAppKitSupportUI
 import CmuxFeedback
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSettings
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -1310,82 +1311,64 @@ struct QuickLookPreviewView: NSViewRepresentable {
     }
 }
 
-struct AgentSessionWebRenderer: NSViewRepresentable {
+private struct AgentSessionPanelNativeBridge: NSViewRepresentable {
     let panel: AgentSessionPanel
     let isFocused: Bool
+    let isVisibleInUI: Bool
     let backgroundColor: NSColor
     let theme: AgentSessionWebTheme
     let sessionContentWidthPresentation: SessionContentWidthPresentation
     let onRequestPanelFocus: () -> Void
 
-    func makeCoordinator() -> AgentSessionWebRendererCoordinator {
-        panel.rendererSession.coordinator(
-            panelId: panel.id,
-            workspaceId: panel.workspaceId,
-            rendererKind: panel.rendererKind,
-            initialProviderID: panel.currentProviderID,
-            workingDirectory: panel.workingDirectory,
+    func makeNSView(context: Context) -> AgentSessionPanelNativeView {
+        AgentSessionPanelNativeView(frame: .zero)
+    }
+
+    func updateNSView(_ view: AgentSessionPanelNativeView, context: Context) {
+        view.update(
+            panel: panel,
+            isFocused: isFocused,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
             theme: theme,
-            isFocused: isFocused
+            sessionContentWidthPresentation: sessionContentWidthPresentation,
+            onRequestPanelFocus: onRequestPanelFocus
         )
     }
 
-    func makeNSView(context: Context) -> NSView {
-        let host = AgentSessionWebHostView()
-        host.wantsLayer = true
-        applyBackground(to: host)
-        return host
+    static func dismantleNSView(_ view: AgentSessionPanelNativeView, coordinator: ()) {
+        view.teardown()
     }
+}
 
-    func updateNSView(_ view: NSView, context: Context) {
-        guard let host = view as? AgentSessionWebHostView else { return }
-        context.coordinator.bind(
-            panelId: panel.id,
-            workspaceId: panel.workspaceId,
-            rendererKind: panel.rendererKind,
-            initialProviderID: panel.currentProviderID,
-            workingDirectory: panel.workingDirectory,
-            theme: theme,
-            isFocused: isFocused
+struct AgentSessionPanelView: View {
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
+    let panel: AgentSessionPanel
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+    let portalPriority: Int
+    let appearance: PanelAppearance
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        AgentSessionPanelNativeBridge(
+            panel: panel,
+            isFocused: isFocused,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: appearance.contentBackgroundColor,
+            theme: AgentSessionWebTheme.resolve(appearance: appearance),
+            sessionContentWidthPresentation: SessionContentWidthPresentation(
+                storedMaximumWidth: storedSessionContentMaximumWidth,
+                storedAlignment: storedSessionContentAlignment
+            ),
+            onRequestPanelFocus: onRequestPanelFocus
         )
-        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        applyBackground(to: host)
-        applyBackground(to: webView)
-        let appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
-        if webView.appearance !== appearance { webView.appearance = appearance }
-        host.setSessionContentWidthPresentation(sessionContentWidthPresentation)
-        host.attachWebView(webView)
-        host.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
-            coordinator?.loadShellIfNeeded()
-            coordinator?.flushVisiblePaintIfReady()
-        }
-        host.onGeometryChanged = { [weak coordinator = context.coordinator] in
-            coordinator?.flushVisiblePaintIfReady()
-        }
-        context.coordinator.loadShellIfNeeded()
-        context.coordinator.flushVisiblePaintIfReady()
-        if isFocused { context.coordinator.focus() }
-    }
-
-    static func dismantleNSView(_ view: NSView, coordinator: AgentSessionWebRendererCoordinator) {
-        guard let host = view as? AgentSessionWebHostView else { return }
-        host.detachHostedWebViewIfOwned(coordinator.webView)
-        host.onDidMoveToWindow = nil
-        host.onGeometryChanged = nil
-    }
-
-    private func applyBackground(to view: NSView) {
-        view.wantsLayer = true
-        view.layer?.backgroundColor = backgroundColor.cgColor
-        view.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
-    }
-
-    private func applyBackground(to webView: WKWebView) {
-        webView.underPageBackgroundColor = backgroundColor
-        applyBackground(to: webView as NSView)
+        .id(panel.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .zIndex(Double(portalPriority))
     }
 }
 
