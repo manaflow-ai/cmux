@@ -14701,6 +14701,31 @@ mod tests {
     }
 
     #[test]
+    fn resize_after_attached_surface_close_is_superseded() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(surface_id)).unwrap();
+        mux.control_clients.attach_surface(client, surface_id, stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, surface_id, stream.id, None).unwrap();
+
+        mux.close_surface(surface_id).unwrap();
+        let response = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface_id, cols: 100, rows: 30 },
+            &writer,
+        )
+        .expect("a late resize from a retired attachment is not an unknown-surface error");
+
+        assert_eq!(response["outcome"], "superseded");
+        assert_eq!(response["accepted"], false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
         let rejected = test_mux();
         let rejected_outbound = Arc::new(BoundedOutbound::default());

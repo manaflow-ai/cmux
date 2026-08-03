@@ -18610,6 +18610,39 @@ mod tests {
     }
 
     #[test]
+    fn prefix_chord_is_resolved_before_deferred_session_barrier() {
+        let (mux, _) = test_mux("semantic-prefix-barrier-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+            shifted_key: Some('%'),
+            base_layout_key: Some('5'),
+            text: "%".to_string(),
+        })))
+        .unwrap();
+
+        assert!(
+            !app.prefix_armed,
+            "the completed chord must become an immutable split intent at ingress"
+        );
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn enhanced_prefixed_split_survives_pointer_mutation_and_focus_refresh() {
         let (mux, _) = test_mux("enhanced-prefix-split-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
