@@ -172,16 +172,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             cell.selectionStyle = .none
             guard let configuration else { return cell }
             let item = items[indexPath.row]
-            let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
-            if let nativeView = configuration.nativeView(for: item) {
-                cell.installNativeView(nativeView, horizontalMargin: configuration.theme.horizontalMargin)
-                return cell
-            }
-            cell.removeNativeView()
-            cell.contentConfiguration = UIHostingConfiguration {
-                configuration.view(for: item, tableWidth: tableWidth)
-            }
-            .margins(.all, 0)
+            let nativeView = configuration.nativeView(for: item)
+            cell.installNativeView(nativeView, horizontalMargin: configuration.theme.horizontalMargin)
             return cell
         }
 
@@ -410,7 +402,7 @@ private struct ChatTranscriptTableConfiguration {
     let contentCache: ChatContentCache?
     let artifactLoader: ChatArtifactLoader
 
-    func nativeView(for item: ChatTranscriptTableItem) -> UIView? {
+    func nativeView(for item: ChatTranscriptTableItem) -> UIView {
         switch item {
         case .loadingMore:
             let indicator = UIActivityIndicatorView(style: .medium)
@@ -463,7 +455,7 @@ private struct ChatTranscriptTableConfiguration {
         }
     }
 
-    private func nativeRowView(for row: ChatTranscriptRow) -> UIView? {
+    private func nativeRowView(for row: ChatTranscriptRow) -> UIView {
         switch row {
         case .dateHeader(let day):
             return ChatDateHeaderView(day: day)
@@ -529,8 +521,17 @@ private struct ChatTranscriptTableConfiguration {
                     artifactLoader: artifactLoader,
                     onOpenArtifact: { actions.openArtifact($0) }
                 )
-            case .prose:
-                return nil
+            case .prose(let prose):
+                content = ChatProseBubbleView(
+                    prose: prose,
+                    message: snapshot.message,
+                    groupPosition: snapshot.groupPosition,
+                    showsTimestamp: snapshot.showsTimestamp,
+                    contentCache: contentCache,
+                    renderer: markdownRenderer,
+                    onShowCodeDetail: { actions.showCodeBlockDetail($0, $1) },
+                    onCopied: { actions.notifyCopied() }
+                )
             }
             let spacing: CGFloat
             switch snapshot.groupPosition {
@@ -635,87 +636,6 @@ private struct ChatTranscriptTableConfiguration {
         return items
     }
 
-    @ViewBuilder
-    func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
-        itemView(for: item)
-            .padding(.horizontal, theme.horizontalMargin)
-            .environment(\.chatTheme, theme)
-            .environment(\.chatMarkdownRenderer, markdownRenderer)
-            .environment(\.chatContentCache, contentCache)
-            .environment(\.chatArtifactLoader, artifactLoader)
-            .environment(
-                \.chatBubbleMaxWidth,
-                tableWidth > 0 ? tableWidth * theme.bubbleMaxWidthFraction : .infinity
-            )
-    }
-
-    @ViewBuilder
-    private func itemView(for item: ChatTranscriptTableItem) -> some View {
-        switch item {
-        case .loadingMore:
-            ProgressView()
-                .controlSize(.small)
-                .padding(.vertical, 12)
-        case .historyTruncated:
-            Text(
-                String(
-                    localized: "chat.history.truncated",
-                    defaultValue: "Earlier history is on your Mac",
-                    bundle: .module
-                )
-            )
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .padding(.vertical, 12)
-        case .loadFailed:
-            VStack(spacing: 12) {
-                Text(
-                    String(
-                        localized: "chat.transcript.load_failed",
-                        defaultValue: "Couldn't load this conversation",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                Button(action: onRetryInitialLoad) {
-                    Text(
-                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
-                    )
-                    .font(.subheadline.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("ChatTranscriptRetry")
-            }
-            .padding(.vertical, 48)
-        case .empty:
-            Text(
-                String(
-                    localized: "chat.transcript.empty",
-                    defaultValue: "No messages yet",
-                    bundle: .module
-                )
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 48)
-        case .initialLoading:
-            ProgressView()
-                .controlSize(.regular)
-                .padding(.vertical, 48)
-        case .row(let row):
-            ChatTranscriptRowView(
-                row: row,
-                actions: actions
-            )
-            .equatable()
-        case .typing:
-            EmptyView()
-        case .bottomAnchor:
-            Color.clear
-                .frame(height: 9)
-        }
-    }
 }
 
 private enum ChatTranscriptTableItem: Equatable {

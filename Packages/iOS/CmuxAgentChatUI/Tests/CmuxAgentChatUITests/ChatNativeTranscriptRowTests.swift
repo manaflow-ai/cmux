@@ -216,6 +216,35 @@ struct ChatNativeTranscriptRowTests {
         #expect(view.accessibilityLabel == "report.pdf")
         #expect(view.accessibilityValue == "/tmp/report.pdf")
     }
+
+    @Test("prose code block keeps its stable detail route")
+    func proseCodeDetailAction() throws {
+        var selected: [(String, Int)] = []
+        let message = ChatMessage(
+            id: "message-12",
+            seq: 12,
+            role: .agent,
+            timestamp: .now,
+            kind: .prose(ChatProse(text: "Before\n```swift\nprint(1)\n```"))
+        )
+        let view = ChatProseBubbleView(
+            prose: ChatProse(text: "Before\n```swift\nprint(1)\n```"),
+            message: message,
+            groupPosition: .solo,
+            showsTimestamp: false,
+            onShowCodeDetail: { selected.append(($0, $1)) }
+        )
+        let code = try #require(
+            view.descendants.compactMap { $0 as? UIControl }.first {
+                $0.accessibilityIdentifier == "ChatCodeBlockDetail-message-12-1"
+            }
+        )
+
+        code.sendActions(for: .primaryActionTriggered)
+        #expect(selected.count == 1)
+        #expect(selected.first?.0 == "message-12")
+        #expect(selected.first?.1 == 1)
+    }
 }
 
 private extension UIView {
