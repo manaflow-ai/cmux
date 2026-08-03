@@ -229,21 +229,49 @@ impl Drop for RecoveryHarness {
 }
 
 #[test]
-fn short_lived_terminal_launch_returns_its_final_snapshot() {
+fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     let harness = RecoveryHarness::start("short-lived-launch");
-    let marker = format!("short-lived-marker-{}", std::process::id());
     let created = request(
         &harness.socket,
         serde_json::json!({
             "id": 1,
             "cmd": "run",
-            "argv": ["/bin/sh", "-c", format!("printf '{marker}\\n'")],
+            "argv": ["/bin/sh", "-c", "exit 23"],
             "new_workspace": true,
             "name": "short-lived-command",
         }),
     );
-    let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let already_exited = created["already_exited"].as_bool().unwrap();
+    assert_eq!(created["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(created[field].is_null(), already_exited, "unexpected {field}: {created}");
+    }
+    if already_exited {
+        assert_eq!(created["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
+    } else {
+        assert!(created["exit"].is_null());
+    }
+    assert!(created["terminal_revision"].as_u64().is_some());
+
+    let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id").to_string();
+    assert!(created["terminal_incarnation"].as_str().is_some());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let resolved = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "short-lived terminal did not exit: {resolved}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
+    assert_eq!(resolved["lifecycle"], "exited");
+    assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
+    assert!(resolved["exit"]["exited_at"].as_str().is_some());
+    assert!(resolved["exit"]["revision"].as_str().is_some());
 }
 
 #[test]
@@ -292,8 +320,7 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
             "text": "go\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    wait_for_detached(&mut attached_reader, surface);
+    wait_for_render_text_then_detached(&mut attached_reader, surface, &marker);
 
     let later = transport::connect(&harness.socket).unwrap();
     later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -310,8 +337,16 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
         })
     )
     .unwrap();
-    wait_for_attach_response(&mut later_reader, 4);
-    wait_for_detached(&mut later_reader, surface);
+    loop {
+        let mut line = String::new();
+        later_reader.read_line(&mut line).expect("later attach stream closed before response");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == 4 {
+            assert_eq!(value["ok"], false, "later attach unexpectedly succeeded: {value}");
+            assert!(value["error"].as_str().unwrap().contains("unknown surface"));
+            break;
+        }
+    }
 }
 
 #[test]
@@ -3185,13 +3220,30 @@ fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, 
     }
 }
 
-fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+fn wait_for_render_text_then_detached(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    surface: u64,
+    marker: &str,
+) {
+    let mut saw_marker = false;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("timed out waiting for hosted detach");
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if matches!(value["event"].as_str(), Some("render-state" | "render-delta")) {
+            saw_marker |= value["rows"].as_array().into_iter().flatten().any(|row| {
+                row["runs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|run| run["text"].as_str())
+                    .collect::<String>()
+                    .contains(marker)
+            });
+        }
         if value["event"] == "detached" {
             assert_eq!(value["surface"], surface);
+            assert!(saw_marker, "hosted exit detached before its final render frame: {value}");
             return;
         }
     }

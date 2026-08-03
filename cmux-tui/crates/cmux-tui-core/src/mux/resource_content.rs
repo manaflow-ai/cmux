@@ -14,7 +14,7 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget};
 
@@ -582,6 +582,11 @@ impl Mux {
             .iter()
             .map(|browser| (browser.public_id.clone(), browser.clone()))
             .collect::<HashMap<_, _>>();
+        let before_tabs = before
+            .tabs
+            .iter()
+            .map(|tab| (tab.public_id.clone(), tab.clone()))
+            .collect::<HashMap<_, _>>();
         let before_pane_ordinals = before
             .panes
             .iter()
@@ -690,12 +695,23 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        let surface = state.surfaces.get(surface_slot).with_context(|| {
-                            format!("pane references missing surface {surface_slot}")
-                        })?;
-                        let identity = surface.resource_identity().with_context(|| {
-                            format!("pane surface {surface_slot} has no resource identity")
-                        })?;
+                        // Restored terminal tabs exist in the topology before
+                        // their host runtime is adopted. A structural commit
+                        // must preserve those durable views instead of making
+                        // unrelated host adoption a precondition.
+                        let surface = state.surfaces.get(surface_slot);
+                        let identity = surface
+                            .and_then(|surface| surface.resource_identity().cloned())
+                            .or_else(|| {
+                                Some(TabResourceIdentity::new(
+                                    state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
+                                    state.resource_indexes.content_ids.get(surface_slot)?.clone(),
+                                ))
+                            })
+                            .with_context(|| {
+                                format!("pane surface {surface_slot} has no resource identity")
+                            })?;
+                        let before_tab = before_tabs.get(&identity.tab_id);
                         live_tabs.insert(identity.tab_id.clone());
                         tab_order.push(identity.tab_id.clone());
                         let (browser_url, terminal_id, first_terminal_placement) = match &identity
@@ -704,22 +720,30 @@ impl Mux {
                             ContentPublicId::Terminal(terminal_id) => {
                                 let first_terminal_placement =
                                     live_terminals.insert(terminal_id.clone());
-                                let host = self.resource_terminal_host_identity(surface).context(
-                                    "terminal surface omitted its durable host identity",
-                                )?;
+                                let runtime = state.terminal_catalog.get(terminal_id).or(surface);
+                                let host_id = runtime
+                                    .and_then(|surface| {
+                                        self.resource_terminal_host_identity(surface)
+                                            .map(|host| host.terminal_id)
+                                    })
+                                    .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
+                                    .context("terminal view omitted its durable host identity")?;
                                 if first_terminal_placement {
                                     let terminal = terminal_records
-                                        .get(&host.terminal_id)
+                                        .get(&host_id)
                                         .cloned()
-                                        .context("terminal surface has no durable host")?;
+                                        .context("terminal view has no durable host")?;
                                     changes.push(ResourceChange::UpsertTerminal {
                                         public_id: terminal_id.clone(),
                                         terminal,
                                     });
                                 }
-                                (None, Some(host.terminal_id), first_terminal_placement)
+                                (None, Some(host_id), first_terminal_placement)
                             }
                             ContentPublicId::Browser(browser_id) => {
+                                let surface = surface.with_context(|| {
+                                    format!("browser tab {surface_slot} has no live surface")
+                                })?;
                                 live_browsers.insert(browser_id.clone());
                                 let url = surface
                                     .browser_url()
@@ -767,7 +791,9 @@ impl Mux {
                             pane_id: pane.public_id.clone(),
                             position,
                             content_id: identity.content_id.clone(),
-                            name: surface.name(),
+                            name: surface
+                                .and_then(|surface| surface.name())
+                                .or_else(|| before_tab.and_then(|tab| tab.name.clone())),
                             browser_url,
                             terminal_id,
                         };
@@ -789,27 +815,47 @@ impl Mux {
                                 "content_id":tab.content_id.as_str(),
                             }),
                         ));
-                        let (cols, rows) = surface.size();
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
+                                let runtime = state.terminal_catalog.get(id).or(surface);
+                                let (cols, rows) =
+                                    runtime.map(|surface| surface.size()).unwrap_or((80, 24));
+                                let running = runtime.map_or_else(
+                                    || {
+                                        tab.terminal_id
+                                            .as_deref()
+                                            .and_then(|host| terminal_records.get(host))
+                                            .is_some_and(|terminal| {
+                                                matches!(
+                                                    terminal.lifecycle,
+                                                    TerminalLifecycle::Launching
+                                                        | TerminalLifecycle::Adopting
+                                                        | TerminalLifecycle::Running
+                                                )
+                                            })
+                                    },
+                                    |surface| !surface.is_dead(),
+                                );
                                 let tab_ids =
                                     terminal_tab_order.get(id).cloned().unwrap_or_default();
                                 let mut value = json!({
                                     "id":id,
                                     "tab_id":tab_ids.first(),
                                     "tab_ids":tab_ids,
-                                    "title":surface.title(),
+                                    "title":runtime.map(|surface| surface.title()).unwrap_or_default(),
                                     "cols":cols.max(1),
                                     "rows":rows.max(1),
-                                    "running":!surface.is_dead(),
+                                    "running":running,
                                 });
-                                if let Some(cwd) = surface.spawn_cwd() {
+                                if let Some(cwd) = runtime.and_then(|surface| surface.spawn_cwd()) {
                                     value["cwd"] = json!(cwd);
                                 }
                                 public.push(("terminal", id.to_string(), value));
                             }
                             ContentPublicId::Terminal(_) => {}
                             ContentPublicId::Browser(id) => {
+                                let surface = surface.expect("browser surface validated above");
+                                let (cols, rows) = surface.size();
                                 let status = surface.browser_status();
                                 let status_name = status
                                     .as_ref()

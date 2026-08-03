@@ -615,17 +615,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let mut agents = public_projections
             .agents
             .into_iter()
-            .map(|agent| {
-                json!({
-                    "id": agent.id,
-                    "session_id": topology.session_id,
-                    "terminal_id": agent.terminal_id,
-                    "state": agent.state,
-                    "source": agent.source,
-                    "updated_at_ms": agent.updated_at_ms.to_string(),
-                    "source_session": agent.source_session,
-                })
-            })
+            .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())

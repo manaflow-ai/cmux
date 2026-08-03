@@ -2091,6 +2091,7 @@ impl RemoteSession {
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
                     self.surface_overflow_recovery.lock().unwrap().remove(&id);
+                    self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
             }

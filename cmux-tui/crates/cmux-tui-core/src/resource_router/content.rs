@@ -12,7 +12,10 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
-use super::{ParsedResourceRequest, required_string, resource_operation_error, validation_error};
+use super::{
+    ParsedResourceRequest, required_string, resolve_terminal_wait_exit_id,
+    resource_operation_error, validation_error,
+};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
 use crate::mux::ResourceEffectProjection;
@@ -252,9 +255,7 @@ fn terminal_wait_exit(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = optional_decimal(&request.fields, "timeout_ms")?.map(Duration::from_millis);
     mux.wait_for_terminal_exit(&terminal_id, timeout).map_err(resource_operation_error)
 }
@@ -1959,6 +1960,7 @@ mod tests {
     fn terminal_wait_exit_latches_one_public_event_without_host_identity() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
         let durable = mux.terminal_registry_snapshot().unwrap();
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
@@ -2007,28 +2009,39 @@ mod tests {
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let changes = events.batches[0].changes.as_array().unwrap();
-        assert_eq!(changes.len(), 1);
         assert_eq!(changes[0]["kind"], "upsert");
         assert_eq!(changes[0]["sequence"], 0);
         assert_eq!(changes[0]["resource"], "terminal");
         assert_eq!(changes[0]["id"], public_id.as_str());
         assert_eq!(changes[0]["value"]["lifecycle"], "exited");
         assert_eq!(changes[0]["value"]["exit"]["outcome"], exited["outcome"]);
-        let public_json = serde_json::to_string(&changes[0]).unwrap();
+        assert!(changes.iter().enumerate().all(|(sequence, change)| {
+            change["sequence"].as_u64() == u64::try_from(sequence).ok()
+        }));
+        assert!(changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "tab"
+                && change["id"] == tab_id.as_str()
+        }));
+        assert!(changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+        }));
+        let public_json = serde_json::to_string(changes).unwrap();
         assert!(!public_json.contains("\"incarnation\""));
         assert!(!public_json.contains(internal_id));
         assert!(incarnation.is_empty() || !public_json.contains(incarnation));
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let terminal = snapshot["terminals"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|terminal| terminal["id"] == public_id.as_str())
-            .unwrap();
-        assert_eq!(terminal["lifecycle"], "exited");
-        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
-        surface.kill();
+        assert!(
+            snapshot["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != public_id.as_str())
+        );
+        assert!(mux.surface(surface.id).is_none());
     }
 
     #[test]

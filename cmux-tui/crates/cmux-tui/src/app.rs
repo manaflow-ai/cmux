@@ -450,6 +450,9 @@ fn forward_mux_event(
             Err(_) => ForwardMuxOutcome::Stop,
         };
     }
+    if let MuxEvent::SurfaceExited(surface) = &event {
+        mux_titles.remove(*surface);
+    }
     let terminal = matches!(event, MuxEvent::Empty);
     match tx.send(AppEvent::Mux(event)) {
         Ok(()) if terminal => ForwardMuxOutcome::Stop,
@@ -8998,6 +9001,29 @@ impl App {
         }
     }
 
+    /// Remove a retired view from the client cache before the authoritative
+    /// topology refresh arrives. The backend projection still owns parent
+    /// pane, screen, and workspace collapse.
+    fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        for workspace in &mut self.tree.workspaces {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    let Some(index) = pane.tabs.iter().position(|tab| tab.surface == surface)
+                    else {
+                        continue;
+                    };
+                    pane.tabs.remove(index);
+                    if pane.active_tab > index {
+                        pane.active_tab -= 1;
+                    } else if pane.active_tab >= pane.tabs.len() {
+                        pane.active_tab = pane.tabs.len().saturating_sub(1);
+                    }
+                }
+            }
+        }
+        self.rebuild_tab_locations();
+    }
+
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
         let mut applied = false;
         while self
@@ -10481,7 +10507,15 @@ impl App {
                 self.quit = true;
                 Ok(RenderAction::None)
             }
-            AppEvent::Mux(MuxEvent::SurfaceExited(_)) => Ok(RenderAction::Draw),
+            AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
+                self.retire_surface_state(id);
+                self.remove_surface_from_cached_tree(id);
+                if self.surface_only == Some(id) {
+                    self.quit = true;
+                    return Ok(RenderAction::None);
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
                 self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
                 Ok(RenderAction::Draw)

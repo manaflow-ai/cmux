@@ -3175,11 +3175,9 @@ impl Surface {
         )
     }
 
-    /// Materialize canonical Exited registry state without inventing a live
-    /// host connection. The stable identity stays queryable so later
-    /// placement mutations operate on the same terminal object rather than a
-    /// daemon-local surrogate.
-    #[cfg(unix)]
+    /// Construct a dead hosted surface for lifecycle tests without inventing
+    /// a live host connection. Production keeps exit receipts in the registry.
+    #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -3195,7 +3193,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -3219,7 +3217,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     pub(crate) fn exited_terminal_placeholder_with_terminal_public_id(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -3237,7 +3235,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     fn exited_terminal_placeholder_with_identities(
         id: SurfaceId,
         opts: SurfaceOptions,
