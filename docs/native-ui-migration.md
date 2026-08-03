@@ -45,24 +45,24 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [ ] Keep only documented synchronous compare-and-set or system callback
     carve-outs, each behind an actor or async surface.
 - [ ] bonsplit fork
-  - [ ] Replace the public `View` and `@ViewBuilder` API with AppKit view and
+  - [x] Replace the public `View` and `@ViewBuilder` API with AppKit view and
     view-controller APIs.
-  - [ ] Replace split layout, tab chrome, drag and drop, menus, tooltips,
+  - [x] Replace split layout, tab chrome, drag and drop, menus, tooltips,
     overlays, and the example app with AppKit.
-  - [ ] Modernize its concurrency and prove the fork branch is reachable on
+  - [x] Modernize its concurrency and prove the fork branch is reachable on
     `manaflow-ai/bonsplit` before updating cmux's pointer.
 - [ ] macOS packages
-  - [ ] `CmuxSettingsUI` (61 import files)
+  - [ ] `CmuxSettingsUI` (58 import files)
   - [x] `CmuxSimulator` (0)
-  - [ ] `CmuxSwiftRenderUI` (14)
-  - [ ] `CmuxLiveEval` (7)
-  - [ ] `CmuxSidebarInterpreterService` (6)
-  - [ ] `CmuxUpdaterUI` (5)
-  - [ ] `CmuxCanvasUI` (5)
-  - [ ] `CmuxAppKitSupportUI` (4)
-  - [ ] `CmuxFoundation` presentation types (3)
-  - [ ] `CmuxExtensionKit` (2)
-  - [ ] `CmuxCommandPalette` (1)
+  - [x] `CmuxSwiftRenderUI` (0)
+  - [x] `CmuxLiveEval` (0)
+  - [x] `CmuxSidebarInterpreterService` (0)
+  - [x] `CmuxUpdaterUI` (0)
+  - [x] `CmuxCanvasUI` (0)
+  - [x] `CmuxAppKitSupportUI` (0)
+  - [ ] `CmuxFoundation` presentation types (6)
+  - [x] `CmuxExtensionKit` (0)
+  - [x] `CmuxCommandPalette` (0)
 - [ ] macOS executable
   - [ ] Replace the SwiftUI `App` entry point with `NSApplication` and an
     AppKit composition root.
