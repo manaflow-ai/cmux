@@ -2,7 +2,6 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import Foundation
-import SwiftUI
 
 struct BonsplitTabBarDebugNumberSetting {
     let key: String
@@ -176,7 +175,7 @@ final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.bonsplitTabBarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: BonsplitTabBarDebugView())
+        window.contentView = BonsplitTabBarDebugView()
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -186,135 +185,171 @@ final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
     }
 }
 
-private struct BonsplitTabBarDebugView: View {
-    @AppStorage(BonsplitTabBarDebugSettings.separatorFadeWidthKey)
-    private var separatorFadeWidth = BonsplitTabBarDebugSettings.defaultSeparatorFadeWidth
-    @AppStorage(BonsplitTabBarDebugSettings.contentFadeWidthKey)
-    private var contentFadeWidth = BonsplitTabBarDebugSettings.defaultContentFadeWidth
-    @AppStorage(BonsplitTabBarDebugSettings.solidSurfaceWidthAdjustmentKey)
-    private var solidSurfaceWidthAdjustment = BonsplitTabBarDebugSettings.defaultSolidSurfaceWidthAdjustment
+@MainActor
+private final class BonsplitTabBarDebugView: NSView {
+    private let descriptionLabel = NSTextField(wrappingLabelWithString: "")
+    private var sliderRows: [BonsplitTabBarDebugSliderRow] = []
 
-    private var resolvedSeparatorFadeWidth: Double {
-        BonsplitTabBarDebugSettings.resolvedSeparatorFadeWidth(separatorFadeWidth)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+        reloadValues()
     }
 
-    private var resolvedContentFadeWidth: Double {
-        BonsplitTabBarDebugSettings.resolvedContentFadeWidth(contentFadeWidth)
+    convenience init() {
+        self.init(frame: .zero)
     }
 
-    private var resolvedSolidSurfaceWidthAdjustment: Double {
-        BonsplitTabBarDebugSettings.resolvedSolidSurfaceWidthAdjustment(solidSurfaceWidthAdjustment)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var separatorFadeBinding: Binding<Double> {
-        Binding(
-            get: { resolvedSeparatorFadeWidth },
-            set: { setSeparatorFadeWidth($0) }
+    private func setupView() {
+        let heading = NSTextField(labelWithString: String(
+            localized: "debug.bonsplitTabBarDebug.heading",
+            defaultValue: "Bonsplit Tab Bar"
+        ))
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        let contentFade = makeSlider(
+            title: String(localized: "debug.bonsplitTabBarDebug.contentFade", defaultValue: "Content fade"),
+            setting: BonsplitTabBarDebugSettings.contentFadeWidthSetting,
+            onChange: { [weak self] in self?.setContentFadeWidth($0) }
         )
-    }
-
-    private var contentFadeBinding: Binding<Double> {
-        Binding(
-            get: { resolvedContentFadeWidth },
-            set: { setContentFadeWidth($0) }
+        let solidExtra = makeSlider(
+            title: String(localized: "debug.bonsplitTabBarDebug.solidBgExtra", defaultValue: "Solid bg extra"),
+            setting: BonsplitTabBarDebugSettings.solidSurfaceWidthAdjustmentSetting,
+            onChange: { [weak self] in self?.setSolidSurfaceWidthAdjustment($0) }
         )
-    }
-
-    private var solidSurfaceWidthAdjustmentBinding: Binding<Double> {
-        Binding(
-            get: { resolvedSolidSurfaceWidthAdjustment },
-            set: { setSolidSurfaceWidthAdjustment($0) }
+        let separatorFade = makeSlider(
+            title: String(
+                localized: "debug.bonsplitTabBarDebug.separatorFadeFrame",
+                defaultValue: "Separator fade frame"
+            ),
+            setting: BonsplitTabBarDebugSettings.separatorFadeWidthSetting,
+            onChange: { [weak self] in self?.setSeparatorFadeWidth($0) }
         )
+
+        let actions = NSStackView(views: [
+            actionButton(String(localized: "debug.bonsplitTabBarDebug.reset", defaultValue: "Reset"), selector: #selector(reset)),
+            actionButton(String(localized: "debug.bonsplitTabBarDebug.copyConfig", defaultValue: "Copy Config"), selector: #selector(copyConfig)),
+        ])
+        actions.orientation = .horizontal
+        actions.spacing = 10
+
+        descriptionLabel.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        descriptionLabel.isSelectable = true
+        descriptionLabel.maximumNumberOfLines = 3
+
+        let root = NSStackView(views: [
+            heading,
+            group(String(localized: "debug.bonsplitTabBarDebug.actionLaneGeometry", defaultValue: "Action Lane Geometry"), views: [contentFade, solidExtra]),
+            group(String(localized: "debug.bonsplitTabBarDebug.actionLaneBorder", defaultValue: "Action Lane Border"), views: [separatorFade]),
+            actions,
+            descriptionLabel,
+        ])
+        root.orientation = .vertical
+        root.alignment = .leading
+        root.spacing = 14
+        root.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(root)
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: trailingAnchor),
+            root.topAnchor.constraint(equalTo: topAnchor),
+            root.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+        ])
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(String(localized: "debug.bonsplitTabBarDebug.heading", defaultValue: "Bonsplit Tab Bar"))
-                .cmuxFont(.headline)
+    private func makeSlider(
+        title: String,
+        setting: BonsplitTabBarDebugNumberSetting,
+        onChange: @escaping @MainActor (Double) -> Void
+    ) -> BonsplitTabBarDebugSliderRow {
+        let row = BonsplitTabBarDebugSliderRow(title: title, setting: setting, onChange: onChange)
+        sliderRows.append(row)
+        return row
+    }
 
-            GroupBox(String(localized: "debug.bonsplitTabBarDebug.actionLaneGeometry", defaultValue: "Action Lane Geometry")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    BonsplitTabBarDebugSliderRow(
-                        title: String(localized: "debug.bonsplitTabBarDebug.contentFade", defaultValue: "Content fade"),
-                        value: contentFadeBinding,
-                        setting: BonsplitTabBarDebugSettings.contentFadeWidthSetting
-                    )
-                    BonsplitTabBarDebugSliderRow(
-                        title: String(localized: "debug.bonsplitTabBarDebug.solidBgExtra", defaultValue: "Solid bg extra"),
-                        value: solidSurfaceWidthAdjustmentBinding,
-                        setting: BonsplitTabBarDebugSettings.solidSurfaceWidthAdjustmentSetting
-                    )
-                }
-                .padding(.top, 2)
-            }
+    private func group(_ title: String, views: [NSView]) -> NSBox {
+        let box = NSBox()
+        box.title = title
+        box.titlePosition = .atTop
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        box.contentView = stack
+        box.widthAnchor.constraint(greaterThanOrEqualToConstant: 470).isActive = true
+        return box
+    }
 
-            GroupBox(String(localized: "debug.bonsplitTabBarDebug.actionLaneBorder", defaultValue: "Action Lane Border")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    BonsplitTabBarDebugSliderRow(
-                        title: String(
-                            localized: "debug.bonsplitTabBarDebug.separatorFadeFrame",
-                            defaultValue: "Separator fade frame"
-                        ),
-                        value: separatorFadeBinding,
-                        setting: BonsplitTabBarDebugSettings.separatorFadeWidthSetting
-                    )
-                }
-                .padding(.top, 2)
-            }
+    private func actionButton(_ title: String, selector: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: selector)
+        button.bezelStyle = .rounded
+        return button
+    }
 
-            HStack(spacing: 10) {
-                Button(String(localized: "debug.bonsplitTabBarDebug.reset", defaultValue: "Reset")) {
-                    cmuxDebugLog(
-                        "bonsplit.tabbarDebug.reset " +
-                        "separatorFadeWidth=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultSeparatorFadeWidth)) " +
-                        "contentFadeWidth=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultContentFadeWidth)) " +
-                        "solidSurfaceWidthAdjustment=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultSolidSurfaceWidthAdjustment))"
-                    )
-                    setSeparatorFadeWidth(BonsplitTabBarDebugSettings.defaultSeparatorFadeWidth)
-                    setContentFadeWidth(BonsplitTabBarDebugSettings.defaultContentFadeWidth)
-                    setSolidSurfaceWidthAdjustment(BonsplitTabBarDebugSettings.defaultSolidSurfaceWidthAdjustment)
-                }
-                Button(String(localized: "debug.bonsplitTabBarDebug.copyConfig", defaultValue: "Copy Config")) {
-                    BonsplitTabBarDebugSettings.copyCurrentTuningToPasteboard()
-                    cmuxDebugLog("bonsplit.tabbarDebug.copyConfig \(BonsplitTabBarDebugSettings.currentTuningDescription())")
-                }
-            }
-
-            Text(verbatim: BonsplitTabBarDebugSettings.currentTuningDescription())
-                .cmuxFont(.caption, design: .monospaced)
-                .textSelection(.enabled)
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    private func reloadValues() {
+        sliderRows.forEach { $0.reloadValue() }
+        descriptionLabel.stringValue = BonsplitTabBarDebugSettings.currentTuningDescription()
     }
 
     private func setSeparatorFadeWidth(_ value: Double) {
-        separatorFadeWidth = BonsplitTabBarDebugSettings.resolvedSeparatorFadeWidth(value)
+        let separatorFadeWidth = BonsplitTabBarDebugSettings.resolvedSeparatorFadeWidth(value)
+        UserDefaults.standard.set(separatorFadeWidth, forKey: BonsplitTabBarDebugSettings.separatorFadeWidthKey)
         cmuxDebugLog(
             "bonsplit.tabbarDebug.separatorFadeWidth=" +
             BonsplitTabBarDebugSettings.formatPixels(separatorFadeWidth)
         )
+        descriptionLabel.stringValue = BonsplitTabBarDebugSettings.currentTuningDescription()
         refreshLiveWorkspaces()
     }
 
     private func setContentFadeWidth(_ value: Double) {
-        contentFadeWidth = BonsplitTabBarDebugSettings.resolvedContentFadeWidth(value)
+        let contentFadeWidth = BonsplitTabBarDebugSettings.resolvedContentFadeWidth(value)
+        UserDefaults.standard.set(contentFadeWidth, forKey: BonsplitTabBarDebugSettings.contentFadeWidthKey)
         cmuxDebugLog(
             "bonsplit.tabbarDebug.contentFadeWidth=" +
             BonsplitTabBarDebugSettings.formatPixels(contentFadeWidth)
         )
+        descriptionLabel.stringValue = BonsplitTabBarDebugSettings.currentTuningDescription()
         refreshLiveWorkspaces()
     }
 
     private func setSolidSurfaceWidthAdjustment(_ value: Double) {
-        solidSurfaceWidthAdjustment = BonsplitTabBarDebugSettings.resolvedSolidSurfaceWidthAdjustment(value)
+        let solidSurfaceWidthAdjustment = BonsplitTabBarDebugSettings.resolvedSolidSurfaceWidthAdjustment(value)
+        UserDefaults.standard.set(
+            solidSurfaceWidthAdjustment,
+            forKey: BonsplitTabBarDebugSettings.solidSurfaceWidthAdjustmentKey
+        )
         cmuxDebugLog(
             "bonsplit.tabbarDebug.solidSurfaceWidthAdjustment=" +
             BonsplitTabBarDebugSettings.formatPixels(solidSurfaceWidthAdjustment)
         )
+        descriptionLabel.stringValue = BonsplitTabBarDebugSettings.currentTuningDescription()
         refreshLiveWorkspaces()
+    }
+
+    @objc private func reset() {
+        cmuxDebugLog(
+            "bonsplit.tabbarDebug.reset " +
+            "separatorFadeWidth=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultSeparatorFadeWidth)) " +
+            "contentFadeWidth=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultContentFadeWidth)) " +
+            "solidSurfaceWidthAdjustment=\(BonsplitTabBarDebugSettings.formatPixels(BonsplitTabBarDebugSettings.defaultSolidSurfaceWidthAdjustment))"
+        )
+        setSeparatorFadeWidth(BonsplitTabBarDebugSettings.defaultSeparatorFadeWidth)
+        setContentFadeWidth(BonsplitTabBarDebugSettings.defaultContentFadeWidth)
+        setSolidSurfaceWidthAdjustment(BonsplitTabBarDebugSettings.defaultSolidSurfaceWidthAdjustment)
+        reloadValues()
+    }
+
+    @objc private func copyConfig() {
+        BonsplitTabBarDebugSettings.copyCurrentTuningToPasteboard()
+        cmuxDebugLog("bonsplit.tabbarDebug.copyConfig \(BonsplitTabBarDebugSettings.currentTuningDescription())")
     }
 
     private func refreshLiveWorkspaces() {
@@ -327,51 +362,93 @@ private struct BonsplitTabBarDebugView: View {
     }
 }
 
-private struct BonsplitTabBarDebugSliderRow: View {
-    let title: String
-    @Binding var value: Double
-    let setting: BonsplitTabBarDebugNumberSetting
+@MainActor
+private final class BonsplitTabBarDebugSliderRow: NSStackView {
+    private let setting: BonsplitTabBarDebugNumberSetting
+    private let onChange: @MainActor (Double) -> Void
+    private let slider: NSSlider
+    private let stepper: NSStepper
+    private let valueLabel = NSTextField(labelWithString: "")
 
-    private var resolvedValue: Double {
-        setting.resolved(value)
+    init(
+        title: String,
+        setting: BonsplitTabBarDebugNumberSetting,
+        onChange: @escaping @MainActor (Double) -> Void
+    ) {
+        self.setting = setting
+        self.onChange = onChange
+        slider = NSSlider(
+            value: setting.defaultValue,
+            minValue: setting.range.lowerBound,
+            maxValue: setting.range.upperBound,
+            target: nil,
+            action: nil
+        )
+        stepper = NSStepper()
+        super.init(frame: .zero)
+        orientation = .vertical
+        alignment = .leading
+        spacing = 6
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+        valueLabel.alignment = .right
+        valueLabel.widthAnchor.constraint(equalToConstant: 76).isActive = true
+        slider.target = self
+        slider.action = #selector(sliderChanged)
+        stepper.minValue = setting.range.lowerBound
+        stepper.maxValue = setting.range.upperBound
+        stepper.increment = setting.step
+        stepper.target = self
+        stepper.action = #selector(stepperChanged)
+
+        let row = NSStackView(views: [titleLabel, slider, valueLabel])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        let fineTune = NSTextField(labelWithString: String(
+            localized: "debug.bonsplitTabBarDebug.fineTune",
+            defaultValue: "Fine tune"
+        ))
+        let stepperRow = NSStackView(views: [fineTune, stepper])
+        stepperRow.orientation = .horizontal
+        stepperRow.alignment = .centerY
+        stepperRow.spacing = 8
+        addArrangedSubview(row)
+        addArrangedSubview(stepperRow)
+        reloadValue()
     }
 
-    private var pixelValueText: String {
-        String(
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func reloadValue() {
+        updateControls(setting.currentValue())
+    }
+
+    private func updateControls(_ proposed: Double) {
+        let value = setting.resolved(proposed)
+        slider.doubleValue = value
+        stepper.doubleValue = value
+        valueLabel.stringValue = String(
             format: String(localized: "debug.bonsplitTabBarDebug.pixelsValue", defaultValue: "%@ px"),
-            setting.format(resolvedValue)
+            setting.format(value)
         )
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .frame(width: 112, alignment: .leading)
-                Slider(
-                    value: Binding(
-                        get: { resolvedValue },
-                        set: { value = setting.resolved($0) }
-                    ),
-                    in: setting.range,
-                    step: setting.step
-                )
-                Text(pixelValueText)
-                    .cmuxFont(.caption)
-                    .monospacedDigit()
-                    .frame(width: 76, alignment: .trailing)
-            }
+    @objc private func sliderChanged() {
+        let value = setting.resolved((slider.doubleValue / setting.step).rounded() * setting.step)
+        updateControls(value)
+        onChange(value)
+    }
 
-            Stepper(
-                String(localized: "debug.bonsplitTabBarDebug.fineTune", defaultValue: "Fine tune"),
-                value: Binding(
-                    get: { resolvedValue },
-                    set: { value = setting.resolved($0) }
-                ),
-                in: setting.range,
-                step: setting.step
-            )
-        }
+    @objc private func stepperChanged() {
+        let value = setting.resolved(stepper.doubleValue)
+        updateControls(value)
+        onChange(value)
     }
 }
 

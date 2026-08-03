@@ -1,5 +1,3 @@
-import SwiftUI
-
 #if DEBUG
 /// Test-only probe for the workspace sidebar virtualization contract: AppKit
 /// must materialize viewport-many cells and reconfigure only changed hosted

@@ -1,6 +1,5 @@
-import CmuxFoundation
 import AppKit
-import SwiftUI
+import CmuxFoundation
 
 enum TitlebarLayoutDebugSettingsSnapshot {
     static func reset(defaults: UserDefaults = .standard) {
@@ -74,7 +73,7 @@ final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.titlebarLayoutDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: TitlebarLayoutDebugView())
+        window.contentView = TitlebarLayoutDebugView()
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -87,115 +86,241 @@ final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
     @MainActor
     func show() {
         showManagedWindow()
+        (window?.contentView as? TitlebarLayoutDebugView)?.reloadValues()
         TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
     }
 }
 
-private struct TitlebarLayoutDebugView: View {
-    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
-    @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidth = SessionPersistencePolicy.defaultMinimumSidebarWidth
+@MainActor
+private final class TitlebarLayoutDebugView: NSView {
+    private let stylePopup = NSPopUpButton()
+    private var sliderRows: [TitlebarDebugSliderRow] = []
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
-                    .cmuxFont(.headline)
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker(
-                            String(localized: "debug.titlebarLayoutDebug.style", defaultValue: "Style"),
-                            selection: $titlebarControlsStyleRawValue
-                        ) {
-                            ForEach(TitlebarControlsStyle.allCases) { style in
-                                Text(style.menuTitle).tag(style.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.leading", defaultValue: "Leading"),
-                            value: $leftControlsLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.top", defaultValue: "Top"),
-                            value: $leftControlsTopInset,
-                            range: MinimalModeTitlebarDebugSettings.topInsetRange
-                        )
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Light Insets")) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
-                            value: $trafficLightTitlebarLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.tabBarInset", defaultValue: "Tab Bar Inset"),
-                            value: $trafficLightTabBarInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.sidebar", defaultValue: "Sidebar")) {
-                    debugSlider(
-                        title: String(localized: "debug.titlebarLayoutDebug.minimumWidth", defaultValue: "Minimum Width"),
-                        value: $sidebarMinimumWidth,
-                        range: SessionPersistencePolicy.sidebarMinimumWidthRange,
-                        step: 1
-                    )
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.actions", defaultValue: "Actions")) {
-                    HStack(spacing: 10) {
-                        Button(String(localized: "debug.titlebarLayoutDebug.reset", defaultValue: "Reset")) {
-                            TitlebarLayoutDebugSettingsSnapshot.reset()
-                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
-                        }
-                        Button(String(localized: "debug.titlebarLayoutDebug.apply", defaultValue: "Apply")) {
-                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
-                        }
-                        Button(String(localized: "debug.titlebarLayoutDebug.copyConfig", defaultValue: "Copy Config")) {
-                            TitlebarLayoutDebugSettingsSnapshot.copyToPasteboard()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+        reloadValues()
     }
 
-    private func debugSlider(
+    convenience init() {
+        self.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupView() {
+        let heading = NSTextField(labelWithString: String(
+            localized: "debug.titlebarLayoutDebug.title",
+            defaultValue: "Titlebar Layout Debug"
+        ))
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        stylePopup.addItems(withTitles: TitlebarControlsStyle.allCases.map(\.menuTitle))
+        stylePopup.target = self
+        stylePopup.action = #selector(styleChanged)
+        let styleRow = labeledRow(
+            String(localized: "debug.titlebarLayoutDebug.style", defaultValue: "Style"),
+            control: stylePopup
+        )
+
+        let leading = makeSlider(
+            title: String(localized: "debug.titlebarLayoutDebug.leading", defaultValue: "Leading"),
+            key: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey,
+            defaultValue: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+        )
+        let top = makeSlider(
+            title: String(localized: "debug.titlebarLayoutDebug.top", defaultValue: "Top"),
+            key: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey,
+            defaultValue: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            range: MinimalModeTitlebarDebugSettings.topInsetRange
+        )
+        let titlebarInset = makeSlider(
+            title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
+            key: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey,
+            defaultValue: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset,
+            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+        )
+        let tabBarInset = makeSlider(
+            title: String(localized: "debug.titlebarLayoutDebug.tabBarInset", defaultValue: "Tab Bar Inset"),
+            key: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey,
+            defaultValue: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+        )
+        let sidebarWidth = makeSlider(
+            title: String(localized: "debug.titlebarLayoutDebug.minimumWidth", defaultValue: "Minimum Width"),
+            key: SessionPersistencePolicy.sidebarMinimumWidthKey,
+            defaultValue: SessionPersistencePolicy.defaultMinimumSidebarWidth,
+            range: SessionPersistencePolicy.sidebarMinimumWidthRange,
+            step: 1
+        )
+
+        let actions = NSStackView(views: [
+            button(String(localized: "debug.titlebarLayoutDebug.reset", defaultValue: "Reset"), action: #selector(reset)),
+            button(String(localized: "debug.titlebarLayoutDebug.apply", defaultValue: "Apply"), action: #selector(apply)),
+            button(String(localized: "debug.titlebarLayoutDebug.copyConfig", defaultValue: "Copy Config"), action: #selector(copyConfig)),
+        ])
+        actions.orientation = .horizontal
+        actions.spacing = 10
+
+        let root = NSStackView(views: [
+            heading,
+            group(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls"), views: [styleRow, leading, top]),
+            group(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Light Insets"), views: [titlebarInset, tabBarInset]),
+            group(String(localized: "debug.titlebarLayoutDebug.sidebar", defaultValue: "Sidebar"), views: [sidebarWidth]),
+            group(String(localized: "debug.titlebarLayoutDebug.actions", defaultValue: "Actions"), views: [actions]),
+        ])
+        root.orientation = .vertical
+        root.alignment = .leading
+        root.spacing = 14
+        root.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        root.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = root
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            root.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        ])
+    }
+
+    private func makeSlider(
         title: String,
-        value: Binding<Double>,
+        key: String,
+        defaultValue: Double,
         range: ClosedRange<Double>,
         step: Double = 0.5
-    ) -> some View {
-        let clamped = Binding<Double>(
-            get: { min(max(value.wrappedValue, range.lowerBound), range.upperBound) },
-            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
+    ) -> TitlebarDebugSliderRow {
+        let row = TitlebarDebugSliderRow(
+            title: title,
+            key: key,
+            defaultValue: defaultValue,
+            range: range,
+            step: step
         )
-        return HStack(spacing: 8) {
-            Text(title)
-                .frame(width: 112, alignment: .leading)
-            Slider(value: clamped, in: range, step: step)
-            Text(String(format: "%.1f", clamped.wrappedValue))
-                .cmuxFont(.caption, design: .monospaced)
-                .frame(width: 44, alignment: .trailing)
-        }
+        sliderRows.append(row)
+        return row
+    }
+
+    private func group(_ title: String, views: [NSView]) -> NSBox {
+        let box = NSBox()
+        box.title = title
+        box.titlePosition = .atTop
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        box.contentView = stack
+        box.widthAnchor.constraint(greaterThanOrEqualToConstant: 400).isActive = true
+        return box
+    }
+
+    private func labeledRow(_ title: String, control: NSView) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        let row = NSStackView(views: [label, control])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        return row
+    }
+
+    private func button(_ title: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        return button
+    }
+
+    func reloadValues() {
+        let style = TitlebarControlsStyle.stored()
+        stylePopup.selectItem(at: TitlebarControlsStyle.allCases.firstIndex(of: style) ?? 0)
+        sliderRows.forEach { $0.reloadValue() }
+    }
+
+    @objc private func styleChanged() {
+        let styles = TitlebarControlsStyle.allCases
+        guard styles.indices.contains(stylePopup.indexOfSelectedItem) else { return }
+        UserDefaults.standard.set(styles[stylePopup.indexOfSelectedItem].rawValue, forKey: TitlebarControlsStyle.storageKey)
+    }
+
+    @objc private func reset() {
+        TitlebarLayoutDebugSettingsSnapshot.reset()
+        reloadValues()
+        TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
+    }
+
+    @objc private func apply() {
+        TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
+    }
+
+    @objc private func copyConfig() {
+        TitlebarLayoutDebugSettingsSnapshot.copyToPasteboard()
+    }
+}
+
+@MainActor
+private final class TitlebarDebugSliderRow: NSStackView {
+    private let key: String
+    private let defaultValue: Double
+    private let range: ClosedRange<Double>
+    private let step: Double
+    private let slider: NSSlider
+    private let valueLabel = NSTextField(labelWithString: "")
+
+    init(title: String, key: String, defaultValue: Double, range: ClosedRange<Double>, step: Double) {
+        self.key = key
+        self.defaultValue = defaultValue
+        self.range = range
+        self.step = step
+        slider = NSSlider(value: defaultValue, minValue: range.lowerBound, maxValue: range.upperBound, target: nil, action: nil)
+        super.init(frame: .zero)
+        orientation = .horizontal
+        alignment = .centerY
+        spacing = 8
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+        valueLabel.alignment = .right
+        valueLabel.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        slider.target = self
+        slider.action = #selector(valueChanged)
+        addArrangedSubview(titleLabel)
+        addArrangedSubview(slider)
+        addArrangedSubview(valueLabel)
+        reloadValue()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func reloadValue() {
+        let defaults = UserDefaults.standard
+        let raw = defaults.object(forKey: key) == nil ? defaultValue : defaults.double(forKey: key)
+        let value = min(max(raw, range.lowerBound), range.upperBound)
+        slider.doubleValue = value
+        valueLabel.stringValue = String(format: "%.1f", value)
+    }
+
+    @objc private func valueChanged() {
+        let rounded = (slider.doubleValue / step).rounded() * step
+        let value = min(max(rounded, range.lowerBound), range.upperBound)
+        slider.doubleValue = value
+        valueLabel.stringValue = String(format: "%.1f", value)
+        UserDefaults.standard.set(value, forKey: key)
     }
 }

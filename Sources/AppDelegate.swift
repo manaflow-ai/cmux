@@ -14,7 +14,6 @@ import CmuxSettingsUI
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
-import SwiftUI
 import Bonsplit
 import CMUXAgentLaunch
 import CoreServices

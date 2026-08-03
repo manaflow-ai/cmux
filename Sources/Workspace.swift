@@ -8,7 +8,6 @@ import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
 import CmuxTerminalCore
-import SwiftUI
 import AppKit
 import WebKit
 import CmuxFoundation

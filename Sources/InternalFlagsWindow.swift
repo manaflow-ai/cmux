@@ -1,6 +1,6 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
+import Observation
 
 enum InternalFlagsPresenter {
     @MainActor
@@ -24,7 +24,7 @@ private final class InternalFlagsWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 760, height: 420)
-        window.contentView = NSHostingView(rootView: InternalFlagsView(flags: CmuxFeatureFlags.shared))
+        window.contentView = InternalFlagsView(flags: CmuxFeatureFlags.shared)
         super.init(window: window)
     }
 
@@ -43,203 +43,290 @@ private final class InternalFlagsWindowController: NSWindowController {
     }
 }
 
-private struct InternalFlagsView: View {
-    let flags: CmuxFeatureFlags
+@MainActor
+private final class InternalFlagsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+    private enum Item {
 #if DEBUG
-    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
-    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+        case devBuildBanner
 #endif
+        case flag(InternalFlagRowSnapshot)
+    }
 
-    private var rows: [InternalFlagRowSnapshot] {
-        CmuxFeatureFlags.allFlags.map { definition in
-            InternalFlagRowSnapshot(
-                definition: definition,
-                resolution: flags.resolution(for: definition),
-                overrideValue: flags.overrideValue(for: definition)
+    private let flags: CmuxFeatureFlags
+    private let tableView = NSTableView()
+    private let clearButton = NSButton()
+    private var items: [Item] = []
+
+    init(flags: CmuxFeatureFlags) {
+        self.flags = flags
+        super.init(frame: .zero)
+        setupView()
+        refreshFromModel()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+
+        let heading = NSTextField(labelWithString: String(
+            localized: "featureFlags.window.heading",
+            defaultValue: "Feature Flags"
+        ))
+        heading.font = .systemFont(ofSize: 22, weight: .semibold)
+        let subtitle = NSTextField(wrappingLabelWithString: String(
+            localized: "featureFlags.window.subtitle",
+            defaultValue: "Inspect PostHog flag state and local overrides for this Mac."
+        ))
+        subtitle.font = .systemFont(ofSize: 13)
+        subtitle.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [heading, subtitle])
+        header.orientation = .vertical
+        header.alignment = .leading
+        header.spacing = 6
+        header.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 16, right: 24)
+
+        configureTable()
+        let scrollView = NSScrollView()
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        let footerNote = NSTextField(wrappingLabelWithString: String(
+            localized: "featureFlags.footer.note",
+            defaultValue: "Local overrides apply only when no remote value is available."
+        ))
+        footerNote.font = .systemFont(ofSize: 11)
+        footerNote.textColor = .secondaryLabelColor
+        clearButton.title = String(localized: "featureFlags.clearAll", defaultValue: "Clear all overrides")
+        clearButton.bezelStyle = .rounded
+        clearButton.target = self
+        clearButton.action = #selector(clearAllOverrides)
+        let footer = NSStackView(views: [footerNote, NSView(), clearButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 16
+        footer.edgeInsets = NSEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        footer.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let headerSeparator = NSBox()
+        headerSeparator.boxType = .separator
+        let footerSeparator = NSBox()
+        footerSeparator.boxType = .separator
+        let root = NSStackView(views: [header, headerSeparator, scrollView, footerSeparator, footer])
+        root.orientation = .vertical
+        root.spacing = 0
+        root.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(root)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 760),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 420),
+            root.leadingAnchor.constraint(equalTo: leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: trailingAnchor),
+            root.topAnchor.constraint(equalTo: topAnchor),
+            root.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func configureTable() {
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.selectionHighlightStyle = .none
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.intercellSpacing = NSSize(width: 16, height: 0)
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        addColumn("flag", title: String(localized: "featureFlags.column.flag", defaultValue: "Flag"), width: 440, minimum: 300)
+        addColumn("current", title: String(localized: "featureFlags.column.current", defaultValue: "Current"), width: 96)
+        addColumn("source", title: String(localized: "featureFlags.column.source", defaultValue: "Source"), width: 96)
+        addColumn("override", title: String(localized: "featureFlags.column.override", defaultValue: "Override"), width: 250)
+    }
+
+    private func addColumn(_ identifier: String, title: String, width: CGFloat, minimum: CGFloat? = nil) {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
+        column.title = title
+        column.width = width
+        column.minWidth = minimum ?? width
+        column.maxWidth = identifier == "flag" ? .greatestFiniteMagnitude : width
+        column.resizingMask = identifier == "flag" ? .autoresizingMask : []
+        tableView.addTableColumn(column)
+    }
+
+    private func refreshFromModel() {
+        withObservationTracking {
+            var next: [Item] = []
+#if DEBUG
+            next.append(.devBuildBanner)
+#endif
+            next.append(contentsOf: CmuxFeatureFlags.allFlags.map { definition in
+                .flag(InternalFlagRowSnapshot(
+                    definition: definition,
+                    resolution: flags.resolution(for: definition),
+                    overrideValue: flags.overrideValue(for: definition)
+                ))
+            })
+            items = next
+            clearButton.isEnabled = CmuxFeatureFlags.allFlags.contains {
+                flags.overrideValue(for: $0) != nil
+            }
+            tableView.reloadData()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.refreshFromModel() }
+        }
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        items.count
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        82
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        false
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard items.indices.contains(row), let tableColumn else { return nil }
+        let identifier = tableColumn.identifier.rawValue
+        switch items[row] {
+#if DEBUG
+        case .devBuildBanner:
+            return debugBannerCell(for: identifier)
+#endif
+        case .flag(let snapshot):
+            return flagCell(for: identifier, snapshot: snapshot)
+        }
+    }
+
+    private func flagCell(for column: String, snapshot: InternalFlagRowSnapshot) -> NSView {
+        switch column {
+        case "flag":
+            return descriptionCell(
+                title: snapshot.definition.title,
+                key: snapshot.definition.key,
+                detail: snapshot.definition.flagDescription
             )
+        case "current":
+            let label = centeredLabel(snapshot.resolution.effectiveValue
+                ? String(localized: "featureFlags.value.on", defaultValue: "On")
+                : String(localized: "featureFlags.value.off", defaultValue: "Off"))
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = snapshot.resolution.effectiveValue ? .systemGreen : .secondaryLabelColor
+            return label
+        case "source":
+            return centeredLabel(snapshot.sourceTitle)
+        default:
+            let control = InternalFlagOverrideControl(snapshot: snapshot)
+            control.target = self
+            control.action = #selector(flagOverrideChanged(_:))
+            return centered(control)
         }
     }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "featureFlags.window.heading", defaultValue: "Feature Flags"))
-                    .font(.title2.weight(.semibold))
-                Text(String(
-                    localized: "featureFlags.window.subtitle",
-                    defaultValue: "Inspect PostHog flag state and local overrides for this Mac."
-                ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            .padding(.bottom, 16)
-
-            Divider()
-
-            InternalFlagHeaderRow()
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-#if DEBUG
-                    InternalBooleanSettingRow(
-                        title: String(
-                            localized: "debug.devBuildBanner.show",
-                            defaultValue: "Show Dev Build Banner"
-                        ),
-                        key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
-                        settingDescription: String(
-                            localized: "debug.devBuildBanner.description",
-                            defaultValue: "Controls the red debug-build label below the sidebar footer."
-                        ),
-                        isOn: $showSidebarDevBuildBanner
-                    )
-#endif
-                    ForEach(rows) { row in
-                        InternalFlagRow(
-                            snapshot: row,
-                            setOverride: { value in
-                                flags.setOverride(value, for: row.definition)
-                            }
-                        )
-                    }
-                }
-            }
-
-            Divider()
-
-            HStack(alignment: .center, spacing: 16) {
-                Text(String(
-                    localized: "featureFlags.footer.note",
-                    defaultValue: "Local overrides apply only when no remote value is available."
-                ))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-                Spacer(minLength: 12)
-
-                Button(String(localized: "featureFlags.clearAll", defaultValue: "Clear all overrides")) {
-                    flags.clearAllOverrides()
-                }
-                .disabled(!rows.contains { $0.overrideValue != nil })
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 14)
-        }
-        .frame(minWidth: 760, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
 
 #if DEBUG
-private struct InternalBooleanSettingRow: View {
-    let title: String
-    let key: String
-    let settingDescription: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        InternalFlagRowLayout(
-            title: title,
-            key: key,
-            flagDescription: settingDescription,
-            effectiveValue: isOn,
-            sourceTitle: String(localized: "featureFlags.source.local", defaultValue: "Local")
-        ) {
-            Picker(
-                String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
-                selection: $isOn
-            ) {
-                Text(String(localized: "featureFlags.override.on", defaultValue: "On"))
-                    .tag(true)
-                Text(String(localized: "featureFlags.override.off", defaultValue: "Off"))
-                    .tag(false)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 240)
-            .accessibilityIdentifier("InternalFlagsDevBuildBannerPicker")
+    private func debugBannerCell(for column: String) -> NSView {
+        switch column {
+        case "flag":
+            return descriptionCell(
+                title: String(localized: "debug.devBuildBanner.show", defaultValue: "Show Dev Build Banner"),
+                key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
+                detail: String(
+                    localized: "debug.devBuildBanner.description",
+                    defaultValue: "Controls the red debug-build label below the sidebar footer."
+                )
+            )
+        case "current":
+            let enabled = DevBuildBannerDebugSettings().showSidebarBanner
+            return centeredLabel(enabled
+                ? String(localized: "featureFlags.value.on", defaultValue: "On")
+                : String(localized: "featureFlags.value.off", defaultValue: "Off"))
+        case "source":
+            return centeredLabel(String(localized: "featureFlags.source.local", defaultValue: "Local"))
+        default:
+            let control = NSSegmentedControl(
+                labels: [
+                    String(localized: "featureFlags.override.on", defaultValue: "On"),
+                    String(localized: "featureFlags.override.off", defaultValue: "Off"),
+                ],
+                trackingMode: .selectOne,
+                target: self,
+                action: #selector(devBannerChanged(_:))
+            )
+            control.selectedSegment = DevBuildBannerDebugSettings().showSidebarBanner ? 0 : 1
+            control.identifier = NSUserInterfaceItemIdentifier("InternalFlagsDevBuildBannerPicker")
+            control.setAccessibilityLabel(String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"))
+            return centered(control)
         }
     }
-}
 #endif
 
-private struct InternalFlagRowLayout<OverrideControl: View>: View {
-    let title: String
-    let key: String
-    let flagDescription: String
-    let effectiveValue: Bool
-    let sourceTitle: String
-    @ViewBuilder let overrideControl: () -> OverrideControl
+    private func descriptionCell(title: String, key: String, detail: String) -> NSView {
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        let keyLabel = NSTextField(labelWithString: key)
+        keyLabel.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        keyLabel.textColor = .secondaryLabelColor
+        keyLabel.lineBreakMode = .byTruncatingTail
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 10.5)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 2
+        let stack = NSStackView(views: [titleLabel, keyLabel, detailLabel])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 2
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 0)
+        return stack
+    }
 
-    var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(key)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Text(flagDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func centeredLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .left
+        return label
+    }
 
-            InternalFlagValueBadge(isOn: effectiveValue)
-                .frame(width: 96, alignment: .leading)
+    private func centered(_ view: NSView) -> NSView {
+        let container = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            view.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
+    }
 
-            Text(sourceTitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(width: 96, alignment: .leading)
+    @objc private func flagOverrideChanged(_ sender: InternalFlagOverrideControl) {
+        flags.setOverride(sender.choice.overrideValue, for: sender.definition)
+    }
 
-            overrideControl()
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
+#if DEBUG
+    @objc private func devBannerChanged(_ sender: NSSegmentedControl) {
+        UserDefaults.standard.set(sender.selectedSegment == 0, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        tableView.reloadData()
+    }
+#endif
+
+    @objc private func clearAllOverrides() {
+        flags.clearAllOverrides()
     }
 }
 
-private struct InternalFlagHeaderRow: View {
-    var body: some View {
-        HStack(spacing: 16) {
-            Text(String(localized: "featureFlags.column.flag", defaultValue: "Flag"))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(String(localized: "featureFlags.column.current", defaultValue: "Current"))
-                .frame(width: 96, alignment: .leading)
-            Text(String(localized: "featureFlags.column.source", defaultValue: "Source"))
-                .frame(width: 96, alignment: .leading)
-            Text(String(localized: "featureFlags.column.override", defaultValue: "Override"))
-                .frame(width: 240, alignment: .leading)
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .textCase(.uppercase)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-private struct InternalFlagRowSnapshot: Identifiable, Equatable {
-    var id: String { definition.key }
-
+private struct InternalFlagRowSnapshot: Equatable {
     let definition: CmuxFeatureFlagDefinition
     let resolution: CmuxFeatureFlagResolution
     let overrideValue: Bool?
-
-    var isRemoteControlled: Bool {
-        resolution.source == .remote
-    }
 
     var sourceTitle: String {
         switch resolution.source {
@@ -254,80 +341,50 @@ private struct InternalFlagRowSnapshot: Identifiable, Equatable {
 
     var overrideChoice: InternalFlagOverrideChoice {
         switch overrideValue {
-        case .some(true):
-            return .on
-        case .some(false):
-            return .off
-        case .none:
-            return .noOverride
+        case .some(true): return .on
+        case .some(false): return .off
+        case .none: return .noOverride
         }
     }
 }
 
-private struct InternalFlagRow: View {
-    let snapshot: InternalFlagRowSnapshot
-    let setOverride: (Bool?) -> Void
+@MainActor
+private final class InternalFlagOverrideControl: NSSegmentedControl {
+    let definition: CmuxFeatureFlagDefinition
 
-    var body: some View {
-        InternalFlagRowLayout(
-            title: snapshot.definition.title,
-            key: snapshot.definition.key,
-            flagDescription: snapshot.definition.flagDescription,
-            effectiveValue: snapshot.resolution.effectiveValue,
-            sourceTitle: snapshot.sourceTitle
-        ) {
-            VStack(alignment: .leading, spacing: 4) {
-                Picker(
-                    String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
-                    selection: Binding(
-                        get: { snapshot.overrideChoice },
-                        set: { choice in setOverride(choice.overrideValue) }
-                    )
-                ) {
-                    ForEach(InternalFlagOverrideChoice.allCases) { choice in
-                        Text(choice.title).tag(choice)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(snapshot.isRemoteControlled)
-
-                if snapshot.isRemoteControlled {
-                    Text(String(
-                        localized: "featureFlags.override.remoteControlledNote",
-                        defaultValue: "Controlled remotely; local override inactive."
-                    ))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 240)
+    init(snapshot: InternalFlagRowSnapshot) {
+        definition = snapshot.definition
+        super.init(frame: .zero)
+        segmentCount = InternalFlagOverrideChoice.allCases.count
+        trackingMode = .selectOne
+        for choice in InternalFlagOverrideChoice.allCases {
+            setLabel(choice.title, forSegment: choice.rawValue)
         }
-    }
-}
-
-private struct InternalFlagValueBadge: View {
-    let isOn: Bool
-
-    var body: some View {
-        Text(isOn ? String(localized: "featureFlags.value.on", defaultValue: "On") : String(localized: "featureFlags.value.off", defaultValue: "Off"))
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(isOn ? Color.green : Color.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(isOn ? Color.green.opacity(0.14) : Color.secondary.opacity(0.12))
+        selectedSegment = snapshot.overrideChoice.rawValue
+        isEnabled = snapshot.resolution.source != .remote
+        setAccessibilityLabel(String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"))
+        if snapshot.resolution.source == .remote {
+            toolTip = String(
+                localized: "featureFlags.override.remoteControlledNote",
+                defaultValue: "Controlled remotely; local override inactive."
             )
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var choice: InternalFlagOverrideChoice {
+        InternalFlagOverrideChoice(rawValue: selectedSegment) ?? .noOverride
     }
 }
 
-private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
+private enum InternalFlagOverrideChoice: Int, CaseIterable {
     case on
     case off
     case noOverride
-
-    var id: Self { self }
 
     var title: String {
         switch self {
@@ -342,12 +399,9 @@ private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
 
     var overrideValue: Bool? {
         switch self {
-        case .on:
-            return true
-        case .off:
-            return false
-        case .noOverride:
-            return nil
+        case .on: return true
+        case .off: return false
+        case .noOverride: return nil
         }
     }
 }

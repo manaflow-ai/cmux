@@ -1,5 +1,3 @@
-import SwiftUI
-
 #if DEBUG
 struct MinimalModeInvalidationProbe {
     var contentViewBody: (() -> Void)?
