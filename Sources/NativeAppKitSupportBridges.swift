@@ -712,15 +712,9 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 isFocused: configuration.isFocused,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ))
-        case .workspaceTodo:
-            guard let todoPanel = panel as? WorkspaceTodoPanel else { return setEmpty() }
-            rootView = AnyView(WorkspaceTodoPanelView(
-                panel: todoPanel,
-                isFocused: configuration.isFocused,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
         case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
-             .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading:
+             .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading,
+             .workspaceTodo:
             setEmpty()
         }
         rootView = AnyView(

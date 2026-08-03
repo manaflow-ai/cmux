@@ -61,6 +61,7 @@ final class PanelContentViewController: NSViewController {
         case markdown
         case filePreview
         case cloudVMLoading
+        case workspaceTodo
         case transitional(String)
     }
 
@@ -150,6 +151,8 @@ final class PanelContentViewController: NSViewController {
             return .filePreview
         case .cloudVMLoading:
             return .cloudVMLoading
+        case .workspaceTodo:
+            return .workspaceTodo
         default:
             return .transitional(configuration.panel.panelType.rawValue)
         }
@@ -182,6 +185,8 @@ final class PanelContentViewController: NSViewController {
             return FilePreviewPanelNativeViewController(configuration: configuration)
         case .cloudVMLoading:
             return CloudVMLoadingPanelNativeViewController(configuration: configuration)
+        case .workspaceTodo:
+            return WorkspaceTodoPanelNativeViewController(configuration: configuration)
         case .transitional:
             return TransitionalPanelLeafHostingController(configuration: configuration)
         }
