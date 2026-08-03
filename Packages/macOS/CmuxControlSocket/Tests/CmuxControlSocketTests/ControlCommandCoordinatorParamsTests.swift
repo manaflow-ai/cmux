@@ -52,4 +52,24 @@ struct ControlCommandCoordinatorParamsTests {
         #expect(c.int(["x": .null], "x") == nil)
         #expect(c.double(["x": .array([])], "x") == nil)
     }
+
+    /// Issue #9191: a `workspace_id` that is present but resolves to nothing
+    /// (a recycled or foreign `workspace:N` ref) must be distinguishable from
+    /// an omitted one, so the app target can fail closed instead of falling
+    /// back to the caller's focused workspace.
+    @Test func routingFlagsPresentButUnresolvableWorkspaceID() {
+        let c = coordinator()
+
+        let unresolvable = c.routingSelectors(["workspace_id": .string("workspace:999")])
+        #expect(unresolvable.workspaceID == nil)
+        #expect(unresolvable.hasWorkspaceIDParam)
+
+        #expect(!c.routingSelectors([:]).hasWorkspaceIDParam)
+        #expect(!c.routingSelectors(["workspace_id": .null]).hasWorkspaceIDParam)
+
+        let uuid = UUID()
+        let resolved = c.routingSelectors(["workspace_id": .string(uuid.uuidString)])
+        #expect(resolved.workspaceID == uuid)
+        #expect(resolved.hasWorkspaceIDParam)
+    }
 }

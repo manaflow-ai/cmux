@@ -40,6 +40,11 @@ extension TerminalController: ControlSurfaceContext {
             guard !AppDelegate.isWindowDockRoutingId(wsId) else { return nil }
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
+        // A present-but-unresolvable workspace_id (a recycled or foreign
+        // `workspace:N` ref, or a typo) must resolve to no workspace. Falling
+        // through would target the caller's focused workspace and silently
+        // deliver input to the wrong session (issue #9191).
+        if routing.hasWorkspaceIDParam { return nil }
         if let surfaceId = routing.surfaceID {
             if let workspace = tabManager.tabs.first(where: { $0.panels[surfaceId] != nil }) {
                 return workspace

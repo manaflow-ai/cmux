@@ -7822,17 +7822,32 @@ struct CMUXCLI {
         }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
         let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        let wsRef = response["workspace_ref"] as? String
+        let wsUUID = response["workspace_id"] as? String
+        let wsDisplayId = wsRef ?? wsUUID ?? ""
         if jsonOutput && honorJSONOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
+            // Refs are per-connection handles that can be recycled, while the
+            // input RPCs (`surface.send_text`, `surface.send_key`,
+            // `workspace.prompt_submit`) key off UUIDs. `create` is the only
+            // place a caller can learn the new workspace's UUID, so keep the
+            // created object's UUIDs in the payload even in `refs` mode.
+            print(jsonString(formatIDs(
+                response,
+                mode: idFormat,
+                preservingIDKinds: ["workspace", "surface", "pane"]
+            )))
         } else {
-            print("OK \(wsId)")
+            print("OK \(wsDisplayId)")
         }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
+        // Route the initial command by UUID, not by the ref: a ref that another
+        // connection has since recycled would silently deliver to the focused
+        // surface instead.
+        let sendTarget = wsUUID ?? wsRef
+        if layoutOpt == nil, let commandText = commandOpt, let sendTarget, !sendTarget.isEmpty {
             let text = unescapeSendText(commandText + "\\n")
             let sendParams: [String: Any] = [
                 "text": text,
-                "workspace_id": wsId
+                "workspace_id": sendTarget
             ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
