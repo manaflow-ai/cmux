@@ -289,6 +289,19 @@ struct SidebarAppKitRowCellTests {
         return traits
     }
 
+    private static func fontPointSizes(in field: NSTextField) -> [CGFloat] {
+        let attributed = field.attributedStringValue
+        var pointSizes: [CGFloat] = []
+        attributed.enumerateAttribute(
+            .font,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, _, _ in
+            guard let font = value as? NSFont else { return }
+            pointSizes.append(font.pointSize)
+        }
+        return pointSizes
+    }
+
     private static let linkedMetadataMarkdown =
         "[acme/widgets](https://github.com/acme/widgets/tree/branch) • " +
         "[PR#123](https://github.com/acme/widgets/pull/123) • " +
@@ -360,6 +373,7 @@ struct SidebarAppKitRowCellTests {
         )
 
         #expect(title.stringValue == "Build and status")
+        #expect(Self.fontPointSizes(in: title).allSatisfy { abs($0 - 12.5) < 0.001 })
         let traits = Self.fontTraits(in: title)
         #expect(traits.contains { $0.contains(.boldFontMask) })
         #expect(traits.contains { $0.contains(.italicFontMask) })
@@ -377,6 +391,8 @@ struct SidebarAppKitRowCellTests {
                 .first { $0.stringValue == "Important and optional" }
         )
 
+        #expect(description.stringValue == "Important and optional")
+        #expect(Self.fontPointSizes(in: description).allSatisfy { abs($0 - 10.5) < 0.001 })
         let traits = Self.fontTraits(in: description)
         #expect(traits.contains { $0.contains(.boldFontMask) })
         #expect(traits.contains { $0.contains(.italicFontMask) })
@@ -384,6 +400,16 @@ struct SidebarAppKitRowCellTests {
 
     @Test
     func unreadBadgeExpandsForLargeCountsAndKeepsFullAccessibleCount() throws {
+        let singularCell = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 1)
+        )
+        let singularBadge = try #require(
+            Self.descendants(of: singularCell)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+        #expect(singularBadge.accessibilityLabel() == "1 unread notification")
+
         let cell = Self.configuredCell(
             model: Self.makeModel(canClose: false, unreadCount: 125)
         )
@@ -396,7 +422,7 @@ struct SidebarAppKitRowCellTests {
         )
 
         #expect(badge.frame.width > badge.frame.height)
-        #expect(badge.accessibilityLabel() == "125 unread")
+        #expect(badge.accessibilityLabel() == "125 unread notifications")
     }
 
     @Test
