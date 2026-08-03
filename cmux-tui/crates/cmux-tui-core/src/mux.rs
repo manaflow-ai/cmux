@@ -17837,6 +17837,7 @@ mod tests {
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let events = mux.subscribe();
         let initial_revision = mux.with_state(|state| state.resource_revision);
         let initial_epoch = mux.resource_event_epoch();
         let socket = mux
@@ -17849,6 +17850,10 @@ mod tests {
             .unwrap();
         assert_eq!(socket.state, AgentState::Working);
         assert_eq!(socket.source, AgentSource::Socket);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_millis(100)),
+            Ok(MuxEvent::TreeChanged)
+        ));
 
         let hook = mux
             .report_agent(
