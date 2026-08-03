@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { runLegacyTenantMigration } from "../scripts/subrouter/migrate-legacy-tenants";
 
@@ -14,51 +14,72 @@ describe("legacy Subrouter migration operator", () => {
       apply: false,
       finalizeSource: true,
       destinationUrl: "https://sr.cmux.com",
-      openStackSession: mock(),
-      exchangeHostedTenant: mock(),
-      migrateLegacyTenant: mock(),
-      log: mock(),
+      openStackSession: async () => {
+        throw new Error("unexpected session");
+      },
+      exchangeHostedTenant: async () => {
+        throw new Error("unexpected exchange");
+      },
+      migrateLegacyTenant: async () => {
+        throw new Error("unexpected migration");
+      },
+      log: () => {},
     })).rejects.toThrow("--finalize-source requires --apply");
   });
 
   test("dry-run reports database mappings without minting sessions or mutating either service", async () => {
-    const openStackSession = mock();
-    const exchangeHostedTenant = mock();
-    const migrateLegacyTenant = mock();
-    const log = mock();
+    let sessionsOpened = 0;
+    let exchanges = 0;
+    let migrations = 0;
+    const logged: unknown[] = [];
 
     await expect(runLegacyTenantMigration({
       mappings,
       apply: false,
       finalizeSource: false,
       destinationUrl: "https://sr.cmux.com",
-      openStackSession,
-      exchangeHostedTenant,
-      migrateLegacyTenant,
-      log,
+      openStackSession: async () => {
+        sessionsOpened += 1;
+        throw new Error("unexpected session");
+      },
+      exchangeHostedTenant: async () => {
+        exchanges += 1;
+        throw new Error("unexpected exchange");
+      },
+      migrateLegacyTenant: async () => {
+        migrations += 1;
+        throw new Error("unexpected migration");
+      },
+      log: (value) => logged.push(value),
     })).resolves.toEqual({ planned: 2, migrated: 0, sourceFinalized: false });
 
-    expect(openStackSession).not.toHaveBeenCalled();
-    expect(exchangeHostedTenant).not.toHaveBeenCalled();
-    expect(migrateLegacyTenant).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith({
+    expect(sessionsOpened).toBe(0);
+    expect(exchanges).toBe(0);
+    expect(migrations).toBe(0);
+    expect(logged).toEqual([{
       mode: "dry-run",
       destinationUrl: "https://sr.cmux.com",
       tenants: [
         { teamId: "team-a", legacyTenantId: "legacy-a" },
         { teamId: "team-b", legacyTenantId: "legacy-b" },
       ],
-    });
+    }]);
   });
 
   test("applies mappings by immutable ids and always closes impersonation sessions", async () => {
-    const closeA = mock(async () => {});
-    const closeB = mock(async () => {});
-    const openStackSession = mock(async (mapping: (typeof mappings)[number]) => ({
+    const openedTeamIds: string[] = [];
+    const closedTeamIds: string[] = [];
+    const migrationInputs: unknown[] = [];
+    const openStackSession = async (mapping: (typeof mappings)[number]) => {
+      openedTeamIds.push(mapping.teamId);
+      return {
       accessToken: `access-${mapping.teamId}`,
-      close: mapping.teamId === "team-a" ? closeA : closeB,
-    }));
-    const exchangeHostedTenant = mock(async (input: {
+        close: async () => {
+          closedTeamIds.push(mapping.teamId);
+        },
+      };
+    };
+    const exchangeHostedTenant = async (input: {
       readonly teamId: string;
       readonly accessToken: string;
     }) => ({
@@ -66,14 +87,17 @@ describe("legacy Subrouter migration operator", () => {
       tenantKey: input.teamId === "team-a"
         ? "srt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         : "srt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    }));
-    const migrateLegacyTenant = mock(async (input: {
+    });
+    const migrateLegacyTenant = async (input: {
       readonly legacyTenantId: string;
       readonly finalizeSource: boolean;
-    }) => ({
+    }) => {
+      migrationInputs.push(input);
+      return {
       migrated: input.legacyTenantId === "legacy-a" ? 2 : 4,
       sourceFinalized: input.finalizeSource,
-    }));
+      };
+    };
     const logged: unknown[] = [];
 
     await expect(runLegacyTenantMigration({
@@ -87,42 +111,45 @@ describe("legacy Subrouter migration operator", () => {
       log: (value) => logged.push(value),
     })).resolves.toEqual({ planned: 2, migrated: 6, sourceFinalized: true });
 
-    expect(openStackSession.mock.calls.map(([mapping]) => mapping.teamId)).toEqual([
+    expect(openedTeamIds).toEqual([
       "team-a",
       "team-b",
     ]);
-    expect(migrateLegacyTenant).toHaveBeenNthCalledWith(1, {
+    expect(migrationInputs[0]).toEqual({
       legacyTenantId: "legacy-a",
       destinationUrl: "https://sr.cmux.com",
       tenantKey: "srt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       finalizeSource: true,
     });
-    expect(closeA).toHaveBeenCalledTimes(1);
-    expect(closeB).toHaveBeenCalledTimes(1);
+    expect(closedTeamIds).toEqual(["team-a", "team-b"]);
     expect(JSON.stringify(logged)).not.toContain("srt_");
     expect(JSON.stringify(logged)).not.toContain("access-");
   });
 
   test("closes the current session before stopping after a migration failure", async () => {
-    const close = mock(async () => {});
-    const migrateLegacyTenant = mock(async () => {
-      throw new Error("source migration failed");
-    });
+    let closeCount = 0;
 
     await expect(runLegacyTenantMigration({
       mappings: [mappings[0]!],
       apply: true,
       finalizeSource: false,
       destinationUrl: "https://sr.cmux.com",
-      openStackSession: mock(async () => ({ accessToken: "access-secret", close })),
-      exchangeHostedTenant: mock(async () => ({
+      openStackSession: async () => ({
+        accessToken: "access-secret",
+        close: async () => {
+          closeCount += 1;
+        },
+      }),
+      exchangeHostedTenant: async () => ({
         tenantId: "team-b",
         tenantKey: "srt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      })),
-      migrateLegacyTenant,
-      log: mock(),
+      }),
+      migrateLegacyTenant: async () => {
+        throw new Error("source migration failed");
+      },
+      log: () => {},
     })).rejects.toThrow("source migration failed");
 
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(closeCount).toBe(1);
   });
 });

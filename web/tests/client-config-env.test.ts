@@ -34,6 +34,7 @@ const requiredRelayProductionEnv = {
 };
 
 const requiredSubrouterDeploymentEnv = {
+  SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
   SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
   SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
   SUBROUTER_ALLOWED_TEAM_IDS: "test-team",

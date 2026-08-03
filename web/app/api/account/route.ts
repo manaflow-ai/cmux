@@ -68,6 +68,10 @@ import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import {
+  createLegacySubrouterRetirementClient,
+  legacySubrouterRetirementConfig,
+} from "../../../services/subrouter/legacyRetirementClient";
+import {
   destroyVm,
   listUserVms,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -169,6 +173,17 @@ export async function DELETE(request: Request): Promise<Response> {
     // introduce a second validation failure after destructive work begins.
     const postHogDeletionConfig = postHogPersonDeletionConfig();
     const accountScope = await accountDeletionScopeForUser(stackUser);
+    const legacyTenantIds = await legacySubrouterTenantIdsForTeams(
+      accountScope.teamIds,
+    );
+    // Resolve the legacy credential before PostHog, billing, VM, vault, or
+    // hosted tenant cleanup. Existing DB mappings are retained until both
+    // services confirm retirement, so a failed request remains retryable.
+    const legacySubrouter = legacyTenantIds.length > 0
+      ? createLegacySubrouterRetirementClient(
+          legacySubrouterRetirementConfig(),
+        )
+      : null;
     // The tombstone blocks new forwards before this fail-prone external call.
     // Complete analytics deletion before billing, access, VM, vault, tenant,
     // or Stack cleanup so a retryable PostHog failure leaves those resources
@@ -247,6 +262,11 @@ export async function DELETE(request: Request): Promise<Response> {
         await refreshAccountDeletionTombstoneLease(userId);
       },
     });
+    for (const tenantId of legacyTenantIds) {
+      const retirement = await legacySubrouter!.revokeTenant(tenantId);
+      if (retirement.revoked) destructiveCleanupStarted = true;
+      await refreshAccountDeletionTombstoneLease(userId);
+    }
     for (const teamId of accountScope.teamIds) {
       // Retirement revokes every tenant key before credential-bearing state is
       // deleted. A 202 response remains retryable while live requests drain.
@@ -323,6 +343,17 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return jsonResponse({ error: "account_delete_failed" }, 500);
   }
+}
+
+async function legacySubrouterTenantIdsForTeams(
+  teamIds: readonly string[],
+): Promise<readonly string[]> {
+  if (teamIds.length === 0) return [];
+  const rows = await cloudDb()
+    .select({ tenantId: subrouterTenants.tenantId })
+    .from(subrouterTenants)
+    .where(inArray(subrouterTenants.teamId, teamIds));
+  return uniqueNonEmptyStrings(rows.map((row) => row.tenantId));
 }
 
 async function currentDeletableStackUser(request: Request): Promise<DeletableStackSession | null> {
