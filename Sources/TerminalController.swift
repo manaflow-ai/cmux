@@ -318,11 +318,15 @@ class TerminalController {
     }
 
     private final class V2BrowserUndefinedSentinel: Sendable {}
+    private final class V2BrowserEvaluationFailure: Sendable {
+        let code: String
+        let message: String
 
-    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
+        init(code: String, message: String) {
+            self.code = code
+            self.message = message
+        }
+    }
 
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
@@ -335,14 +339,7 @@ class TerminalController {
     /// Stateless browser-control logic (JS builders, value normalization,
     /// diagnostics, failure classification) extracted to `CmuxBrowser`.
     /// The per-surface mutable state and WebKit evaluation seam stay here.
-    private nonisolated let v2BrowserControl = BrowserControlService(
-        evalEnvelope: BrowserEvalEnvelope(
-            typeKey: TerminalController.v2BrowserEvalEnvelopeTypeKey,
-            valueKey: TerminalController.v2BrowserEvalEnvelopeValueKey,
-            typeUndefined: TerminalController.v2BrowserEvalEnvelopeTypeUndefined,
-            typeValue: TerminalController.v2BrowserEvalEnvelopeTypeValue
-        )
-    )
+    private nonisolated let v2BrowserControl = BrowserControlService()
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
@@ -6379,110 +6376,11 @@ class TerminalController {
                 channel: .javaScript
             ))
         }
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxBridgeSafeValue = (__value, __seen = new WeakMap()) => {
-          if (__value === null || typeof __value !== 'object') {
-            return __value;
-          }
-
-          let __objectTag = '';
-          try {
-            __objectTag = Object.prototype.toString.call(__value);
-          } catch (_) {}
-
-          // iframe values have different constructors, so instanceof alone does
-          // not recognize their DOMRect brand.
-          const __isDOMRect =
-            (typeof DOMRectReadOnly !== 'undefined' && __value instanceof DOMRectReadOnly) ||
-            __objectTag === '[object DOMRect]' ||
-            __objectTag === '[object DOMRectReadOnly]';
-          if (__isDOMRect) {
-            return {
-              x: __value.x,
-              y: __value.y,
-              width: __value.width,
-              height: __value.height,
-              top: __value.top,
-              right: __value.right,
-              bottom: __value.bottom,
-              left: __value.left
-            };
-          }
-
-          if (__seen.has(__value)) {
-            return __seen.get(__value);
-          }
-
-          if (Array.isArray(__value)) {
-            const __copy = [];
-            __seen.set(__value, __copy);
-            for (const __item of __value) {
-              __copy.push(__cmuxBridgeSafeValue(__item, __seen));
-            }
-            return __copy;
-          }
-
-          const __prototype = Object.getPrototypeOf(__value);
-          if (__prototype === Object.prototype || __prototype === null) {
-            const __copy = {};
-            __seen.set(__value, __copy);
-            for (const __key of Object.keys(__value)) {
-              __copy[__key] = __cmuxBridgeSafeValue(__value[__key], __seen);
-            }
-            return __copy;
-          }
-
-          return __value;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            // WebKit 620.3 on macOS 15 can crash in JSDOMRect::create while
-            // deserializing a DOMRect returned by callAsyncJavaScript. Flatten
-            // DOMRect values in JavaScript before they cross the process boundary.
-            __cmux_v: __cmuxBridgeSafeValue(__value)
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
 
         var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {
@@ -6551,18 +6449,13 @@ class TerminalController {
         case .failure(let message):
             return .failure(message)
         case .success(let value):
-            guard let dict = value as? [String: Any],
-                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
-                return .success(value)
-            }
-
-            switch type {
-            case Self.v2BrowserEvalEnvelopeTypeUndefined:
+            switch v2BrowserControl.resolveEvaluationEnvelope(value) {
+            case .undefined:
                 return .success(v2BrowserUndefinedSentinel)
-            case Self.v2BrowserEvalEnvelopeTypeValue:
-                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
-            default:
-                return .success(value)
+            case .value(let unwrapped), .unwrapped(let unwrapped):
+                return .success(unwrapped)
+            case .error(let code, let message):
+                return .success(V2BrowserEvaluationFailure(code: code, message: message))
             }
         }
     }
@@ -7340,6 +7233,13 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
+                if let failure = value as? V2BrowserEvaluationFailure {
+                    return .err(
+                        code: failure.code,
+                        message: failure.message,
+                        data: nil
+                    )
+                }
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
