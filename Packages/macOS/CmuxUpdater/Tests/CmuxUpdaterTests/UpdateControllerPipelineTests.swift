@@ -385,6 +385,11 @@ import Testing
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
         harness.model.setState(.checking(.init(cancel: {})))
+        let freshPrompt = ChoiceBox()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+        await waitUntil("fresh prompt to be accepted") { freshPrompt.choice == .install }
+
+        // Sparkle answers the accepted install with a terminal that never starts a download.
         harness.model.setState(.notFound(.init(acknowledgement: {
             didAcknowledgeNotFound = true
         })))
