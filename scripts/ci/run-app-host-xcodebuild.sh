@@ -101,7 +101,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit "$status"
   fi
 
-  if ! grep -Eq 'SocketControlServer: Listening on |message = "socket.listener.start"' "$log_path"; then
+  if ! grep -Eq 'SocketControlServer: Listening on |\[Listener\] Listening on |message = "socket.listener.start"' "$log_path"; then
     echo "FAIL: app-host xcodebuild output did not include socket listener evidence" >&2
     exit 1
   fi
