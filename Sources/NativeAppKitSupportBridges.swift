@@ -299,6 +299,7 @@ struct NotificationsPage: NSViewControllerRepresentable {
 
 struct PanelContentView: NSViewControllerRepresentable {
     @Environment(\.paneDropZone) private var paneDropZone
+    @Environment(\.settingsRuntime) private var settingsRuntime
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
@@ -386,7 +387,7 @@ struct PanelContentView: NSViewControllerRepresentable {
     }
 
     private var configuration: PanelContentConfiguration {
-        PanelContentConfiguration(
+        var configuration = PanelContentConfiguration(
             panel: panel,
             workspaceID: workspaceId,
             paneID: paneId,
@@ -412,6 +413,8 @@ struct PanelContentView: NSViewControllerRepresentable {
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
             onTriggerFlash: onTriggerFlash
         )
+        configuration.settingsRuntime = settingsRuntime
+        return configuration
     }
 }
 
@@ -598,21 +601,6 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 appearance: configuration.appearance,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ))
-        case .customSidebar:
-            guard let sidebarPanel = panel as? CustomSidebarPanel,
-                  let tabManager = configuration.customSidebarTabManager,
-                  let windowAppearance = configuration.windowAppearance
-            else { return setEmpty() }
-            rootView = AnyView(CustomSidebarPanelView(
-                panel: sidebarPanel,
-                tabManager: tabManager,
-                sidebarUnread: configuration.customSidebarUnread,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                appearance: configuration.appearance,
-                windowAppearance: windowAppearance,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return setEmpty() }
             rootView = AnyView(ProjectPanelView(
@@ -631,7 +619,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
             guard let loadingPanel = panel as? CloudVMLoadingPanel else { return setEmpty() }
             rootView = AnyView(CloudVMLoadingPanelView(panel: loadingPanel))
         case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
-             .rightSidebarTool:
+             .rightSidebarTool, .customSidebar:
             setEmpty()
         }
         rootView = AnyView(
