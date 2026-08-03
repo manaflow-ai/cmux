@@ -88,6 +88,10 @@ pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
 pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
+/// Journal administration is restricted to the owner-only Unix socket. Use
+/// that stable security principal for receipts so a reconnect can safely
+/// replay a command instead of creating a second event.
+const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -4871,7 +4875,7 @@ fn handle_resource_connection_message(
         | ResourceOperation::SessionJournalSegmentList
         | ResourceOperation::SessionJournalSegmentSeal => {
             let result = trusted_local_resource_client(mux, client, operation)
-                .and_then(|()| handle_journal_extension_request(mux, client, &request));
+                .and_then(|()| handle_journal_extension_request(mux, &request));
             send_resource_response(writer, id, operation, result)
         }
         ResourceOperation::SessionJournalSubscribe => {
@@ -6859,11 +6863,10 @@ fn remote_journal_record_value(document: &JournalDocument) -> Value {
 
 fn handle_journal_extension_request(
     mux: &Arc<Mux>,
-    client: u64,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let session_id = resource_session_id(mux, &request.selectors)?;
-    let origin = public_client_id(&session_id, client)?.to_string();
+    let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
             .journal_producer_manifests()
@@ -6884,7 +6887,7 @@ fn handle_journal_extension_request(
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.put_journal_producer(&manifest, &origin, idempotency_key)
+            mux.put_journal_producer(&manifest, origin, idempotency_key)
                 .map(|commit| {
                     json!({
                         "value":{
@@ -6915,7 +6918,7 @@ fn handle_journal_extension_request(
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.append_journal_ingress(&ingress, &origin, idempotency_key)
+            mux.append_journal_ingress(&ingress, origin, idempotency_key)
                 .map(|commit| {
                     json!({
                         "value":{
@@ -6957,7 +6960,7 @@ fn handle_journal_extension_request(
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.put_journal_hook(&manifest, &origin, idempotency_key)
+            mux.put_journal_hook(&manifest, origin, idempotency_key)
                 .map(|commit| {
                     json!({
                         "value":{
@@ -6979,7 +6982,7 @@ fn handle_journal_extension_request(
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.create_journal_checkpoint(&origin, idempotency_key)
+            mux.create_journal_checkpoint(origin, idempotency_key)
                 .map(|commit| {
                     let checkpoint = commit.checkpoint;
                     json!({
@@ -7040,7 +7043,7 @@ fn handle_journal_extension_request(
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.seal_journal_segments(through_sequence, &origin, idempotency_key)
+            mux.seal_journal_segments(through_sequence, origin, idempotency_key)
                 .map(|commit| {
                     json!({
                         "value":{

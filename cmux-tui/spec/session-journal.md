@@ -251,6 +251,11 @@ size, subjects, and causation depth before the transaction. An idempotency key
 returns the original event receipt on retry. A causation ID must name an
 existing event and advances the bounded causal depth.
 
+Trusted local journal mutations use the stable owner of the owner-only Unix
+socket as their receipt principal, not a transient connection ID. Repeating a
+CLI command after reconnect with the same key and payload therefore returns
+the original receipt; reusing that key with different input is a conflict.
+
 ## Focus, layout, resize, and content
 
 The following are replayable user intent:
