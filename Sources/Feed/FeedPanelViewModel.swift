@@ -25,7 +25,7 @@ final class FeedPanelViewModel {
         arm()
     }
 
-    deinit {
+    isolated deinit {
         if let storeInstalledObserver {
             NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
