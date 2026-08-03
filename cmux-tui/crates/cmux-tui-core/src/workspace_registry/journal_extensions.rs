@@ -67,15 +67,17 @@ pub struct JournalHookRegex {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct JournalHookFilter {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kinds: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<JournalClass>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subject_kinds: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_sensitivity: Option<JournalSensitivity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub regex: Option<JournalHookRegex>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub include_causal_descendants: bool,
 }
 
@@ -2336,6 +2338,10 @@ fn default_hook_regex_field() -> String {
 
 const fn default_true() -> bool {
     true
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn operation_receipt(
