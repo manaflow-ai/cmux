@@ -1886,10 +1886,9 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(selection: $sidebarSelectionState.selection)
-                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
-                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
-                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+            if sidebarSelectionState.selection == .notifications {
+                NotificationsPage(selection: $sidebarSelectionState.selection)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
