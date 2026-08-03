@@ -6,6 +6,7 @@ import CmuxFeedback
 import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSimulatorUI
 import CmuxSidebarProviderKit
 import CmuxSidebarRemoteRender
@@ -414,6 +415,52 @@ struct PanelContentView: NSViewControllerRepresentable {
     }
 }
 
+struct WorkspaceCanvasHostView: NSViewControllerRepresentable {
+    @ObservedObject var workspace: Workspace
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let portalPriority: Int
+    let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+
+    @Environment(\.settingsRuntime) private var settingsRuntime
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
+
+    func makeNSViewController(context: Context) -> WorkspaceCanvasHostController {
+        WorkspaceCanvasHostController(configuration: configuration)
+    }
+
+    func updateNSViewController(_ controller: WorkspaceCanvasHostController, context: Context) {
+        controller.update(configuration: configuration)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: WorkspaceCanvasHostController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+
+    private var configuration: WorkspaceCanvasHostConfiguration {
+        WorkspaceCanvasHostConfiguration(
+            workspace: workspace,
+            isWorkspaceVisible: isWorkspaceVisible,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            portalPriority: portalPriority,
+            appearance: appearance,
+            windowAppearance: windowAppearance,
+            settingsRuntime: settingsRuntime,
+            sessionContentWidthPresentation: SessionContentWidthPresentation(
+                storedMaximumWidth: storedSessionContentMaximumWidth,
+                storedAlignment: storedSessionContentAlignment
+            )
+        )
+    }
+}
+
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating
@@ -534,6 +581,11 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
         case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn:
             setEmpty()
         }
+        rootView = AnyView(
+            rootView
+                .environment(\.settingsRuntime, configuration.settingsRuntime)
+                .environment(\.cmuxCanvasInlineBrowserHosting, configuration.canvasInlineBrowserHosting)
+        )
     }
 
     private func setEmpty() {

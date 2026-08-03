@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxNotifications
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSimulatorUI
 
 @MainActor
@@ -10,10 +11,10 @@ struct PanelContentConfiguration {
     let panel: any Panel
     let workspaceID: UUID
     let paneID: PaneID
-    let isFocused: Bool
+    var isFocused: Bool
     let isSelectedInPane: Bool
-    let isVisibleInUI: Bool
-    let allowsPointerInput: Bool
+    var isVisibleInUI: Bool
+    var allowsPointerInput: Bool
     let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let portalPriority: Int
     let isSplit: Bool
@@ -26,6 +27,8 @@ struct PanelContentConfiguration {
     let paneOwnershipOverride: Bool?
     let terminalPaneOwnershipResolver: (@MainActor () -> Bool)?
     let paneDropZone: DropZone?
+    var settingsRuntime: SettingsRuntime? = nil
+    var canvasInlineBrowserHosting = false
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void

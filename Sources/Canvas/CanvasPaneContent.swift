@@ -10,10 +10,14 @@ import CmuxCanvasUI
 enum CanvasPaneContent {
     /// A terminal surface hosted directly as an AppKit subview.
     case terminal(TerminalPanel, SessionContentWidthPresentation)
-    /// Any other panel kind, hosted through an `NSHostingView`. Carries the
-    /// panel so the mount can drive panel-level lifecycle (browser webview
-    /// visibility / hidden-discard restore).
-    case hosted(any Panel, NSView, CanvasHostedPanelPresentation)
+    /// Any other panel kind, owned by the shared native panel controller.
+    /// Carries the panel so the mount can drive panel-level lifecycle.
+    case hosted(
+        any Panel,
+        PanelContentViewController,
+        CanvasHostedPanelPresentation,
+        PanelContentConfiguration
+    )
 }
 
 /// Owns the mounted content of one canvas pane and its teardown. This is the
@@ -26,6 +30,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     private let content: CanvasPaneContent
     private weak var container: NSView?
     private var onFocusPanel: ((UUID) -> Void)?
+    private var hostedConfiguration: PanelContentConfiguration?
 
     /// Mounts panel content into the pane's content container.
     ///
@@ -64,8 +69,9 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 self.onFocusPanel?(self.panelId)
             }
             view = hostedView
-        case .hosted(let panel, let hostedView, _):
-            view = hostedView
+        case .hosted(let panel, let controller, _, let configuration):
+            hostedConfiguration = configuration
+            view = controller.view
             // Canvas drives panel-level webview lifecycle: mounting makes the
             // browser visible (and restores a hidden-discarded webview), and
             // marks the webview inline-hosted so portal reconcilers leave it
@@ -84,8 +90,6 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 makeVisible: makeTerminalVisible
             )
         case .hosted:
-            // Hosting views self-size to SwiftUI's ideal size under
-            // autoresizing; pin with constraints so the pane dictates size.
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
             NSLayoutConstraint.activate([
@@ -121,6 +125,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     /// terminal stays mounted.
     func updatePresentation(
         isFocused: Bool,
+        isVisibleInUI: Bool,
         allowsPointerInput: Bool,
         showsInactiveOverlay: Bool,
         inactiveOverlayColor: NSColor,
@@ -137,9 +142,15 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 opacity: CGFloat(inactiveOverlayOpacity),
                 visible: showsInactiveOverlay
             )
-        case .hosted(_, _, let presentation):
+        case .hosted(_, let controller, let presentation, _):
             presentation.setFocused(isFocused)
             presentation.setAllowsPointerInput(allowsPointerInput)
+            guard var configuration = hostedConfiguration else { return }
+            configuration.isFocused = isFocused
+            configuration.isVisibleInUI = isVisibleInUI
+            configuration.allowsPointerInput = allowsPointerInput
+            hostedConfiguration = configuration
+            controller.update(configuration: configuration)
         }
     }
 
@@ -150,7 +161,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel, _):
             panel.surface.setOcclusion(rendering)
-        case .hosted(let panel, _, _):
+        case .hosted(let panel, _, _, _):
             (panel as? SimulatorPanel)?.setCanvasRendering(rendering)
             // Offscreen browsers may hidden-discard their webview; coming
             // back into the render region restores it.
@@ -172,7 +183,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
-        case .hosted(let panel, let view, _):
+        case .hosted(let panel, let controller, _, _):
             if let simulatorPanel = panel as? SimulatorPanel {
                 simulatorPanel.setVisibleInUI(false)
                 simulatorPanel.setCanvasRendering(nil)
@@ -181,8 +192,10 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 browserPanel.canvasInlineHostingActive = false
                 browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")
             }
-            view.removeFromSuperview()
+            controller.teardown()
+            controller.view.removeFromSuperview()
         }
+        hostedConfiguration = nil
         onFocusPanel = nil
     }
 }

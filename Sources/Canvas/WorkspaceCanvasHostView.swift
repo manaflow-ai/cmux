@@ -1,58 +1,72 @@
-import SwiftUI
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCanvasUI
-import CmuxSettings
+import CmuxNotifications
 import CmuxSettingsUI
 
-/// SwiftUI host for a workspace's canvas layout.
-///
-/// This is the single legacy-observing boundary: it watches the
-/// `ObservableObject` workspace, projects panels into value snapshots
-/// (`CanvasPaneDescriptor`), and hands them to the `CmuxCanvasUI` package
-/// through an `NSViewRepresentable`. The canvas itself never observes
-/// stores, and the package never sees panel types — content crosses the
-/// seam as `CanvasPaneContentMount` witnesses.
-struct WorkspaceCanvasHostView: View {
-    @ObservedObject var workspace: Workspace
+@MainActor
+struct WorkspaceCanvasHostConfiguration {
+    let workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
-    @Environment(\.settingsRuntime) private var settingsRuntime
-    @AppStorage(SessionContentWidthSettings.maxWidthKey)
-    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
-    @AppStorage(SessionContentWidthSettings.alignmentKey)
-    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
+    let settingsRuntime: SettingsRuntime?
+    let sessionContentWidthPresentation: SessionContentWidthPresentation
+}
 
-    var body: some View {
-        CanvasRootRepresentable(
-            workspace: workspace,
-            descriptors: descriptors,
+/// Owns the AppKit canvas and projects workspace state into pane descriptors.
+/// The parent compatibility boundary remains while the main workspace root
+/// is migrated.
+@MainActor
+final class WorkspaceCanvasHostController: NSViewController {
+    private let workspace: Workspace
+    private let canvasView: CanvasRootView
+
+    init(configuration: WorkspaceCanvasHostConfiguration) {
+        workspace = configuration.workspace
+        canvasView = Self.makeCanvasView(workspace: configuration.workspace)
+        super.init(nibName: nil, bundle: nil)
+        view = canvasView
+        update(configuration: configuration)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: WorkspaceCanvasHostConfiguration) {
+        precondition(configuration.workspace === workspace, "Canvas host cannot change workspaces")
+        canvasView.sync(
+            descriptors: descriptors(configuration: configuration),
             focusedPanelId: workspace.focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: configuration.isWorkspaceVisible
         )
     }
 
-    private var descriptors: [CanvasPaneDescriptor] {
+    func teardown() {
+        canvasView.teardown()
+    }
+
+    private func descriptors(
+        configuration: WorkspaceCanvasHostConfiguration
+    ) -> [CanvasPaneDescriptor] {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
         let isSplit = workspace.orderedPanelIds.count > 1
-        let sessionContentWidthPresentation = SessionContentWidthPresentation(
-            storedMaximumWidth: storedSessionContentMaximumWidth,
-            storedAlignment: storedSessionContentAlignment
-        )
-        return workspace.orderedPanelIds.compactMap { panelId in
-            guard let panel = workspace.panels[panelId] else { return nil }
-            let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
+
+        return workspace.orderedPanelIds.compactMap { [weak workspace] panelId in
+            guard let workspace, let panel = workspace.panels[panelId] else { return nil }
+            let isFocused = configuration.isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
                 tab: CanvasTabChrome(
                     id: panelId,
                     title: panel.displayTitle,
-                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
+                    iconSystemName: Self.defaultIcon(for: panel.panelType)
                 ),
                 isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
@@ -63,13 +77,13 @@ struct WorkspaceCanvasHostView: View {
                             workspace: workspace,
                             pointerInputOwner: container,
                             isFocused: isFocused,
-                            isWorkspaceVisible: isWorkspaceVisible,
-                            allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
-                            portalPriority: portalPriority,
-                            appearance: appearance,
-                            windowAppearance: windowAppearance,
-                            settingsRuntime: settingsRuntime,
-                            sessionContentWidthPresentation: sessionContentWidthPresentation
+                            isWorkspaceVisible: configuration.isWorkspaceVisible,
+                            allowsPointerInput: configuration.isWorkspaceVisible && configuration.isWorkspaceInputActive,
+                            portalPriority: configuration.portalPriority,
+                            appearance: configuration.appearance,
+                            windowAppearance: configuration.windowAppearance,
+                            settingsRuntime: configuration.settingsRuntime,
+                            sessionContentWidthPresentation: configuration.sessionContentWidthPresentation
                         ),
                         panelId: panelId,
                         container: container,
@@ -82,18 +96,19 @@ struct WorkspaceCanvasHostView: View {
                     guard let mount = mount as? CanvasPaneContentMount else { return }
                     mount.updatePresentation(
                         isFocused: isFocused,
-                        allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
+                        isVisibleInUI: configuration.isWorkspaceVisible,
+                        allowsPointerInput: configuration.isWorkspaceVisible && configuration.isWorkspaceInputActive,
                         showsInactiveOverlay: isSplit && !isFocused,
-                        inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-                        sessionContentWidthPresentation: sessionContentWidthPresentation
+                        inactiveOverlayColor: configuration.appearance.unfocusedOverlayNSColor,
+                        inactiveOverlayOpacity: configuration.appearance.unfocusedOverlayOpacity,
+                        sessionContentWidthPresentation: configuration.sessionContentWidthPresentation
                     )
                 }
             )
         }
     }
 
-    static func defaultIcon(for panelType: PanelType) -> String {
+    private static func defaultIcon(for panelType: PanelType) -> String {
         switch panelType {
         case .terminal: return "terminal"
         case .browser: return "globe"
@@ -112,7 +127,6 @@ struct WorkspaceCanvasHostView: View {
         }
     }
 
-    @MainActor
     private static func makeContent(
         panel: any Panel,
         workspace: Workspace?,
@@ -129,49 +143,48 @@ struct WorkspaceCanvasHostView: View {
         if let terminalPanel = panel as? TerminalPanel {
             return .terminal(terminalPanel, sessionContentWidthPresentation)
         }
-        let workspaceId = workspace?.id ?? UUID()
-        let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
+
         let presentation = CanvasHostedPanelPresentation(
             isFocused: isFocused,
             allowsPointerInput: allowsPointerInput,
             pointerInputOwner: pointerInputOwner
         )
-        let content = CanvasHostedPanelContentView(
-            presentation: presentation,
+        var panelConfiguration = PanelContentConfiguration(
             panel: panel,
-            workspaceId: workspaceId,
-            paneId: paneId,
+            workspaceID: workspace?.id ?? UUID(),
+            paneID: workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID(),
+            isFocused: isFocused,
+            isSelectedInPane: true,
             isVisibleInUI: isWorkspaceVisible,
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: presentation.acceptsPointerEntryEvent,
             portalPriority: portalPriority,
+            isSplit: false,
             appearance: appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: workspace?.owningTabManager,
-            onRequestPanelFocus: { [weak workspace] in
-                workspace?.focusPanel(panel.id)
-            }
+            customSidebarUnread: TerminalNotificationStore.shared.sidebarUnread,
+            hasUnreadNotification: false,
+            terminalAgentContext: "",
+            paneOwnershipOverride: nil,
+            terminalPaneOwnershipResolver: nil,
+            paneDropZone: nil,
+            onFocus: { [weak workspace] in workspace?.focusPanel(panel.id) },
+            onRequestPanelFocus: { [weak workspace] in workspace?.focusPanel(panel.id) },
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
         )
-        let hosted = NSHostingView(rootView: AnyView(
-            content.environment(\.settingsRuntime, settingsRuntime)
-        ))
-        // The pane's content container dictates the size; never let the
-        // hosting view shrink to SwiftUI's ideal size.
-        hosted.sizingOptions = []
-        return .hosted(panel, hosted, presentation)
+        panelConfiguration.settingsRuntime = settingsRuntime
+        panelConfiguration.canvasInlineBrowserHosting = !UserDefaults.standard.bool(
+            forKey: "canvasInlineBrowserHostingDisabled"
+        )
+        let controller = PanelContentViewController(configuration: panelConfiguration)
+        return .hosted(panel, controller, presentation, panelConfiguration)
     }
-}
 
-/// Bridges descriptor snapshots into the package's AppKit canvas.
-/// `updateNSView` is the one place SwiftUI state flows into the canvas, so
-/// no store observation exists below this point.
-private struct CanvasRootRepresentable: NSViewRepresentable {
-    let workspace: Workspace
-    let descriptors: [CanvasPaneDescriptor]
-    let focusedPanelId: UUID?
-    let isWorkspaceVisible: Bool
-
-    func makeNSView(context: Context) -> CanvasRootView {
-        let workspace = workspace
-        return CanvasRootView(
+    private static func makeCanvasView(workspace: Workspace) -> CanvasRootView {
+        CanvasRootView(
             model: workspace.canvasModel,
             commandScrollHintText: String(
                 localized: "canvas.commandScrollHint",
@@ -204,11 +217,6 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     workspace.syncCanvasBrowserPortalZOrder()
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
-                    // Window-portal-hosted content (browser webviews) tracks
-                    // anchor geometry; canvas scrolls/zooms/drags move anchors
-                    // without any split-layout event. Sync each browser anchor
-                    // synchronously so webviews track pane geometry within the
-                    // same frame, then schedule the coalesced settle-up pass.
                     if let workspace {
                         for panel in workspace.panels.values {
                             guard let browserPanel = panel as? BrowserPanel,
@@ -220,10 +228,6 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 },
                 onViewportSettled: { [weak workspace] window in
-                    // Gesture end: force-refresh every portal-hosted browser so
-                    // content can never rest at a stale frame, and re-derive
-                    // portal z-priorities from canvas z-order so front panes'
-                    // webviews stack above back panes'.
                     guard let workspace else { return }
                     let zOrder = workspace.canvasModel.layout.paneIDs
                     for panel in workspace.panels.values {
@@ -250,17 +254,5 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 return CanvasTheme(canvasBackground: background, paneBackground: background)
             }
         )
-    }
-
-    func updateNSView(_ nsView: CanvasRootView, context: Context) {
-        nsView.sync(
-            descriptors: descriptors,
-            focusedPanelId: focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
-        )
-    }
-
-    static func dismantleNSView(_ nsView: CanvasRootView, coordinator: ()) {
-        nsView.teardown()
     }
 }
