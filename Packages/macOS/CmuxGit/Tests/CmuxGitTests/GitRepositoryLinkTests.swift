@@ -25,12 +25,23 @@ import Testing
         "file:/tmp/repo.git",
         "ftp://host/repo.git",
         "ftp:host/repo.git",
+        "svn:host/repo.git",
+        "custom:host/repo.git",
         "https:///group/repo.git",
         "ssh://git@/group/repo.git",
     ])
     func rejectsNonBrowsableRemote(remoteURL: String) {
         let output = "origin\t\(remoteURL) (fetch)\n"
         #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
+    @Test(arguments: [
+        ("git@gitlab.example.com:group/repo.git", "https://gitlab.example.com/group/repo"),
+        ("git.example.com:group/repo.git", "https://git.example.com/group/repo"),
+    ])
+    func preservesUnambiguousSCPRemotes(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)?.url.absoluteString == url)
     }
 
     @Test func ignoresPushOnlyRemotes() {

@@ -97,13 +97,15 @@ extension GitMetadataService {
         guard parts.count == 2,
               !parts[0].isEmpty,
               !parts[1].isEmpty,
-              !repositoryLinkSCPAddressUsesScheme(String(parts[0])),
               !remoteURL.contains("?"),
               !remoteURL.contains("#") else {
             return nil
         }
 
         let address = String(parts[0])
+        guard repositoryLinkSCPAddressIsUnambiguous(address) else {
+            return nil
+        }
         let host = address.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false).last.map(String.init) ?? ""
         guard !host.isEmpty,
               !host.contains("/"),
@@ -119,9 +121,13 @@ extension GitMetadataService {
         return components.url
     }
 
-    /// Whether an SCP address prefix is a URL scheme rather than an SSH host.
-    private nonisolated static func repositoryLinkSCPAddressUsesScheme(_ address: String) -> Bool {
-        ["file", "ftp", "git", "http", "https", "ssh"].contains(address.lowercased())
+    /// Whether an SCP address is distinct from a bare URI scheme prefix.
+    private nonisolated static func repositoryLinkSCPAddressIsUnambiguous(_ address: String) -> Bool {
+        let components = address.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        if components.count == 2 {
+            return !components[0].isEmpty && !components[1].isEmpty
+        }
+        return address.contains(".")
     }
 
     /// Removes separators and a trailing `.git` from a non-empty repository path.
