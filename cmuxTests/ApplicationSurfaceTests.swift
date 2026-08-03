@@ -1478,6 +1478,49 @@ struct ApplicationSurfaceTests {
         )
     }
 
+    @Test func applicationSnapshotOmitsCapturedTitleAndPreservesUserRename() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Private quarterly plan"
+        ))
+        defer { panel.close() }
+
+        let capturedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.type == .application
+            }
+        )
+        #expect(capturedSnapshot.title == nil)
+        #expect(capturedSnapshot.customTitle == nil)
+        #expect(
+            ClosedItemHistoryStore.title(for: capturedSnapshot)
+                == String(
+                    localized: "menu.history.recentlyClosed.panel.application",
+                    defaultValue: "Application"
+                )
+        )
+
+        #expect(workspace.setPanelCustomTitle(
+            panelId: panel.id,
+            title: "Pinned app"
+        ))
+        let renamedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.type == .application
+            }
+        )
+        #expect(renamedSnapshot.title == nil)
+        #expect(renamedSnapshot.customTitle == "Pinned app")
+        #expect(ClosedItemHistoryStore.title(for: renamedSnapshot) == "Pinned app")
+    }
+
     @Test func pickerFailuresDoNotExposeRawHelperDiagnostics() async throws {
         let privateDiagnostic =
             "Failed to map /Users/private/Library/Application Support/cmux/frame"
