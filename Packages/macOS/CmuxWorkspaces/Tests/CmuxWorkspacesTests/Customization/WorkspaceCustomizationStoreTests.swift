@@ -73,6 +73,48 @@ struct WorkspaceCustomizationStoreTests {
         #expect(fixture.store.customization(for: thirdId)?.customTitle == .value("Third"))
     }
 
+    @Test("production journal is isolated from the global settings domain")
+    func isolatedJournalDomain() throws {
+        let sourceSuiteName = "WorkspaceCustomizationSource.\(UUID().uuidString)"
+        let bundleIdentifier = "com.cmuxterm.tests.\(UUID().uuidString)"
+        let journalSuiteName = WorkspaceCustomizationStore.isolatedDefaultsSuiteName(
+            bundleIdentifier: bundleIdentifier
+        )
+        let sourceDefaults = try #require(UserDefaults(suiteName: sourceSuiteName))
+        sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+        UserDefaults.standard.removePersistentDomain(forName: journalSuiteName)
+        defer {
+            sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+            UserDefaults.standard.removePersistentDomain(forName: journalSuiteName)
+        }
+
+        let migratedId = UUID()
+        let sourceStore = WorkspaceCustomizationStore(defaults: sourceDefaults)
+        sourceStore.setCustomTitle("Migrated", for: migratedId)
+        let sourceSnapshot = try #require(
+            sourceDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey)
+        )
+
+        let journalDefaults = WorkspaceCustomizationStore.makeIsolatedDefaults(
+            source: sourceDefaults,
+            bundleIdentifier: bundleIdentifier
+        )
+        let journalStore = WorkspaceCustomizationStore(defaults: journalDefaults)
+
+        #expect(journalDefaults !== sourceDefaults)
+        #expect(journalStore.customization(for: migratedId)?.customTitle == .value("Migrated"))
+
+        journalStore.setCustomTitle("New", for: UUID())
+
+        #expect(
+            sourceDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey) == sourceSnapshot,
+            "Journal mutations must not publish changes through the global settings domain."
+        )
+        #expect(
+            journalDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey) != sourceSnapshot
+        )
+    }
+
     @Test("legacy migration promotes only supplied unambiguous directory owners")
     func legacyMigration() throws {
         let fixture = try makeFixture()
