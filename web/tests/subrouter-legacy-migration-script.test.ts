@@ -74,6 +74,35 @@ describe("legacy Subrouter migration operator", () => {
     }]);
   });
 
+  test("pre-copy keeps hosted cutover closed until the source is finalized", async () => {
+    const readyTeamIds: string[] = [];
+
+    await expect(runLegacyTenantMigration({
+      mappings: [mappings[0]!],
+      apply: true,
+      finalizeSource: false,
+      destinationUrl: "https://sr.cmux.com",
+      openStackSession: async () => ({
+        accessToken: "access-secret",
+        close: async () => {},
+      }),
+      exchangeHostedTenant: async () => ({
+        tenantId: "team-b",
+        tenantKey: "srt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+      migrateLegacyTenant: async () => ({
+        migrated: 4,
+        sourceFinalized: false,
+      }),
+      markHostedReady: async (teamId) => {
+        readyTeamIds.push(teamId);
+      },
+      log: () => {},
+    })).resolves.toEqual({ planned: 1, migrated: 4, sourceFinalized: false });
+
+    expect(readyTeamIds).toEqual([]);
+  });
+
   test("applies mappings by immutable ids and always closes impersonation sessions", async () => {
     const openedTeamIds: string[] = [];
     const closedTeamIds: string[] = [];

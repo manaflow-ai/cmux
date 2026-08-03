@@ -97,6 +97,22 @@ describe("client config env validation", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test("allows hosted-only production after the temporary legacy admin token is retired", () => {
+    const { SUBROUTER_ADMIN_TOKEN: _legacyToken, ...hostedSubrouterEnv } =
+      requiredSubrouterDeploymentEnv;
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...hostedSubrouterEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("SUBROUTER_ADMIN_TOKEN");
+  });
+
   test("allows credential-free docs channel deployments", () => {
     const result = importEnv({
       PATH: requiredEnv.PATH,
