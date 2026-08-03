@@ -329,8 +329,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         // The store is the ONE consumer of the decoder's frame stream, for the
         // subscription's whole life. An AsyncStream dies permanently when its
         // consuming task is cancelled, so consumption must never be tied to a
-        // SwiftUI view or coordinator lifetime: an early version consumed it
-        // from the representable's coordinator, and the first remount killed
+        // presentation or coordinator lifetime: an early version consumed it
+        // from a view coordinator, and the first remount killed
         // frames (while un-flow-controlled state events kept updating chrome)
         // and starved the Mac's ack window into a permanent stall. Views render
         // `state.latestFrame` via observation instead.

@@ -1,38 +1,55 @@
 #if canImport(UIKit)
-import SwiftUI
+import Observation
 import UIKit
 
-/// SwiftUI host for the mirrored Mac browser frame and its UIKit input surface.
-///
-/// The displayed frame comes from `state.latestFrame` (installed by the
-/// store's long-lived decoder consumer), so remounting this representable can
-/// never interrupt the frame pipeline; `updateUIView` re-runs via observation
-/// whenever a new frame lands.
-struct BrowserStreamSurfaceRepresentable: UIViewRepresentable {
-    /// The observable panel state.
-    let state: BrowserStreamSurfaceState
-    /// RPC action sink.
-    let actions: BrowserStreamSurfaceActions
+/// UIKit owner for the mirrored Mac browser frame and its input coordinator.
+@MainActor
+final class BrowserStreamSurfaceView: UIView {
+    private let state: BrowserStreamSurfaceState
+    private let contentView = BrowserStreamContentView(frame: .zero)
+    private let coordinator: BrowserStreamSurfaceCoordinator
 
     init(state: BrowserStreamSurfaceState, actions: BrowserStreamSurfaceActions) {
         self.state = state
-        self.actions = actions
+        coordinator = BrowserStreamSurfaceCoordinator(panelID: state.id, actions: actions)
+        super.init(frame: .zero)
+        accessibilityIdentifier = "BrowserStreamSurface"
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        coordinator.attach(to: contentView)
+        observeState()
     }
 
-    func makeCoordinator() -> BrowserStreamSurfaceCoordinator {
-        BrowserStreamSurfaceCoordinator(panelID: state.id, actions: actions)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    func makeUIView(context: Context) -> BrowserStreamContentView {
-        let view = BrowserStreamContentView(frame: .zero)
-        context.coordinator.attach(to: view)
-        return view
+    private func observeState() {
+        withObservationTracking {
+            _ = state.shouldFocusInput
+            _ = state.latestFrame
+            _ = state.pendingCommand
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyState()
+                self.observeState()
+            }
+        }
+        applyState()
     }
 
-    func updateUIView(_ view: BrowserStreamContentView, context: Context) {
-        view.setInputFocused(state.shouldFocusInput)
-        if let frame = state.latestFrame { view.display(frame) }
-        if let command = state.consumeCommand() { context.coordinator.perform(command) }
+    private func applyState() {
+        contentView.setInputFocused(state.shouldFocusInput)
+        if let frame = state.latestFrame { contentView.display(frame) }
+        if let command = state.consumeCommand() { coordinator.perform(command) }
     }
 }
 #endif

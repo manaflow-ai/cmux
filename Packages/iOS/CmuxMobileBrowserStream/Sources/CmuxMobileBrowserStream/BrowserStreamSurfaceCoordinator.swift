@@ -6,8 +6,8 @@ import UIKit
 ///
 /// Frames deliberately do NOT flow through here: the store consumes the
 /// decoder stream for the subscription's lifetime and publishes
-/// `state.latestFrame`, so a SwiftUI remount can never kill the frame
-/// pipeline. This coordinator only carries input out of the content view.
+/// `state.latestFrame`, so replacing a UIKit presentation cannot kill the
+/// frame pipeline. This coordinator only carries input out of the content view.
 @MainActor
 final class BrowserStreamSurfaceCoordinator: BrowserStreamContentViewDelegate {
     private let panelID: String

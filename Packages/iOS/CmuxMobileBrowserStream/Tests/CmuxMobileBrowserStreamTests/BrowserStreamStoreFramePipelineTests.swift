@@ -7,7 +7,7 @@ import Testing
 ///
 /// The store, not a view coordinator, must consume the decoder stream: an
 /// AsyncStream dies permanently when its consuming task is cancelled, and a
-/// view-owned consumer stalled the whole stream on the first SwiftUI remount
+/// view-owned consumer stalled the whole stream on the first presentation remount
 /// (frames froze while state events kept flowing, and the Mac's unacked
 /// window filled). These tests pin the store-lifetime behavior.
 @MainActor

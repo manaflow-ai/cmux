@@ -73,7 +73,7 @@ extension WorkspaceDetailView {
     }
 
     func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
-        BrowserStreamPane(
+        BrowserStreamPaneHost(
             state: browser,
             actions: BrowserStreamSurfaceActions(
                 pointer: { await store.sendMobileBrowserPointer($0) },
@@ -117,6 +117,20 @@ private struct MobileBrowserPaneHost: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: MobileBrowserPane, context: Context) {
         controller.update(onClose: onClose)
+    }
+}
+
+private struct BrowserStreamPaneHost: UIViewControllerRepresentable {
+    let state: BrowserStreamSurfaceState
+    let actions: BrowserStreamSurfaceActions
+    let reconnect: () -> Void
+
+    func makeUIViewController(context: Context) -> BrowserStreamPane {
+        BrowserStreamPane(state: state, actions: actions, reconnect: reconnect)
+    }
+
+    func updateUIViewController(_ controller: BrowserStreamPane, context: Context) {
+        controller.update(reconnect: reconnect)
     }
 }
 #endif

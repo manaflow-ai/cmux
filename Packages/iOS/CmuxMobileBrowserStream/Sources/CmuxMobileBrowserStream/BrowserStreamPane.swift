@@ -1,265 +1,310 @@
 #if canImport(UIKit)
-public import SwiftUI
 import CmuxMobileSupport
+import Observation
+public import UIKit
 
-/// Complete iOS chrome and interaction surface for one streamed Mac browser panel.
-///
-/// Chrome is a single always-visible bottom glass bar in the thumb zone:
-/// back, forward, an editable address field, reload, and a keyboard toggle,
-/// like a phone browser's bottom bar. It never collapses to a pill and has no
-/// close affordance of its own; leaving the browser surface (via the workspace
-/// surface picker or nav back) stops the stream from the parent. The bar lives
-/// in a bottom `safeAreaInset` so it reserves its height (never occluding page
-/// content) and rides up with the keyboard.
-public struct BrowserStreamPane: View {
-    @State private var state: BrowserStreamSurfaceState
-    @State private var addressText: String
-    @State private var isEditingAddress = false
-    @FocusState private var addressFocused: Bool
-    /// Real soft-keyboard visibility; the keyboard button binds to this rather
-    /// than the input proxy's focus intent because the address field or a
-    /// dialog's text field can raise the keyboard without the proxy knowing.
-    @State private var keyboardVisibility = MobileKeyboardVisibilityObserver()
-
+/// Complete UIKit chrome and interaction owner for one streamed Mac browser.
+@MainActor
+public final class BrowserStreamPane: UIViewController, UITextFieldDelegate {
+    private let state: BrowserStreamSurfaceState
     private let actions: BrowserStreamSurfaceActions
-    private let reconnect: () -> Void
+    private var reconnect: () -> Void
+    private let surfaceView: BrowserStreamSurfaceView
+    private let overlayContainer = UIView()
+    private let backButton = UIButton(type: .system)
+    private let forwardButton = UIButton(type: .system)
+    private let addressField = UITextField()
+    private let reloadButton = UIButton(type: .system)
+    private let keyboardButton = UIButton(type: .system)
+    private let progressView = UIProgressView(progressViewStyle: .bar)
+    private let keyboardVisibility = MobileKeyboardVisibilityObserver()
+    private var renderedDialogID: String?
+    private var renderedStatusKey = ""
 
-    /// Creates a full browser streaming pane.
-    /// - Parameters:
-    ///   - state: Observable state for the selected Mac browser panel.
-    ///   - actions: RPC actions for browser input and chrome.
-    ///   - reconnect: Requests connection recovery for the selected Mac.
     public init(
         state: BrowserStreamSurfaceState,
         actions: BrowserStreamSurfaceActions,
         reconnect: @escaping () -> Void
     ) {
-        _state = State(initialValue: state)
-        _addressText = State(initialValue: state.url ?? "")
+        self.state = state
         self.actions = actions
         self.reconnect = reconnect
+        surfaceView = BrowserStreamSurfaceView(state: state, actions: actions)
+        super.init(nibName: nil, bundle: nil)
     }
 
-    /// Renders the mirrored frame surface, lifecycle overlays, and bottom chrome.
-    public var body: some View {
-        BrowserStreamSurfaceRepresentable(state: state, actions: actions)
-            .accessibilityIdentifier("BrowserStreamSurface")
-            .overlay { paneOverlay }
-            .background(Color(red: 0.055, green: 0.063, blue: 0.075))
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .onChange(of: state.url) { _, url in
-                if !addressFocused { addressText = url ?? "" }
-            }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    public func update(reconnect: @escaping () -> Void) {
+        self.reconnect = reconnect
+        refresh()
     }
 
-    // MARK: - Bottom chrome
+    public override func loadView() {
+        let root = UIView()
+        root.backgroundColor = UIColor(red: 0.055, green: 0.063, blue: 0.075, alpha: 1)
 
-    private var bottomBar: some View {
-        HStack(spacing: 10) {
-            chromeButton(
-                systemImage: "chevron.backward",
-                label: L10n.string("mobile.browserStream.back", defaultValue: "Back"),
-                identifier: "BrowserStreamBackButton",
-                disabled: !state.canGoBack
-            ) { state.request(.back) }
-            chromeButton(
-                systemImage: "chevron.forward",
-                label: L10n.string("mobile.browserStream.forward", defaultValue: "Forward"),
-                identifier: "BrowserStreamForwardButton",
-                disabled: !state.canGoForward
-            ) { state.request(.forward) }
+        configureChromeButton(backButton, symbol: "chevron.backward", label: L10n.string("mobile.browserStream.back", defaultValue: "Back"), identifier: "BrowserStreamBackButton", action: #selector(goBack))
+        configureChromeButton(forwardButton, symbol: "chevron.forward", label: L10n.string("mobile.browserStream.forward", defaultValue: "Forward"), identifier: "BrowserStreamForwardButton", action: #selector(goForward))
+        configureChromeButton(reloadButton, symbol: "arrow.clockwise", label: L10n.string("mobile.browserStream.reload", defaultValue: "Reload"), identifier: "BrowserStreamReloadButton", action: #selector(reloadPage))
+        configureChromeButton(keyboardButton, symbol: "keyboard", label: L10n.string("mobile.browserStream.keyboard", defaultValue: "Show Keyboard"), identifier: "BrowserStreamKeyboardButton", action: #selector(toggleKeyboard))
 
-            addressField
+        addressField.borderStyle = .roundedRect
+        addressField.backgroundColor = UIColor.quaternarySystemFill.withAlphaComponent(0.5)
+        addressField.placeholder = L10n.string("mobile.browserStream.addressPlaceholder", defaultValue: "Search or enter address")
+        addressField.autocapitalizationType = .none
+        addressField.autocorrectionType = .no
+        addressField.keyboardType = .webSearch
+        addressField.returnKeyType = .go
+        addressField.textAlignment = .center
+        addressField.font = .preferredFont(forTextStyle: .footnote)
+        addressField.delegate = self
+        addressField.accessibilityIdentifier = "BrowserStreamAddressField"
 
-            chromeButton(
-                systemImage: "arrow.clockwise",
-                label: L10n.string("mobile.browserStream.reload", defaultValue: "Reload"),
-                identifier: "BrowserStreamReloadButton"
-            ) { state.request(.reload) }
-            chromeButton(
-                systemImage: keyboardVisibility.isVisible ? "keyboard.chevron.compact.down" : "keyboard",
-                label: keyboardVisibility.isVisible
-                    ? L10n.string("mobile.browserStream.hideKeyboard", defaultValue: "Hide Keyboard")
-                    : L10n.string("mobile.browserStream.keyboard", defaultValue: "Show Keyboard"),
-                identifier: "BrowserStreamKeyboardButton"
-            ) {
-                if keyboardVisibility.isVisible {
-                    // Hide means hide, whichever responder raised the keyboard.
-                    addressFocused = false
-                    state.hideKeyboardForChrome()
-                    UIApplication.shared.dismissMobileKeyboard()
-                } else {
-                    state.toggleManualKeyboard()
-                }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .mobileGlassPill()
-        .overlay(alignment: .bottom) { pillProgress }
-        .clipShape(Capsule())
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        let chromeStack = UIStackView(arrangedSubviews: [backButton, forwardButton, addressField, reloadButton, keyboardButton])
+        chromeStack.axis = .horizontal
+        chromeStack.alignment = .center
+        chromeStack.spacing = 10
+
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+        blur.layer.cornerRadius = 24
+        blur.clipsToBounds = true
+        chromeStack.translatesAutoresizingMaskIntoConstraints = false
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        blur.contentView.addSubview(chromeStack)
+        blur.contentView.addSubview(progressView)
+        NSLayoutConstraint.activate([
+            chromeStack.leadingAnchor.constraint(equalTo: blur.contentView.leadingAnchor, constant: 14),
+            chromeStack.trailingAnchor.constraint(equalTo: blur.contentView.trailingAnchor, constant: -14),
+            chromeStack.topAnchor.constraint(equalTo: blur.contentView.topAnchor, constant: 9),
+            chromeStack.bottomAnchor.constraint(equalTo: blur.contentView.bottomAnchor, constant: -9),
+            progressView.leadingAnchor.constraint(equalTo: blur.contentView.leadingAnchor, constant: 18),
+            progressView.trailingAnchor.constraint(equalTo: blur.contentView.trailingAnchor, constant: -18),
+            progressView.bottomAnchor.constraint(equalTo: blur.contentView.bottomAnchor),
+            progressView.heightAnchor.constraint(equalToConstant: 2),
+        ])
+
+        surfaceView.translatesAutoresizingMaskIntoConstraints = false
+        overlayContainer.translatesAutoresizingMaskIntoConstraints = false
+        blur.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(surfaceView)
+        root.addSubview(overlayContainer)
+        root.addSubview(blur)
+        NSLayoutConstraint.activate([
+            blur.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            blur.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            blur.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            surfaceView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            surfaceView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            surfaceView.topAnchor.constraint(equalTo: root.topAnchor),
+            surfaceView.bottomAnchor.constraint(equalTo: blur.topAnchor, constant: -10),
+            overlayContainer.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor),
+            overlayContainer.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor),
+            overlayContainer.topAnchor.constraint(equalTo: surfaceView.topAnchor),
+            overlayContainer.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor),
+        ])
+        view = root
+        refresh()
+        observeState()
     }
 
-    private var addressField: some View {
-        HStack(spacing: 6) {
-            if !isEditingAddress {
-                Image(systemName: isSecure ? "lock.fill" : "globe")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            TextField(
-                L10n.string("mobile.browserStream.addressPlaceholder", defaultValue: "Search or enter address"),
-                text: $addressText
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .keyboardType(.webSearch)
-            .submitLabel(.go)
-            .multilineTextAlignment(isEditingAddress ? .leading : .center)
-            .focused($addressFocused)
-            .onSubmit { submitAddress() }
-            .font(.footnote)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .onChange(of: addressFocused) { _, focused in
-            isEditingAddress = focused
-            // Show the full URL for editing, collapse back to the host on blur.
-            if focused {
-                addressText = state.url ?? addressText
-            } else {
-                addressText = state.url ?? ""
-            }
-        }
-        .accessibilityIdentifier("BrowserStreamAddressField")
+    private func configureChromeButton(_ button: UIButton, symbol: String, label: String, identifier: String, action: Selector) {
+        button.setImage(UIImage(systemName: symbol), for: .normal)
+        button.accessibilityLabel = label
+        button.accessibilityIdentifier = identifier
+        button.addTarget(self, action: action, for: .touchUpInside)
     }
 
-    @ViewBuilder
-    private var pillProgress: some View {
-        if state.isLoading {
-            ProgressView(value: state.progress)
-                .progressViewStyle(.linear)
-                .frame(height: 2)
-                .padding(.horizontal, 18)
-                .accessibilityLabel(L10n.string("mobile.browserStream.loading", defaultValue: "Loading"))
-                .accessibilityIdentifier("BrowserStreamProgress")
-        }
-    }
-
-    private var isSecure: Bool {
-        state.url?.hasPrefix("https://") == true
-    }
-
-    // MARK: - Overlays
-
-    @ViewBuilder
-    private var paneOverlay: some View {
-        ZStack {
-            surfaceOverlay
-            if let dialog = state.pendingDialog {
-                BrowserStreamDialogCard(dialog: dialog) { response in
-                    Task { await actions.respondToDialog(response) }
-                }
-                .id(dialog.dialogID)
+    private func observeState() {
+        withObservationTracking {
+            _ = state.url
+            _ = state.canGoBack
+            _ = state.canGoForward
+            _ = state.isLoading
+            _ = state.progress
+            _ = state.connectionStatus
+            _ = state.streamStatus
+            _ = state.latestFrame
+            _ = state.pendingDialog
+            _ = keyboardVisibility.isVisible
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refresh()
+                self.observeState()
             }
         }
     }
 
-    @ViewBuilder
-    private var surfaceOverlay: some View {
+    private func refresh() {
+        guard isViewLoaded else { return }
+        backButton.isEnabled = state.canGoBack
+        forwardButton.isEnabled = state.canGoForward
+        if !addressField.isFirstResponder { addressField.text = state.url ?? "" }
+        let keyboardVisible = keyboardVisibility.isVisible
+        keyboardButton.setImage(UIImage(systemName: keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard"), for: .normal)
+        keyboardButton.accessibilityLabel = keyboardVisible
+            ? L10n.string("mobile.browserStream.hideKeyboard", defaultValue: "Hide Keyboard")
+            : L10n.string("mobile.browserStream.keyboard", defaultValue: "Show Keyboard")
+        progressView.isHidden = !state.isLoading
+        progressView.progress = Float(state.progress)
+        progressView.accessibilityLabel = L10n.string("mobile.browserStream.loading", defaultValue: "Loading")
+        progressView.accessibilityIdentifier = "BrowserStreamProgress"
+        refreshOverlay()
+    }
+
+    private func refreshOverlay() {
+        let statusKey = "\(state.connectionStatus)-\(state.streamStatus)-\(state.latestFrame == nil)"
+        let dialogID = state.pendingDialog?.dialogID
+        guard statusKey != renderedStatusKey || dialogID != renderedDialogID else { return }
+        renderedStatusKey = statusKey
+        renderedDialogID = dialogID
+        overlayContainer.subviews.forEach { $0.removeFromSuperview() }
+        if let status = makeStatusOverlay() { installOverlay(status) }
+        if let dialog = state.pendingDialog {
+            let card = BrowserStreamDialogCard(dialog: dialog) { [actions] response in
+                Task { await actions.respondToDialog(response) }
+            }
+            installOverlay(card)
+        }
+    }
+
+    private func makeStatusOverlay() -> UIView? {
         if state.connectionStatus != .connected {
-            disconnectedOverlay
-        } else if state.streamStatus == .paused {
-            statusOverlay(
+            let reconnecting = state.connectionStatus == .reconnecting
+            return statusOverlay(
+                title: reconnecting
+                    ? L10n.string("mobile.connection.reconnecting", defaultValue: "Reconnecting")
+                    : L10n.string("mobile.browserStream.disconnected", defaultValue: "Browser Disconnected"),
+                detail: reconnecting
+                    ? L10n.string("mobile.connection.reconnectingDescription", defaultValue: "Trying to reach the selected cmux build.")
+                    : L10n.string("mobile.browserStream.disconnectedDetail", defaultValue: "Reconnect to the Mac to continue streaming."),
+                symbol: reconnecting ? nil : "wifi.slash",
+                spinning: reconnecting,
+                reconnect: reconnecting ? nil : { [weak self] in self?.reconnect() },
+                identifier: "BrowserStreamDisconnectedOverlay"
+            )
+        }
+        if state.streamStatus == .paused {
+            return statusOverlay(
                 title: L10n.string("mobile.browserStream.paused", defaultValue: "Stream Paused"),
                 detail: L10n.string("mobile.browserStream.pausedDetail", defaultValue: "Return to cmux to resume the browser mirror."),
-                symbol: "pause.circle"
+                symbol: "pause.circle",
+                identifier: "BrowserStreamPausedOverlay"
             )
-            .accessibilityIdentifier("BrowserStreamPausedOverlay")
-        } else if state.latestFrame == nil {
-            statusOverlay(
+        }
+        if state.latestFrame == nil {
+            return statusOverlay(
                 title: L10n.string("mobile.browserStream.waiting", defaultValue: "Waiting for Browser"),
                 detail: L10n.string("mobile.browserStream.waitingDetail", defaultValue: "The first frame will appear when the Mac is ready."),
-                symbol: "globe"
+                symbol: "globe",
+                identifier: "BrowserStreamPlaceholder"
             )
-            .accessibilityIdentifier("BrowserStreamPlaceholder")
+        }
+        return nil
+    }
+
+    private func statusOverlay(
+        title: String,
+        detail: String,
+        symbol: String?,
+        spinning: Bool = false,
+        reconnect: (() -> Void)? = nil,
+        identifier: String
+    ) -> UIView {
+        let root = UIView()
+        root.backgroundColor = UIColor.black.withAlphaComponent(0.78)
+        root.accessibilityIdentifier = identifier
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        if spinning {
+            let spinner = UIActivityIndicatorView(style: .large)
+            spinner.color = .white
+            spinner.startAnimating()
+            stack.addArrangedSubview(spinner)
+        } else if let symbol {
+            let image = UIImageView(image: UIImage(systemName: symbol))
+            image.tintColor = .white
+            image.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 36)
+            stack.addArrangedSubview(image)
+        }
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textColor = .white
+        stack.addArrangedSubview(titleLabel)
+        let detailLabel = UILabel()
+        detailLabel.text = detail
+        detailLabel.font = .preferredFont(forTextStyle: .subheadline)
+        detailLabel.textColor = .white
+        detailLabel.textAlignment = .center
+        detailLabel.numberOfLines = 0
+        stack.addArrangedSubview(detailLabel)
+        if let reconnect {
+            var configuration = UIButton.Configuration.filled()
+            configuration.title = L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect")
+            configuration.image = UIImage(systemName: "arrow.clockwise")
+            configuration.imagePadding = 6
+            let button = UIButton(configuration: configuration)
+            button.accessibilityIdentifier = "BrowserStreamReconnectButton"
+            button.addAction(UIAction { _ in reconnect() }, for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -28),
+        ])
+        return root
+    }
+
+    private func installOverlay(_ overlay: UIView) {
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlayContainer.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: overlayContainer.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: overlayContainer.trailingAnchor),
+            overlay.topAnchor.constraint(equalTo: overlayContainer.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: overlayContainer.bottomAnchor),
+        ])
+    }
+
+    @objc private func goBack() { state.request(.back) }
+    @objc private func goForward() { state.request(.forward) }
+    @objc private func reloadPage() { state.request(.reload) }
+
+    @objc private func toggleKeyboard() {
+        if keyboardVisibility.isVisible {
+            addressField.resignFirstResponder()
+            state.hideKeyboardForChrome()
+            UIApplication.shared.dismissMobileKeyboard()
+        } else {
+            state.toggleManualKeyboard()
         }
     }
 
-    private var disconnectedOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.82).ignoresSafeArea()
-            VStack(spacing: 14) {
-                if state.connectionStatus == .reconnecting {
-                    ProgressView().controlSize(.large)
-                } else {
-                    Image(systemName: "wifi.slash").font(.system(size: 38))
-                }
-                Text(
-                    state.connectionStatus == .reconnecting
-                        ? L10n.string("mobile.connection.reconnecting", defaultValue: "Reconnecting")
-                        : L10n.string("mobile.browserStream.disconnected", defaultValue: "Browser Disconnected")
-                )
-                    .font(.headline)
-                Text(
-                    state.connectionStatus == .reconnecting
-                        ? L10n.string("mobile.connection.reconnectingDescription", defaultValue: "Trying to reach the selected cmux build.")
-                        : L10n.string("mobile.browserStream.disconnectedDetail", defaultValue: "Reconnect to the Mac to continue streaming.")
-                )
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                if state.connectionStatus == .disconnected {
-                    Button(action: reconnect) {
-                        Label(
-                            L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"),
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("BrowserStreamReconnectButton")
-                }
-            }
-            .foregroundStyle(.white)
-            .padding(28)
-        }
-        .accessibilityIdentifier("BrowserStreamDisconnectedOverlay")
+    public func textFieldDidBeginEditing(_ textField: UITextField) {
+        textField.textAlignment = .left
+        textField.text = state.url ?? textField.text
     }
 
-    private func statusOverlay(title: String, detail: String, symbol: String) -> some View {
-        ZStack {
-            Color.black.opacity(0.72)
-            VStack(spacing: 12) {
-                Image(systemName: symbol).font(.system(size: 36))
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).multilineTextAlignment(.center)
-            }
-            .foregroundStyle(.white)
-            .padding(28)
-        }
+    public func textFieldDidEndEditing(_ textField: UITextField) {
+        textField.textAlignment = .center
+        textField.text = state.url ?? ""
     }
 
-    private func chromeButton(
-        systemImage: String,
-        label: String,
-        identifier: String,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) { Image(systemName: systemImage).frame(width: 24, height: 24) }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            .accessibilityLabel(label)
-            .accessibilityIdentifier(identifier)
-    }
-
-    private func submitAddress() {
-        let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        state.request(.navigate(trimmed))
-        addressFocused = false
+    public func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        let address = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return false }
+        state.request(.navigate(address))
+        textField.resignFirstResponder()
+        return true
     }
 }
 #endif

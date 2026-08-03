@@ -112,9 +112,8 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
 
     /// Installs one decoded frame into the backing layer.
     ///
-    /// `updateUIView` re-runs on every observed state change, not only on new
-    /// frames, so unchanged sequences return early instead of re-setting layer
-    /// contents.
+    /// Native observation refreshes on every state change, not only on new
+    /// frames, so unchanged images return early instead of resetting contents.
     /// - Parameter frame: The frame to display.
     func display(_ frame: BrowserStreamFrame) {
         guard ObjectIdentifier(frame.image) != displayedImageID else { return }

@@ -7,7 +7,7 @@ public import Observation
 @MainActor
 @Observable
 public final class BrowserStreamSurfaceState: Identifiable {
-    /// A one-shot chrome command consumed by the representable.
+    /// A one-shot chrome command consumed by the native surface owner.
     public enum ChromeCommand: Equatable, Sendable {
         /// Navigate backward.
         case back
@@ -69,7 +69,7 @@ public final class BrowserStreamSurfaceState: Identifiable {
     public var streamStatus: StreamStatus
     /// The latest frame actually installed into the display layer.
     public private(set) var latestFrame: BrowserStreamFrame?
-    /// A pending chrome command consumed once by the representable.
+    /// A pending chrome command consumed once by the native surface owner.
     public private(set) var pendingCommand: ChromeCommand?
     /// Current unresolved native Mac browser dialog.
     public private(set) var pendingDialog: MobileBrowserDialogEvent?
@@ -149,7 +149,7 @@ public final class BrowserStreamSurfaceState: Identifiable {
         pendingCommand = command
     }
 
-    /// Returns and clears the pending command so representable updates never replay it.
+    /// Returns and clears the pending command so native updates never replay it.
     /// - Returns: The pending command, or `nil` when no command is waiting.
     public func consumeCommand() -> ChromeCommand? {
         guard let pendingCommand else { return nil }

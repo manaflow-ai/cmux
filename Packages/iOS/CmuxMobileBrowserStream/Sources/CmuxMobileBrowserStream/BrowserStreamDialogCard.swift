@@ -1,178 +1,178 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileSupport
-import SwiftUI
+import UIKit
 
-struct BrowserStreamDialogCard: View {
-    let dialog: MobileBrowserDialogEvent
-    let respond: (MobileBrowserDialogRespondParameters) -> Void
+@MainActor
+final class BrowserStreamDialogCard: UIView, UITextFieldDelegate {
+    private let dialog: MobileBrowserDialogEvent
+    private let respond: (MobileBrowserDialogRespondParameters) -> Void
+    private var textField: UITextField?
+    private var usernameField: UITextField?
+    private var passwordField: UITextField?
 
-    @State private var text: String
-    @State private var username: String
-    @State private var password = ""
-
-    init(
-        dialog: MobileBrowserDialogEvent,
-        respond: @escaping (MobileBrowserDialogRespondParameters) -> Void
-    ) {
+    init(dialog: MobileBrowserDialogEvent, respond: @escaping (MobileBrowserDialogRespondParameters) -> Void) {
         self.dialog = dialog
         self.respond = respond
-        _text = State(initialValue: dialog.textField?.initial ?? "")
-        _username = State(
-            initialValue: dialog.kind == .httpBasicAuthentication
-                ? (dialog.textField?.initial ?? "")
-                : ""
-        )
+        super.init(frame: .zero)
+        accessibilityIdentifier = "BrowserStreamDialog"
+        build()
     }
 
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.48).ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(dialog.title ?? fallbackTitle)
-                        .font(.headline)
-                    if let message = dialog.message, !message.isEmpty {
-                        Text(message)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else if let fallbackDetail {
-                        Text(fallbackDetail)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    if dialog.title == nil, let host = dialog.host, !host.isEmpty {
-                        Text(host)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-                dialogFields
+    private func build() {
+        backgroundColor = UIColor.black.withAlphaComponent(0.48)
+        let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        card.layer.cornerRadius = 24
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(card)
 
-                // Match native alert convention: two short buttons sit side by
-                // side, but three-plus (the insecure-HTTP interstitial) or a
-                // long label overflow an HStack, so stack vertically instead.
-                if dialog.buttons.count <= 2, !hasLongButtonLabel {
-                    HStack(spacing: 10) {
-                        ForEach(dialog.buttons, id: \.id) { button in
-                            dialogButton(button)
-                        }
-                    }
-                } else {
-                    VStack(spacing: 8) {
-                        ForEach(dialog.buttons, id: \.id) { button in
-                            dialogButton(button)
-                        }
-                    }
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: 420)
-            .mobileGlassField(cornerRadius: 24)
-            .padding(24)
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 16
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 22, leading: 22, bottom: 22, trailing: 22)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.contentView.addSubview(stack)
+
+        let title = UILabel()
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.numberOfLines = 0
+        title.text = dialog.title ?? fallbackTitle
+        stack.addArrangedSubview(title)
+
+        if let detail = nonempty(dialog.message) ?? fallbackDetail {
+            let label = UILabel()
+            label.font = .preferredFont(forTextStyle: .subheadline)
+            label.textColor = .secondaryLabel
+            label.numberOfLines = 0
+            label.text = detail
+            stack.addArrangedSubview(label)
         }
-        .accessibilityIdentifier("BrowserStreamDialog")
+        if dialog.title == nil, let host = nonempty(dialog.host) {
+            let label = UILabel()
+            label.font = .preferredFont(forTextStyle: .caption1)
+            label.textColor = .tertiaryLabel
+            label.text = host
+            stack.addArrangedSubview(label)
+        }
+
+        addFields(to: stack)
+        stack.addArrangedSubview(makeButtons())
+
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: centerYAnchor),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            card.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+            card.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor),
+        ])
     }
 
-    @ViewBuilder
-    private var dialogFields: some View {
+    private func addFields(to stack: UIStackView) {
         if dialog.kind == .httpBasicAuthentication {
-            TextField(
-                L10n.string(
-                    "mobile.browserStream.dialog.username",
-                    defaultValue: "Username"
-                ),
-                text: $username
+            let username = makeField(
+                placeholder: L10n.string("mobile.browserStream.dialog.username", defaultValue: "Username"),
+                initial: dialog.textField?.initial ?? "",
+                secure: false
             )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .textContentType(.username)
-            .browserDialogFieldWell()
+            username.textContentType = .username
+            username.autocapitalizationType = .none
+            username.autocorrectionType = .no
+            usernameField = username
+            stack.addArrangedSubview(username)
 
-            SecureField(
-                dialog.textField?.placeholder
-                    ?? L10n.string(
-                        "mobile.browserStream.dialog.password",
-                        defaultValue: "Password"
-                    ),
-                text: $password
+            let password = makeField(
+                placeholder: dialog.textField?.placeholder
+                    ?? L10n.string("mobile.browserStream.dialog.password", defaultValue: "Password"),
+                initial: "",
+                secure: true
             )
-            .textContentType(.password)
-            .browserDialogFieldWell()
+            password.textContentType = .password
+            passwordField = password
+            stack.addArrangedSubview(password)
         } else if let field = dialog.textField {
-            if field.secure {
-                SecureField(field.placeholder ?? inputPlaceholder, text: $text)
-                    .textContentType(.password)
-                    .browserDialogFieldWell()
-            } else {
-                TextField(field.placeholder ?? inputPlaceholder, text: $text)
-                    .browserDialogFieldWell()
-            }
+            let input = makeField(
+                placeholder: field.placeholder
+                    ?? L10n.string("mobile.browserStream.dialog.input", defaultValue: "Enter text"),
+                initial: field.initial ?? "",
+                secure: field.secure
+            )
+            if field.secure { input.textContentType = .password }
+            textField = input
+            stack.addArrangedSubview(input)
         }
     }
 
-    @ViewBuilder
-    private func dialogButton(_ button: MobileBrowserDialogButton) -> some View {
-        if button.role == .destructive {
-            Button(role: .destructive) { submit(button) } label: {
-                Text(button.label).frame(maxWidth: .infinity)
+    private func makeField(placeholder: String, initial: String, secure: Bool) -> UITextField {
+        let field = UITextField()
+        field.borderStyle = .roundedRect
+        field.backgroundColor = UIColor.quaternarySystemFill.withAlphaComponent(0.55)
+        field.placeholder = placeholder
+        field.text = initial
+        field.isSecureTextEntry = secure
+        field.delegate = self
+        field.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        return field
+    }
+
+    private func makeButtons() -> UIView {
+        let horizontal = dialog.buttons.count <= 2 && !dialog.buttons.contains { $0.label.count > 12 }
+        let stack = UIStackView()
+        stack.axis = horizontal ? .horizontal : .vertical
+        stack.distribution = .fillEqually
+        stack.spacing = horizontal ? 10 : 8
+        for descriptor in dialog.buttons {
+            var configuration: UIButton.Configuration
+            switch descriptor.role {
+            case .default:
+                configuration = .filled()
+            case .cancel, .destructive:
+                configuration = .tinted()
             }
-            .mobileGlassButton()
-            .accessibilityIdentifier("BrowserStreamDialogButton-\(button.id)")
-        } else {
-            Button { submit(button) } label: {
-                Text(button.label).frame(maxWidth: .infinity)
+            configuration.title = descriptor.label
+            if descriptor.role == .destructive {
+                configuration.baseForegroundColor = .systemRed
             }
-            .modifier(BrowserStreamDialogButtonStyle(prominent: button.role == .default))
-            .accessibilityIdentifier("BrowserStreamDialogButton-\(button.id)")
+            let button = UIButton(configuration: configuration)
+            button.accessibilityIdentifier = "BrowserStreamDialogButton-\(descriptor.id)"
+            button.addAction(UIAction { [weak self] _ in self?.submit(descriptor) }, for: .touchUpInside)
+            stack.addArrangedSubview(button)
         }
+        return stack
     }
 
     private var fallbackTitle: String {
         if dialog.informational {
-            return L10n.string(
-                "mobile.browserStream.dialog.needsMac",
-                defaultValue: "Needs Your Mac"
-            )
+            return L10n.string("mobile.browserStream.dialog.needsMac", defaultValue: "Needs Your Mac")
         }
         if dialog.kind == .mediaCapturePermission {
-            return L10n.string(
-                "mobile.browserStream.dialog.mediaTitle",
-                defaultValue: "Media Access"
-            )
+            return L10n.string("mobile.browserStream.dialog.mediaTitle", defaultValue: "Media Access")
         }
-        return L10n.string(
-            "mobile.browserStream.dialog.requestTitle",
-            defaultValue: "Browser Request"
-        )
-    }
-
-    private var hasLongButtonLabel: Bool {
-        dialog.buttons.contains { $0.label.count > 12 }
-    }
-
-    private var inputPlaceholder: String {
-        L10n.string(
-            "mobile.browserStream.dialog.input",
-            defaultValue: "Enter text"
-        )
+        return L10n.string("mobile.browserStream.dialog.requestTitle", defaultValue: "Browser Request")
     }
 
     private var fallbackDetail: String? {
         if dialog.informational {
-            return L10n.string(
-                "mobile.browserStream.dialog.needsMacDetail",
-                defaultValue: "Complete this request on your Mac, or cancel it here."
-            )
+            return L10n.string("mobile.browserStream.dialog.needsMacDetail", defaultValue: "Complete this request on your Mac, or cancel it here.")
         }
         if dialog.kind == .mediaCapturePermission {
-            return L10n.string(
-                "mobile.browserStream.dialog.mediaDetail",
-                defaultValue: "This site wants to use your camera or microphone."
-            )
+            return L10n.string("mobile.browserStream.dialog.mediaDetail", defaultValue: "This site wants to use your camera or microphone.")
         }
         return nil
+    }
+
+    private func nonempty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 
     private func submit(_ button: MobileBrowserDialogButton) {
@@ -180,9 +180,9 @@ struct BrowserStreamDialogCard: View {
         if button.role == .cancel {
             responseText = nil
         } else if dialog.kind == .httpBasicAuthentication {
-            responseText = username + "\0" + password
+            responseText = (usernameField?.text ?? "") + "\0" + (passwordField?.text ?? "")
         } else if dialog.textField != nil {
-            responseText = text
+            responseText = textField?.text ?? ""
         } else {
             responseText = nil
         }
@@ -192,21 +192,6 @@ struct BrowserStreamDialogCard: View {
             buttonID: button.id,
             text: responseText
         ))
-    }
-}
-
-extension View {
-    /// Renders a dialog text field as a visibly inset input well.
-    ///
-    /// The dialog card is itself glass, so a glass field background disappears
-    /// into it and the field reads as a label; a filled well with a hairline
-    /// border keeps the editable area obvious (same fill language as the
-    /// bottom bar's address field).
-    fileprivate func browserDialogFieldWell() -> some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        return padding(12)
-            .background(.quaternary.opacity(0.55), in: shape)
-            .overlay(shape.strokeBorder(.separator.opacity(0.6), lineWidth: 1))
     }
 }
 #endif
