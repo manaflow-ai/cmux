@@ -142,6 +142,39 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(observer.revision == 1)
     }
 
+    @Test func blockedShortcutProviderDoesNotBlockMainActorDuringObserverStartup() async {
+        let probe = BlockedShortcutProviderProbe()
+        Task.detached {
+            probe.waitUntilProviderStarts()
+            Thread.sleep(forTimeInterval: 0.2)
+            probe.recordHeartbeatBeforeRelease()
+            probe.releaseProvider()
+        }
+
+        Task { @MainActor in
+            probe.recordMainActorHeartbeat()
+        }
+
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: NotificationCenter(),
+            shortcutProvider: { action in
+                if action == .globalSearch {
+                    probe.blockProvider()
+                }
+                return action.defaultShortcut
+            }
+        )
+
+        await Task.yield()
+        await probe.waitUntilRecorded()
+
+        #expect(
+            probe.didHeartbeatBeforeProviderRelease,
+            "Shortcut persistence loading blocked the MainActor during observer startup"
+        )
+        _ = observer
+    }
+
     @Test func blockedKeyboardLayoutLoaderKeepsMainActorResponsiveAndReplacesSnapshot() async {
         let gate = DispatchSemaphore(value: 0)
         let initial = KeyboardLayoutSnapshot.testFixture(id: "old", character: "a")
@@ -190,6 +223,57 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "f")
     }
 
+    }
+}
+
+private final class BlockedShortcutProviderProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let providerStarted = DispatchSemaphore(value: 0)
+    private let providerRelease = DispatchSemaphore(value: 0)
+    private var heartbeat = false
+    private var recordedHeartbeat: Bool?
+
+    var didHeartbeatBeforeProviderRelease: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedHeartbeat == true
+    }
+
+    func blockProvider() {
+        providerStarted.signal()
+        providerRelease.wait()
+    }
+
+    func waitUntilProviderStarts() {
+        providerStarted.wait()
+    }
+
+    func releaseProvider() {
+        providerRelease.signal()
+    }
+
+    func recordMainActorHeartbeat() {
+        lock.lock()
+        heartbeat = true
+        lock.unlock()
+    }
+
+    func recordHeartbeatBeforeRelease() {
+        lock.lock()
+        recordedHeartbeat = heartbeat
+        lock.unlock()
+    }
+
+    func waitUntilRecorded() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            lock.lock()
+            let didRecord = recordedHeartbeat != nil
+            lock.unlock()
+            if didRecord { return }
+            await Task.yield()
+        }
     }
 }
 
