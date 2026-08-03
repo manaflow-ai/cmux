@@ -17441,7 +17441,7 @@ mod tests {
     };
     use crossterm::event::{
         EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags,
-        MouseButton, MouseEvent, MouseEventKind,
+        ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
         CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, KittyImage, KittyImageFormat,
@@ -18614,6 +18614,90 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         }
         assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn modifier_only_presses_do_not_consume_prefix_before_shifted_binding() {
+        let (mux, _) = test_mux("modifier-prefix-split-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+        assert!(app.prefix_armed);
+
+        for (modifier, modifiers) in [
+            (ModifierKeyCode::LeftShift, KeyModifiers::SHIFT),
+            (ModifierKeyCode::RightShift, KeyModifiers::SHIFT),
+            (ModifierKeyCode::LeftControl, KeyModifiers::CONTROL),
+            (ModifierKeyCode::RightControl, KeyModifiers::CONTROL),
+            (ModifierKeyCode::LeftAlt, KeyModifiers::ALT),
+            (ModifierKeyCode::RightAlt, KeyModifiers::ALT),
+            (ModifierKeyCode::LeftSuper, KeyModifiers::SUPER),
+            (ModifierKeyCode::RightSuper, KeyModifiers::SUPER),
+            (ModifierKeyCode::LeftHyper, KeyModifiers::HYPER),
+            (ModifierKeyCode::RightHyper, KeyModifiers::HYPER),
+            (ModifierKeyCode::LeftMeta, KeyModifiers::META),
+            (ModifierKeyCode::RightMeta, KeyModifiers::META),
+            (ModifierKeyCode::IsoLevel3Shift, KeyModifiers::NONE),
+            (ModifierKeyCode::IsoLevel5Shift, KeyModifiers::NONE),
+        ] {
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Modifier(modifier),
+                modifiers,
+            ))))
+            .unwrap();
+            assert!(app.prefix_armed, "{modifier:?} consumed the pending prefix");
+        }
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+            shifted_key: Some('%'),
+            base_layout_key: Some('5'),
+            text: "%".to_string(),
+        })))
+        .unwrap();
+
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert!(!app.prefix_armed);
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), 2);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn modifier_only_press_preserves_selection_and_durable_notice() {
+        let (mux, surface) = test_mux("modifier-ui-state-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let selection = Selection { surface: surface.id, anchor: (1, 1), head: (2, 1) };
+        app.selection = Some(selection);
+        let notice = durable_notice("modifier-notice", 1, "notice");
+        app.accept_durable_notice(notice.clone());
+        app.record_durable_notice_painted(notice.delivery.clone());
+        app.commit_successful_durable_notice_paint();
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Modifier(ModifierKeyCode::LeftShift),
+            KeyModifiers::SHIFT,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.selection, Some(selection));
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&notice.delivery));
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
