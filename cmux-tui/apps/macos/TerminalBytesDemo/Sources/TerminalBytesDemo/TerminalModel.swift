@@ -520,6 +520,7 @@ final class TerminalModel {
         resizeTask = nil
         resetResizeRetry()
         isConnected = false
+        frame = ""
         diagnostics = ""
         geometryDelivery.resetConnection()
         connectionOperation &+= 1

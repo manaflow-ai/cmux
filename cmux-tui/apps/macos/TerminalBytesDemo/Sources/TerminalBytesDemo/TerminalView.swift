@@ -266,14 +266,24 @@ func terminalTextEdit(from current: String, to next: String) -> TerminalTextEdit
 }
 
 func terminalSelections(preserving selections: [NSValue], utf16Length: Int) -> [NSValue] {
-    let valid = selections.filter {
-        let range = $0.rangeValue
-        return range.location != NSNotFound
-            && range.location <= utf16Length
-            && range.length <= utf16Length - range.location
+    let boundedLength = max(0, utf16Length)
+    let valid = selections.compactMap { selection -> NSValue? in
+        let range = selection.rangeValue
+        guard range.location != NSNotFound,
+            range.location >= 0,
+            range.location <= boundedLength,
+            range.length >= 0
+        else {
+            return nil
+        }
+        return NSValue(
+            range: NSRange(
+                location: range.location,
+                length: min(range.length, boundedLength - range.location)
+            ))
     }
     if !valid.isEmpty {
         return valid
     }
-    return [NSValue(range: NSRange(location: max(0, utf16Length), length: 0))]
+    return [NSValue(range: NSRange(location: boundedLength, length: 0))]
 }
