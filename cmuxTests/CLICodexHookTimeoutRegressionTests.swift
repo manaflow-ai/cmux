@@ -107,6 +107,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
+                "CMUX_WORKSPACE_ID": "workspace-123",
                 "CMUX_SURFACE_ID": "surface-123",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
                 "CMUX_CODEX_HOOK_CMUX_BIN": fakeCLI.path,
@@ -125,7 +126,11 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
+        #expect(waitForFile(
+            capturedArgs,
+            containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit --workspace workspace-123 --surface surface-123",
+            timeout: 1
+        ))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
     }
