@@ -468,7 +468,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // that owns the bar can't reach up to it) from the surface's owning
             // view controller.
             guard let presenter = presentingController(for: surfaceView) else { return }
-            let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
+            let editor = UINavigationController(
+                rootViewController: TerminalShortcutsSettingsViewController(scope: .terminal)
+            )
             presenter.present(editor, animated: true)
         }
 
