@@ -16,7 +16,7 @@ import SwiftUI
 #Preview("Pending bubble states") {
     let actions = ChatRowActions()
     VStack(spacing: 12) {
-        ChatPendingBubbleView(
+        ChatPendingBubblePreview(
             pending: ChatPendingOutbound(
                 id: "p1",
                 text: "Run the suite again",
@@ -25,7 +25,7 @@ import SwiftUI
             ),
             actions: actions
         )
-        ChatPendingBubbleView(
+        ChatPendingBubblePreview(
             pending: ChatPendingOutbound(
                 id: "p2",
                 text: "Now push the branch",
@@ -35,7 +35,7 @@ import SwiftUI
             ),
             actions: actions
         )
-        ChatPendingBubbleView(
+        ChatPendingBubblePreview(
             pending: ChatPendingOutbound(
                 id: "p3",
                 text: "And open a PR",
@@ -44,7 +44,7 @@ import SwiftUI
             ),
             actions: actions
         )
-        ChatPendingBubbleView(
+        ChatPendingBubblePreview(
             pending: ChatPendingOutbound(
                 id: "p4",
                 text: "Also fix the flaky integration job",
@@ -61,3 +61,16 @@ import SwiftUI
     .padding()
     .preferredColorScheme(.dark)
 }
+
+#if os(iOS)
+private struct ChatPendingBubblePreview: UIViewRepresentable {
+    let pending: ChatPendingOutbound
+    let actions: ChatRowActions
+
+    func makeUIView(context: Context) -> ChatPendingBubbleView {
+        ChatPendingBubbleView(pending: pending, actions: actions)
+    }
+
+    func updateUIView(_ view: ChatPendingBubbleView, context: Context) {}
+}
+#endif

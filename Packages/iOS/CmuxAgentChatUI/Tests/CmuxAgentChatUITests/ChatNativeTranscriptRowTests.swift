@@ -57,5 +57,73 @@ struct ChatNativeTranscriptRowTests {
         #expect(ChatTypingIndicatorView.elapsedLabel(seconds: 83).contains("1"))
         #expect(ChatTypingIndicatorView.elapsedLabel(seconds: 3_720).contains("1"))
     }
+
+    @Test("failed pending send keeps independent retry and discard actions")
+    func pendingRecoveryActions() throws {
+        var retried: [String] = []
+        var discarded: [String] = []
+        let view = ChatPendingBubbleView(
+            pending: ChatPendingOutbound(
+                id: "pending-9",
+                text: "Push the branch",
+                createdAt: .now,
+                delivery: .failed("offline")
+            ),
+            actions: ChatRowActions(
+                retryPending: { retried.append($0) },
+                discardPending: { discarded.append($0) }
+            )
+        )
+        let buttons = view.descendants.compactMap { $0 as? UIButton }
+        let retry = try #require(buttons.first { $0.accessibilityIdentifier == "ChatPendingRetry" })
+        let discard = try #require(buttons.first { $0.accessibilityIdentifier == "ChatPendingDiscard" })
+
+        retry.sendActions(for: .primaryActionTriggered)
+        discard.sendActions(for: .primaryActionTriggered)
+        #expect(retried == ["pending-9"])
+        #expect(discarded == ["pending-9"])
+    }
+
+    @Test("terminal row routes detail and interactive escape hatch separately")
+    func terminalActions() throws {
+        var detailCount = 0
+        let command = TerminalCommandBlockView(
+            block: TerminalCommandBlock(
+                id: 4,
+                command: "swift build",
+                output: "done",
+                exitCode: 0,
+                isRunning: false
+            ),
+            onOpenTerminal: {},
+            onShowDetail: { detailCount += 1 }
+        )
+        command.sendActions(for: .primaryActionTriggered)
+        #expect(detailCount == 1)
+
+        var openCount = 0
+        let interactive = TerminalCommandBlockView(
+            block: TerminalCommandBlock(
+                id: 5,
+                command: "vim notes.md",
+                isRunning: true,
+                isInteractive: true
+            ),
+            onOpenTerminal: { openCount += 1 }
+        )
+        let open = try #require(
+            interactive.descendants.compactMap { $0 as? UIButton }.first {
+                $0.accessibilityIdentifier == "TerminalInteractiveOpenButton"
+            }
+        )
+        open.sendActions(for: .primaryActionTriggered)
+        #expect(openCount == 1)
+    }
+}
+
+private extension UIView {
+    var descendants: [UIView] {
+        subviews + subviews.flatMap(\.descendants)
+    }
 }
 #endif

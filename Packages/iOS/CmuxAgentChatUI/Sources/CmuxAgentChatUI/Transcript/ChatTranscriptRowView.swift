@@ -34,11 +34,11 @@ public struct ChatTranscriptRowView: View, Equatable {
         case .message(let snapshot):
             ChatMessageRowView(snapshot: snapshot, actions: actions)
         case .pendingOutbound(let pending):
-            ChatPendingBubbleView(pending: pending, actions: actions)
+            ChatPendingBubbleBridge(pending: pending, actions: actions)
         case .terminalCommand(let block):
-            TerminalCommandBlockView(
+            TerminalCommandBlockBridge(
                 block: block,
-                onOpenTerminal: actions.openTerminal,
+                onOpenTerminal: { actions.openTerminal() },
                 onShowDetail: { actions.showTerminalCommandDetail(block) }
             )
         }
@@ -62,5 +62,32 @@ private struct ChatUnreadSeparatorBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatUnreadSeparatorView, context: Context) {}
+}
+
+private struct ChatPendingBubbleBridge: UIViewRepresentable {
+    let pending: ChatPendingOutbound
+    let actions: ChatRowActions
+
+    func makeUIView(context: Context) -> ChatPendingBubbleView {
+        ChatPendingBubbleView(pending: pending, actions: actions)
+    }
+
+    func updateUIView(_ view: ChatPendingBubbleView, context: Context) {}
+}
+
+private struct TerminalCommandBlockBridge: UIViewRepresentable {
+    let block: TerminalCommandBlock
+    let onOpenTerminal: @MainActor () -> Void
+    let onShowDetail: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> TerminalCommandBlockView {
+        TerminalCommandBlockView(
+            block: block,
+            onOpenTerminal: onOpenTerminal,
+            onShowDetail: onShowDetail
+        )
+    }
+
+    func updateUIView(_ view: TerminalCommandBlockView, context: Context) {}
 }
 #endif

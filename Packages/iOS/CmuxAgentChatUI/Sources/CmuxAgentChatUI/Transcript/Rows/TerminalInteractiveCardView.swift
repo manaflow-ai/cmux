@@ -1,78 +1,76 @@
-import SwiftUI
+#if canImport(UIKit)
+import UIKit
 
-/// Shown in place of a command's output when it entered a full-screen
-/// program (vim, htop, less, an ncurses app). The chat can't sensibly render
-/// an alt-screen TUI as a message, so it offers the raw terminal instead.
-public struct TerminalInteractiveCardView: View {
-    private let command: String
-    private let onOpenTerminal: () -> Void
+/// Native escape hatch for an alt-screen terminal program.
+@MainActor
+public final class TerminalInteractiveCardView: UIView {
+    public init(command: String, onOpenTerminal: @escaping @MainActor () -> Void) {
+        super.init(frame: .zero)
+        backgroundColor = UIColor(white: 0.055, alpha: 1)
+        layer.cornerRadius = 12
+        layer.borderWidth = 0.5
+        layer.borderColor = UIColor.separator.cgColor
 
-    @Environment(\.chatTheme) private var theme
+        let commandLabel = UILabel()
+        commandLabel.text = "❯ \(command.isEmpty ? " " : command)"
+        commandLabel.font = .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
+        commandLabel.textColor = UIColor(white: 0.88, alpha: 1)
+        commandLabel.lineBreakMode = .byTruncatingMiddle
+        commandLabel.numberOfLines = 1
 
-    /// Creates the interactive-program card.
-    ///
-    /// - Parameters:
-    ///   - command: The command that took over the screen (for the label).
-    ///   - onOpenTerminal: Opens the raw terminal surface.
-    public init(command: String, onOpenTerminal: @escaping () -> Void) {
-        self.command = command
-        self.onOpenTerminal = onOpenTerminal
+        let message = UILabel()
+        message.text = String(
+            localized: "chat.terminal.interactive",
+            defaultValue: "Interactive program, open the full terminal",
+            bundle: .module
+        )
+        message.font = .preferredFont(forTextStyle: .footnote)
+        message.textColor = .secondaryLabel
+        message.numberOfLines = 0
+
+        let messageRow = UIStackView(arrangedSubviews: [UIImageView(image: UIImage(systemName: "macwindow")), message])
+        messageRow.axis = .horizontal
+        messageRow.alignment = .center
+        messageRow.spacing = 8
+        messageRow.tintColor = .secondaryLabel
+
+        let button = UIButton(type: .system)
+        button.setTitle(
+            String(
+                localized: "chat.terminal.open_in_terminal",
+                defaultValue: "Open in terminal",
+                bundle: .module
+            ),
+            for: .normal
+        )
+        button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+        button.contentHorizontalAlignment = .leading
+        button.accessibilityIdentifier = "TerminalInteractiveOpenButton"
+        button.accessibilityLabel = String(
+            localized: "chat.terminal.interactive.accessibility",
+            defaultValue: "\(command) is an interactive program. Open the full terminal.",
+            bundle: .module
+        )
+        button.addAction(UIAction { _ in onOpenTerminal() }, for: .primaryActionTriggered)
+
+        let stack = UIStackView(arrangedSubviews: [commandLabel, messageRow, button])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+        ])
+        isAccessibilityElement = false
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text(verbatim: "❯")
-                    .font(.system(.callout, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(theme.accent)
-                Text(command.isEmpty ? " " : command)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            HStack(spacing: 8) {
-                Image(systemName: "macwindow")
-                    .foregroundStyle(.secondary)
-                Text(
-                    String(
-                        localized: "chat.terminal.interactive",
-                        defaultValue: "Interactive program — open the full terminal",
-                        bundle: .module
-                    )
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            Button(action: onOpenTerminal) {
-                Text(
-                    String(
-                        localized: "chat.terminal.open_in_terminal",
-                        defaultValue: "Open in terminal",
-                        bundle: .module
-                    )
-                )
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(theme.accent)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("TerminalInteractiveOpenButton")
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.hairline, lineWidth: 0.5)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            String(
-                localized: "chat.terminal.interactive.accessibility",
-                defaultValue: "\(command) is an interactive program. Open the full terminal.",
-                bundle: .module
-            )
-        )
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
+#endif

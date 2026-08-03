@@ -469,8 +469,14 @@ private struct ChatTranscriptTableConfiguration {
             return ChatDateHeaderView(day: day)
         case .unreadSeparator:
             return ChatUnreadSeparatorView(accentColor: UIColor(theme.accent))
-        case .pendingOutbound, .terminalCommand:
-            return nil
+        case .pendingOutbound(let pending):
+            return ChatPendingBubbleView(pending: pending, actions: actions)
+        case .terminalCommand(let block):
+            return TerminalCommandBlockView(
+                block: block,
+                onOpenTerminal: { actions.openTerminal() },
+                onShowDetail: { actions.showTerminalCommandDetail(block) }
+            )
         case .message(let snapshot):
             let content: UIView
             switch snapshot.message.kind {
