@@ -80,14 +80,15 @@ export async function resolveSubrouterRequestContext(
       }
 
       const nativeTokens = parseNativeStackTokens(request);
-      const cookieTokens = nativeTokens
-        ? null
-        : await getStackServerApp().getAuthJson({
-          tokenStore: request as unknown as {
-            headers: { get(name: string): string | null };
-          },
-        });
-      const accessToken = nativeTokens?.accessToken ?? cookieTokens?.accessToken;
+      const tokenStore = nativeTokens ?? request as unknown as {
+        headers: { get(name: string): string | null };
+      };
+      // Stack may refresh a native session while verifying it. Forward the
+      // authoritative token instead of the possibly stale request header.
+      const authoritativeTokens = await getStackServerApp().getAuthJson({
+        tokenStore,
+      });
+      const accessToken = authoritativeTokens?.accessToken;
       if (!accessToken) {
         return {
           ok: false,

@@ -161,6 +161,8 @@ export async function DELETE(request: Request): Promise<Response> {
       await markAccountDeletionTombstoneCompleted(userId);
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
+    const hostedSubrouter = createHostedSubrouterClient();
+    hostedSubrouter.assertTenantDeletionConfigured();
     // Validate required production configuration before metadata, billing,
     // access, VM, vault, or tenant cleanup can mutate the account. Pass the
     // validated snapshot to the later request so environment changes cannot
@@ -245,7 +247,6 @@ export async function DELETE(request: Request): Promise<Response> {
         await refreshAccountDeletionTombstoneLease(userId);
       },
     });
-    const hostedSubrouter = createHostedSubrouterClient();
     for (const teamId of accountScope.teamIds) {
       // Retirement revokes every tenant key before credential-bearing state is
       // deleted. A 202 response remains retryable while live requests drain.
@@ -335,12 +336,17 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   const refreshToken = refreshHeader.trim();
   if (!accessToken || !refreshToken) return null;
 
-  const user = await getStackServerApp().getUser({
-    tokenStore: { accessToken, refreshToken },
-  });
+  const tokenStore = { accessToken, refreshToken };
+  const app = getStackServerApp();
+  const user = await app.getUser({ tokenStore });
   const candidate = user as Partial<DeletableStackUser>;
   if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") return null;
-  return { user: user as DeletableStackUser, accessToken };
+  const authoritativeTokens = await app.getAuthJson({ tokenStore });
+  if (!authoritativeTokens?.accessToken) return null;
+  return {
+    user: user as DeletableStackUser,
+    accessToken: authoritativeTokens.accessToken,
+  };
 }
 
 async function markAccountDeletionTombstonePending(userId: string): Promise<AccountDeletionTombstoneStart> {

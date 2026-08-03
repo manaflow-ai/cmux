@@ -1,6 +1,12 @@
 import { env } from "../../app/env";
 import { defaultHostedSubrouterURL } from "./constants";
-import type { SubrouterAccount, SubrouterAccountInput } from "./types";
+import type {
+  SubrouterAccount,
+  SubrouterAccountInput,
+  SubrouterCredentialLease,
+  SubrouterCredentialLeaseInput,
+  SubrouterCredentialLeaseOutcome,
+} from "./types";
 
 export type HostedTenant = {
   readonly tenantId: string;
@@ -10,6 +16,7 @@ export type HostedTenant = {
 };
 
 export type HostedSubrouterClient = {
+  readonly assertTenantDeletionConfigured: () => void;
   readonly exchangeTeam: (
     accessToken: string,
     team: { readonly teamId: string; readonly teamName: string },
@@ -26,6 +33,18 @@ export type HostedSubrouterClient = {
     input: SubrouterAccountInput,
   ) => Promise<SubrouterAccount>;
   readonly deleteAccount: (tenantKey: string, accountId: string) => Promise<void>;
+  readonly createCredentialLease: (
+    tenantKey: string,
+    input: SubrouterCredentialLeaseInput,
+  ) => Promise<SubrouterCredentialLease>;
+  readonly reportCredentialLease: (
+    tenantKey: string,
+    leaseId: string,
+    input: {
+      readonly outcome: SubrouterCredentialLeaseOutcome;
+      readonly statusCode?: number;
+    },
+  ) => Promise<{ readonly ok: true; readonly refreshState?: "refreshed" }>;
 };
 
 export function createHostedSubrouterClient(options: {
@@ -37,8 +56,18 @@ export function createHostedSubrouterClient(options: {
     defaultHostedSubrouterURL()).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
   const tenantDeleteToken = (
-    options.tenantDeleteToken ?? env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ?? ""
+    options.tenantDeleteToken ??
+    process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
+    ""
   ).trim();
+  const assertTenantDeletionConfigured = (): void => {
+    if (!tenantDeleteToken) {
+      throw new HostedSubrouterError(
+        "hosted Subrouter tenant deletion is not configured",
+        503,
+      );
+    }
+  };
 
   const tenantRequest = (
     tenantKey: string,
@@ -48,6 +77,15 @@ export function createHostedSubrouterClient(options: {
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${tenantKey}`);
     return requestJson(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+  };
+  const tenantRequestWithoutResponse = async (
+    tenantKey: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<void> => {
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${tenantKey}`);
+    await requestResponse(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
   };
   const uploadAccount = async (
     tenantKey: string,
@@ -73,6 +111,7 @@ export function createHostedSubrouterClient(options: {
   };
 
   return {
+    assertTenantDeletionConfigured,
     exchangeTeam: async (accessToken, team) => {
       const response = await requestJson(
         fetchImpl,
@@ -89,12 +128,7 @@ export function createHostedSubrouterClient(options: {
       return parseHostedTenant(response);
     },
     deleteTenant: async (accessToken, teamId) => {
-      if (!tenantDeleteToken) {
-        throw new HostedSubrouterError(
-          "hosted Subrouter tenant deletion is not configured",
-          503,
-        );
-      }
+      assertTenantDeletionConfigured();
       const response = await requestJson(
         fetchImpl,
         `${baseUrl}/_subrouter/auth/stack/tenant`,
@@ -141,6 +175,33 @@ export function createHostedSubrouterClient(options: {
         { method: "DELETE" },
       );
     },
+    createCredentialLease: async (tenantKey, input) => {
+      const response = await tenantRequest(
+        tenantKey,
+        "/_subrouter/leases",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      if (!isRecord(response) || !isRecord(response.lease)) {
+        throw new HostedSubrouterError("invalid credential lease", 502);
+      }
+      return parseCredentialLease(response.lease);
+    },
+    reportCredentialLease: async (tenantKey, leaseId, input) => {
+      await tenantRequestWithoutResponse(
+        tenantKey,
+        `/_subrouter/leases/${encodeURIComponent(leaseId)}/events`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      return { ok: true };
+    },
   };
 }
 
@@ -159,6 +220,19 @@ async function requestJson(
   url: string,
   init: RequestInit,
 ): Promise<unknown> {
+  const response = await requestResponse(fetchImpl, url, init);
+  try {
+    return await response.json();
+  } catch {
+    throw new HostedSubrouterError("hosted Subrouter returned invalid JSON", 502);
+  }
+}
+
+async function requestResponse(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -171,11 +245,7 @@ async function requestJson(
   if (!response.ok) {
     throw new HostedSubrouterError("hosted Subrouter request failed", response.status);
   }
-  try {
-    return await response.json();
-  } catch {
-    throw new HostedSubrouterError("hosted Subrouter returned invalid JSON", 502);
-  }
+  return response;
 }
 
 function parseHostedTenant(value: unknown): HostedTenant {
@@ -225,6 +295,56 @@ function parseAccountEnvelope(value: Record<string, unknown>): SubrouterAccount 
     kind: value.kind,
     label: isString(value.label) ? value.label : undefined,
     ...parseHealth(value.health),
+  };
+}
+
+function parseCredentialLease(value: unknown): SubrouterCredentialLease {
+  if (!isRecord(value)) {
+    throw new HostedSubrouterError("invalid credential lease", 502);
+  }
+  const {
+    leaseId,
+    accountId,
+    provider,
+    authMode,
+    token,
+    providerAccountId,
+    label,
+    email,
+    credentialGeneration,
+    issuedAt,
+    expiresAt,
+    credentialExpiresAt,
+  } = value;
+  if (
+    !isString(leaseId) ||
+    !isString(accountId) ||
+    (provider !== "codex" && provider !== "claude") ||
+    (authMode !== "oauth" && authMode !== "apikey") ||
+    !isString(token) ||
+    !isString(label) ||
+    typeof credentialGeneration !== "number" ||
+    !isString(issuedAt) ||
+    !isString(expiresAt) ||
+    (providerAccountId !== undefined && typeof providerAccountId !== "string") ||
+    (email !== undefined && typeof email !== "string") ||
+    (credentialExpiresAt !== undefined && typeof credentialExpiresAt !== "string")
+  ) {
+    throw new HostedSubrouterError("invalid credential lease", 502);
+  }
+  return {
+    leaseId,
+    accountId,
+    provider,
+    authMode,
+    token,
+    ...(providerAccountId ? { providerAccountId } : {}),
+    label,
+    ...(email ? { email } : {}),
+    credentialGeneration,
+    issuedAt,
+    expiresAt,
+    ...(credentialExpiresAt ? { credentialExpiresAt } : {}),
   };
 }
 

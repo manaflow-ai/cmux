@@ -49,3 +49,34 @@ export type SubrouterAccountInput =
   | AnthropicApiKeyAccountInput
   | CodexAccountInput
   | OpenAiApiKeyAccountInput;
+
+export type SubrouterCredentialLeaseInput = {
+  readonly provider: "codex" | "claude";
+  readonly agentType?: string;
+  readonly sessionId: string;
+  readonly userEmail?: string;
+  readonly preferAccountId?: string;
+  readonly model?: string;
+  readonly requiredAuthMode?: "oauth" | "apikey";
+};
+
+export type SubrouterCredentialLease = {
+  readonly leaseId: string;
+  readonly accountId: string;
+  readonly provider: "codex" | "claude";
+  readonly authMode: "oauth" | "apikey";
+  readonly token: string;
+  readonly providerAccountId?: string;
+  readonly label: string;
+  readonly email?: string;
+  readonly credentialGeneration: number;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  readonly credentialExpiresAt?: string;
+};
+
+export type SubrouterCredentialLeaseOutcome =
+  | "success"
+  | "unauthorized"
+  | "rate_limited"
+  | "provider_error";
