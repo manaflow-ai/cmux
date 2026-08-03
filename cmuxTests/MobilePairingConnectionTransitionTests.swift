@@ -117,16 +117,16 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
-    @Test("Iroh is the default and Tailscale remains a compatibility code")
-    func irohRouteWinsWithLegacyCompatibility() throws {
+    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),
             try tailscaleRoute(),
         ]))
 
-        #expect(plan.primaryDisclosureMode == .irohIdentityOnly)
-        #expect(plan.primaryTransport == .iroh)
-        #expect(plan.offersLegacyCode)
+        #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
+        #expect(plan.primaryTransport == .tailscaleCompatibility)
+        #expect(!plan.offersLegacyCode)
     }
 
     @Test("Tailscale remains usable when Iroh is unavailable")
@@ -140,12 +140,19 @@ struct MobilePairingConnectionTransitionTests {
         #expect(!plan.offersLegacyCode)
     }
 
-    @Test("A displayed compatibility QR upgrades when Iroh publishes")
-    func tailscaleCompatibilityUpgradesToIroh() throws {
+    @Test("Iroh alone does not produce a Mac pairing QR")
+    func irohOnlyPlanIsUnavailable() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try irohRoute(),
+        ]) == nil)
+    }
+
+    @Test("Iroh publication does not replace a displayed Tailscale QR")
+    func tailscaleCompatibilityDoesNotUpgradeToIroh() throws {
         let compatibility = makeTailscaleReady()
         let publishedRoutes = [try tailscaleRoute(), try irohRoute()]
 
-        #expect(MobilePairingModel.shouldUpgradePrimaryTransport(
+        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
             from: .ready(compatibility),
             routes: publishedRoutes
         ))
