@@ -439,7 +439,7 @@ struct SidebarAppKitRowCellTests {
                 .first { $0.accessibilityIdentifier() == "SidebarWorkspaceGroupName" }
         )
         #expect(name.stringValue == "Backend work")
-        #expect(name.font?.pointSize == 12.5)
+        #expect(Self.fontPointSizes(in: name).allSatisfy { abs($0 - 12.5) < 0.001 })
         let traits = Self.fontTraits(in: name)
         #expect(traits.contains { $0.contains(.boldFontMask) })
         #expect(traits.contains { $0.contains(.italicFontMask) })
@@ -475,7 +475,9 @@ struct SidebarAppKitRowCellTests {
                 .first { !$0.isHidden && $0.toolTip == "Pinned group" }
         )
 
-        #expect(groupPin.frame.minX == workspacePin.frame.minX)
+        let workspacePinX = workspacePin.convert(.zero, to: workspace).x
+        let groupPinX = groupPin.convert(.zero, to: group).x
+        #expect(abs(groupPinX - workspacePinX) < 0.5)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
