@@ -289,6 +289,162 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func largeNestedDirectoryUsesLoadTimeOrderingWithoutPerReadResorts() async throws {
+        let provider = MockFileExplorerProvider(homePath: "/project")
+        provider.listings["/project"] = .success([
+            FileExplorerEntry(
+                name: "Large",
+                path: "/project/Large",
+                isDirectory: true
+            ),
+        ])
+        provider.listings["/project/Large"] = .success(
+            (0..<5_000).reversed().flatMap { index in
+                [
+                    FileExplorerEntry(
+                        name: String(format: "file-%05d.swift", index),
+                        path: String(format: "/project/Large/file-%05d.swift", index),
+                        isDirectory: false
+                    ),
+                    FileExplorerEntry(
+                        name: String(format: "folder-%05d", index),
+                        path: String(format: "/project/Large/folder-%05d", index),
+                        isDirectory: true
+                    ),
+                ]
+            }
+        )
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.setRootPath("/project")
+        try await waitFor("large root loaded") { store.rootNodes.count == 1 }
+        let directory = try #require(store.rootNodes.first)
+        store.expand(node: directory)
+        try await waitFor("large nested directory loaded", timeout: 10) {
+            directory.children?.count == 10_000
+        }
+        let children = try #require(directory.children)
+
+        #expect(children.prefix(5_000).allSatisfy(\.isDirectory))
+        #expect(children.suffix(5_000).allSatisfy { !$0.isDirectory })
+        for index in 1..<children.count {
+            let previous = children[index - 1]
+            let current = children[index]
+            if previous.isDirectory == current.isDirectory {
+                #expect(
+                    previous.name.localizedCaseInsensitiveCompare(current.name)
+                        != .orderedDescending
+                )
+            }
+        }
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = NSOutlineView()
+        let storedIdentityOrder = Array(children.reversed())
+        directory.children = storedIdentityOrder
+        var readsStoredOrder = true
+        for iteration in 0..<500 {
+            if coordinator.outlineView(
+                outlineView,
+                numberOfChildrenOfItem: directory
+            ) != storedIdentityOrder.count {
+                readsStoredOrder = false
+                break
+            }
+            let index = (iteration * 7_919) % storedIdentityOrder.count
+            guard let child = coordinator.outlineView(
+                outlineView,
+                child: index,
+                ofItem: directory
+            ) as? FileExplorerNode,
+                  child === storedIdentityOrder[index] else {
+                readsStoredOrder = false
+                break
+            }
+        }
+
+        #expect(readsStoredOrder)
+    }
+
+    @Test
+    func thousandNodeChangesInTenThousandRowsPreserveOutlineState() async throws {
+        let store = FileExplorerStore()
+        var nodes = (0..<10_000).map { index in
+            FileExplorerNode(
+                name: String(format: "File-%05d.swift", index),
+                path: String(format: "/project/File-%05d.swift", index),
+                isDirectory: false
+            )
+        }
+        let directory = FileExplorerNode(
+            name: "Expanded",
+            path: "/project/Expanded",
+            isDirectory: true
+        )
+        let selectedChild = FileExplorerNode(
+            name: "Selected.swift",
+            path: "/project/Expanded/Selected.swift",
+            isDirectory: false
+        )
+        directory.children = [selectedChild]
+        nodes[5_000] = directory
+        store.rootPath = "/project"
+        store.setRootNodes(nodes)
+        store.expand(node: directory)
+        store.select(node: selectedChild)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+
+        let selectedRow = outlineView.row(forItem: selectedChild)
+        #expect(selectedRow >= 0)
+        outlineView.scrollRowToVisible(selectedRow)
+        scrollView.layoutSubtreeIfNeeded()
+        let initialScrollOrigin = scrollView.contentView.bounds.origin
+        let initialVisibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
+        outlineView.resetMetrics()
+
+        for node in nodes[8_000..<9_000] {
+            coordinator.enqueueOutlineChange(
+                .nodeChanged(node: node, reloadChildren: false)
+            )
+        }
+
+        try await waitFor("bounded overflow reconciliation") {
+            outlineView.reloadItemCallCount >= 2
+        }
+
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadRowsCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 2)
+        #expect(outlineView.isItemExpanded(directory))
+        #expect(outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode === selectedChild)
+        #expect(scrollView.contentView.bounds.origin == initialScrollOrigin)
+        #expect(coordinator.lastNodeChangeVisibleRowInspectionCount <= initialVisibleRowCount)
+        #expect(outlineView.itemAtRowCallCount < 1_000)
+    }
+
+    @Test
     func scopedNodeChangeDoesNotScanLargeOutline() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
