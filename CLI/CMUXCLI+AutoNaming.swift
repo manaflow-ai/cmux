@@ -143,8 +143,11 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     }
 
     /// Inline MCP configuration passed with `--strict-mcp-config` so the
-    /// summarizer starts no MCP servers.
-    static let emptyMCPConfigJSON = "{}"
+    /// summarizer starts no MCP servers. Claude Code validates this JSON
+    /// against a schema requiring an `mcpServers` record, so a bare `{}` is
+    /// rejected during argument parsing and the subprocess exits before it
+    /// can produce a title (cmux#9457).
+    static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
 
     /// Argument vector for the tool-disabled `claude -p` summarizer call.
     func claudeSummarizerArguments(from env: [String: String]) -> [String] {
