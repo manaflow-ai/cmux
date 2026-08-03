@@ -106,8 +106,7 @@ extension ControlCommandCoordinator {
             // context (the socket worker lane always passes its live seam),
             // and the legacy body ran this flow inline on main — params still
             // parse, the routing still validates, and the walk resolves an
-            // empty world. No known-ref refresh, exactly as before (the
-            // main lane's refresh lives app-side, ahead of the dispatch).
+            // empty world, matching the main lane.
             outcome = MainActor.assumeIsolated {
                 self.systemTreeHopBody(params, seam: nil)
             }

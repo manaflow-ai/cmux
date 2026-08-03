@@ -105,9 +105,9 @@ extension TerminalController {
     // MARK: - Drag to split / new pane
 
     func controlSidebarRefreshKnownRefs() {
-        // The byte-faithful twin of the file-private `v2RefreshKnownRefs()`
-        // (which stays in `TerminalController.swift` for the v2 dispatch
-        // pre-pass), minting into the same coordinator-owned registry.
+        // Legacy v1 sidebar commands accept opaque refs without going through
+        // a v2 response first. Keep their compatibility pre-pass isolated here;
+        // v2 commands mint refs on demand and never call this whole-app walk.
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()

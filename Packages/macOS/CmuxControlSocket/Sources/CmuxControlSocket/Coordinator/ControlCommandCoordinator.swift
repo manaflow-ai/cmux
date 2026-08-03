@@ -103,9 +103,9 @@ public final class ControlCommandCoordinator {
     ///
     /// Each body is `nonisolated`: pure parse and the JSON payload build/
     /// encode run on the calling thread, and every main-actor touch —
-    /// known-ref refresh, routing resolution through the handle registry,
-    /// the context snapshot witness, and ref minting in payload order — is
-    /// one `controlResolveOnMain` hop. The same bodies serve the main-actor
+    /// routing resolution through the handle registry, the context snapshot
+    /// witness, and ref minting in payload order — is one
+    /// `controlResolveOnMain` hop. The same bodies serve the main-actor
     /// `handle(_:)` dispatch, where the hop collapses inline, so both lanes
     /// run identical code.
     ///

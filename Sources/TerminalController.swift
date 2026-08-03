@@ -1005,8 +1005,8 @@ class TerminalController {
     /// (`feed.push` without an id). The caller (the socket execution-policy
     /// dispatcher) has already parsed the line and checked the policy.
     /// Worker-lane v2 methods whose body IS the shared main-actor dispatch
-    /// (`v2MainActorResponse`, i.e. known-ref refresh + coordinator + legacy
-    /// switch) behind a single `v2MainSync` hop, with response encoding on the
+    /// (`v2MainActorResponse`, i.e. coordinator + legacy switch) behind a
+    /// single `v2MainSync` hop, with response encoding on the
     /// worker. Byte-identical to the main lane by construction; being on the
     /// worker lane moves the policy wrapper, JSON bridging, and encode off the
     /// main thread and keeps the connection thread (not the main queue) as
@@ -1067,7 +1067,7 @@ class TerminalController {
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE
-            // controlResolveOnMain hop (known-ref refresh + witness + ref
+            // controlResolveOnMain hop (routing resolution + witness + ref
             // minting) inside; the encode runs here, on this thread, through
             // the same encoder as the main lane. `self` is the coordinator's
             // wired ControlCommandContext, passed explicitly because the
@@ -1346,8 +1346,6 @@ class TerminalController {
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle":
-            // Keep ref payloads fresh like the main-actor dispatch path does.
-            v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
@@ -2237,19 +2235,12 @@ class TerminalController {
         }
     }
 
-    /// The main-actor body of one main-lane v2 command: the known-ref
-    /// refresh, then the coordinator, then the legacy switch. The
+    /// The main-actor body of one main-lane v2 command: the coordinator,
+    /// then the legacy switch. The
     /// coordinator's typed result returns unencoded so the socket worker
     /// serializes it after the hop.
     ///
-    /// LOCKSTEP: `controlResolveOnMain` (TerminalControllerControlCommandContext.swift)
-    /// is the worker-lane mirror of this dispatch preamble. Any step added
-    /// before `controlCommandCoordinator.handle` here must also be added
-    /// there, or the tranche-D worker-lane verbs silently fork from the
-    /// main lane.
     private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
-        v2RefreshKnownRefs()
-
         // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
         // answer here, on the main actor, through the same encoder/id as the
         // legacy switch (the worker encodes the typed result after the hop);
@@ -2878,8 +2869,6 @@ class TerminalController {
 #endif
 
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
         let identifyPayload = v2Identify(params: [:])
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
@@ -2954,7 +2943,6 @@ class TerminalController {
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
         let base = v2MainSync {
-            self.v2RefreshKnownRefs()
             return self.v2SystemTopBasePayload(params: params)
         }
         guard case .ok(let value) = base else { return base }
@@ -2990,7 +2978,6 @@ class TerminalController {
         var baseParams = params
         baseParams["include_processes"] = false
         let base = v2MainSync {
-            self.v2RefreshKnownRefs()
             return self.v2SystemTopBasePayload(params: baseParams)
         }
         guard case .ok(let value) = base else { return base }
@@ -3628,32 +3615,6 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
-    // Internal (not private): the `controlResolveOnMain` seam conformance in
-    // TerminalControllerControlCommandContext.swift runs this refresh inside
-    // the worker-lane resolution hop, mirroring the main-lane dispatch
-    // preamble.
-    func v2RefreshKnownRefs() {
-        guard let app = AppDelegate.shared else { return }
-
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
-                for ws in tm.tabs {
-                    _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
-                }
-                // Mint workspace_group refs for groups that exist before any
-                // workspace.group.* call so callers can pass `workspace_group:N`
-                // immediately after restore (otherwise the first ref hand-off
-                // happens only on `list`/`create`).
-                for group in tm.workspaceGroups {
-                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
-                }
-            }
-        }
-    }
-
     // MARK: - V2 Context Resolution
 
     nonisolated func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
@@ -3871,7 +3832,6 @@ class TerminalController {
         var workspaceId: UUID?
         var invalidWorkspaceID = false
         v2MainSync {
-            v2RefreshKnownRefs()
             workspaceId = v2UUID(params, "workspace_id")
             invalidWorkspaceID = v2HasNonNullParam(params, "workspace_id") && workspaceId == nil
         }
@@ -3891,7 +3851,6 @@ class TerminalController {
         var surfaceId: UUID?
         var invalidSurfaceID = false
         v2MainSync {
-            v2RefreshKnownRefs()
             surfaceId = v2UUID(params, "surface_id")
             invalidSurfaceID = v2HasNonNullParam(params, "surface_id") && surfaceId == nil
         }
@@ -3926,7 +3885,6 @@ class TerminalController {
         var workspaceMismatchData: [String: Any]?
 
         v2MainSync {
-            v2RefreshKnownRefs()
             let fallbackTabManager = v2ResolveTabManager(params: params)
             let fallbackWorkspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
             var owner: TabManager?
@@ -4106,7 +4064,6 @@ class TerminalController {
             }
         }
         return v2MainSync { () -> V2CallResult in
-            v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
             }
@@ -4160,7 +4117,6 @@ class TerminalController {
         if allWorkspaces {
             var targets: [RemotePTYSocketTarget] = []
             v2MainSync {
-                v2RefreshKnownRefs()
                 guard let app = AppDelegate.shared else { return }
                 for summary in app.listMainWindowSummaries() {
                     guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
@@ -5413,10 +5369,6 @@ class TerminalController {
         // Main-actor critical section: resolve the target and read the raw
         // Ghostty text. Everything after this hop runs off the main actor.
         let outcome: ReadTextCaptureOutcome = v2MainSync {
-            // Mint refs for current topology so caller-supplied `kind:N` refs
-            // resolve, exactly as the former main-actor dispatch did before
-            // handing off to the coordinator.
-            self.v2RefreshKnownRefs()
             let routing = ControlRoutingSelectors(
                 hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
                 windowID: self.v2UUID(params, "window_id"),
@@ -9375,7 +9327,6 @@ class TerminalController {
 
     private nonisolated func v2BrowserDownloadWaitSnapshot(params: [String: Any]) -> V2BrowserDownloadWaitSnapshot {
         v2MainSync {
-            v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return V2BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),

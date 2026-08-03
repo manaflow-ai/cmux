@@ -253,8 +253,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
         // (ControlCommandCoordinator.handleSocketWorkerV2) take ONE
-        // controlResolveOnMain hop (known-ref refresh + routing resolution +
-        // snapshot witness + ref minting in payload order) and build/encode
+        // controlResolveOnMain hop (routing resolution + snapshot witness +
+        // ref minting in payload order) and build/encode
         // the JSON reply on the worker. None are focus-intent.
         "surface.list",
         "surface.current",
