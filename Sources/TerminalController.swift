@@ -6445,8 +6445,8 @@ class TerminalController {
         )
 
         switch resolvedResult {
-        case .failure(let message):
-            return .javaScriptFailure(message)
+        case .failure(let failure):
+            return .failure(failure)
         case .success(let value):
             switch v2BrowserControl.resolveEvaluationEnvelope(value) {
             case .undefined:
