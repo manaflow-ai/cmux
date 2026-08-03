@@ -188,6 +188,42 @@ struct BrowserDownloadsToolbarButton: NSViewRepresentable {
     }
 }
 
+struct DockPanelView: NSViewControllerRepresentable {
+    let store: DockSplitStore
+    let isSidebarVisible: Bool
+    let mode: RightSidebarMode
+    let rootDirectory: String?
+    let windowAppearance: WindowAppearanceSnapshot
+    var rightSidebarOwnsInputFocus: Bool = false
+    let unreadSource: SidebarUnreadModel
+
+    func makeNSViewController(context: Context) -> DockPanelViewController {
+        DockPanelViewController(
+            store: store,
+            isSidebarVisible: isSidebarVisible,
+            mode: mode,
+            rootDirectory: rootDirectory,
+            windowAppearance: windowAppearance,
+            rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+            unreadSource: unreadSource
+        )
+    }
+
+    func updateNSViewController(_ controller: DockPanelViewController, context: Context) {
+        controller.update(
+            isSidebarVisible: isSidebarVisible,
+            mode: mode,
+            rootDirectory: rootDirectory,
+            windowAppearance: windowAppearance,
+            rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+        )
+    }
+
+    static func dismantleNSViewController(_ controller: DockPanelViewController, coordinator: ()) {
+        controller.teardown()
+    }
+}
+
 struct ShortcutDiscoveryButton: NSViewRepresentable {
     @Binding var isPopoverPresented: Bool
 
@@ -1118,6 +1154,67 @@ private final class BonsplitSwiftUIEmptyController: NSHostingController<AnyView>
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+@MainActor
+final class DockSplitPanelContentHostingController: NSHostingController<AnyView>,
+    BonsplitContentUpdating,
+    BonsplitPaneDropZoneReceiving
+{
+    private let context: DockSplitPresentationContext
+    private var tab: Bonsplit.Tab
+    private var paneID: PaneID
+    private var dropZone: DropZone?
+
+    init(context: DockSplitPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
+        self.context = context
+        self.tab = tab
+        self.paneID = paneID
+        super.init(rootView: AnyView(EmptyView()))
+        sizingOptions = []
+        render()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
+        self.tab = tab
+        self.paneID = pane
+        render()
+    }
+
+    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
+        dropZone = zone
+        render()
+    }
+
+    private func render() {
+        guard let panel = context.store.panel(for: tab.id) else {
+            rootView = AnyView(EmptyView())
+            return
+        }
+        rootView = AnyView(
+            DockSplitPanelContentView(
+                store: context.store,
+                panel: panel,
+                tabID: tab.id,
+                paneID: paneID,
+                appearance: context.appearance,
+                appearanceRevision: context.appearanceRevision,
+                windowAppearance: context.windowAppearance,
+                rightSidebarOwnsInputFocus: context.rightSidebarOwnsInputFocus,
+                hasUnreadNotification: context.unreadPanelIDs.contains(panel.id)
+            )
+            .equatable()
+            .environment(\.paneDropZone, dropZone)
+            .onTapGesture {
+                context.store.bonsplitController.focusPane(paneID)
+            }
+        )
     }
 }
 

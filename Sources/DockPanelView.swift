@@ -1,38 +1,43 @@
 import AppKit
-import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxNotifications
 import CmuxTerminal
-import SwiftUI
+import Observation
 
-/// Right-sidebar Dock. Renders the window's own Dock `BonsplitController` tree
-/// (terminals + browsers) using the same split machinery as the main content
-/// area, just constrained to the sidebar width. Every window mounts its own
-/// store, so multiple windows can each show a live Dock simultaneously.
-struct DockPanelView: View {
-    let store: DockSplitStore
-    let isSidebarVisible: Bool
-    let mode: RightSidebarMode
-    let rootDirectory: String?
-    let windowAppearance: WindowAppearanceSnapshot
-    /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
-    /// dims its focus ring when false so Dock and main-pane focus are mutually
-    /// exclusive (the main pane dims its ring when this is true).
-    var rightSidebarOwnsInputFocus: Bool = false
+@MainActor
+final class DockPanelViewController: NSViewController {
+    private struct RenderSnapshot {
+        let trustRequest: DockTrustRequest?
+        let errorMessage: String?
+        let panelIDs: Set<UUID>
+        let unreadPanelIDs: Set<UUID>
+    }
 
-    @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
-    @State private var appearanceRevision: UInt = 0
-    @State private var unreadProjection: DockUnreadPanelProjection
-    @State private var visibilityHostId = UUID()
+    private let store: DockSplitStore
+    private let unreadProjection: DockUnreadPanelProjection
+    private let visibilityHostID = UUID()
+    private let contentContainer = NSView()
+    private let keyboardFocusView = DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
 
-    @MainActor
+    private var isSidebarVisible: Bool
+    private var mode: RightSidebarMode
+    private var rootDirectory: String?
+    private var windowAppearance: WindowAppearanceSnapshot
+    private var rightSidebarOwnsInputFocus: Bool
+    private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    private var appearanceRevision: UInt = 0
+    private var splitController: DockSplitViewController?
+    private weak var installedController: NSViewController?
+    private var storeObservationGeneration: UInt = 0
+    private var notificationTask: Task<Void, Never>?
+
     init(
         store: DockSplitStore,
         isSidebarVisible: Bool,
         mode: RightSidebarMode,
         rootDirectory: String?,
         windowAppearance: WindowAppearanceSnapshot,
-        rightSidebarOwnsInputFocus: Bool = false,
+        rightSidebarOwnsInputFocus: Bool,
         unreadSource: SidebarUnreadModel
     ) {
         self.store = store
@@ -41,230 +46,399 @@ struct DockPanelView: View {
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
-        _unreadProjection = State(initialValue: DockUnreadPanelProjection(
+        self.unreadProjection = DockUnreadPanelProjection(
             source: unreadSource,
             workspaceID: store.workspaceId,
             panelIDs: Set(store.panels.keys),
             isActive: isSidebarVisible && mode == .dock
-        ))
+        )
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        notificationTask?.cancel()
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        root.setAccessibilityIdentifier("DockPanel")
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        keyboardFocusView.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(contentContainer)
+        root.addSubview(keyboardFocusView)
+        NSLayoutConstraint.activate([
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: root.topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            keyboardFocusView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            keyboardFocusView.topAnchor.constraint(equalTo: root.topAnchor),
+            keyboardFocusView.widthAnchor.constraint(equalToConstant: 1),
+            keyboardFocusView.heightAnchor.constraint(equalToConstant: 1),
+        ])
+        keyboardFocusView.focusFirstControl = { [weak store] in
+            store?.focusFirstControl() == true
+        }
+        keyboardFocusView.ownsDockBrowserFocus = { [weak store] responder, window in
+            store?.browserPanel(owning: responder, in: window) != nil
+        }
+        view = root
+        updateBackground()
+        observeAndRender()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        refreshAppearance(reason: "viewDidAppear")
+        synchronizeStoreContext()
+        keyboardFocusView.registerWithKeyboardFocusCoordinatorIfNeeded()
+        startNotificationTask()
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        notificationTask?.cancel()
+        notificationTask = nil
+        store.setVisibleInUI(false, hostId: visibilityHostID)
+    }
+
+    func update(
+        isSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        rootDirectory: String?,
+        windowAppearance: WindowAppearanceSnapshot,
+        rightSidebarOwnsInputFocus: Bool
+    ) {
+        self.isSidebarVisible = isSidebarVisible
+        self.mode = mode
+        self.rootDirectory = rootDirectory
+        self.windowAppearance = windowAppearance
+        self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        synchronizeStoreContext()
+        observeAndRender()
+    }
+
+    func teardown() {
+        notificationTask?.cancel()
+        notificationTask = nil
+        storeObservationGeneration &+= 1
+        store.setVisibleInUI(false, hostId: visibilityHostID)
     }
 
     private var appearance: PanelAppearance {
         PanelAppearance.fromConfig(appearanceConfig)
     }
 
-    var body: some View {
-        content
-        .background(Color(nsColor: appearance.backgroundColor))
-        .background(
-            DockKeyboardFocusBridge(store: store)
-                .frame(width: 1, height: 1)
+    private func synchronizeStoreContext() {
+        let isActive = isSidebarVisible && mode == .dock
+        store.setRootDirectory(rootDirectory)
+        store.setActive(
+            isVisible: isSidebarVisible,
+            mode: mode,
+            visibilityHostId: visibilityHostID
         )
-        .background(
-            DockUnreadProjectionContextBridge(
-                projection: unreadProjection,
+        unreadProjection.updateContext(panelIDs: Set(store.panels.keys), isActive: isActive)
+    }
+
+    private func observeAndRender() {
+        storeObservationGeneration &+= 1
+        let generation = storeObservationGeneration
+        let snapshot = withObservationTracking {
+            RenderSnapshot(
+                trustRequest: store.trustRequest,
+                errorMessage: store.errorMessage,
                 panelIDs: Set(store.panels.keys),
-                isActive: isSidebarVisible && mode == .dock
+                unreadPanelIDs: unreadProjection.unreadPanelIDs
             )
-            .frame(width: 0, height: 0)
-        )
-        .accessibilityIdentifier("DockPanel")
-        .onAppear {
-            refreshAppearance(reason: "onAppear")
-            store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onDisappear { store.setVisibleInUI(false, hostId: visibilityHostId) }
-        .onChange(of: isSidebarVisible) { _, visible in
-            store.setActive(isVisible: visible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onChange(of: mode) { _, newMode in
-            store.setActive(isVisible: isSidebarVisible, mode: newMode, visibilityHostId: visibilityHostId)
-        }
-        .onChange(of: rootDirectory) { _, _ in
-            store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshAppearance(reason: "ghosttyConfigDidReload")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
-            refreshAppearance(reason: "paneChromeSettingsDidChange")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
-        }
-    }
-
-    private func refreshAppearance(reason: String) {
-        let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
-        appearanceConfig = next
-        appearanceRevision &+= 1
-        store.applyGhosttyChrome(from: next)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let trustRequest = store.trustRequest {
-            DockTrustView(request: trustRequest) {
-                store.trustAndReload()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.storeObservationGeneration == generation else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self.observeAndRender()
             }
-        } else if let error = store.errorMessage {
-            DockErrorView(message: error)
+        }
+        unreadProjection.updateContext(
+            panelIDs: snapshot.panelIDs,
+            isActive: isSidebarVisible && mode == .dock
+        )
+        render(snapshot)
+    }
+
+    private func render(_ snapshot: RenderSnapshot) {
+        if let trustRequest = snapshot.trustRequest {
+            install(DockStateViewController(
+                symbolName: "exclamationmark.shield",
+                symbolColor: .systemOrange,
+                title: String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"),
+                message: String(
+                    localized: "dock.trust.message",
+                    defaultValue: "This project wants to start commands from its Dock config."
+                ),
+                detail: trustRequest.configPath,
+                actionTitle: String(localized: "dock.trust.action", defaultValue: "Trust and Start"),
+                action: { [weak store] in store?.trustAndReload() }
+            ))
+            return
+        }
+
+        if let errorMessage = snapshot.errorMessage {
+            install(DockStateViewController(
+                symbolName: "exclamationmark.triangle",
+                symbolColor: .systemOrange,
+                title: String(localized: "dock.error.title", defaultValue: "Dock Config Error"),
+                message: errorMessage
+            ))
+            return
+        }
+
+        let splitController: DockSplitViewController
+        if let existing = self.splitController {
+            splitController = existing
+            splitController.update(
+                appearance: appearance,
+                appearanceRevision: appearanceRevision,
+                windowAppearance: windowAppearance,
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                unreadPanelIDs: snapshot.unreadPanelIDs
+            )
         } else {
-            DockSplitContentView(
+            splitController = DockSplitViewController(
                 store: store,
                 appearance: appearance,
                 appearanceRevision: appearanceRevision,
                 windowAppearance: windowAppearance,
                 rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
-                unreadPanelIDs: unreadProjection.unreadPanelIDs
+                unreadPanelIDs: snapshot.unreadPanelIDs
             )
+            self.splitController = splitController
         }
+        install(splitController)
     }
-}
 
-/// Shown in an empty Dock pane (initial empty Dock, or a freshly split pane).
-/// Offers the same in-app create affordances as the tab-bar split buttons.
-struct DockEmptyPaneView: View {
-    let onNewTerminal: () -> Void
-    let onNewBrowser: () -> Void
+    private func install(_ controller: NSViewController) {
+        guard installedController !== controller else { return }
+        if let installedController {
+            installedController.view.removeFromSuperview()
+            installedController.removeFromParent()
+        }
+        addChild(controller)
+        let childView = controller.view
+        childView.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(childView)
+        NSLayoutConstraint.activate([
+            childView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            childView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            childView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            childView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+        installedController = controller
+    }
 
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "dock.rectangle")
-                .font(.system(size: 30))
-                .foregroundStyle(.tertiary)
-            Text(String(localized: "dock.emptyPane.title", defaultValue: "Empty Dock Pane"))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button(action: onNewTerminal) {
-                    Label(
-                        String(localized: "dock.action.newTerminal", defaultValue: "New Terminal"),
-                        systemImage: "terminal.fill"
-                    )
-                }
-                Button(action: onNewBrowser) {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
+    private func refreshAppearance(reason: String) {
+        appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
+        appearanceRevision &+= 1
+        store.applyGhosttyChrome(from: appearanceConfig)
+        updateBackground()
+        observeAndRender()
+    }
+
+    private func updateBackground() {
+        guard isViewLoaded else { return }
+        view.layer?.backgroundColor = appearance.backgroundColor.cgColor
+    }
+
+    private func startNotificationTask() {
+        notificationTask?.cancel()
+        notificationTask = Task { @MainActor [weak self] in
+            await withDiscardingTaskGroup { group in
+                let notifications: [(Notification.Name, String)] = [
+                    (.ghosttyConfigDidReload, "ghosttyConfigDidReload"),
+                    (PaneChromeSettings.didChangeNotification, "paneChromeSettingsDidChange"),
+                    (.ghosttyDefaultBackgroundDidChange, "ghosttyDefaultBackgroundDidChange"),
+                ]
+                for (name, reason) in notifications {
+                    group.addTask { @MainActor [weak self] in
+                        for await _ in NotificationCenter.default.notifications(named: name) {
+                            guard !Task.isCancelled else { return }
+                            self?.refreshAppearance(reason: reason)
+                        }
+                    }
                 }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
     }
 }
 
-private struct DockTrustView: View {
-    let request: DockTrustRequest
-    let onTrust: () -> Void
+@MainActor
+private final class DockStateViewController: NSViewController {
+    private let symbolName: String
+    private let symbolColor: NSColor
+    private let titleText: String
+    private let message: String
+    private let detail: String?
+    private let actionTitle: String?
+    private let actionHandler: (() -> Void)?
 
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.shield")
-                .font(.system(size: 28))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(String(
-                localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
-            ))
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            Text(request.configPath)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            Button(String(localized: "dock.trust.action", defaultValue: "Trust and Start")) {
-                onTrust()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+    init(
+        symbolName: String,
+        symbolColor: NSColor,
+        title: String,
+        message: String,
+        detail: String? = nil,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.symbolName = symbolName
+        self.symbolColor = symbolColor
+        self.titleText = title
+        self.message = message
+        self.detail = detail
+        self.actionTitle = actionTitle
+        self.actionHandler = action
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        let image = NSImageView(image: NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: titleText
+        ) ?? NSImage())
+        image.symbolConfiguration = .init(pointSize: 28, weight: .regular)
+        image.contentTintColor = symbolColor
+
+        let title = NSTextField(labelWithString: titleText)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.alignment = .center
+
+        let body = NSTextField(wrappingLabelWithString: message)
+        body.font = .systemFont(ofSize: 12)
+        body.textColor = .secondaryLabelColor
+        body.alignment = .center
+        body.maximumNumberOfLines = 0
+
+        let stack = NSStackView(views: [image, title, body])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 10
+        if let detail {
+            let detailLabel = NSTextField(wrappingLabelWithString: detail)
+            detailLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+            detailLabel.textColor = .secondaryLabelColor
+            detailLabel.alignment = .center
+            detailLabel.maximumNumberOfLines = 2
+            detailLabel.lineBreakMode = .byTruncatingMiddle
+            stack.addArrangedSubview(detailLabel)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let actionTitle, let actionHandler {
+            let button = DockStateActionButton(title: actionTitle, action: actionHandler)
+            button.controlSize = .small
+            button.bezelStyle = .rounded
+            stack.addArrangedSubview(button)
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -20),
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: 340),
+            image.widthAnchor.constraint(equalToConstant: 32),
+            image.heightAnchor.constraint(equalToConstant: 32),
+        ])
+        view = root
     }
 }
 
-private struct DockErrorView: View {
-    let message: String
+@MainActor
+private final class DockStateActionButton: NSButton {
+    private let handler: () -> Void
 
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 24))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.error.title", defaultValue: "Dock Config Error"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(message)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    init(title: String, action: @escaping () -> Void) {
+        self.handler = action
+        super.init(frame: .zero)
+        self.title = title
+        target = self
+        self.action = #selector(invoke(_:))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func invoke(_ sender: NSButton) {
+        handler()
     }
 }
 
-private struct DockKeyboardFocusBridge: NSViewRepresentable {
-    let store: DockSplitStore
-
-    func makeNSView(context: Context) -> DockKeyboardFocusView {
-        DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-    }
-
-    func updateNSView(_ nsView: DockKeyboardFocusView, context: Context) {
-        nsView.focusFirstControl = { [weak store] in
-            store?.focusFirstControl() == true
-        }
-        nsView.ownsDockBrowserFocus = { [weak store] responder, window in
-            store?.browserPanel(owning: responder, in: window) != nil
-        }
-        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-}
-
+@MainActor
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
     var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); registerWithKeyboardFocusCoordinatorIfNeeded() }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
 
-    func registerWithKeyboardFocusCoordinatorIfNeeded() { if let window { AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self) } }
+    func registerWithKeyboardFocusCoordinatorIfNeeded() {
+        if let window {
+            AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self)
+        }
+    }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
         if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
-              let surfaceId = ghosttyView.terminalSurface?.id else {
+              let surfaceID = ghosttyView.terminalSurface?.id
+        else {
             return false
         }
-        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceID)
     }
 
-    func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
+    func focusFirstItemFromCoordinator() {
+        _ = focusFirstControl?()
+    }
 
     func focusHostFromCoordinator() -> Bool {
         focusFirstControl?() == true || window?.makeFirstResponder(self) == true
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool { handleModeShortcut(event) || super.performKeyEquivalent(with: event) }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleModeShortcut(event) || super.performKeyEquivalent(with: event)
+    }
 
-    override func keyDown(with event: NSEvent) { if !handleModeShortcut(event) { super.keyDown(with: event) } }
+    override func keyDown(with event: NSEvent) {
+        if !handleModeShortcut(event) {
+            super.keyDown(with: event)
+        }
+    }
 
     private func handleModeShortcut(_ event: NSEvent) -> Bool {
         guard let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) else { return false }
-        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
+        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: mode,
+            focusFirstItem: true,
+            preferredWindow: window
+        )
         return true
     }
 }
