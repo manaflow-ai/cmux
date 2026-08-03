@@ -10523,7 +10523,6 @@ struct VerticalTabsSidebar: View, Equatable {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
-    @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     // Per-workspace transient checklist UI state (never persisted): which
@@ -10554,17 +10553,14 @@ struct VerticalTabsSidebar: View, Equatable {
     /// notifications) would otherwise stay unrendered until the next
     /// unrelated sidebar change. The bump forces one fresh rebuild.
     @State private var appKitPostResizeRefreshToken: UInt64 = 0
-    @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
-    // Parent-owned immutable workspace projections. Workspace publishers and
-    // async observation streams terminate here, above the LazyVStack; rows
-    // receive only values and action closures. This is the ownership boundary
-    // that prevents layout/realization from publishing row state (#6707).
-    @State private var workspaceSnapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
+    /// Invalidates the native table projection after an observed workspace
+    /// snapshot changes in the non-observed row cache.
+    @State private var workspaceSnapshotRefreshToken: UInt64 = 0
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10877,7 +10873,6 @@ struct VerticalTabsSidebar: View, Equatable {
     private func deactivateSidebarInteractions() {
         appKitFrozenTableRowsBox.rows = nil
         appKitRowSnapshotCache.prune(keeping: [])
-        if !workspaceSnapshotsById.isEmpty { workspaceSnapshotsById = [:] }
         guard pointerInteractionMonitor.isActive else { return }
         pointerInteractionMonitor.stop()
         modifierKeyMonitor.stop()
@@ -11101,12 +11096,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         appKitWorkspaceScrollArea(renderContext: renderContext)
             .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
-        // Workspace publisher observations and the snapshot refresh feed BOTH
-        // list implementations, so they live on the shared parent. They
-        // previously hung off the legacy subtree only, which the AppKit flag
-        // unmounts — leaving workspaceSnapshotsById permanently empty, so
-        // renames, colors, pins, and descriptions never invalidated the
-        // sidebar and only painted when an unrelated change rebuilt the rows.
+        // Workspace publishers invalidate the native row cache without making
+        // the table controller observe every live workspace object directly.
         .sidebarProcessTitleObservations(
             ids: renderContext.workspaceIds,
             models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
@@ -11139,203 +11130,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func legacyWorkspaceScrollArea(
-        renderContext: WorkspaceListRenderContext,
-        unreadSnapshot: SidebarUnreadSnapshot
-    ) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
-        return GeometryReader { viewport in
-            // Keep viewport geometry as a downward-only layout input. Writing
-            // this value into @State from onGeometryChange feeds an
-            // NSHostingView layout pass back into the same LazyVStack graph;
-            // scrolling plus row-height churn can then prevent convergence.
-            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
-                viewportHeight: viewport.size.height,
-                insets: scrollInsets
-            )
-            ScrollViewReader { scrollProxy in
-                ScrollView(.vertical) {
-                    workspaceScrollContent(
-                        renderContext: renderContext,
-                        minHeight: contentMinHeight,
-                        unreadSnapshot: unreadSnapshot
-                    )
-                }
-            .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .sidebarPointerEventHost(pointerInteractionMonitor)
-            .background(
-                NativeSidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
-                    dragAutoScrollController.attach(scrollView: scrollView)
-                }
-                .frame(width: 0, height: 0)
-            )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: scrollInsets.top).allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: scrollInsets.bottom).allowsHitTesting(false)
-            }
-            .mask(
-                SidebarWorkspaceScrollEdgeFadeMask(
-                    topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
-                )
-            )
-            .overlay(alignment: .top) {
-                // The sidebar top strip remains draggable and handles
-                // double-clicks with the standard titlebar action.
-                WindowDragHandleView()
-                    .frame(height: sidebarTitlebarInteractionHeight)
-                    .background(TitlebarDoubleClickMonitorView())
-            }
-            .overlay(alignment: .topLeading) {
-                minimalModeSidebarTitlebarControlsOverlay()
-            }
-            .overlay(alignment: .top) {
-                workspaceReorderDropOverlay(
-                    renderContext: renderContext,
-                    pointOffset: CGSize(width: 0, height: -scrollInsets.top)
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: scrollInsets.top)
-            }
-            .background(Color.clear)
-            .background(NativeScrollBackgroundClearer())
-            .onAppear {
-                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-            }
-            .onChange(of: tabManager.selectedTabId) { _, _ in
-                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                // Workspace switches produce no outside click for .transient auto-dismiss; close popovers explicitly.
-                if let dismissed = checklistPopoverWorkspaceId { checklistAddFieldActivationTokens[dismissed] = nil }
-                checklistPopoverWorkspaceId = nil
-            }
-            .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
-                guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
-                    from: oldWorkspaceIds,
-                    to: newWorkspaceIds
-                ) else {
-                    flushPendingSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                    return
-                }
-                requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
-                requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
-                // Drive a revision counter that the group-header resolver
-                // reads. Forces SwiftUI to re-invoke `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`
-                // when the anchor's cwd changes while the anchor is not
-                // the selected workspace — otherwise group color/icon/menu
-                // and `+` placement reflect the previous cwd until some
-                // unrelated sidebar event fires.
-                anchorCwdRevision &+= 1
-            }
-            .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
-                // Group collapse hides some workspaces without changing
-                // focus or wiping the rest of the multi-selection. Strip
-                // only the hidden ids; if focus moved, make sure the new
-                // focused id is still represented.
-                guard let model = notification.object as? SidebarMultiSelectionModel,
-                      model === tabManager.sidebarMultiSelection,
-                      let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
-                var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
-                if let movedFocus = event.focusedWorkspaceId {
-                    next.insert(movedFocus)
-                    if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
-                        lastSidebarSelectionIndex = index
-                    }
-                }
-                if next != selectedTabIds {
-                    selectedTabIds = next
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
-                // Keyboard nav (selectNextTab/selectPreviousTab) posts
-                // this so any stale Shift-click range in the sidebar's
-                // SwiftUI selectedTabIds collapses to just the newly-
-                // focused workspace. Without this, batch context-menu /
-                // shortcut actions would still target the stale range.
-                guard let model = notification.object as? SidebarMultiSelectionModel,
-                      model === tabManager.sidebarMultiSelection,
-                      let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
-                let focusedId = event.focusedWorkspaceId
-                let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
-                if selectedTabIds != next {
-                    selectedTabIds = next
-                }
-                if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
-                    lastSidebarSelectionIndex = index
-                }
-            }
-        }
-        }
-    }
-
-    private func requestSelectedWorkspaceScroll(
-        _ proxy: ScrollViewProxy,
-        renderContext: WorkspaceListRenderContext
-    ) {
-        guard let selectedWorkspaceId = tabManager.selectedTabId,
-              renderContext.workspaceIds.contains(selectedWorkspaceId) else {
-            pendingSelectedWorkspaceScrollId = nil
-            return
-        }
-
-        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
-        flushPendingSelectedWorkspaceScroll(proxy, renderContext: renderContext)
-    }
-
-        private func flushPendingSelectedWorkspaceScroll(
-        _ proxy: ScrollViewProxy,
-        renderContext: WorkspaceListRenderContext
-    ) {
-        guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
-
-        // Scroll unconditionally: ScrollViewProxy resolves `.id(_:)` values in
-        // lazy containers without requiring the row to be realized, and an
-        // unknown id is a harmless no-op. The previous design gated this on a
-        // per-row "laid-out row ids" PreferenceKey whose sidebar-wide reduce
-        // fed `@State` writes from inside the layout/preference update cycle,
-        // the cmux-owned edge in the sidebar layout livelock
-        // (https://github.com/manaflow-ai/cmux/issues/2586). No anchor means
-        // SwiftUI scrolls the minimum needed to reveal the row.
-        let group = renderContext.workspaceById[selectedWorkspaceId]?.groupId
-            .flatMap { renderContext.workspaceGroupById[$0] }
-        proxy.scrollTo(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
-            selectedWorkspaceId: selectedWorkspaceId,
-            group: group
-        ))
-        pendingSelectedWorkspaceScrollId = nil
-    }
-
-        private func shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
-        from oldWorkspaceIds: [UUID],
-        to newWorkspaceIds: [UUID]
-    ) -> Bool {
-        SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-            selectedWorkspaceId: tabManager.selectedTabId,
-            oldWorkspaceIds: oldWorkspaceIds,
-            newWorkspaceIds: newWorkspaceIds
-        )
-    }
-
-        private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
-        guard let manager = notification.object as? TabManager, manager === tabManager else {
-            return
-        }
-        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
-        let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
-        guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
-        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
-    }
-
     private func appKitWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let _ = anchorCwdRevision
         let _ = appKitPostResizeRefreshToken
+        let _ = workspaceSnapshotRefreshToken
         let tableRows: [SidebarWorkspaceTableRowConfiguration]
         let isDividerDragActive = isPresented
             && TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: observedWindow)
@@ -12077,13 +11875,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        var next = workspaceSnapshotsById
         var changed = false
         for workspaceId in workspaceIds {
-            guard let workspace = workspaceById[workspaceId] else {
-                changed = next.removeValue(forKey: workspaceId) != nil || changed
-                continue
-            }
+            guard let workspace = workspaceById[workspaceId] else { continue }
             let snapshot = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
@@ -12093,35 +11887,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 continue
             }
             appKitRowSnapshotCache.store(snapshot, for: workspaceId)
-            guard next[workspaceId] != snapshot else { continue }
-            next[workspaceId] = snapshot
             changed = true
         }
         guard changed else { return }
 #if DEBUG
         cmuxDebugLog("sidebar.snapshot.refresh requested=\(workspaceIds.count)")
 #endif
-        workspaceSnapshotsById = next
-    }
-
-    private func refreshWorkspaceSnapshots() {
-        workspaceSnapshotRefreshCoalescer.cancel()
-        let tabs = tabManager.tabs
-        let liveIds = Set(tabs.map(\.id))
-        let settings = tabItemSettingsStore.snapshot
-        let showsAgentActivity = settings.details.showAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
-        next.reserveCapacity(tabs.count)
-        for workspace in tabs {
-            next[workspace.id] = makeWorkspaceSnapshot(
-                workspace: workspace,
-                settings: settings,
-                showsAgentActivity: showsAgentActivity
-            )
-        }
-        guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
-        workspaceSnapshotsById = next
+        workspaceSnapshotRefreshToken &+= 1
     }
 
     private func makeWorkspaceSnapshot(
@@ -13046,289 +12818,6 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func workspaceScrollContent(
-        renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat,
-        unreadSnapshot: SidebarUnreadSnapshot
-    ) -> some View {
-        let signpost = SidebarProfilingSignposts.begin("sidebar-scroll-content", "workspaces=\(renderContext.workspaceCount) renderItems=\(renderContext.workspaceRenderItems.count) minHeight=\(minHeight)"); defer { SidebarProfilingSignposts.end(signpost) }
-        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner().shouldCollectWorkspaceDropTargets(
-            draggedTabId: dragState.draggedTabId,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive ||
-                isWorkspaceReorderDropTargetCollectionActive
-        )
-        // Rows stay lazy + pinned top; `.frame(minHeight:)` fills the viewport
-        // (#3241) or scrolls without measuring the LazyVStack. The prior
-        // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
-        // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
-        // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        let content = workspaceRows(
-            renderContext: renderContext,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
-            unreadSnapshot: unreadSnapshot
-        )
-            .overlay(alignment: .bottom) {
-                if emptyAreaTopDropIndicatorVisible() {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: tabRowSpacing / 2)
-                }
-            }
-            // Neutralize ALL end-of-list empty-area interactions over the rows
-            // block (2pt gaps, row padding, and the entire list when it
-            // overflows) so none fall through to SidebarEmptyArea behind:
-            // workspace-reorder drops, Bonsplit new-workspace drops, and the
-            // double-tap-to-create gesture. Sized to the rows, so only the
-            // genuine blank area below the last row stays interactive. This is
-            // the measurement-free equivalent of physically placing the empty
-            // area below the rows; doing that requires asking the LazyVStack for
-            // its height, which realizes every row each layout pass and is the
-            // livelock this change removes. Per-row delegates render in front
-            // and still win over their own rows.
-            .background {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {}
-                    .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
-                    .onDrop(of: BonsplitTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
-            }
-            .frame(minHeight: minHeight, alignment: .top)
-            .background(alignment: .top) {
-                SidebarEmptyArea(
-                    rowSpacing: tabRowSpacing,
-                    selection: $selection,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dragAutoScrollController: dragAutoScrollController,
-                    topDropIndicatorVisible: false,
-                    bonsplitDropIndicator: dropIndicatorBinding,
-                    expandsVertically: true
-                )
-            }
-
-        return rowsWithGatedDropTargetReader(
-            rows: content,
-            renderContext: renderContext,
-            shouldCollect: shouldCollectWorkspaceDropTargets
-        )
-        .overlay {
-            workspaceReorderDropOverlay(renderContext: renderContext)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .overlay {
-            bonsplitWorkspaceDropOverlay()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder
-    private func workspaceRows(
-        renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool,
-        unreadSnapshot: SidebarUnreadSnapshot
-    ) -> some View {
-        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
-        let renderItems = renderContext.workspaceRenderItems
-        // Reduce live models to cheap immutable values above the LazyVStack.
-        // Shared notification/selection projections are built once here; full
-        // row trees and row-specific closure binding remain lazy.
-        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
-        let notificationIndex = SidebarWorkspaceNotificationIndex(
-            notifications: notificationStore.notifications
-        )
-        let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
-            (
-                workspace.id,
-                workspaceRowInput(
-                    workspace,
-                    renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
-                )
-            )
-        })
-        let _ = anchorCwdRevision
-        let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
-            (
-                group.id,
-                sidebarWorkspaceGroupRowSnapshot(
-                    group: group,
-                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
-                    renderContext: renderContext,
-                    unreadSnapshot: unreadSnapshot,
-                    notificationIndex: notificationIndex,
-                    shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-                )
-            )
-        })
-        let listSnapshot = SidebarWorkspaceRowsSnapshot(
-            workspaceRowsById: workspaceRowInputsById,
-            groupRowsById: groupRowSnapshotsById,
-            selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
-            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
-            notificationIndex: notificationIndex
-        )
-        let actionFactory = makeWorkspaceRowActionFactory()
-        let rows = LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderItems, id: \.id) { item in
-                switch item {
-                case .groupHeader(let groupId, _):
-                    if let snapshot = listSnapshot.groupRowsById[groupId] {
-                        sidebarWorkspaceGroupRow(snapshot: snapshot)
-                    }
-                case .workspace(let workspaceId):
-                    if let input = listSnapshot.workspaceRowsById[workspaceId] {
-                        workspaceRow(
-                            input: input,
-                            listSnapshot: listSnapshot,
-                            actionFactory: actionFactory,
-                            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-                        )
-                    }
-                }
-            }
-        }
-        .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // No whole-content height measurement here: reading the LazyVStack's
-        // total height (GeometryReader, or a custom Layout's sizeThatFits) fed a
-        // non-converging relayout loop (#2586 / #5764 / #5845). Fill is handled
-        // by `.frame(minHeight:)` in workspaceScrollContent.
-        let _ = SidebarProfilingSignposts.end(signpost)
-        rows
-    }
-    /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
-    /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
-    /// targets. Kept separate from the always-mounted drop-capture overlay so the gate
-    /// flip never changes the drop NSView's identity. (#5325 review)
-    @ViewBuilder
-    private func rowsWithGatedDropTargetReader<Rows: View>(
-        rows: Rows,
-        renderContext: WorkspaceListRenderContext,
-        shouldCollect: Bool
-    ) -> some View {
-        if shouldCollect {
-            rows
-                .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
-                    GeometryReader { proxy in
-                        let workspaceGroupsByAnchor = Dictionary(
-                            uniqueKeysWithValues: renderContext.workspaceGroups.map { ($0.anchorWorkspaceId, $0) }
-                        )
-                        SidebarWorkspaceDropTargetWriters(
-                            bonsplitTargetBridge: bonsplitWorkspaceDropTargetBridge,
-                            bonsplitTargets: renderContext.tabs.compactMap { tab in
-                                guard let anchor = anchors[tab.id] else { return nil }
-                                return SidebarDropPlanner.WorkspaceDropTarget(
-                                    workspaceId: tab.id,
-                                    isPinned: tab.isPinned,
-                                    frame: proxy[anchor]
-                                )
-                            },
-                            reorderTargetBridge: workspaceReorderDropTargetBridge,
-                            reorderTargets: renderContext.visibleWorkspaceRowIds.compactMap { workspaceId in
-                                guard let anchor = anchors[workspaceId],
-                                      renderContext.workspaceById[workspaceId] != nil else {
-                                    return nil
-                                }
-                                let group = workspaceGroupsByAnchor[workspaceId]
-                                let targetGroupId = group?.id ??
-                                    (renderContext.workspaceGroupIdByWorkspaceId[workspaceId] ?? nil)
-                                return SidebarWorkspaceReorderDropOverlay.Target(
-                                    workspaceId: workspaceId,
-                                    groupId: targetGroupId,
-                                    isGroupHeader: group != nil,
-                                    frame: proxy[anchor]
-                                )
-                            }
-                        )
-                    }
-                }
-        } else {
-            rows
-        }
-    }
-
-    private func bonsplitWorkspaceDropOverlay() -> some View {
-        SidebarBonsplitTabWorkspaceDropOverlay(
-            currentSelectedTabId: {
-                tabManager.selectedTabId
-            },
-            sidebarIndexForTabId: { workspaceId in
-                tabManager.tabs.firstIndex { $0.id == workspaceId }
-            },
-            moveToExistingWorkspace: { workspaceId, transfer in
-                guard let app = AppDelegate.shared else {
-                    return false
-                }
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-                   source.workspaceId == workspaceId {
-                    return true
-                }
-                return app.moveBonsplitTab(
-                    tabId: transfer.tab.id,
-                    toWorkspace: workspaceId,
-                    focus: true,
-                    focusWindow: true
-                )
-            },
-            moveToNewWorkspace: { insertionIndex, transfer in
-                guard let app = AppDelegate.shared,
-                      let result = app.moveBonsplitTabToNewWorkspace(
-                        tabId: transfer.tab.id,
-                        destinationManager: tabManager,
-                        focus: true,
-                        focusWindow: true,
-                        insertionIndexOverride: insertionIndex
-                      ) else {
-                    return nil
-                }
-                return result.destinationWorkspaceId
-            },
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            dropIndicator: dropIndicatorBinding,
-            updateAutoscroll: {
-                dragAutoScrollController.updateFromDragLocation()
-            },
-            setWorkspaceDropTargetCollectionActive: { isActive in
-                guard isBonsplitWorkspaceDropTargetCollectionActive != isActive else { return }
-                isBonsplitWorkspaceDropTargetCollectionActive = isActive
-            },
-            isWorkspaceDropTargetCollectionActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            targetBridge: bonsplitWorkspaceDropTargetBridge
-        )
-    }
-
-    private func workspaceReorderDropOverlay(
-        renderContext: WorkspaceListRenderContext,
-        pointOffset: CGSize = .zero
-    ) -> some View {
-        SidebarWorkspaceReorderDropOverlay(
-            targetBridge: workspaceReorderDropTargetBridge,
-            isValidDrag: {
-                activateSidebarWorkspaceDragIfNeeded()
-            },
-            updateDrag: { point, targets in
-                updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
-            },
-            performDrop: { point, targets in
-                performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
-            },
-            clearDropIndicator: {
-                dragState.clearDropIndicator()
-                dragAutoScrollController.stop()
-            },
-            setWorkspaceDropTargetCollectionActive: { isActive in
-                guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
-                isWorkspaceReorderDropTargetCollectionActive = isActive
-            },
-            pointOffset: pointOffset
-        )
-    }
-
     private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
         if dragState.draggedTabId != nil {
             return true
@@ -13377,29 +12866,8 @@ struct VerticalTabsSidebar: View, Equatable {
         return true
     }
 
-    private func updateWorkspaceReorderDrop(
-        point: CGPoint,
-        targets: [SidebarWorkspaceReorderDropOverlay.Target],
-        renderContext: WorkspaceListRenderContext
-    ) -> Bool {
-        guard activateSidebarWorkspaceDragIfNeeded(),
-              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
-            dragState.clearDropIndicator()
-            return false
-        }
-        dragAutoScrollController.updateFromDragLocation()
-        guard dragState.dropIndicator != plan.indicator ||
-                dragState.dropIndicatorScope != plan.indicatorScope else {
-            return true
-        }
-        dragState.setDropIndicator(plan.indicator, scope: plan.indicatorScope)
-        return true
-    }
-
-    /// AppKit-table variant of `updateWorkspaceReorderDrop` that never writes
-    /// the indicator into `dragState`: the table controller paints the two
-    /// affected cells directly, so a dragState write here would only rebuild
-    /// every sidebar row per gap change (the indicator-lags-pointer report).
+    /// The table controller paints the affected cells directly, so this path
+    /// never writes transient drop indicators into shared sidebar state.
     private func updateWorkspaceReorderDropForTable(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
