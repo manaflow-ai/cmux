@@ -16,6 +16,9 @@ describe("hosted Subrouter client", () => {
             "https://sr.example/t/srt_0123456789abcdef0123456789abcdef",
         });
       }
+      if (url.endsWith("/_subrouter/auth/stack/tenant")) {
+        return Response.json({ ok: true, deleted: true });
+      }
       return Response.json([
         {
           id: "apikey:openai-apikey:work",
@@ -38,6 +41,7 @@ describe("hosted Subrouter client", () => {
       teamName: "Acme",
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
+    await client.deleteTenant("stack-access", "team-1");
 
     expect(calls[0]?.init.headers).toEqual({
       authorization: "Bearer stack-access",
@@ -59,5 +63,13 @@ describe("hosted Subrouter client", () => {
         },
       },
     ]);
+    expect(calls[2]?.url).toBe(
+      "https://sr.example/_subrouter/auth/stack/tenant",
+    );
+    expect(calls[2]?.init.headers).toEqual({
+      authorization: "Bearer stack-access",
+      "content-type": "application/json",
+    });
+    expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ teamId: "team-1" });
   });
 });
