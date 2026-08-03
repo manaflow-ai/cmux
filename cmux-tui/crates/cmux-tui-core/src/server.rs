@@ -62,6 +62,7 @@ use crate::sidebar_resource::{
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
+use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux,
@@ -7513,7 +7514,7 @@ fn handle_command_with_cancellation(
             if key.is_some() && !new_workspace {
                 anyhow::bail!("key requires new_workspace");
             }
-            let placement = mux.run_command_surface_with_options(
+            let result = mux.run_command_result_with_options(
                 argv,
                 crate::mux::RunCommandOptions {
                     pane,
@@ -7524,17 +7525,19 @@ fn handle_command_with_cancellation(
                     size: optional_surface_size(cols, rows),
                 },
             )?;
-            let terminal_identity =
-                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
+            let placement = result.placement;
+            let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
             Ok(json!({
-                "surface": placement.surface,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-                "pane": placement.pane,
-                "screen": placement.screen,
-                "workspace": placement.workspace,
+                "surface": placement.as_ref().map(|placement| placement.surface),
+                "terminal_id": result.terminal.terminal_id,
+                "terminal_incarnation": result.terminal.incarnation,
+                "pane": placement.as_ref().map(|placement| placement.pane),
+                "screen": placement.as_ref().map(|placement| placement.screen),
+                "workspace": placement.as_ref().map(|placement| placement.workspace),
+                "lifecycle": result.terminal.lifecycle,
+                "exit": result.terminal.exit,
+                "terminal_revision": result.terminal_revision,
+                "already_exited": already_exited,
             }))
         }
         Command::SendKey { surface, keys } => {
@@ -7922,7 +7925,7 @@ fn handle_command_with_cancellation(
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
-                let result = mux.create_terminal_in_workspace_with_mutation(
+                let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
                     argv,
                     cwd,
@@ -7933,6 +7936,7 @@ fn handle_command_with_cancellation(
                     mutation.expected_revision,
                     &workspace_mutation,
                 )?;
+                mux.reap_created_terminal_surface(result.created_surface);
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
                     "workspace_key":key,
@@ -7946,38 +7950,42 @@ fn handle_command_with_cancellation(
                         "workspace_key":key,
                     }),
                 )?;
-                let placement = result.placement;
+                let created = mux.created_terminal_run_result(&result.terminal_id)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": result.terminal_id,
-                    "terminal_incarnation": result.terminal_incarnation,
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": "running",
-                    "terminal_revision": result.terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": result.replayed,
                     "registry_id": registry_id,
                     "generation": generation,
                 }))
             } else {
-                let placement =
-                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
-                let identity = mux
-                    .surface(placement.surface)
-                    .and_then(|surface| surface.terminal_host_identity());
-                let terminal_revision = mux.terminal_registry_snapshot()?.revision;
+                let created =
+                    mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-                    "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": identity.as_ref().map(|_| "running"),
-                    "terminal_revision": terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": false,
                     "registry_id": registry_id,
                     "generation": generation,

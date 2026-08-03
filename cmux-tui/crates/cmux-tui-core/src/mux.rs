@@ -537,6 +537,13 @@ pub struct RunPlacement {
     pub workspace: WorkspaceId,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RunCommandResult {
+    pub placement: Option<RunPlacement>,
+    pub terminal: RegistryTerminal,
+    pub terminal_revision: u64,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct RunCommandOptions {
     pub pane: Option<PaneId>,
@@ -565,11 +572,13 @@ pub struct TerminalResolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalPlacementResult {
-    pub placement: RunPlacement,
+    pub placement: Option<RunPlacement>,
     pub terminal_id: String,
     pub terminal_incarnation: Option<String>,
     pub terminal_revision: u64,
     pub replayed: bool,
+    pub(crate) created_path: Option<Value>,
+    pub(crate) created_surface: Option<SurfaceId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6788,6 +6797,16 @@ impl Mux {
         argv: Vec<String>,
         options: RunCommandOptions,
     ) -> anyhow::Result<RunPlacement> {
+        self.run_command_result_with_options(argv, options)?
+            .placement
+            .context("command exited before its surface could be returned")
+    }
+
+    pub(crate) fn run_command_result_with_options(
+        self: &Arc<Self>,
+        argv: Vec<String>,
+        options: RunCommandOptions,
+    ) -> anyhow::Result<RunCommandResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
@@ -6841,9 +6860,77 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
-        let surface = self.ordinary_created_surface(&commit)?;
-        self.with_state(|state| run_placement_for_surface(state, surface.id))
-            .context("created command surface has no placement")
+        let terminal_id = self.created_terminal_host_id(&commit.result)?;
+        let surface = self.ordinary_created_surface(&commit).ok();
+        drop(_creation_handoff);
+        if let Some(surface) = surface.as_ref() {
+            self.reap_if_dead(surface);
+        }
+        self.created_terminal_run_result(&terminal_id)
+    }
+
+    fn created_terminal_host_id(&self, created_path: &Value) -> anyhow::Result<String> {
+        let terminal_id = TerminalPublicId::parse(
+            created_path["terminal_id"]
+                .as_str()
+                .context("created terminal result omitted its public terminal id")?
+                .to_string(),
+        )?;
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_host_id(&terminal_id)?
+            .context("created terminal result has no durable host id")
+    }
+
+    pub(crate) fn created_terminal_run_result(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<RunCommandResult> {
+        for _ in 0..2 {
+            let resolution = self
+                .resolve_terminal(terminal_id)?
+                .context("created terminal result has no durable terminal row")?;
+            let placement = resolution.surface.and_then(|surface| {
+                self.with_state(|state| run_placement_for_surface(state, surface))
+            });
+            match resolution.terminal.lifecycle {
+                TerminalLifecycle::Exited => {
+                    anyhow::ensure!(
+                        resolution.terminal.exit.is_some(),
+                        "exited terminal omitted durable exit metadata"
+                    );
+                    return Ok(RunCommandResult {
+                        placement: None,
+                        terminal: resolution.terminal,
+                        terminal_revision: resolution.terminal_revision,
+                    });
+                }
+                TerminalLifecycle::Running => {
+                    if let Some(placement) = placement {
+                        return Ok(RunCommandResult {
+                            placement: Some(placement),
+                            terminal: resolution.terminal,
+                            terminal_revision: resolution.terminal_revision,
+                        });
+                    }
+                    // Exit commits lifecycle before installing the detached
+                    // state. Re-read once if that transition landed between
+                    // resolve_terminal's registry and state snapshots.
+                }
+                lifecycle => anyhow::bail!(
+                    "created terminal is {} before its run result could be returned",
+                    terminal_lifecycle_name(lifecycle)
+                ),
+            }
+        }
+        anyhow::bail!("created running terminal has no placement")
+    }
+
+    pub(crate) fn reap_created_terminal_surface(self: &Arc<Self>, surface: Option<SurfaceId>) {
+        if let Some(surface) = surface.and_then(|surface| self.surface(surface)) {
+            self.reap_if_dead(&surface);
+        }
     }
 
     /// Create a screen in a workspace (default: the active one) with one
@@ -6951,6 +7038,42 @@ impl Mux {
             .map(|(_, placement)| placement)
     }
 
+    pub(crate) fn create_terminal_result_in_workspace(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<RunCommandResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let selectors = self
+            .ordinary_workspace_selectors(workspace)
+            .with_context(|| format!("unknown workspace {workspace}"))?;
+        let operation = if argv.is_some() {
+            ResourceOperation::WorkspaceRun
+        } else {
+            ResourceOperation::TabCreateTerminal
+        };
+        let mut fields = Map::new();
+        if let Some(argv) = argv {
+            fields
+                .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
+        }
+        Self::insert_optional_string(&mut fields, "cwd", cwd);
+        Self::insert_optional_string(&mut fields, "name", name);
+        Self::insert_cell_size(&mut fields, size);
+        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        self.emit_resource_topology_legacy_events(operation, &commit);
+        let terminal_id = self.created_terminal_host_id(&commit.result)?;
+        let surface = self.ordinary_created_surface(&commit).ok();
+        drop(_creation_handoff);
+        if let Some(surface) = surface.as_ref() {
+            self.reap_if_dead(surface);
+        }
+        self.created_terminal_run_result(&terminal_id)
+    }
+
     fn create_terminal_surface_in_workspace(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -6983,6 +7106,34 @@ impl Mux {
             .with_state(|state| run_placement_for_surface(state, surface.id))
             .context("created terminal has no placement")?;
         Ok((surface, placement))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        self.create_terminal_in_workspace_with_mutation(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -7035,7 +7186,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
         };
-        let (placement, surface) = self.create_terminal_in_workspace_impl(
+        let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
             argv,
             cwd,
@@ -7047,39 +7198,35 @@ impl Mux {
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
-        Ok(TerminalPlacementResult {
-            placement,
+        let result = TerminalPlacementResult {
+            placement: Some(placement),
             terminal_id: identity.terminal_id,
             terminal_incarnation: Some(identity.incarnation),
             terminal_revision: snapshot.revision,
             replayed: false,
-        })
+            created_path: Some(created_path),
+            created_surface: Some(surface.id),
+        };
+        Ok(result)
     }
 
     fn replayed_terminal_placement(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<TerminalPlacementResult> {
-        let resolution = self
-            .resolve_terminal(terminal_id)?
-            .ok_or_else(|| anyhow::anyhow!("stored terminal create result has no registry row"))?;
-        let surface = resolution.surface.ok_or_else(|| {
-            anyhow::anyhow!(
-                "terminal_create_pending:{}",
-                terminal_lifecycle_name(resolution.terminal.lifecycle)
-            )
-        })?;
-        let placement = {
-            let state = self.state.lock().unwrap();
-            run_placement_for_surface(&state, surface)
-        }
-        .ok_or_else(|| anyhow::anyhow!("terminal_create_pending:binding"))?;
+        let resolved = self.created_terminal_run_result(terminal_id)?;
+        let placement = resolved.placement;
+        let surface = placement.map(|placement| placement.surface);
+        let created_path =
+            surface.map(|surface| self.created_resource_path(surface)).transpose()?;
         Ok(TerminalPlacementResult {
             placement,
-            terminal_id: resolution.terminal.terminal_id,
-            terminal_incarnation: resolution.terminal.incarnation,
-            terminal_revision: resolution.terminal_revision,
+            terminal_id: resolved.terminal.terminal_id,
+            terminal_incarnation: resolved.terminal.incarnation,
+            terminal_revision: resolved.terminal_revision,
             replayed: true,
+            created_path,
+            created_surface: surface,
         })
     }
 
@@ -7091,7 +7238,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         reservation: Option<TerminalReservationRequest>,
-    ) -> anyhow::Result<(RunPlacement, Arc<Surface>)> {
+    ) -> anyhow::Result<(RunPlacement, Arc<Surface>, Value)> {
         {
             let state = self.state.lock().unwrap();
             if state.workspace_by_id(workspace).is_none() {
@@ -7145,7 +7292,7 @@ impl Mux {
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
             let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
-            let (placement, canonical_workspace, changed) = match projected {
+            let (placement, canonical_workspace, changed, created_path) = match projected {
                 Ok(projected) => projected,
                 Err(error) => {
                     self.fail_hosted_terminal_attachment(
@@ -7162,8 +7309,7 @@ impl Mux {
             }
             drop(pending_surface);
             drop(workspace_lifecycle);
-            self.reap_if_dead(&surface);
-            return Ok((placement, surface));
+            return Ok((placement, surface, created_path));
         }
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
@@ -7202,8 +7348,11 @@ impl Mux {
                     surface.id,
                 )
                 .expect("new terminal tab is present in tree snapshot");
+                let placement =
+                    RunPlacement { surface: surface.id, pane: target, screen, workspace };
+                let created_path = self.created_resource_path_in_state(&state, surface.id)?;
                 (
-                    RunPlacement { surface: surface.id, pane: target, screen, workspace },
+                    placement,
                     TreeDelta {
                         kind: TreeDeltaKind::TabAdded,
                         workspace,
@@ -7215,6 +7364,7 @@ impl Mux {
                         workspace_revision: None,
                     },
                     true,
+                    created_path,
                 )
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id)?;
@@ -7243,13 +7393,15 @@ impl Mux {
                     screen_id,
                 )
                 .expect("first workspace screen is present in tree snapshot");
+                let placement = RunPlacement {
+                    surface: surface.id,
+                    pane: pane_id,
+                    screen: screen_id,
+                    workspace,
+                };
+                let created_path = self.created_resource_path_in_state(&state, surface.id)?;
                 (
-                    RunPlacement {
-                        surface: surface.id,
-                        pane: pane_id,
-                        screen: screen_id,
-                        workspace,
-                    },
+                    placement,
                     TreeDelta {
                         kind: TreeDeltaKind::ScreenAdded,
                         workspace,
@@ -7261,14 +7413,14 @@ impl Mux {
                         workspace_revision: None,
                     },
                     false,
+                    created_path,
                 )
             }
         };
         drop(pending_surface);
         self.emit_tree_delta(attached.1, attached.2);
         drop(workspace_lifecycle);
-        self.reap_if_dead(&surface);
-        Ok((attached.0, surface))
+        Ok((attached.0, surface, attached.3))
     }
 
     /// Bind a just-launched hosted surface using the latest durable row, not
@@ -7277,7 +7429,7 @@ impl Mux {
     fn bind_running_terminal_to_canonical_workspace(
         &self,
         surface: &Arc<Surface>,
-    ) -> anyhow::Result<(RunPlacement, String, bool)> {
+    ) -> anyhow::Result<(RunPlacement, String, bool, Value)> {
         let identity = surface
             .terminal_host_identity()
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
@@ -7302,7 +7454,8 @@ impl Mux {
         )?;
         let placement =
             placement.ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
-        Ok((placement, terminal.workspace_key, changed))
+        let created_path = self.created_resource_path_in_state(&state, surface.id)?;
+        Ok((placement, terminal.workspace_key, changed, created_path))
     }
 
     /// Create a browser tab in a pane (default: the active pane). When
