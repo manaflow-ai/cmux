@@ -826,6 +826,87 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func failedGitStatusRefreshPreservesThePreviousSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-file-explorer-git-failure-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let trackedPath = directory.appendingPathComponent("Tracked.swift").path
+        let previousStatus = [trackedPath: GitFileStatus.modified]
+        let runner = RecordingGitCommandRunner(
+            results: [
+                CommandResult(
+                    stdout: "\(directory.path)\n",
+                    stderr: "",
+                    exitStatus: 0,
+                    timedOut: false,
+                    executionError: nil
+                ),
+                CommandResult(
+                    stdout: nil,
+                    stderr: "temporary failure",
+                    exitStatus: 1,
+                    timedOut: false,
+                    executionError: nil
+                ),
+            ]
+        )
+        let request = FileExplorerGitStatusRefreshRequest(
+            generation: 1,
+            source: .local(directory: directory.path)
+        )
+
+        let result = await request.fetch(
+            using: GitStatusProvider(commandRunner: runner),
+            previousStatus: previousStatus
+        )
+
+        #expect(result.status == previousStatus)
+        guard case .unchanged = result.diff else {
+            Issue.record("Expected a failed query to preserve an unchanged snapshot")
+            return
+        }
+    }
+
+    @Test
+    func replacingRootsEvictsLoadedDescendantsFromTheNodeCache() async throws {
+        let provider = MockFileExplorerProvider()
+        let oldDirectory = FileExplorerNode(
+            name: "Old",
+            path: "/project/Old",
+            isDirectory: true
+        )
+        let oldChildPath = "/project/Old/Child.swift"
+        provider.listings[oldDirectory.path] = .success([
+            FileExplorerEntry(
+                name: "Child.swift",
+                path: oldChildPath,
+                isDirectory: false
+            ),
+        ])
+        let store = FileExplorerStore()
+        store.rootPath = "/project"
+        store.setRootNodes([oldDirectory])
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.expand(node: oldDirectory)
+
+        try await waitFor("old descendant cached") {
+            store.loadedNode(at: oldChildPath) != nil
+        }
+
+        let replacement = FileExplorerNode(
+            name: "New.swift",
+            path: "/project/New.swift",
+            isDirectory: false
+        )
+        store.setRootNodes([replacement])
+
+        #expect(store.loadedNode(at: oldChildPath) == nil)
+        #expect(store.loadedNode(at: replacement.path) === replacement)
+    }
+
+    @Test
     func largeGitStatusChangeReloadsVisibleRowsInOneBatch() async throws {
         let store = FileExplorerStore()
         store.rootPath = "/project"

@@ -54,7 +54,7 @@ struct BrowserControlServiceEvaluationScriptTests {
         switch service.resolveEvaluationEnvelope(envelope) {
         case .error(let code, let message):
             #expect(code == "circular_reference")
-            #expect(message == "browser.eval result contains a circular reference")
+            #expect(message == service.evalEnvelope.circularReferenceMessage)
         default:
             Issue.record("Expected an explicit browser-eval error resolution")
         }
@@ -81,6 +81,79 @@ struct BrowserControlServiceEvaluationScriptTests {
         #expect(value["height"] as? Int == 40)
         #expect(value["right"] as? Int == 31)
         #expect(value["bottom"] as? Int == 42)
+    }
+
+    @Test("custom prototypes are copied without invoking serialization hooks")
+    func customPrototypeIsCopiedAsPlainObject() throws {
+        let envelope = try evaluate(
+            """
+            (() => {
+              class Payload {
+                constructor() {
+                  this.answer = 42;
+                }
+                toJSON() {
+                  return 'prototype-hook';
+                }
+              }
+              return new Payload();
+            })()
+            """
+        )
+
+        let value = try #require(envelope[service.evalEnvelope.valueKey] as? [String: Any])
+        #expect(value["answer"] as? Int == 42)
+    }
+
+    @Test("Date and BigInt values have stable JSON-safe representations")
+    func nonJSONBuiltinsAreNormalized() throws {
+        let envelope = try evaluate(
+            """
+            ({date: new Date('2026-01-02T03:04:05Z'), integer: 9007199254740993n})
+            """
+        )
+
+        let value = try #require(envelope[service.evalEnvelope.valueKey] as? [String: Any])
+        #expect((value["date"] as? [String: Any])?.isEmpty == true)
+        #expect(value["integer"] as? String == "9007199254740993")
+    }
+
+    @Test("cycles on exotic prototypes produce the stable error envelope")
+    func exoticPrototypeCycleProducesExplicitError() throws {
+        let envelope = try evaluate(
+            """
+            (() => {
+              const value = new Map();
+              Object.defineProperty(value, 'self', {value, enumerable: true});
+              return value;
+            })()
+            """
+        )
+
+        #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(
+            envelope[service.evalEnvelope.errorCodeKey] as? String
+                == service.evalEnvelope.circularReferenceCode
+        )
+    }
+
+    @Test("an own proto property remains ordinary serialized data")
+    func ownProtoPropertyIsPreserved() throws {
+        let envelope = try evaluate(
+            """
+            (() => {
+              const value = Object.create(null);
+              Object.defineProperty(value, '__proto__', {
+                value: 'ordinary-value',
+                enumerable: true
+              });
+              return value;
+            })()
+            """
+        )
+
+        let value = try #require(envelope[service.evalEnvelope.valueKey] as? [String: Any])
+        #expect(value["__proto__"] as? String == "ordinary-value")
     }
 
     private func evaluate(_ script: String) throws -> [String: Any] {
