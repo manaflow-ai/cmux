@@ -187,7 +187,8 @@ def main() -> int:
     with _serve_pages(pages) as page_urls, cmux(SOCKET_PATH) as c:
         page1_url = page_urls["/cmux-browser-comprehensive-1.html"]
         page2_url = page_urls["/cmux-browser-comprehensive-2.html"]
-        opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
+        probe_url = page_urls["/probe.html"]
+        opened = c._call("browser.open_split", {"url": probe_url}) or {}
         sid = str(opened.get("surface_id") or "")
         sref = str(opened.get("surface_ref") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
@@ -195,8 +196,6 @@ def main() -> int:
         if sref:
             _ = c._call("browser.url.get", {"surface_id": sref})
 
-        probe_url = page_urls["/probe.html"]
-        c._call("browser.navigate", {"surface_id": target, "url": probe_url})
         _wait_with_fallback(
             c,
             target,
@@ -451,6 +450,8 @@ def main() -> int:
             label="browser.wait url_contains page2 (reload)",
         )
 
+        c.activate_app()
+        c.focus_surface(target)
         c._call("browser.focus_webview", {"surface_id": target})
         _wait_until(
             lambda: bool((c._call("browser.is_webview_focused", {"surface_id": target}) or {}).get("focused")),
@@ -491,7 +492,7 @@ def main() -> int:
         _expect_error(
             "browser method on terminal surface",
             lambda: c._call("browser.url.get", {"surface_id": terminal_surface}),
-            "not_found",
+            "invalid_params",
         )
 
     print("PASS: comprehensive browser.* coverage (ported/adapted from agent-browser) is green")
