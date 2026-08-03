@@ -52,8 +52,14 @@ struct SurfaceRoutingUnresolvableWorkspaceTests {
     /// focused workspace instead.
     @Test
     func unresolvableWorkspaceIDResolvesToNoTabManager() {
+        // An unparseable/unknown ref, which decodes to no UUID at all...
         #expect(TerminalController.shared.resolveTabManager(
             routing: Self.routing(workspaceID: nil, hasWorkspaceIDParam: true)
+        ) == nil)
+        // ...and a well-formed UUID that no window owns (a closed workspace, or
+        // an id from another app instance), which parses but locates nothing.
+        #expect(TerminalController.shared.resolveTabManager(
+            routing: Self.routing(workspaceID: UUID(), hasWorkspaceIDParam: true)
         ) == nil)
     }
 
@@ -62,17 +68,21 @@ struct SurfaceRoutingUnresolvableWorkspaceTests {
     /// workspace and add the item there. It must refuse instead.
     @Test
     func unresolvableWorkspaceIDDoesNotMutateTheFocusedWorkspaceTodos() {
-        let result = TerminalController.shared.controlWorkspaceTodoAdd(
-            routing: Self.routing(workspaceID: nil, hasWorkspaceIDParam: true),
-            workspaceID: nil,
-            text: "must not land in the focused workspace",
-            stateRaw: nil,
-            originRaw: nil
-        )
+        for workspaceID in [nil, UUID()] as [UUID?] {
+            let result = TerminalController.shared.controlWorkspaceTodoAdd(
+                routing: Self.routing(workspaceID: workspaceID, hasWorkspaceIDParam: true),
+                workspaceID: workspaceID,
+                text: "must not land in the focused workspace",
+                stateRaw: nil,
+                originRaw: nil
+            )
 
-        guard case .tabManagerUnavailable = result else {
-            Issue.record("expected the add to be refused, got \(result)")
-            return
+            switch result {
+            case .tabManagerUnavailable, .notFound:
+                continue
+            default:
+                Issue.record("expected the add to be refused, got \(result)")
+            }
         }
     }
 

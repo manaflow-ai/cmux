@@ -7755,7 +7755,8 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
         windowOverride: String?,
-        honorJSONOutput: Bool
+        honorJSONOutput: Bool,
+        preserveStableIDs: Bool = false
     ) throws {
         let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
@@ -7837,7 +7838,7 @@ struct CMUXCLI {
             print(jsonString(formatIDs(
                 response,
                 mode: idFormat,
-                preservingIDKinds: ["workspace", "surface", "pane"]
+                preservingIDKinds: preserveStableIDs ? ["workspace", "surface", "pane"] : []
             )))
         } else {
             print("OK \(wsDisplayId)")
@@ -8526,7 +8527,8 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowOverride,
-                honorJSONOutput: true
+                honorJSONOutput: true,
+                preserveStableIDs: preserveStableListIDs
             )
         case "env":
             try runWorkspaceEnvCommand(

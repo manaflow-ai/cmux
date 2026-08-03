@@ -68,6 +68,46 @@ struct CLIWorkspaceCreateIdentityTests {
         )
     }
 
+    @Test("An explicit --id-format still shapes workspace create JSON")
+    func explicitIDFormatsShapeCreateJSON() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let expectations: [(mode: String, hasIDs: Bool, hasRefs: Bool)] = [
+            ("refs", false, true),
+            ("uuids", true, false),
+            ("both", true, true),
+        ]
+
+        for expectation in expectations {
+            let result = try await run(
+                command: [
+                    "workspace", "create",
+                    "--window", CLIWorkspaceCreateIdentityMockServer.windowID,
+                    "--name", "issue-repro",
+                    "--json", "--id-format", expectation.mode,
+                ],
+                cliPath: cliPath,
+                expectedRequestCount: 1
+            )
+            #expect(!result.process.timedOut, Comment(rawValue: result.process.stderr))
+            #expect(result.process.status == 0, Comment(rawValue: result.process.stderr))
+
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.process.stdout.utf8)) as? [String: Any],
+                "Expected JSON object, got: \(result.process.stdout)"
+            )
+            for kind in ["workspace", "surface"] {
+                #expect(
+                    (payload["\(kind)_id"] != nil) == expectation.hasIDs,
+                    Comment(rawValue: "mode=\(expectation.mode) payload=\(payload)")
+                )
+                #expect(
+                    (payload["\(kind)_ref"] != nil) == expectation.hasRefs,
+                    Comment(rawValue: "mode=\(expectation.mode) payload=\(payload)")
+                )
+            }
+        }
+    }
+
     @Test("workspace create prints the UUID alongside the ref in plain output")
     func createPlainOutputIncludesUUID() async throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
