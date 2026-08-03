@@ -1,7 +1,14 @@
-import SwiftUI
+import AppKit
 
 struct DSLFontSpec {
     let baseSize: CGFloat
-    let weight: Font.Weight?
-    let design: Font.Design
+    let weight: NSFont.Weight?
+    let design: DSLFontDesign
+}
+
+enum DSLFontDesign {
+    case `default`
+    case monospaced
+    case rounded
+    case serif
 }

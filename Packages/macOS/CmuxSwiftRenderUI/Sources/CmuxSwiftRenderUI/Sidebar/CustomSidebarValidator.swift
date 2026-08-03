@@ -82,7 +82,7 @@ public struct CustomSidebarValidator {
                         name: name,
                         fileURL: fileURL,
                         kind: kind,
-                        errorMessage: String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")
+                        errorMessage: String(localized: "sidebar.custom.noView", defaultValue: "No supported sidebar view found.")
                     )
                 }
             case .json:

@@ -10,7 +10,7 @@ import Foundation
 ///   separate helper.
 ///
 /// Returns when stdin reaches end-of-stream (the host closed the pipe). The
-/// caller should `exit` afterwards; this must run before any AppKit/SwiftUI
+/// caller should `exit` afterwards; this must run before any AppKit
 /// initialization in the re-exec case.
 public func runSidebarInterpreterWorker() {
     guard let channel = try? LengthPrefixedMessageChannel(readFD: 0, writeFD: 1) else {

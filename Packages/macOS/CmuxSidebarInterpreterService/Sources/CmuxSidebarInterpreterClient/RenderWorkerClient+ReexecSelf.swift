@@ -3,7 +3,7 @@ import Foundation
 public extension RenderWorkerClient {
     /// The argv flag that puts a host binary into sidebar **render** worker
     /// mode. The app's entry point checks for this *before* any of the app's
-    /// own AppKit/SwiftUI setup and runs the faceless render-worker loop
+    /// own AppKit setup and runs the faceless render-worker loop
     /// instead of the app.
     static let workerModeArgument = "--cmux-sidebar-render-worker"
 

@@ -47,7 +47,7 @@ struct CustomSidebarValidationTests {
 
         #expect(report.validCount == 0)
         #expect(report.errorCount == 1)
-        #expect(report.entries.first?.errorMessage == "No supported SwiftUI view found.")
+        #expect(report.entries.first?.errorMessage == "No supported sidebar view found.")
     }
 
     @Test("reports a missing requested sidebar name")

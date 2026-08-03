@@ -1,81 +1,91 @@
 import AppKit
 import CmuxSwiftRender
-import SwiftUI
 
-/// A two-column horizontally resizable split with a draggable divider.
-///
-/// The split fraction is persisted in `@AppStorage` so it survives the sidebar
-/// re-interpreting its source (which happens on every workspace change) and
-/// across launches. Each column scrolls independently.
-struct ResizableHSplit: View {
-    let columns: [RenderNode]
+/// Native two-column split used by interpreted custom sidebars.
+@MainActor
+final class ResizableHSplit: NSSplitView, NSSplitViewDelegate {
+    private let minimumColumnWidth: CGFloat = 80
+    private var hasRestoredFraction = false
 
-    @AppStorage("cmux.customSidebar.splitFraction") private var fraction: Double = 0.5
-    @State private var dragStartFraction: Double?
-    @Environment(\.customSidebarContentInsets) private var contentInsets
+    init(
+        columns: [RenderNode],
+        dispatch: SidebarActionDispatch,
+        contentInsets: CustomSidebarContentInsets
+    ) {
+        super.init(frame: .zero)
+        isVertical = true
+        dividerStyle = .thin
+        autosaveName = "cmux.customSidebar.nativeSplit"
+        delegate = self
+        translatesAutoresizingMaskIntoConstraints = false
 
-    private let minColumnWidth: CGFloat = 80
-    private let handleWidth: CGFloat = 10
-
-    var body: some View {
-        GeometryReader { geo in
-            let total = max(geo.size.width, 1)
-            let lowerBound = Double(minColumnWidth / total)
-            let clamped = min(max(fraction, lowerBound), max(lowerBound, 1 - lowerBound))
-            let leadingWidth = CGFloat(clamped) * total
-
-            HStack(spacing: 0) {
-                column(columns.first)
-                    .frame(width: leadingWidth)
-                divider(total: total)
-                column(columns.count > 1 ? columns[1] : nil)
-                    .frame(maxWidth: .infinity)
-            }
+        for node in Array(columns.prefix(2)) {
+            let rendered = RenderNodeView(node: node, dispatch: dispatch, contentInsets: contentInsets)
+            let padded = SidebarSplitColumnContent(contentView: rendered)
+            let scroll = SidebarScrollContainer(documentView: padded, axis: .vertical)
+            scroll.contentInsets = NSEdgeInsets(
+                top: contentInsets.top, left: 0, bottom: contentInsets.bottom, right: 0
+            )
+            scroll.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumColumnWidth).isActive =
+                true
+            addArrangedSubview(scroll)
+        }
+        while arrangedSubviews.count < 2 {
+            addArrangedSubview(NSView())
         }
     }
 
-    @ViewBuilder
-    private func column(_ node: RenderNode?) -> some View {
-        if let node {
-            ScrollView {
-                RenderNodeView(node: node)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(8)
-            }
-            // Reserve the titlebar-accessory and footer bands so each column's
-            // content rests below the chrome and scrolls up into the host's
-            // top fade mask instead of underlapping the accessory bar.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: contentInsets.bottom).allowsHitTesting(false)
-            }
-        } else {
-            Color.clear
-        }
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private func divider(total: CGFloat) -> some View {
-        ZStack {
-            Divider()
-            Color.clear.frame(width: handleWidth)
-        }
-        .frame(width: handleWidth)
-        .contentShape(Rectangle())
-        .onHover { inside in
-            if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-        }
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    let start = dragStartFraction ?? fraction
-                    if dragStartFraction == nil { dragStartFraction = start }
-                    let newLeading = CGFloat(start) * total + value.translation.width
-                    let lower = Double(minColumnWidth / total)
-                    fraction = min(max(Double(newLeading / total), lower), 1 - lower)
-                }
-                .onEnded { _ in dragStartFraction = nil }
+    override func layout() {
+        super.layout()
+        guard !hasRestoredFraction, bounds.width > minimumColumnWidth * 2 else { return }
+        hasRestoredFraction = true
+        let fraction = min(
+            0.9, max(0.1, UserDefaults.standard.double(forKey: "cmux.customSidebar.splitFraction"))
         )
+        let resolved = fraction == 0 ? 0.5 : fraction
+        setPosition(bounds.width * resolved, ofDividerAt: 0)
+    }
+
+    func splitView(
+        _: NSSplitView,
+        constrainSplitPosition proposedPosition: CGFloat,
+        ofSubviewAt _: Int
+    ) -> CGFloat {
+        min(
+            max(minimumColumnWidth, proposedPosition),
+            max(minimumColumnWidth, bounds.width - minimumColumnWidth)
+        )
+    }
+
+    func splitViewDidResizeSubviews(_: Notification) {
+        guard bounds.width > 0, let leading = arrangedSubviews.first else { return }
+        UserDefaults.standard.set(
+            Double(leading.frame.width / bounds.width), forKey: "cmux.customSidebar.splitFraction"
+        )
+    }
+}
+
+@MainActor
+private final class SidebarSplitColumnContent: SidebarFlippedView {
+    init(contentView: NSView) {
+        super.init(frame: .zero)
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            contentView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 public extension InterpreterClient {
     /// The argv flag that puts a host binary into sidebar-interpreter worker
-    /// mode. The app's entry point checks for this *before* any AppKit/SwiftUI
+    /// mode. The app's entry point checks for this *before* any AppKit
     /// setup, runs ``runSidebarInterpreterWorker()``, and exits.
     static let workerModeArgument = "--cmux-sidebar-interpreter-worker"
 

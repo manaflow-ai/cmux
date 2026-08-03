@@ -41,13 +41,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No supported SwiftUI view found."
+            "value": "No supported sidebar view found."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応するSwiftUIビューが見つかりません。"
+            "value": "対応するサイドバービューが見つかりません。"
           }
         }
       }

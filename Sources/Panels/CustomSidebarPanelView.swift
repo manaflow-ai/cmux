@@ -20,7 +20,7 @@ struct CustomSidebarPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
-    @State private var renderWorkerClient: RenderWorkerClient?
+    @State private var renderWorkerClientStore = RenderWorkerClientStore()
     @State private var focusFlashStartedAt: Date?
     @State private var completedFocusFlashStartedAt: Date?
 
@@ -28,13 +28,13 @@ struct CustomSidebarPanelView: View {
         Group {
             if isVisibleInUI {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
+                    NativeCustomSidebarSurfaceBridge(
                         fileURL: panel.fileURL,
                         dataContext: customSidebarDataContext(now: timeline.date),
                         dispatch: makeCmuxSidebarActionDispatch(),
                         contentInsets: CustomSidebarContentInsets.zero,
                         rendersInProcess: customSidebarRenderer == .inProcess,
-                        client: $renderWorkerClient
+                        clientStore: renderWorkerClientStore
                     )
                 }
             } else {
@@ -79,9 +79,7 @@ struct CustomSidebarPanelView: View {
     }
 
     private func shutdownRenderWorkerClient() {
-        guard let client = renderWorkerClient else { return }
-        renderWorkerClient = nil
-        Task { await client.shutdown() }
+        renderWorkerClientStore.shutdown()
     }
 
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {

@@ -79,7 +79,7 @@ public actor RenderWorkerClient {
     /// Subscribes to context announcements and button actions.
     ///
     /// Each call returns an independent stream, so sidebar surfaces can come
-    /// and go (SwiftUI remounts on provider/file switches) without tearing
+    /// and go as native surfaces switch providers without tearing
     /// down event delivery for everyone else. A new subscriber immediately
     /// receives the live worker's current context id, if any.
     public func subscribe() -> AsyncStream<RenderWorkerEvent> {
@@ -240,7 +240,9 @@ public actor RenderWorkerClient {
 
         let process = Process()
         process.executableURL = executableURL
-        if !arguments.isEmpty { process.arguments = arguments }
+        if !arguments.isEmpty {
+            process.arguments = arguments
+        }
         let stdin = Pipe()
         let stdout = Pipe()
         process.standardInput = stdin
@@ -319,7 +321,8 @@ public actor RenderWorkerClient {
                message: .resize(lastGeometry),
                remainingRelaunches: 0,
                ackSequence: nil
-           ) {
+           )
+        {
             enqueueOnWriter(
                 writer,
                 outbound: replay,
@@ -332,7 +335,8 @@ public actor RenderWorkerClient {
                message: .scene(lastScene),
                remainingRelaunches: 0,
                ackSequence: lastScene.seq
-           ) {
+           )
+        {
             enqueueOnWriter(
                 writer,
                 outbound: replay,

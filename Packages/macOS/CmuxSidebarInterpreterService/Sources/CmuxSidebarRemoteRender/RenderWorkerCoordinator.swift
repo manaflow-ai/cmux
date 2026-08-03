@@ -4,17 +4,16 @@ import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import Observation
 import QuartzCore
-import SwiftUI
 
 /// The render worker's main-actor state machine: owns the offscreen surface
-/// (window + `NSHostingView`), the shared remote context, the watched sidebar
+/// (window + native root view), the shared remote context, the watched sidebar
 /// file, and the interpreter, and applies host messages strictly in arrival
 /// order.
 ///
 /// Rendering model (spike-verified): the hosting view's backing layer is the
-/// remote context's root and the window is **never ordered in**, so SwiftUI
-/// has no display-link driver. Every state change therefore flows through an
-/// explicit pump — mutate `rootView`, force layout, commit — which is exactly
+/// remote context's root and the window is **never ordered in**, so it has no
+/// display-link driver. Every state change therefore flows through an
+/// explicit pump: update content, force layout, commit. This is exactly
 /// right for a sidebar that only changes when the host sends data, the file
 /// changes on disk, or a forwarded pointer event lands.
 @MainActor
@@ -29,21 +28,23 @@ final class RenderWorkerCoordinator {
     private var window: RemoteWorkerWindow?
     private var hosting: RemoteWorkerHostingView?
 
-    /// Commits invalidations that arrive between host messages (SwiftUI
-    /// scheduling its own re-render, AppKit display passes) at display
+    /// Commits invalidations that arrive between host messages (native view
+    /// updates and AppKit display passes) at display
     /// refresh, instead of letting them ride the next 1 s scene tick. Idles
     /// paused; armed by the window/hosting dirtiness signals wired in
     /// `ensureSurface()`.
     private lazy var displayPump = RemoteWorkerDisplayPump { [weak self] in
         self?.pump(reason: "displaylink")
     }
+
     /// Tappable regions of the current render, in the root coordinate space
-    /// (top-left origin), refreshed by the root view's preference observer.
+    /// (top-left origin), refreshed after each native layout pass.
     private var tapTargets: [SidebarTapTarget] = []
 
     /// Loads and watches the sidebar file (hot reload), reusing the exact
     /// in-process semantics.
     private var model: CustomSidebarModel?
+    private var modelObservation: RenderWorkerModelObserver?
     /// The scene's file path as sent by the host. Tracked separately from
     /// `model.fileURL`, which the model may re-resolve to a sibling extension
     /// (`name.swift` <-> `name.json`).
@@ -112,9 +113,8 @@ final class RenderWorkerCoordinator {
         remoteContext = context
 
         let frame = NSRect(x: 0, y: 0, width: geometry.width, height: geometry.height)
-        let hosting = RemoteWorkerHostingView(rootView: currentContent())
-        // The host dictates the surface size; don't let SwiftUI fight it.
-        hosting.sizingOptions = []
+        let hosting = RemoteWorkerHostingView(contentView: currentContent())
+        // The host dictates the surface size.
         hosting.frame = frame
         hosting.onInvalidation = { [weak self] in
             self?.displayPump.noteInvalidation()
@@ -158,6 +158,8 @@ final class RenderWorkerCoordinator {
             scenePath = scene.filePath
             let url = URL(fileURLWithPath: scene.filePath)
             model?.stop()
+            modelObservation?.cancel()
+            modelObservation = nil
             swiftRender = nil
             hasRendered = false
             lastGoodState = nil
@@ -165,8 +167,8 @@ final class RenderWorkerCoordinator {
             displayedState = nil
             let model = CustomSidebarModel(fileURL: url)
             self.model = model
-            model.start()
             observe(model)
+            model.start()
         }
         refresh()
     }
@@ -178,31 +180,17 @@ final class RenderWorkerCoordinator {
         let size = NSSize(width: geometry.width, height: geometry.height)
         window.setContentSize(size)
         hosting.frame = NSRect(origin: .zero, size: size)
-        // Republish the root view so SwiftUI re-evaluates the tree at the new
-        // size inside THIS pump. Resizing the hosting view alone only marks
-        // AppKit layout dirty; SwiftUI's own render update would otherwise
-        // wait for a display cycle the never-ordered window never runs,
-        // leaving the repaint to the host's next 1 s scene tick. Reuses the
-        // cached interpretation and the displayed (possibly last-good) state;
-        // nothing is re-interpreted here.
-        hosting.rootView = currentContent(state: displayedState)
-        debugLog("geometry applied \(Int(geometry.width))x\(Int(geometry.height))@\(geometry.scale) rootView republished")
+        hosting.needsLayout = true
+        hosting.needsDisplay = true
+        debugLog("geometry applied \(Int(geometry.width))x\(Int(geometry.height))@\(geometry.scale)")
         pump(reason: "geometry")
     }
 
-    /// Re-arms Observation on the model so disk reloads (kqueue → model state
-    /// change) re-render and pump even though no SwiftUI view observes the
-    /// model in this process.
+    /// Observes model invalidations so disk reloads render without polling.
     private func observe(_ model: CustomSidebarModel) {
-        withObservationTracking {
-            _ = model.state
-            _ = model.sourceRevision
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.model === model else { return }
-                self.refresh()
-                self.observe(model)
-            }
+        modelObservation = RenderWorkerModelObserver(model: model) { [weak self, weak model] in
+            guard let self, let model, self.model === model else { return }
+            self.refresh()
         }
     }
 
@@ -233,7 +221,8 @@ final class RenderWorkerCoordinator {
                 // context (falling back to the cached render if even that
                 // stops producing a view).
                 if case let .swiftSource(goodSource) = lastGoodState,
-                   let liveNode = runner.run(InterpreterRequest(id: 0, source: goodSource, state: dataState)).node {
+                   let liveNode = runner.run(InterpreterRequest(id: 0, source: goodSource, state: dataState)).node
+                {
                     swiftRender = liveNode
                     lastGoodRender = liveNode
                 } else {
@@ -253,26 +242,18 @@ final class RenderWorkerCoordinator {
             }
         }
         displayedState = displayState
-        hosting.rootView = currentContent(state: displayState)
-        debugLog("rootView republished (scene refresh)")
+        hosting.replaceContent(with: currentContent(state: displayState))
+        debugLog("native content replaced (scene refresh)")
         pump(reason: "refresh")
     }
 
-    private func currentContent(state: CustomSidebarModel.State? = nil) -> RemoteWorkerRootView {
-        RemoteWorkerRootView(
-            content: CustomSidebarContentView(
-                state: state ?? displayedState ?? model?.state ?? .missing,
-                swiftRender: swiftRender,
-                hasRenderedSwift: hasRendered,
-                dispatch: dispatch,
-                contentInsets: insets
-            ),
-            onTapTargetsChange: { [weak self] targets in
-                self?.tapTargets = targets
-                self?.debugLog(
-                    "tap targets updated count=\(targets.count) maxX=\(Int(targets.map(\.frame.maxX).max() ?? 0))"
-                )
-            }
+    private func currentContent(state: CustomSidebarModel.State? = nil) -> CustomSidebarContentView {
+        CustomSidebarContentView(
+            state: state ?? displayedState ?? model?.state ?? .missing,
+            swiftRender: swiftRender,
+            hasRenderedSwift: hasRendered,
+            dispatch: dispatch,
+            contentInsets: insets
         )
     }
 
@@ -284,6 +265,10 @@ final class RenderWorkerCoordinator {
         let start = CACurrentMediaTime()
         window.layoutIfNeeded()
         hosting.layoutSubtreeIfNeeded()
+        tapTargets = hosting.tapTargets()
+        debugLog(
+            "tap targets updated count=\(tapTargets.count) maxX=\(Int(tapTargets.map(\.frame.maxX).max() ?? 0))"
+        )
         if let layer = hosting.layer, geometry.scale != 1 {
             applyContentsScale(layer, scale: CGFloat(geometry.scale))
         }
@@ -315,11 +300,8 @@ final class RenderWorkerCoordinator {
             scroll(by: event, at: location, in: hosting)
         case .up:
             // Geometric activation: forwarded clicks are hit-tested against
-            // the rendered tree's reported tap targets. Synthesized NSEvents
-            // route correctly (verified down to the SwiftUI container view)
-            // but SwiftUI control gestures never fire in a never-on-screen
-            // window, and its AX tree only materializes for assistive
-            // clients — the registry is deterministic and testable instead.
+            // the rendered tree's reported tap targets. This is deterministic
+            // even though the worker window is never ordered on screen.
             press(at: location)
         case .down, .drag:
             // The press fires on up; an in-progress press has no offscreen
@@ -344,9 +326,7 @@ final class RenderWorkerCoordinator {
         send(.action(hit.action))
     }
 
-    /// Scrolls the deepest `NSScrollView` under the point directly. SwiftUI's
-    /// macOS `ScrollView` is `NSScrollView`-backed, so adjusting the clip
-    /// view's origin is the reliable windowless equivalent of a wheel event.
+    /// Scrolls the deepest native scroll view under the point directly.
     private func scroll(by event: RenderPointerEvent, at location: NSPoint, in hosting: NSView) {
         guard let scrollView = scrollView(at: location, in: hosting) else { return }
         let clip = scrollView.contentView
@@ -361,7 +341,7 @@ final class RenderWorkerCoordinator {
         }
         target.origin.x -= CGFloat(event.deltaX)
         // Clamp through the clip view itself: the resting origin is NOT (0,0)
-        // when SwiftUI applies safe-area insets (it is -topInset), so a naive
+        // when native content insets apply (it is -topInset), so a naive
         // max(0, …) clamp pins content up under the host's titlebar chrome and
         // never lets it scroll back. constrainBoundsRect honors content
         // insets and the document bounds exactly like a real wheel event.
@@ -378,16 +358,22 @@ final class RenderWorkerCoordinator {
         }
         var view: NSView? = hit
         while let current = view {
-            if let scrollView = current as? NSScrollView { return scrollView }
+            if let scrollView = current as? NSScrollView {
+                return scrollView
+            }
             view = current.superview
         }
         return firstScrollView(in: root)
     }
 
     private func firstScrollView(in view: NSView) -> NSScrollView? {
-        if let scrollView = view as? NSScrollView { return scrollView }
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
         for subview in view.subviews {
-            if let found = firstScrollView(in: subview) { return found }
+            if let found = firstScrollView(in: subview) {
+                return found
+            }
         }
         return nil
     }
@@ -413,5 +399,63 @@ private func applyContentsScale(_ layer: CALayer, scale: CGFloat) {
         for sublayer in sublayers {
             applyContentsScale(sublayer, scale: scale)
         }
+    }
+}
+
+/// Uses transactional observation on current systems and a cancellation-aware
+/// one-shot observation loop on the macOS 14 compatibility floor.
+@MainActor
+private final class RenderWorkerModelObserver {
+    private weak var model: CustomSidebarModel?
+    private let apply: @MainActor () -> Void
+    private var observationTask: Task<Void, Never>?
+    private var legacyGeneration: UInt64 = 0
+    private var isCancelled = false
+
+    init(model: CustomSidebarModel, apply: @MainActor @escaping () -> Void) {
+        self.model = model
+        self.apply = apply
+
+        if #available(macOS 26.0, *) {
+            observationTask = Task { @MainActor [weak self, weak model] in
+                guard let model else { return }
+                let revisions = Observations { model.presentationRevision }
+                for await _ in revisions {
+                    guard !Task.isCancelled, let self, !self.isCancelled else { return }
+                    self.apply()
+                }
+            }
+        } else {
+            armLegacyObservation()
+        }
+    }
+
+    func cancel() {
+        guard !isCancelled else { return }
+        isCancelled = true
+        legacyGeneration &+= 1
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
+    private func armLegacyObservation() {
+        guard !isCancelled, let model else { return }
+        legacyGeneration &+= 1
+        let generation = legacyGeneration
+        withObservationTracking {
+            _ = model.presentationRevision
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      !self.isCancelled,
+                      self.legacyGeneration == generation else { return }
+                self.apply()
+                self.armLegacyObservation()
+            }
+        }
+    }
+
+    deinit {
+        observationTask?.cancel()
     }
 }

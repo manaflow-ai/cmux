@@ -1,66 +1,50 @@
-import CmuxFoundation
-import SwiftUI
+import CmuxSwiftRender
 
-/// Renders a declarative JSON ``DSLNode`` tree as native SwiftUI.
-///
-/// `onAction` is invoked when an interactive node fires. The JSON format is
-/// the simpler, static alternative to the interpreted Swift path.
-struct DSLSidebarRenderer: View {
-    let node: DSLNode
-    let onAction: (DSLAction) -> Void
-
-    var body: some View {
-        styled(content)
-    }
-
-    @ViewBuilder
-    private var content: some View {
+/// Lowers the declarative JSON tree into the same render IR used by interpreted sources.
+enum DSLSidebarRenderer {
+    static func renderNode(_ node: DSLNode) -> RenderNode {
+        let kind: RenderNode.Kind
         switch node.type {
-        case .vstack:
-            VStack(alignment: dslHAlignment(node.alignment), spacing: node.spacing.map { CGFloat($0) }) {
-                childViews
-            }
-        case .hstack:
-            HStack(alignment: dslVAlignment(node.alignment), spacing: node.spacing.map { CGFloat($0) }) {
-                childViews
-            }
-        case .zstack:
-            ZStack { childViews }
-        case .text:
-            Text(node.text ?? "")
-                .modifier(OptionalDSLFont(spec: resolvedFontSpec))
-                .fontWeight(dslFontWeight(node.weight))
-        case .button:
-            Button(node.title ?? "") {
-                if let action = node.action { onAction(action) }
-            }
-            .reportTapTarget(node.action?.buttonAction)
-        case .image:
-            Image(systemName: node.systemName ?? "questionmark.square.dashed")
-                .modifier(OptionalDSLFont(spec: resolvedFontSpec))
-        case .spacer:
-            Spacer(minLength: node.size.map { CGFloat($0) })
-        case .divider:
-            Divider()
+        case .vstack: kind = .vstack
+        case .hstack: kind = .hstack
+        case .zstack: kind = .zstack
+        case .text: kind = .text
+        case .button: kind = .button
+        case .image: kind = .image
+        case .spacer: kind = .spacer
+        case .divider: kind = .divider
         }
-    }
 
-    @ViewBuilder
-    private var childViews: some View {
-        ForEach(node.children ?? []) { child in
-            DSLSidebarRenderer(node: child, onAction: onAction)
+        var modifiers: [RenderModifier] = []
+        if let padding = node.padding {
+            modifiers.append(
+                RenderModifier(name: "padding", args: [.init(label: nil, value: String(padding))])
+            )
         }
-    }
+        if let color = node.color {
+            modifiers.append(
+                RenderModifier(name: "foregroundColor", args: [.init(label: nil, value: color)])
+            )
+        }
+        if let background = node.background {
+            modifiers.append(
+                RenderModifier(name: "background", args: [.init(label: nil, value: background)])
+            )
+        }
+        if node.font != nil || node.size != nil || node.weight != nil {
+            let fontToken =
+                node.font ?? "system(size: \(node.size ?? 13), weight: .\(node.weight ?? "regular"))"
+            modifiers.append(RenderModifier(name: "font", args: [.init(label: nil, value: fontToken)]))
+        }
 
-    private var resolvedFontSpec: DSLFontSpec? {
-        dslFontSpec(named: node.font, size: node.size)
-    }
-
-    @ViewBuilder
-    private func styled(_ view: some View) -> some View {
-        view
-            .modifier(OptionalForeground(color: dslColor(node.color)))
-            .modifier(OptionalPadding(padding: node.padding.map { CGFloat($0) }))
-            .modifier(OptionalBackground(color: dslColor(node.background)))
+        return RenderNode(
+            kind: kind,
+            text: node.type == .button ? (node.title ?? node.text) : node.text,
+            systemName: node.systemName,
+            spacing: node.type == .spacer ? node.size : node.spacing,
+            children: (node.children ?? []).map(renderNode),
+            modifiers: modifiers,
+            action: node.action?.buttonAction
+        )
     }
 }

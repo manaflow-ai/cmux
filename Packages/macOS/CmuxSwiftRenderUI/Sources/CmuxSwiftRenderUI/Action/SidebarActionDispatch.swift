@@ -1,12 +1,11 @@
 import CmuxSwiftRender
-import SwiftUI
 
 /// Injected sink that runs a sidebar button's captured ``ButtonAction``.
 ///
 /// The interpreter and renderer stay free of cmux specifics: the host app
 /// supplies a dispatch that maps an interpreted button's `ActionCommand`s onto
-/// the real command surface (the cmux dispatcher), and it flows to nested
-/// renderers through the SwiftUI environment via ``sidebarActionDispatch``.
+/// the real command surface (the cmux dispatcher), and the native renderer
+/// passes it to every interactive descendant.
 ///
 /// ```swift
 /// CustomSidebarView(fileURL: url, dataContext: ctx, dispatch: SidebarActionDispatch { action in
@@ -22,18 +21,6 @@ public struct SidebarActionDispatch: Sendable {
         self.run = run
     }
 
-    /// A dispatch that ignores actions; the environment default.
+    /// A dispatch that ignores actions.
     public static let noop = SidebarActionDispatch { _ in }
-}
-
-private struct SidebarActionDispatchKey: EnvironmentKey {
-    static let defaultValue = SidebarActionDispatch.noop
-}
-
-public extension EnvironmentValues {
-    /// The action sink invoked by interpreted sidebar buttons and tap gestures.
-    var sidebarActionDispatch: SidebarActionDispatch {
-        get { self[SidebarActionDispatchKey.self] }
-        set { self[SidebarActionDispatchKey.self] = newValue }
-    }
 }

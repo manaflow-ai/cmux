@@ -1,10 +1,10 @@
 /// The pure decision core of the render worker's display-refresh pump.
 ///
-/// The worker's window is never ordered onto the screen, so AppKit/SwiftUI
+/// The worker's window is never ordered onto the screen, so AppKit
 /// have no display-link driver of their own: every visible change must be
 /// pushed through an explicit pump (layout + `CATransaction.flush`). Host
 /// messages pump synchronously, but invalidations that arrive *outside* a
-/// host message (SwiftUI scheduling a re-render from its own state, AppKit
+/// host message (renderer state changes and AppKit
 /// marking views dirty for scroller chrome, deferred display work) would
 /// otherwise sit uncommitted until the next 1 s scene tick.
 ///

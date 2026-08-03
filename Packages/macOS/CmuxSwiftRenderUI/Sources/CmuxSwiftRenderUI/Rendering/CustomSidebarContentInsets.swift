@@ -1,15 +1,11 @@
 import CoreGraphics
-import SwiftUI
 
 /// Top/bottom scroll insets the host supplies so interpreted sidebar content
 /// rests below the window's titlebar accessory strip and can scroll up into
 /// the host's top fade mask instead of being clipped sharply.
 ///
-/// The host (cmux) owns the real chrome metrics, so it injects this through
-/// ``SwiftUI/EnvironmentValues/customSidebarContentInsets``. The scrolling
-/// containers (the non-split wrapper and each ``ResizableHSplit`` column) read
-/// it and apply matching `safeAreaInset`s, mirroring the default workspace
-/// sidebar.
+/// The host owns the real chrome metrics and passes this value to native
+/// scrolling containers.
 public struct CustomSidebarContentInsets: Equatable, Sendable {
     /// Clear space reserved at the top of each scroll region (the titlebar
     /// accessory inset). Content rests below it and fades into it when scrolled.
@@ -30,16 +26,4 @@ public struct CustomSidebarContentInsets: Equatable, Sendable {
 
     /// No insets; content sits flush with the sidebar bounds.
     public static let zero = CustomSidebarContentInsets()
-}
-
-private struct CustomSidebarContentInsetsKey: EnvironmentKey {
-    static let defaultValue = CustomSidebarContentInsets.zero
-}
-
-extension EnvironmentValues {
-    /// The top/bottom scroll insets applied to interpreted sidebar content.
-    public var customSidebarContentInsets: CustomSidebarContentInsets {
-        get { self[CustomSidebarContentInsetsKey.self] }
-        set { self[CustomSidebarContentInsetsKey.self] = newValue }
-    }
 }

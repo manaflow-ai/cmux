@@ -1,34 +1,72 @@
 import AppKit
-import SwiftUI
+import CmuxSwiftRenderUI
 
-/// The worker's hosting view: surfaces AppKit invalidation signals so the
-/// coordinator's display pump can commit them.
+/// Native root for the worker's never-ordered rendering window.
 ///
-/// In the never-ordered window, SwiftUI/AppKit schedule layout and display
-/// work that no display cycle will ever run. Host messages pump explicitly,
-/// but work scheduled *between* messages (SwiftUI re-rendering from its own
-/// state, deferred display passes) only shows up as `needsLayout`/
-/// `needsDisplay` flips here (or as the window's `viewsNeedDisplay`, for
-/// descendant views). Forwarding those flips lets the pump turn them into
-/// real commits instead of letting them ride the next scene tick.
-final class RemoteWorkerHostingView: NSHostingView<RemoteWorkerRootView> {
-    /// Fired whenever this view is marked as needing layout or display.
+/// It exposes layout and display invalidations to the explicit display pump,
+/// and collects the current renderer's geometric action targets after layout.
+@MainActor
+final class RemoteWorkerHostingView: NSView {
     var onInvalidation: (@MainActor () -> Void)?
+    private var sidebarContent: CustomSidebarContentView
+
+    init(contentView: CustomSidebarContentView) {
+        sidebarContent = contentView
+        super.init(frame: .zero)
+        wantsLayer = true
+        install(contentView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
 
     override var needsLayout: Bool {
         didSet {
-            if needsLayout { onInvalidation?() }
+            if needsLayout {
+                onInvalidation?()
+            }
         }
     }
 
     override var needsDisplay: Bool {
         didSet {
-            if needsDisplay { onInvalidation?() }
+            if needsDisplay {
+                onInvalidation?()
+            }
         }
     }
 
     override func setNeedsDisplay(_ invalidRect: NSRect) {
         super.setNeedsDisplay(invalidRect)
         onInvalidation?()
+    }
+
+    func replaceContent(with contentView: CustomSidebarContentView) {
+        sidebarContent.removeFromSuperview()
+        sidebarContent = contentView
+        install(contentView)
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    func tapTargets() -> [SidebarTapTarget] {
+        sidebarContent.tapTargets()
+    }
+
+    private func install(_ contentView: CustomSidebarContentView) {
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 }

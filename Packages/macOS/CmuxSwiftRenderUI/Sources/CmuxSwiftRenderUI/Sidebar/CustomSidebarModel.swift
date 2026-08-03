@@ -58,6 +58,8 @@ public final class CustomSidebarModel {
     /// Bumps when the loaded source changes, so the view's render trigger
     /// re-fires on file reload even when the data context is unchanged.
     public private(set) var sourceRevision = 0
+    /// Coalesced native-presentation invalidation observed by the view layer.
+    public private(set) var presentationRevision: UInt64 = 0
 
     /// Creates a model for `fileURL` rendering through `interpreter`.
     public init(
@@ -89,6 +91,7 @@ public final class CustomSidebarModel {
             swiftRender = node
         }
         hasRenderedSwift = true
+        presentationRevision &+= 1
     }
 
     /// Loads the file once, starts watching it, and listens for explicit
@@ -165,6 +168,7 @@ public final class CustomSidebarModel {
     public func reload() {
         defer {
             sourceRevision += 1 // re-fire the view's render trigger
+            presentationRevision &+= 1
             // Follow extension flips with the watcher; no-op when unchanged.
             if watchTask != nil || watchedPath != nil { startWatcher() }
         }

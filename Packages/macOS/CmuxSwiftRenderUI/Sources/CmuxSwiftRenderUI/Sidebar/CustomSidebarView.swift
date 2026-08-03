@@ -1,39 +1,20 @@
+import AppKit
 import CmuxSwiftRender
-import SwiftUI
+import Observation
 
-/// Renders a custom sidebar (interpreted Swift or declarative JSON) in the
-/// cmux sidebar area.
-///
-/// Mount with `.id(fileURL)` at the call site so selecting a different
-/// custom-sidebar provider rebuilds the model against the new file. The host
-/// supplies the live `dataContext` (workspace state the interpreter binds to)
-/// and a ``SidebarActionDispatch`` that runs button actions.
-///
-/// ```swift
-/// CustomSidebarView(fileURL: url, dataContext: context, dispatch: dispatch)
-///     .id(url)
-/// ```
-public struct CustomSidebarView: View {
-    @State private var model: CustomSidebarModel
-    private let dataContext: [String: SwiftValue]
+/// Native custom-sidebar surface backed by a hot-reloading model.
+@MainActor
+public final class CustomSidebarView: NSView {
+    private let model: CustomSidebarModel
     private let dispatch: SidebarActionDispatch
-    private let contentInsets: CustomSidebarContentInsets
+    private var dataContext: [String: SwiftValue]
+    private var contentInsets: CustomSidebarContentInsets
+    private let contentView: CustomSidebarContentView
+    private var presentationObserver: CustomSidebarPresentationObserver?
+    private var renderTask: Task<Void, Never>?
+    private var isStarted = false
 
-    /// Creates a sidebar bound to a file, a live data context, and an action
-    /// dispatch.
-    ///
-    /// - Parameters:
-    ///   - fileURL: The `.swift` or `.json` sidebar file to render and watch.
-    ///   - dataContext: Live, read-only values the interpreter binds to.
-    ///   - dispatch: Runs button/tap actions against the host command surface.
-    ///   - contentInsets: Top/bottom scroll insets so content rests below the
-    ///     window titlebar accessory and fades into the host's top mask when
-    ///     scrolled, instead of underlapping it. Defaults to
-    ///     ``CustomSidebarContentInsets/zero``.
-    ///   - interpreter: The interpreter the `.swift` source renders through.
-    ///     Defaults to the in-process implementation; the app injects an
-    ///     out-of-process, crash-isolating ``SidebarInterpreting`` so an
-    ///     interpreter fault from an untrusted sidebar can't crash the host.
+    /// Creates a sidebar bound to a file, live data, and host action dispatch.
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
@@ -41,37 +22,176 @@ public struct CustomSidebarView: View {
         contentInsets: CustomSidebarContentInsets = .zero,
         interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()
     ) {
-        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL, interpreter: interpreter))
+        let model = CustomSidebarModel(fileURL: fileURL, interpreter: interpreter)
+        self.model = model
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
-    }
-
-    public var body: some View {
-        // The pure presentation is shared with the out-of-process render
-        // worker (see CustomSidebarContentView), so the two paths can't drift.
-        CustomSidebarContentView(
+        contentView = CustomSidebarContentView(
             state: model.state,
             swiftRender: model.swiftRender,
             hasRenderedSwift: model.hasRenderedSwift,
             dispatch: dispatch,
             contentInsets: contentInsets
         )
-        .onAppear { model.start() }
-        .onDisappear { model.stop() }
-        // Re-interpret whenever the live data changes or the source
-        // reloads. `.task(id:)` cancels the prior render, so a superseded
-        // tick's result is discarded rather than published stale.
-        .task(id: SwiftRenderTrigger(sourceRevision: model.sourceRevision, dataContext: dataContext)) {
-            await model.renderSwift(dataContext: dataContext)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        setAccessibilityRole(.group)
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        presentationObserver = CustomSidebarPresentationObserver(model: model) { [weak self] in
+            self?.modelDidChange()
         }
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            stop()
+        } else {
+            start()
+        }
+    }
+
+    /// Starts file observation and rendering. Idempotent.
+    public func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        model.start()
+        modelDidChange()
+    }
+
+    /// Stops all observation and in-flight rendering. Idempotent.
+    public func stop() {
+        guard isStarted else { return }
+        isStarted = false
+        renderTask?.cancel()
+        renderTask = nil
+        model.stop()
+    }
+
+    /// Updates host-owned state without rebuilding the native view hierarchy.
+    public func update(
+        dataContext: [String: SwiftValue],
+        contentInsets: CustomSidebarContentInsets
+    ) {
+        let dataChanged = self.dataContext != dataContext
+        let insetsChanged = self.contentInsets != contentInsets
+        self.dataContext = dataContext
+        self.contentInsets = contentInsets
+        if insetsChanged {
+            refreshPresentation()
+        }
+        if dataChanged {
+            scheduleRender()
+        }
+    }
+
+    /// Returns interactive regions for hosts that forward pointer input.
+    public func tapTargets() -> [SidebarTapTarget] {
+        contentView.tapTargets()
+    }
+
+    private func modelDidChange() {
+        refreshPresentation()
+        scheduleRender()
+    }
+
+    private func refreshPresentation() {
+        contentView.update(
+            state: model.state,
+            swiftRender: model.swiftRender,
+            hasRenderedSwift: model.hasRenderedSwift,
+            contentInsets: contentInsets
+        )
+    }
+
+    private func scheduleRender() {
+        renderTask?.cancel()
+        renderTask = nil
+        guard isStarted, case .swiftSource = model.state else { return }
+        let context = dataContext
+        renderTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.model.renderSwift(dataContext: context)
+            guard !Task.isCancelled else { return }
+            self.refreshPresentation()
+        }
+    }
+
+    deinit {
+        renderTask?.cancel()
     }
 }
 
-/// The value the sidebar's interpret `.task(id:)` keys on. It changes when the
-/// loaded source reloads (`sourceRevision`) or the live `dataContext` changes,
-/// re-running the render. `Equatable` is enough for `.task(id:)`.
-private struct SwiftRenderTrigger: Equatable {
-    let sourceRevision: Int
-    let dataContext: [String: SwiftValue]
+/// Bridges Observation into native view updates without polling or timers.
+@MainActor
+private final class CustomSidebarPresentationObserver {
+    private weak var model: CustomSidebarModel?
+    private let apply: @MainActor () -> Void
+    private var observationTask: Task<Void, Never>?
+    private var legacyGeneration: UInt64 = 0
+    private var isCancelled = false
+
+    init(model: CustomSidebarModel, apply: @MainActor @escaping () -> Void) {
+        self.model = model
+        self.apply = apply
+        apply()
+
+        if #available(macOS 26.0, *) {
+            observationTask = Task { @MainActor [weak self, weak model] in
+                guard let model else { return }
+                let revisions = Observations { model.presentationRevision }
+                for await _ in revisions {
+                    guard !Task.isCancelled, let self, !self.isCancelled else { return }
+                    self.apply()
+                }
+            }
+        } else {
+            armLegacyObservation()
+        }
+    }
+
+    func cancel() {
+        guard !isCancelled else { return }
+        isCancelled = true
+        legacyGeneration &+= 1
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
+    private func armLegacyObservation() {
+        guard !isCancelled, let model else { return }
+        legacyGeneration &+= 1
+        let generation = legacyGeneration
+        withObservationTracking {
+            _ = model.presentationRevision
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      !self.isCancelled,
+                      self.legacyGeneration == generation
+                else { return }
+                self.apply()
+                self.armLegacyObservation()
+            }
+        }
+    }
+
+    deinit {
+        observationTask?.cancel()
+    }
 }

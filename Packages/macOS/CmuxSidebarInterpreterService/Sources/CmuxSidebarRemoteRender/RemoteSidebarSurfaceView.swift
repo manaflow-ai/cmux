@@ -29,7 +29,7 @@ final class RemoteSidebarSurfaceView: NSView {
     init(client: RenderWorkerClient) {
         self.client = client
         let (stream, continuation) = AsyncStream.makeStream(of: RenderWorkerInbound.self)
-        self.outbox = continuation
+        outbox = continuation
         super.init(frame: .zero)
         wantsLayer = true
 
@@ -91,7 +91,7 @@ final class RemoteSidebarSurfaceView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         fatalError("not used")
     }
 
@@ -194,9 +194,13 @@ final class RemoteSidebarSurfaceView: NSView {
 
     // MARK: - Input forwarding
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool {
+        true
+    }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+        true
+    }
 
     override func mouseDown(with event: NSEvent) {
         forward(event, kind: .down)
@@ -238,7 +242,7 @@ final class RemoteSidebarSurfaceView: NSView {
     }
 }
 
-/// Equality snapshot of the last pushed scene, so per-frame SwiftUI updates
+/// Equality snapshot of the last pushed scene, so per-frame native updates
 /// don't spam identical scenes over the pipe.
 private struct PushedScene: Equatable {
     let filePath: String

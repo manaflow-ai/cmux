@@ -921,7 +921,7 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     private var observedWindow: NSWindow? { observedWindowReference.window }
-    @State private var sidebarRenderWorkerClient: RenderWorkerClient?
+    @State private var sidebarRenderWorkerClientStore = RenderWorkerClientStore()
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
@@ -1755,7 +1755,7 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
+            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClientStore: sidebarRenderWorkerClientStore
         )
         return Group {
             if featureFlags.isAppKitSidebarListEnabled {
@@ -10548,7 +10548,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
+    let sidebarRenderWorkerClientStore: RenderWorkerClientStore
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
@@ -12023,7 +12023,7 @@ struct VerticalTabsSidebar: View, Equatable {
             // unmount).
             SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
+                    NativeCustomSidebarSurfaceBridge(
                         fileURL: customSidebarURL,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
@@ -12035,7 +12035,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                         ),
                         rendersInProcess: customSidebarRenderer == .inProcess,
-                        client: $sidebarRenderWorkerClient
+                        clientStore: sidebarRenderWorkerClientStore
                     )
                 }
             }
