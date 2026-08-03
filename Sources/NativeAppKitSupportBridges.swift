@@ -826,6 +826,23 @@ struct WorkspaceAttentionFlashRingView: NSViewRepresentable {
     }
 }
 
+struct SimulatorFeatureDisabledView: NSViewRepresentable {
+    let panel: SimulatorPanel
+    let appearance: PanelAppearance
+
+    func makeNSView(context: Context) -> SimulatorFeatureDisabledNativeView {
+        _ = panel
+        return SimulatorFeatureDisabledNativeView(
+            backgroundColor: appearance.contentBackgroundColor
+        )
+    }
+
+    func updateNSView(_ view: SimulatorFeatureDisabledNativeView, context: Context) {
+        _ = panel
+        view.update(backgroundColor: appearance.contentBackgroundColor)
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 
