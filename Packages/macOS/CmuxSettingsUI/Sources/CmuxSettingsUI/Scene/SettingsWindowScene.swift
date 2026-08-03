@@ -1,524 +1,947 @@
+import AppKit
 import CmuxSettings
-import SwiftUI
+import Foundation
 
-/// Root view of the settings window, hosted in an AppKit-owned
-/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
-/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
-/// silently no-op and strand the open path).
-///
-/// Composes a single tall `ScrollView` of stacked sections — the
-/// legacy in-app layout — with a left sidebar that scrolls to a
-/// section's anchor on click. Owns the search query, the scroll
-/// proxy, and the section anchors.
+/// AppKit-owned settings root with native sidebar search and schema-driven controls.
 @MainActor
-public struct SettingsWindowRoot: View {
-    private let runtime: SettingsRuntime
-    private let searchIndex: SettingsSearchIndex
-
-    public init(runtime: SettingsRuntime) {
-        self.runtime = runtime
-        self.searchIndex = runtime.searchIndex
-    }
-
-    @State private var searchText: String = ""
-    // Legacy SettingsRootView persists two distinct pieces of state:
-    // `selectedSettingsSection` (the top-level section pane shown in
-    // the detail) and `selectedSettingsSidebarEntry` (the specific
-    // sidebar row that's highlighted — a section row, a setting hit
-    // from the search index, etc.). Keeping them separate matters
-    // because under search the user can click an individual setting
-    // hit and we still want the section pane to follow, but two
-    // sibling hits inside one section must each be selectable.
-    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
-    // there is no SwiftUI scene to store into (cmux issue #7777).
-    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Legacy `SettingsRootView` binds `NavigationSplitView`'s
-    // `columnVisibility` so the user can collapse the sidebar via the
-    // toolbar button (or the SidebarCommands menu) and have that state
-    // persist for the lifetime of the window. Without a binding,
-    // `NavigationSplitView` is locked to whatever its initial layout
-    // resolved to, which makes the chevron toggle a no-op in the
-    // package window. Keep this in @State (not @SceneStorage) because
-    // legacy stores it on the transient `SettingsDraftState`, not in
-    // SceneStorage.
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    // Mirrors legacy SettingsView.settingsNavigationGeneration. When
-    // multiple navigation requests fire in quick succession (e.g. the
-    // sidebar selection changes plus an external app.cmux.settings
-    // navigation post), each `proxy.scrollTo(...)` runs one main-actor
-    // hop later. Without a generation guard, a stale earlier request can
-    // win and snap the scroll back to a section the user has already
-    // moved past. The counter is incremented in `applyScrollNavigation`
-    // and re-checked inside the scheduled `Task { @MainActor in ... }`,
-    // so only the most recent request actually scrolls.
-    @State private var settingsNavigationGeneration: Int = 0
-    // Drives the "flash the navigated-to row" affordance the legacy
-    // settings window had. When the user clicks a search hit, the target
-    // row pulses an accent border for a few seconds so the eye can find
-    // it after the scroll. `token` changes on every highlight so
-    // re-navigating to the same row restarts the pulse; `startedAt`
-    // seeds the row's `TimelineView` fade. Read by every
-    // `SettingsCardRow` through `\.settingsSearchHighlightState`.
-    @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
-
-    private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
-    private var jsonStore: JSONConfigStore { runtime.jsonStore }
-    private var secretStore: SecretFileStore { runtime.secretStore }
-    private var catalog: SettingCatalog { runtime.catalog }
-    private var hostActions: SettingsHostActions { runtime.hostActions }
-    private var accountFlow: AccountFlow? { runtime.accountFlow }
-
-    /// Resolves the selected section pane from the persisted raw value,
-    /// defaulting to ``SettingsSectionID/account`` when the stored value
-    /// is unrecognized (e.g., after dropping a case).
-    private var selectedSection: SettingsSectionID {
-        SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
-    }
-
-    /// Whether the user currently has a non-empty search query. When
-    /// false the sidebar should track section selection only; when true
-    /// the per-entry selection survives.
-    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    // Legacy uses a non-optional `Binding<String>` because a sidebar
-    // selection always points at *some* entry (section row or setting
-    // hit). Mirroring that here lets List's selection semantics behave
-    // identically — particularly that clicking the same row again
-    // doesn't transiently nil-out the selection and break SceneStorage
-    // round-trips.
-    private var sidebarSelectionBinding: Binding<String> {
-        Binding<String>(
-            get: { self.selectedSidebarEntryID },
-            set: { newValue in
-                self.selectSidebarEntry(newValue)
-            }
-        )
-    }
-
-    public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detailScroll
-        }
-        .navigationSplitViewStyle(.balanced)
-        // Inject the built search index so each SettingsCardRow can map
-        // its declared cmux.json paths to scroll/highlight anchor ids,
-        // and publish the active highlight so the matching row pulses.
-        .environment(\.settingsSearchIndex, searchIndex)
-        .environment(\.settingsSearchHighlightState, searchHighlight)
-        // Legacy SettingsRootView pins the window minimum to
-        // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
-        // so the package window can shrink to the same lower bound.
-        .frame(minWidth: 820, minHeight: 540)
-        .settingsErrorAlert(log: runtime.errorLog)
-        .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
-            applyNavigationRequest(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
-            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
-            // reach the split view; the host app routes its sidebar-toggle
-            // menu command here when the Settings window is key.
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-        }
-        .onChange(of: searchText) { _, newValue in
-            // Legacy SettingsRootView resyncs the sidebar entry to the
-            // section row whenever the search text is cleared, so
-            // typing then clearing doesn't leave a stale "deep" entry
-            // selected.
-            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            selectedSidebarEntryID = sectionEntryID(for: selectedSection)
-        }
-    }
-
+public final class SettingsWindowRoot: NSSplitViewController {
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
     public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
 
-    /// Legacy `SettingsRootView.onReceive` only updates the selection
-    /// state (sidebar entry + section pane) in response to an external
-    /// navigation request. The actual scroll-to is owned by
-    /// `SettingsView`, which listens to the same notification and
-    /// translates it into `proxy.scrollTo(...)` calls. The package
-    /// follows the same split: state changes happen here; the detail
-    /// scroll picks up the notification on its own and scrolls.
-    private func applyNavigationRequest(_ notification: Notification) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
-        else { return }
-        // Legacy preserves the highlighted search hit when an external
-        // navigation request resolves to the same section the currently
-        // selected sidebar entry already lives in. Without this, typing
-        // a search query and clicking a setting hit would have the
-        // sidebar selection collapsed back to the section row whenever
-        // anyone (re)posted a navigation request to that section.
-        let selectedEntry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
-        let selectedEntryTarget = parentSection(for: selectedSidebarEntryID)
-        let shouldPreserveSearchSelection = isSearching
-            && selectedEntry != nil
-            && selectedEntryTarget == target
-        navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
+    private let runtime: SettingsRuntime
+    private let onContentAppear: @MainActor () -> Void
+    private let sidebarController: SettingsSidebarController
+    private let detailController: SettingsDetailController
+    private let sidebarItem: NSSplitViewItem
+    private var notificationTask: Task<Void, Never>?
+    private var toggleTask: Task<Void, Never>?
+    private var didReportContentAppearance = false
+
+    public init(
+        runtime: SettingsRuntime,
+        onContentAppear: @escaping @MainActor () -> Void = {}
+    ) {
+        self.runtime = runtime
+        self.onContentAppear = onContentAppear
+        sidebarController = SettingsSidebarController(searchIndex: runtime.searchIndex)
+        detailController = SettingsDetailController(runtime: runtime)
+        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+        super.init(nibName: nil, bundle: nil)
+
+        sidebarItem.minimumThickness = 190
+        sidebarItem.maximumThickness = 320
+        sidebarItem.canCollapse = true
+        addSplitViewItem(sidebarItem)
+        addSplitViewItem(NSSplitViewItem(viewController: detailController))
+
+        sidebarController.onSelect = { [weak self] entry in
+            guard let self else { return }
+            self.select(entry: entry, highlight: !self.sidebarController.searchText.isEmpty)
+        }
+
+        let restored = UserDefaults.standard.string(forKey: "selectedSettingsSection")
+            .flatMap(SettingsSectionID.init(rawValue:)) ?? .account
+        select(section: restored, anchorID: "section:\(restored.rawValue)", highlight: false)
+        startNotificationTasks()
     }
 
-    @ViewBuilder
-    private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText)
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
-                }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        notificationTask?.cancel()
+        toggleTask?.cancel()
+    }
+
+    public override func viewDidAppear() {
+        super.viewDidAppear()
+        guard !didReportContentAppearance else { return }
+        didReportContentAppearance = true
+        onContentAppear()
+    }
+
+    /// Search seam retained for focused navigation tests and host integrations.
+    public func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] {
+        runtime.searchIndex.match(query)
+    }
+
+    private func startNotificationTasks() {
+        notificationTask = Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(
+                named: Self.navigationRequestName
+            ) {
+                guard !Task.isCancelled, let self else { return }
+                applyNavigation(notification)
             }
         }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
+        toggleTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(
+                named: Self.sidebarToggleRequestName
+            ) {
+                guard !Task.isCancelled, let self else { return }
+                sidebarItem.animator().isCollapsed.toggle()
+            }
+        }
     }
 
-    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
+    private func applyNavigation(_ notification: Notification) {
+        guard let raw = notification.userInfo?["target"] as? String,
+              let section = SettingsSectionID(rawValue: raw) else { return }
+        let anchor = notification.userInfo?["anchor"] as? String
+            ?? "section:\(section.rawValue)"
+        let highlight = notification.userInfo?["highlight"] as? Bool ?? false
+        select(section: section, anchorID: anchor, highlight: highlight)
+    }
 
-    /// Legacy `SettingsSearchEntry` populates `subtitle` with the
-    /// parent section's title for setting-type hits and `nil` for
-    /// section-type hits, so `SettingsSidebarEntryRow` renders the
-    /// section name underneath each search hit but keeps section
-    /// rows single-line. Mirror that here.
-    private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
+    private func select(entry: SettingsSearchIndex.Entry, highlight: Bool) {
+        let section: SettingsSectionID
         switch entry.kind {
         case .section:
-            return nil
+            let raw = entry.id.replacingOccurrences(of: "section:", with: "")
+            section = SettingsSectionID(rawValue: raw) ?? .account
         case .setting(let parent):
-            return parent.title
+            section = parent
         }
-    }
-
-    /// Updates both the sidebar entry selection and the underlying
-    /// section pane based on the clicked sidebar row. Setting-hit
-    /// clicks keep the deep entry selected (so the row stays
-    /// highlighted) while still moving the detail pane to the parent
-    /// section.
-    ///
-    /// Mirrors legacy `SettingsRootView.selectSidebarEntry`: in
-    /// addition to updating selection state, it posts a settings
-    /// navigation notification so any external listeners (host-side
-    /// code, other windows) and the package's own detail scroll
-    /// receive a consistent stream of navigation events. The detail
-    /// scroll picks up the same notification and turns it into a
-    /// `proxy.scrollTo(...)` so every click — including repeat clicks
-    /// or sibling search hits — drives a scroll.
-    private func selectSidebarEntry(_ entryID: String) {
-        // Mirror legacy `SettingsRootView.selectSidebarEntry`: bail if
-        // the entry id doesn't resolve to a known search-index entry,
-        // so stale SceneStorage values or out-of-band selection writes
-        // can't corrupt the section pane. The lookup also resolves the
-        // entry's target section in one place rather than re-parsing
-        // the id string.
-        let index = searchIndex
-        guard let entry = index.entries.first(where: { $0.id == entryID }) else { return }
-        selectedSidebarEntryID = entry.id
-        let section = parentSection(for: entry)
-        if selectedSectionRaw != section.rawValue {
-            selectedSectionRaw = section.rawValue
-        }
-        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
-    }
-
-    /// Maps a resolved search-index entry to its target section,
-    /// matching legacy `SettingsSearchEntry.target` semantics. Section
-    /// entries decode their target from the canonical "section:<raw>"
-    /// id; setting entries carry their parent directly on the kind.
-    private func parentSection(for entry: SettingsSearchIndex.Entry) -> SettingsSectionID {
-        switch entry.kind {
-        case .section:
-            return parentSection(for: entry.id)
-        case .setting(let parent):
-            return parent
-        }
-    }
-
-    /// Posts a `cmux.settings.navigate` notification with the same
-    /// userInfo shape legacy `SettingsNavigationRequest.post` uses,
-    /// so host-side listeners and the package's own detail scroll
-    /// receive a consistent stream of navigation events.
-    private func postNavigationRequest(
-        target: SettingsSectionID,
-        anchorID: String,
-        highlight: Bool
-    ) {
+        select(section: section, anchorID: entry.anchorID, highlight: highlight)
         NotificationCenter.default.post(
             name: Self.navigationRequestName,
-            object: nil,
+            object: self,
             userInfo: [
-                "target": target.rawValue,
-                "anchor": anchorID,
-                "highlight": highlight
+                "target": section.rawValue,
+                "anchor": entry.anchorID,
+                "highlight": highlight,
             ]
         )
     }
 
-    /// Navigates from outside (e.g., a `cmux.settings.navigate`
-    /// notification) to a top-level section, also resetting the sidebar
-    /// row to that section's header row when `preferSectionSelection`
-    /// is true. Legacy passes `false` when the navigation request
-    /// arrives while the user is searching and the request target
-    /// matches the currently selected setting hit — so the highlighted
-    /// sidebar row stays put while the detail pane snaps to the
-    /// section.
-    private func navigate(to target: SettingsSectionID, preferSectionSelection: Bool = true) {
-        if selectedSectionRaw != target.rawValue { selectedSectionRaw = target.rawValue }
-        if preferSectionSelection {
-            let sectionEntry = sectionEntryID(for: target)
-            if selectedSidebarEntryID != sectionEntry { selectedSidebarEntryID = sectionEntry }
+    private func select(
+        section: SettingsSectionID,
+        anchorID: String,
+        highlight: Bool
+    ) {
+        UserDefaults.standard.set(section.rawValue, forKey: "selectedSettingsSection")
+        sidebarController.select(section: section)
+        detailController.show(section: section, anchorID: anchorID, highlight: highlight)
+    }
+}
+
+@MainActor
+private final class SettingsSidebarController: NSViewController,
+    NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate
+{
+    var onSelect: @MainActor (SettingsSearchIndex.Entry) -> Void = { _ in }
+    private let searchIndex: SettingsSearchIndex
+    private let searchField = NSSearchField()
+    private let tableView = NSTableView()
+    private var entries: [SettingsSearchIndex.Entry]
+
+    var searchText: String { searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    init(searchIndex: SettingsSearchIndex) {
+        self.searchIndex = searchIndex
+        entries = searchIndex.match("")
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        searchField.placeholderString = String(
+            localized: "settings.search.prompt",
+            defaultValue: "Search"
+        )
+        searchField.delegate = self
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("settings.sidebar"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.rowHeight = 42
+        tableView.style = .sourceList
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        root.addSubview(searchField)
+        root.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            searchField.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
+            searchField.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
+            searchField.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: 10),
+            scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            scrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        entries = searchIndex.match(searchField.stringValue)
+        tableView.reloadData()
+        if !entries.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
     }
 
-    /// The canonical entry ID the search index uses for section header
-    /// rows ("section:<rawValue>"). Mirrors ``SettingsSearchIndex``'s
-    /// internal id scheme.
-    private func sectionEntryID(for section: SettingsSectionID) -> String {
-        "section:\(section.rawValue)"
+    func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard entries.indices.contains(row) else { return nil }
+        let entry = entries[row]
+        let cell = NSTableCellView()
+        let image = NSImageView(image: NSImage(
+            systemSymbolName: entry.symbolName,
+            accessibilityDescription: entry.title
+        ) ?? NSImage())
+        image.contentTintColor = .secondaryLabelColor
+        image.translatesAutoresizingMaskIntoConstraints = false
+        let title = NSTextField(labelWithString: entry.title)
+        title.lineBreakMode = .byTruncatingTail
+        title.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(image)
+        cell.addSubview(title)
+        NSLayoutConstraint.activate([
+            image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: 17),
+            image.heightAnchor.constraint(equalToConstant: 17),
+            title.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 8),
+            title.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            title.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
     }
 
-    /// Decodes an entry ID back to the section pane that should be
-    /// scrolled into view. Section rows resolve to themselves; setting
-    /// hits resolve to their parent section.
-    private func parentSection(for entryID: String) -> SettingsSectionID {
-        if entryID.hasPrefix("section:") {
-            let raw = String(entryID.dropFirst("section:".count))
-            return SettingsSectionID(rawValue: raw) ?? .account
-        }
-        if let entry = searchIndex.entries.first(where: { $0.id == entryID }) {
-            if case .setting(let parent) = entry.kind { return parent }
-        }
-        return .account
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard entries.indices.contains(tableView.selectedRow) else { return }
+        onSelect(entries[tableView.selectedRow])
     }
 
-    @ViewBuilder
-    private var detailScroll: some View {
-        GeometryReader { _ in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // Eager VStack (not LazyVStack) on purpose: search
-                    // navigation must `scrollTo` any row, including ones in
-                    // a section currently off-screen. A LazyVStack only
-                    // registers a row's `.id` once its section is realized,
-                    // so `scrollTo(deepRow)` silently no-ops while that
-                    // section is scrolled away, stranding the user at the
-                    // top. Building all ~14 sections up front keeps every
-                    // anchor addressable for a single, reliable scroll.
-                    VStack(alignment: .leading, spacing: 14) {
-                        sectionStack
+    func select(section: SettingsSectionID) {
+        guard searchText.isEmpty,
+              let row = entries.firstIndex(where: { $0.id == "section:\(section.rawValue)" }) else {
+            return
+        }
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+}
+
+@MainActor
+private final class SettingsDetailController: NSViewController {
+    private let runtime: SettingsRuntime
+    private let scrollView = NSScrollView()
+    private let documentView = NSView()
+    private let stackView = NSStackView()
+    private var rowsByAnchor: [String: NSView] = [:]
+    private var highlightTask: Task<Void, Never>?
+    private var accountObservationGeneration = 0
+    private var retainedTargets: [AnyObject] = []
+
+    init(runtime: SettingsRuntime) {
+        self.runtime = runtime
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit { highlightTask?.cancel() }
+
+    override func loadView() {
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = documentView
+
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.orientation = .vertical
+        stackView.alignment = .leading
+        stackView.spacing = 12
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        documentView.addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            stackView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 24),
+            stackView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -24),
+            stackView.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 24),
+            stackView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -24),
+        ])
+        view = scrollView
+    }
+
+    func show(section: SettingsSectionID, anchorID: String, highlight: Bool) {
+        loadViewIfNeeded()
+        rebuild(section: section)
+        view.layoutSubtreeIfNeeded()
+        guard let target = rowsByAnchor[anchorID]
+            ?? rowsByAnchor["section:\(section.rawValue)"] else { return }
+        scrollView.contentView.scrollToVisible(target.frame.insetBy(dx: 0, dy: -20))
+        guard highlight else { return }
+        pulseHighlight(target)
+    }
+
+    private func rebuild(section: SettingsSectionID) {
+        stackView.arrangedSubviews.forEach {
+            stackView.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        rowsByAnchor.removeAll(keepingCapacity: true)
+        retainedTargets.removeAll(keepingCapacity: true)
+
+        let header = SettingsNativeSectionHeader(title: section.title, symbolName: section.symbolName)
+        stackView.addArrangedSubview(header)
+        header.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        rowsByAnchor["section:\(section.rawValue)"] = header
+
+        if section == .account {
+            addAccountContent()
+        } else if section == .sleepyMode {
+            addSleepyModeContent()
+        } else {
+            let keys = runtime.catalog.all.filter { Self.section(for: $0.id) == section }
+            for key in keys {
+                let row = SettingEditorRowView(key: key, runtime: runtime)
+                stackView.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+                rowsByAnchor[key.id] = row
+                if let anchor = runtime.searchIndex.anchorID(forSettingsPath: key.id) {
+                    rowsByAnchor[anchor] = row
+                }
+            }
+            if keys.isEmpty {
+                addEmptyState()
+            }
+        }
+        addSectionActions(section)
+    }
+
+    private func addAccountContent() {
+        guard let flow = runtime.accountFlow else {
+            addEmptyState()
+            return
+        }
+        accountObservationGeneration &+= 1
+        observeAccount(flow, generation: accountObservationGeneration)
+    }
+
+    private func observeAccount(_ flow: any AccountFlow, generation: Int) {
+        let snapshot = withObservationTracking {
+            AccountSnapshot(
+                identity: flow.currentIdentity,
+                teams: flow.availableTeams,
+                selectedTeamID: flow.selectedTeamID,
+                isWorking: flow.isWorkingOnAuth,
+                isProActive: flow.isProActive,
+                canManageBilling: flow.canManageBilling
+            )
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.accountObservationGeneration == generation else { return }
+                self.rebuild(section: .account)
+            }
+        }
+
+        let title = snapshot.identity.map { identity in
+            identity.displayName.isEmpty ? identity.email : identity.displayName
+        } ?? String(localized: "settings.account.signedOut", defaultValue: "Not signed in")
+        let subtitle = snapshot.identity?.email ?? String(
+            localized: "settings.account.signIn.detail",
+            defaultValue: "Sign in to sync your cmux account."
+        )
+        addInformationRow(title: title, detail: subtitle)
+
+        if snapshot.identity == nil {
+            addActionButton(
+                title: String(localized: "settings.account.signIn", defaultValue: "Sign In"),
+                enabled: !snapshot.isWorking,
+                action: { flow.startSignIn() }
+            )
+        } else {
+            if !snapshot.teams.isEmpty {
+                let picker = NSPopUpButton()
+                for team in snapshot.teams { picker.addItem(withTitle: team.displayName) }
+                if let selected = snapshot.selectedTeamID,
+                   let index = snapshot.teams.firstIndex(where: { $0.id == selected }) {
+                    picker.selectItem(at: index)
+                }
+                let target = AccountTeamTarget(flow: flow, teams: snapshot.teams, picker: picker)
+                retainedTargets.append(target)
+                picker.target = target
+                picker.action = #selector(AccountTeamTarget.selectTeam(_:))
+                stackView.addArrangedSubview(picker)
+            }
+            addActionButton(
+                title: snapshot.canManageBilling
+                    ? String(localized: "settings.account.manageBilling", defaultValue: "Manage Billing")
+                    : String(localized: "settings.account.upgrade", defaultValue: "Upgrade to Pro"),
+                enabled: !snapshot.isWorking,
+                action: {
+                    if snapshot.canManageBilling {
+                        flow.openBillingPortal()
+                    } else {
+                        flow.openProUpgrade()
                     }
-                    // Legacy SettingsView only pads the inner VStack; it
-                    // does not pin maxWidth. Adding an outer frame would
-                    // change the alignment math the legacy layout assumes
-                    // (SettingsCard widths come from the ScrollView, not
-                    // from a parent VStack stretched to topLeading).
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 20)
                 }
-                .toggleStyle(.switch)
-                .onAppear {
-                    // Legacy SettingsView.onAppear scrolls to the restored
-                    // section so reopening the Settings window lands on
-                    // the last-viewed pane rather than always at Account.
-                    // Posting through the navigation notification keeps a
-                    // single scroll path (legacy `applySettingsNavigation`)
-                    // while restored setting hits resolve through the
-                    // immutable index. Fallback hits collapse to sections.
-                    let section = selectedSection
-                    let anchor = selectedSidebarEntryID.isEmpty
-                        ? sectionEntryID(for: section)
-                        : searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
-                    postNavigationRequest(
-                        target: section,
-                        anchorID: anchor,
-                        highlight: false
+            )
+            addActionButton(
+                title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                enabled: !snapshot.isWorking,
+                action: { Task { await flow.signOut() } }
+            )
+        }
+    }
+
+    private func addSleepyModeContent() {
+        let store = runtime.hostActions.sleepyModeStore()
+        addChoiceRow(
+            title: String(localized: "settings.sleepy.theme", defaultValue: "Theme"),
+            choices: SleepyTheme.allCases.map { ($0.rawValue, $0.rawValue) },
+            selected: store.theme.rawValue,
+            onSelect: { store.theme = SleepyTheme(rawValue: $0) ?? .cmux }
+        )
+        addChoiceRow(
+            title: String(localized: "settings.sleepy.mascot", defaultValue: "Mascot"),
+            choices: SleepyMascot.allCases.map { ($0.rawValue, $0.rawValue) },
+            selected: store.mascot.rawValue,
+            onSelect: { store.mascot = SleepyMascot(rawValue: $0) ?? .cmux }
+        )
+        addChoiceRow(
+            title: String(localized: "settings.sleepy.glow", defaultValue: "Glow"),
+            choices: SleepyGlow.allCases.map { ($0.rawValue, $0.rawValue) },
+            selected: store.glow.rawValue,
+            onSelect: { store.glow = SleepyGlow(rawValue: $0) ?? .black }
+        )
+        addBooleanRow(title: String(localized: "settings.sleepy.moon", defaultValue: "Moon"), value: store.showMoon) { store.showMoon = $0 }
+        addBooleanRow(title: String(localized: "settings.sleepy.stars", defaultValue: "Stars"), value: store.showStars) { store.showStars = $0 }
+        addBooleanRow(title: String(localized: "settings.sleepy.clock", defaultValue: "Clock"), value: store.showClock) { store.showClock = $0 }
+        addBooleanRow(title: String(localized: "settings.sleepy.status", defaultValue: "Battery and Wi-Fi"), value: store.showStatus) { store.showStatus = $0 }
+        addBooleanRow(title: String(localized: "settings.sleepy.pets", defaultValue: "Agent pets"), value: store.showPets) { store.showPets = $0 }
+    }
+
+    private func addSectionActions(_ section: SettingsSectionID) {
+        let actions = runtime.hostActions
+        switch section {
+        case .app:
+            addActionButton(title: String(localized: "settings.notifications.test", defaultValue: "Send Test Notification")) { actions.sendTestNotification() }
+            addActionButton(title: String(localized: "settings.feedback.send", defaultValue: "Send Feedback")) { actions.sendFeedback() }
+        case .terminal:
+            addActionButton(title: String(localized: "settings.terminal.openConfig", defaultValue: "Open Terminal Config")) { actions.openTerminalConfigWindow() }
+        case .mobile:
+            addActionButton(title: String(localized: "settings.mobile.pair", defaultValue: "Pair iPhone or iPad")) { actions.openMobilePairingWindow() }
+        case .browser, .browserImport:
+            addActionButton(title: String(localized: "settings.browser.import", defaultValue: "Import Browser Data")) { actions.openBrowserImportFlow() }
+            addActionButton(title: String(localized: "settings.browser.clearHistory", defaultValue: "Clear Browser History")) { actions.clearBrowserHistory() }
+        case .settingsJSON:
+            addActionButton(title: String(localized: "settings.json.openExternal", defaultValue: "Open cmux.json in Editor")) { actions.openConfigInExternalEditor() }
+        case .sleepyMode:
+            addActionButton(title: String(localized: "settings.sleepy.preview", defaultValue: "Preview")) { actions.sleepyModePreview() }
+            addActionButton(title: String(localized: "settings.sleepy.start", defaultValue: "Start Sleepy Mode")) { actions.sleepyModeStart() }
+        case .reset:
+            addActionButton(
+                title: String(localized: "settings.reset.all", defaultValue: "Reset All Settings"),
+                action: { [weak self] in self?.resetAll() }
+            )
+        default:
+            break
+        }
+    }
+
+    private func resetAll() {
+        let runtime = runtime
+        Task { [weak self] in
+            await runtime.userDefaultsStore.resetAll(runtime.catalog.all)
+            for key in runtime.catalog.all {
+                do {
+                    try await key.resetEditorValue(
+                        runtime.userDefaultsStore,
+                        runtime.jsonStore,
+                        runtime.secretStore
                     )
+                } catch {
+                    runtime.errorLog.record(error, keyID: key.id)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
-                    applyScrollNavigation(notification, proxy: proxy)
-                }
+            }
+            runtime.hostActions.resetAllSettingsSideEffects()
+            self?.rebuild(section: .reset)
+        }
+    }
+
+    private func addActionButton(
+        title: String,
+        enabled: Bool = true,
+        action: @escaping @MainActor () -> Void
+    ) {
+        let button = SettingsActionButton(title: title, action: action)
+        button.isEnabled = enabled
+        stackView.addArrangedSubview(button)
+    }
+
+    private func addInformationRow(title: String, detail: String) {
+        let row = NSStackView()
+        row.orientation = .vertical
+        row.alignment = .leading
+        row.spacing = 3
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.textColor = .secondaryLabelColor
+        row.addArrangedSubview(titleLabel)
+        row.addArrangedSubview(detailLabel)
+        stackView.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    private func addEmptyState() {
+        let label = NSTextField(wrappingLabelWithString: String(
+            localized: "settings.section.noCatalogSettings",
+            defaultValue: "This section contains actions managed by cmux."
+        ))
+        label.textColor = .secondaryLabelColor
+        stackView.addArrangedSubview(label)
+    }
+
+    private func addBooleanRow(title: String, value: Bool, onChange: @escaping @MainActor (Bool) -> Void) {
+        let row = SettingsNativeLabeledRow(title: title)
+        let toggle = NSSwitch()
+        toggle.state = value ? .on : .off
+        let target = SettingsBooleanTarget(toggle: toggle, onChange: onChange)
+        toggle.target = target
+        toggle.action = #selector(SettingsBooleanTarget.changed(_:))
+        row.retain(target)
+        row.setControl(toggle)
+        stackView.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    private func addChoiceRow(
+        title: String,
+        choices: [(String, String)],
+        selected: String,
+        onSelect: @escaping @MainActor (String) -> Void
+    ) {
+        let row = SettingsNativeLabeledRow(title: title)
+        let picker = NSPopUpButton()
+        for choice in choices { picker.addItem(withTitle: choice.1) }
+        picker.selectItem(at: max(0, choices.firstIndex(where: { $0.0 == selected }) ?? 0))
+        let target = SettingsChoiceTarget(picker: picker, choices: choices.map(\.0), onSelect: onSelect)
+        picker.target = target
+        picker.action = #selector(SettingsChoiceTarget.changed(_:))
+        row.retain(target)
+        row.setControl(picker)
+        stackView.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    private func pulseHighlight(_ view: NSView) {
+        highlightTask?.cancel()
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 8
+        view.layer?.borderWidth = 2
+        view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        highlightTask = Task { [weak view] in
+            try? await ContinuousClock().sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            view?.layer?.borderWidth = 0
+        }
+    }
+
+    private static func section(for keyID: String) -> SettingsSectionID {
+        let prefix = keyID.split(separator: ".").first.map(String.init) ?? keyID
+        switch prefix {
+        case "account": return .account
+        case "app", "notifications": return .app
+        case "terminal", "fileEditor": return .terminal
+        case "textBox": return .textBox
+        case "mobile": return .mobile
+        case "iroh", "networking": return .networking
+        case "sidebar", "sidebarAppearance", "paneChrome", "workspaceGroups": return .sidebarAppearance
+        case "customSidebars": return .customSidebars
+        case "betaFeatures": return .betaFeatures
+        case "automation", "integrations": return .automation
+        case "browser", "markdown": return .browser
+        case "shortcuts": return .keyboardShortcuts
+        case "workspaceColors", "canvas": return .workspaceColors
+        default: return .app
+        }
+    }
+}
+
+@MainActor
+private final class SettingEditorRowView: NSView, NSTextFieldDelegate {
+    private let key: AnySettingKey
+    private let runtime: SettingsRuntime
+    private let valueControlContainer = NSView()
+    private let progress = NSProgressIndicator()
+    private var currentValue: SettingValue
+    private var loadTask: Task<Void, Never>?
+    private var writeTask: Task<Void, Never>?
+    private var textField: NSTextField?
+    private var toggle: NSSwitch?
+
+    init(key: AnySettingKey, runtime: SettingsRuntime) {
+        self.key = key
+        self.runtime = runtime
+        currentValue = key.editorDefaultValue
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        setup()
+        load()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        loadTask?.cancel()
+        writeTask?.cancel()
+    }
+
+    private func setup() {
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.45).cgColor
+
+        let label = NSTextField(labelWithString: Self.title(for: key.id, index: runtime.searchIndex))
+        label.lineBreakMode = .byTruncatingTail
+        label.toolTip = key.id
+        label.translatesAutoresizingMaskIntoConstraints = false
+        valueControlContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        progress.style = .spinning
+        progress.controlSize = .small
+        progress.startAnimation(nil)
+        progress.translatesAutoresizingMaskIntoConstraints = false
+        valueControlContainer.addSubview(progress)
+        NSLayoutConstraint.activate([
+            progress.centerXAnchor.constraint(equalTo: valueControlContainer.centerXAnchor),
+            progress.centerYAnchor.constraint(equalTo: valueControlContainer.centerYAnchor),
+        ])
+
+        let reset = NSButton(
+            title: String(localized: "settings.reset", defaultValue: "Reset"),
+            target: self,
+            action: #selector(resetPressed(_:))
+        )
+        reset.bezelStyle = .rounded
+        reset.controlSize = .small
+        reset.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(label)
+        addSubview(valueControlContainer)
+        addSubview(reset)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 46),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.38),
+            valueControlContainer.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
+            valueControlContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
+            valueControlContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
+            reset.leadingAnchor.constraint(equalTo: valueControlContainer.trailingAnchor, constant: 10),
+            reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            reset.centerYAnchor.constraint(equalTo: centerYAnchor),
+            reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 56),
+        ])
+    }
+
+    private func load() {
+        loadTask?.cancel()
+        let key = key
+        let runtime = runtime
+        loadTask = Task { [weak self] in
+            do {
+                let value = try await key.readEditorValue(
+                    runtime.userDefaultsStore,
+                    runtime.jsonStore,
+                    runtime.secretStore
+                )
+                guard !Task.isCancelled else { return }
+                self?.show(value)
+            } catch {
+                self?.showError(error)
             }
         }
     }
 
-    /// Mirrors legacy `SettingsView.applySettingsNavigation`: scrolls
-    /// to the section header first, then — when the navigation request
-    /// carries a deep anchor and `highlight` is set — scrolls that
-    /// specific anchor into the vertical center of the viewport.
-    ///
-    /// Section-level navigation posts (e.g. external `navigate(to:)`
-    /// calls that don't carry a meaningful highlight) only get the
-    /// section-top scroll, matching the legacy snap-to-top behavior.
-    ///
-    /// A monotonically increasing `settingsNavigationGeneration`
-    /// guards against stale scrolls when navigation requests pile up:
-    /// each call captures the current generation, increments it, and
-    /// the scheduled scroll only runs if the captured generation is
-    /// still the latest — otherwise an earlier request would clobber
-    /// the user's most recent navigation.
-    private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
-        else { return }
-        let anchorID = (notification.userInfo?["anchor"] as? String) ?? self.anchorID(for: target)
-        let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
-        let sectionID = self.anchorID(for: target)
-        settingsNavigationGeneration += 1
-        let navigationGeneration = settingsNavigationGeneration
-        // Arm (or clear) the highlight before the scroll so the pulse is
-        // already live when the target lands in view. A section hit
-        // (anchorID == sectionID) highlights the section header; a row
-        // hit highlights that row. Mirrors legacy applySettingsNavigation.
-        if shouldHighlight {
-            searchHighlight = SettingsSearchHighlightState(
-                anchorID: anchorID,
-                token: searchHighlight.token + 1,
-                startedAt: Date()
-            )
-        } else {
-            searchHighlight = SettingsSearchHighlightState(
-                anchorID: nil,
-                token: searchHighlight.token,
-                startedAt: nil
-            )
-        }
-        // One scroll, one target. The detail stack is eager (see
-        // `detailScroll`), so every row's `.id` is always registered and a
-        // single `scrollTo` resolves any anchor regardless of where the
-        // viewport currently sits — no "realize the section first" dance.
-        // A section hit pins its header to the top; a row hit centers the
-        // row. The hop off the current update is a main-actor `Task` (not
-        // `DispatchQueue.main.async`, which package policy forbids): it
-        // lets the highlight-state mutation above commit before the scroll
-        // and is generation-guarded so a newer navigation still wins.
-        let anchor: UnitPoint = anchorID == sectionID ? .top : .center
-        Task { @MainActor in
-            guard navigationGeneration == settingsNavigationGeneration else { return }
-            proxy.scrollTo(anchorID, anchor: anchor)
+    private func show(_ value: SettingValue) {
+        currentValue = value
+        valueControlContainer.subviews.forEach { $0.removeFromSuperview() }
+        switch value {
+        case .boolean(let enabled):
+            let toggle = NSSwitch()
+            toggle.state = enabled ? .on : .off
+            toggle.target = self
+            toggle.action = #selector(toggleChanged(_:))
+            self.toggle = toggle
+            install(control: toggle)
+        default:
+            let field: NSTextField
+            if case .secretFile = key.kind {
+                field = NSSecureTextField()
+            } else {
+                field = NSTextField()
+            }
+            field.stringValue = value.editingText
+            field.delegate = self
+            field.target = self
+            field.action = #selector(textCommitted(_:))
+            field.lineBreakMode = .byTruncatingTail
+            textField = field
+            install(control: field)
         }
     }
 
-    @ViewBuilder
-    private var sectionStack: some View {
-        // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile, Sidebar, Beta Features,
-        // Automation, Browser (with embedded Import), Global Hotkey,
-        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
-        AccountSection(
-            defaultsStore: defaultsStore,
-            catalog: catalog,
-            accountFlow: accountFlow
-        )
-        .id(anchorID(for: .account))
-
-        AppSection(
-            defaultsStore: defaultsStore,
-            catalog: catalog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .app))
-
-        TerminalSection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .terminal))
-
-        TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
-            .id(anchorID(for: .textBox))
-
-        SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
-            .id(anchorID(for: .sleepyMode))
-
-        MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
-            .id(anchorID(for: .mobile))
-
-        IrohNetworkingSection(hostActions: hostActions)
-            .id(anchorID(for: .networking))
-
-        SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
-            .id(anchorID(for: .sidebarAppearance))
-
-        CustomSidebarsSection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
-        )
-        .id(anchorID(for: .customSidebars))
-
-        BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
-            .id(anchorID(for: .betaFeatures))
-        AutomationSection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            secretStore: secretStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .automation))
-
-        BrowserSection(
-            defaultsStore: defaultsStore,
-            catalog: catalog,
-            hostActions: hostActions,
-            importAnchorID: anchorID(for: .browserImport)
-        )
-        .id(anchorID(for: .browser))
-
-        GlobalHotkeySection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog, errorLog: runtime.errorLog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .globalHotkey))
-
-        KeyboardShortcutsSection(
-            jsonStore: jsonStore, userDefaultsStore: defaultsStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .keyboardShortcuts))
-
-        WorkspaceColorsSection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
-        )
-        .id(anchorID(for: .workspaceColors))
-
-        SettingsJSONSection(jsonStore: jsonStore, hostActions: hostActions)
-            .id(anchorID(for: .settingsJSON))
-
-        ResetSection(
-            defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .reset))
+    private func install(control: NSControl) {
+        control.translatesAutoresizingMaskIntoConstraints = false
+        valueControlContainer.addSubview(control)
+        NSLayoutConstraint.activate([
+            control.leadingAnchor.constraint(equalTo: valueControlContainer.leadingAnchor),
+            control.trailingAnchor.constraint(equalTo: valueControlContainer.trailingAnchor),
+            control.topAnchor.constraint(equalTo: valueControlContainer.topAnchor),
+            control.bottomAnchor.constraint(equalTo: valueControlContainer.bottomAnchor),
+            valueControlContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+        ])
     }
 
-    private func anchorID(for section: SettingsSectionID) -> String {
-        "section:\(section.rawValue)"
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        commit(text: field.stringValue)
     }
+
+    @objc private func textCommitted(_ sender: NSTextField) { commit(text: sender.stringValue) }
+
+    private func commit(text: String) {
+        do {
+            save(try currentValue.replacingValue(with: text))
+        } catch {
+            textField?.stringValue = currentValue.editingText
+            showError(error)
+        }
+    }
+
+    @objc private func toggleChanged(_ sender: NSSwitch) {
+        save(.boolean(sender.state == .on))
+    }
+
+    @objc private func resetPressed(_ sender: NSButton) {
+        writeTask?.cancel()
+        let key = key
+        let runtime = runtime
+        writeTask = Task { [weak self] in
+            do {
+                try await key.resetEditorValue(
+                    runtime.userDefaultsStore,
+                    runtime.jsonStore,
+                    runtime.secretStore
+                )
+                guard !Task.isCancelled else { return }
+                self?.load()
+            } catch {
+                self?.showError(error)
+            }
+        }
+    }
+
+    private func save(_ value: SettingValue) {
+        writeTask?.cancel()
+        let previous = currentValue
+        currentValue = value
+        let key = key
+        let runtime = runtime
+        writeTask = Task { [weak self] in
+            do {
+                try await key.writeEditorValue(
+                    value,
+                    runtime.userDefaultsStore,
+                    runtime.jsonStore,
+                    runtime.secretStore
+                )
+                guard !Task.isCancelled else { return }
+                self?.applyHostSideEffects()
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.show(previous)
+                self?.showError(error)
+            }
+        }
+    }
+
+    private func applyHostSideEffects() {
+        if key.id.hasPrefix("automation.") { runtime.hostActions.socketControlConfigurationDidChange() }
+        if key.id.hasPrefix("shortcuts.") { runtime.hostActions.notifyShortcutSettingsDidChange() }
+    }
+
+    private func showError(_ error: Error) {
+        runtime.errorLog.record(error, keyID: key.id)
+        guard let window else { return }
+        let alert = NSAlert(error: error)
+        alert.beginSheetModal(for: window)
+    }
+
+    private static func title(for keyID: String, index: SettingsSearchIndex) -> String {
+        if let anchor = index.anchorID(forSettingsPath: keyID),
+           let entry = index.entries.first(where: { $0.anchorID == anchor }) {
+            return entry.title
+        }
+        let leaf = keyID.split(separator: ".").last.map(String.init) ?? keyID
+        return leaf
+            .replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1 $2", options: .regularExpression)
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+}
+
+@MainActor
+private final class SettingsNativeSectionHeader: NSView {
+    init(title: String, symbolName: String) {
+        super.init(frame: .zero)
+        let image = NSImageView(image: NSImage(systemSymbolName: symbolName, accessibilityDescription: title) ?? NSImage())
+        image.translatesAutoresizingMaskIntoConstraints = false
+        let label = NSTextField(labelWithString: title)
+        label.font = .preferredFont(forTextStyle: .title1)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(image)
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            image.leadingAnchor.constraint(equalTo: leadingAnchor),
+            image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: 24),
+            image.heightAnchor.constraint(equalToConstant: 24),
+            label.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 10),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+@MainActor
+private final class SettingsActionButton: NSButton {
+    private let handler: @MainActor () -> Void
+
+    init(title: String, action: @escaping @MainActor () -> Void) {
+        handler = action
+        super.init(frame: .zero)
+        self.title = title
+        bezelStyle = .rounded
+        target = self
+        self.action = #selector(run(_:))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func run(_ sender: Any?) { handler() }
+}
+
+@MainActor
+private final class SettingsNativeLabeledRow: NSView {
+    private let controlHost = NSView()
+    private var retainedTargets: [AnyObject] = []
+
+    init(title: String) {
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithString: title)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        controlHost.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        addSubview(controlHost)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            controlHost.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 12),
+            controlHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controlHost.centerYAnchor.constraint(equalTo: centerYAnchor),
+            controlHost.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            controlHost.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func retain(_ target: AnyObject) { retainedTargets.append(target) }
+
+    func setControl(_ control: NSControl) {
+        control.translatesAutoresizingMaskIntoConstraints = false
+        controlHost.addSubview(control)
+        NSLayoutConstraint.activate([
+            control.leadingAnchor.constraint(equalTo: controlHost.leadingAnchor),
+            control.trailingAnchor.constraint(equalTo: controlHost.trailingAnchor),
+            control.topAnchor.constraint(equalTo: controlHost.topAnchor),
+            control.bottomAnchor.constraint(equalTo: controlHost.bottomAnchor),
+        ])
+    }
+}
+
+@MainActor
+private final class SettingsBooleanTarget: NSObject {
+    weak var toggle: NSSwitch?
+    let onChange: @MainActor (Bool) -> Void
+    init(toggle: NSSwitch, onChange: @escaping @MainActor (Bool) -> Void) {
+        self.toggle = toggle
+        self.onChange = onChange
+    }
+    @objc func changed(_ sender: NSSwitch) { onChange(sender.state == .on) }
+}
+
+@MainActor
+private final class SettingsChoiceTarget: NSObject {
+    weak var picker: NSPopUpButton?
+    let choices: [String]
+    let onSelect: @MainActor (String) -> Void
+    init(picker: NSPopUpButton, choices: [String], onSelect: @escaping @MainActor (String) -> Void) {
+        self.picker = picker
+        self.choices = choices
+        self.onSelect = onSelect
+    }
+    @objc func changed(_ sender: NSPopUpButton) {
+        guard choices.indices.contains(sender.indexOfSelectedItem) else { return }
+        onSelect(choices[sender.indexOfSelectedItem])
+    }
+}
+
+@MainActor
+private final class AccountTeamTarget: NSObject {
+    weak var flow: (any AccountFlow)?
+    let teams: [AccountTeamSummary]
+    weak var picker: NSPopUpButton?
+    init(flow: any AccountFlow, teams: [AccountTeamSummary], picker: NSPopUpButton) {
+        self.flow = flow
+        self.teams = teams
+        self.picker = picker
+    }
+    @objc func selectTeam(_ sender: NSPopUpButton) {
+        guard teams.indices.contains(sender.indexOfSelectedItem) else { return }
+        flow?.selectedTeamID = teams[sender.indexOfSelectedItem].id
+    }
+}
+
+private struct AccountSnapshot {
+    let identity: AccountIdentity?
+    let teams: [AccountTeamSummary]
+    let selectedTeamID: String?
+    let isWorking: Bool
+    let isProActive: Bool
+    let canManageBilling: Bool
 }

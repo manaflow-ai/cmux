@@ -1,5 +1,4 @@
 import CmuxFoundation
-import SwiftUI
 
 /// Owns the lifecycle of one settings-store change-stream subscription:
 /// a single forwarding operation that sends each element from an
@@ -7,7 +6,7 @@ import SwiftUI
 /// is deallocated.
 ///
 /// This is the single source of truth for "observe a setting" teardown. The
-/// owning object (a SwiftUI `@State` for ``LiveSetting``, or an `@Observable`
+/// owning object (a native controller binding or an `@Observable`
 /// value model such as ``DefaultsValueModel``) holds the driver; when the
 /// owner deallocates, the driver's `deinit` finishes a lifetime signal. The
 /// forwarding operation then cancels its parked `for await`, firing the
@@ -19,11 +18,10 @@ import SwiftUI
 ///
 /// The driver is store-agnostic — it only needs an `AsyncStream<Value>` — so
 /// the same path works for every key kind (UserDefaults, JSON, secret) and
-/// for both `@State`-backed and `@Observable`-backed consumers.
+/// for every settings consumer.
 final class SettingReadDriver<Value: Sendable>: Sendable {
-    /// `DynamicProperty.update()` is a nonisolated SwiftUI callback. The atomic
-    /// claim keeps activation synchronous and safe no matter which executor
-    /// invokes that callback.
+    /// The atomic claim keeps activation synchronous and safe no matter which
+    /// executor invokes the activation callback.
     private let isActivated = AtomicBooleanGate(false)
     /// Finishing this bounded signal ends the forwarding operation without
     /// retaining the driver in its observation task.

@@ -59,6 +59,31 @@ public struct AnySettingKey: Sendable {
     /// The UserDefaults fallback value, type-erased for batch reset bookkeeping.
     public let userDefaultsDefaultValue: (any Sendable)?
 
+    /// Default value in the Sendable editor representation.
+    public let editorDefaultValue: SettingValue
+
+    /// Reads this key through its typed store while preserving actor isolation.
+    public let readEditorValue: @Sendable (
+        UserDefaultsSettingsStore,
+        JSONConfigStore,
+        SecretFileStore
+    ) async throws -> SettingValue
+
+    /// Writes a validated editor value through this key's typed store.
+    public let writeEditorValue: @Sendable (
+        SettingValue,
+        UserDefaultsSettingsStore,
+        JSONConfigStore,
+        SecretFileStore
+    ) async throws -> Void
+
+    /// Resets this key through its typed store.
+    public let resetEditorValue: @Sendable (
+        UserDefaultsSettingsStore,
+        JSONConfigStore,
+        SecretFileStore
+    ) async throws -> Void
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -72,6 +97,23 @@ public struct AnySettingKey: Sendable {
         }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = key.defaultValue
+        self.editorDefaultValue = Self.editorValue(
+            key.defaultValue.encodeForUserDefaults(),
+            id: key.id
+        )
+        self.readEditorValue = { store, _, _ in
+            let value = await store.value(for: key)
+            return Self.editorValue(value.encodeForUserDefaults(), id: key.id)
+        }
+        self.writeEditorValue = { value, store, _, _ in
+            guard let decoded = Value.decodeFromUserDefaults(value.encodedRepresentation) else {
+                throw SettingValueError.unsupportedValue(key.id)
+            }
+            _ = await store.set(decoded, for: key)
+        }
+        self.resetEditorValue = { store, _, _ in
+            _ = await store.reset(key)
+        }
     }
 
     /// Wraps a JSON-backed key.
@@ -83,6 +125,23 @@ public struct AnySettingKey: Sendable {
             try? await store.reset(key)
         }
         self.userDefaultsDefaultValue = nil
+        self.editorDefaultValue = Self.editorValue(
+            key.defaultValue.encodeForJSON(),
+            id: key.id
+        )
+        self.readEditorValue = { _, store, _ in
+            let value = await store.value(for: key)
+            return Self.editorValue(value.encodeForJSON(), id: key.id)
+        }
+        self.writeEditorValue = { value, _, store, _ in
+            guard let decoded = Value.decodeFromJSON(value.encodedRepresentation) else {
+                throw SettingValueError.unsupportedValue(key.id)
+            }
+            try await store.set(decoded, for: key)
+        }
+        self.resetEditorValue = { _, store, _ in
+            try await store.reset(key)
+        }
     }
 
     /// Wraps a secret-file-backed key. Secrets are reset through
@@ -94,6 +153,23 @@ public struct AnySettingKey: Sendable {
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = nil
+        self.editorDefaultValue = .text(key.defaultValue)
+        self.readEditorValue = { _, _, store in
+            .text(try await store.value(for: key))
+        }
+        self.writeEditorValue = { value, _, _, store in
+            guard case .text(let text) = value else {
+                throw SettingValueError.unsupportedValue(key.id)
+            }
+            try await store.set(text, for: key)
+        }
+        self.resetEditorValue = { _, _, store in
+            try await store.reset(key)
+        }
+    }
+
+    private static func editorValue(_ raw: Any, id: String) -> SettingValue {
+        SettingValue(encodedRepresentation: raw) ?? .text(String(describing: raw))
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

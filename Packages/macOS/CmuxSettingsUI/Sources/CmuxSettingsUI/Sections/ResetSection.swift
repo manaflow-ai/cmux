@@ -1,13 +1,10 @@
 import CmuxFoundation
 import CmuxSettings
-import SwiftUI
+import Foundation
 
-/// **Reset** section — mirrors the legacy in-app section: a single
-/// centered "Reset All Settings" button wrapped in a `SettingsCard`.
-/// Matches legacy behavior: the action fires immediately on click,
-/// without a confirmation dialog.
+/// Reset behavior shared by the native settings controller and tests.
 @MainActor
-public struct ResetSection: View {
+public struct ResetSection {
     private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
@@ -30,26 +27,6 @@ public struct ResetSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
-    }
-
-    public var body: some View {
-        Group {
-            SettingsSectionHeader(String(localized: "settings.section.reset", defaultValue: "Reset"), section: .reset)
-            SettingsCard {
-                HStack {
-                    Spacer(minLength: 0)
-                    Button(String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings")) {
-                        Task { await resetAll() }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-            }
-            .settingsSearchAnchors(["setting:reset:reset-all"])
-        }
     }
 
     func resetAll() async {

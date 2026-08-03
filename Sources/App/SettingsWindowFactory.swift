@@ -1,16 +1,14 @@
 import AppKit
-import CmuxFoundation
 import CmuxSettingsUI
-import SwiftUI
 import os
 
 /// Builds the AppKit-owned Settings window
 /// (https://github.com/manaflow-ai/cmux/issues/7777).
 ///
-/// Construction is synchronous and infallible: unlike the previous SwiftUI
+/// Construction is synchronous and infallible: unlike the previous scene-owned
 /// `Window` scene + `openWindow(id:)` path, a call here always returns a real
 /// `NSWindow`, so ``SettingsWindowPresenter`` can guarantee an open request
-/// ends with a visible window. SwiftUI is used only for the window's content.
+/// ends with a visible window.
 @MainActor
 enum SettingsWindowFactory {
     private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
@@ -26,18 +24,17 @@ enum SettingsWindowFactory {
             // in this state — loud, never a silent no-op (issue #7777).
             log.fault("settings.window.factory settingsRuntime unavailable; presenting fallback content")
         }
-        let hostingController = NSHostingController(
-            rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
-        )
-        // Bridge only the navigation title. `.toolbars` is deliberately
-        // absent: the scene bridge never materializes NavigationSplitView's
-        // implicit sidebar toggle in an AppKit-hosted window, so the factory
-        // owns the toolbar below instead.
-        hostingController.sceneBridgingOptions = [.title]
-        let window = SettingsHostWindow(contentViewController: hostingController)
-        // Match the chrome SwiftUI applies to its own `WindowGroup` window
-        // (the 0.64.17 Settings scene): `.fullSizeContentView` lets the
-        // NavigationSplitView sidebar extend under the titlebar for the
+        let contentController: NSViewController
+        if let runtime = AppDelegate.shared?.settingsRuntime {
+            contentController = SettingsWindowRoot(
+                runtime: runtime,
+                onContentAppear: onContentAppear
+            )
+        } else {
+            contentController = SettingsUnavailableViewController()
+        }
+        let window = SettingsHostWindow(contentViewController: contentController)
+        // `.fullSizeContentView` lets the native split sidebar extend under the titlebar for the
         // full-height-sidebar look, while the titlebar itself stays at the
         // AppKit defaults (visible title, opaque titlebar, automatic
         // toolbar style and separator). Forcing any of those away from
@@ -54,8 +51,7 @@ enum SettingsWindowFactory {
     }
 }
 
-/// AppKit-owned replacement for the sidebar toggle the SwiftUI `WindowGroup`
-/// scene provided implicitly in 0.64.17. The toggle posts the same
+/// AppKit-owned sidebar toggle. The toggle posts the same
 /// notification the app's Toggle Left Sidebar menu command routes to the
 /// Settings window, so both entrypoints share one `columnVisibility`
 /// mutation path in ``SettingsWindowRoot``.
@@ -133,46 +129,25 @@ class SettingsHostWindow: NSWindow {
     }
 }
 
-/// Root SwiftUI content of the AppKit-hosted Settings window. Applies the
-/// environment the removed `Window` scene used to apply (settings runtime,
-/// font magnification, appearance override) — an AppKit-hosted view does not
-/// inherit the App scene's SwiftUI environment — and delivers any pending
-/// navigation target once the content is live.
-struct SettingsWindowHostRoot: View {
-    /// Readiness signal back to the presenter instance that owns this
-    /// window. The presenter defers its pending-navigation post one
-    /// main-actor hop (so the content's restore navigation cannot clobber
-    /// it) and guards it against being superseded by a newer targeted show.
-    let onContentAppear: @MainActor () -> Void
-
-    @AppStorage(AppearanceSettings.appearanceModeKey)
-    private var appearanceMode = AppearanceSettings.defaultMode.rawValue
-
-    var body: some View {
-        content
-            .cmuxFontMagnificationEnvironment()
-            .cmuxAppearanceColorScheme(appearanceMode)
-            .onAppear(perform: onContentAppear)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let runtime = AppDelegate.shared?.settingsRuntime {
-            SettingsWindowRoot(runtime: runtime)
-                .settingsRuntime(runtime)
-        } else {
-            // Unreachable in a normally-launched app (the runtime is created
-            // in cmuxApp.init before any UI); kept so a lifecycle regression
-            // surfaces as a visible message instead of a silent no-op.
-            Text(String(
-                localized: "settings.window.runtimeUnavailable",
-                defaultValue: "Settings could not load. Please restart cmux and report this issue."
-            ))
-            .padding(40)
-            .frame(
-                minWidth: SettingsWindowPresenter.minimumSize.width,
-                minHeight: SettingsWindowPresenter.minimumSize.height
-            )
-        }
+@MainActor
+private final class SettingsUnavailableViewController: NSViewController {
+    override func loadView() {
+        let label = NSTextField(wrappingLabelWithString: String(
+            localized: "settings.window.runtimeUnavailable",
+            defaultValue: "Settings could not load. Please restart cmux and report this issue."
+        ))
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let root = NSView()
+        root.addSubview(label)
+        NSLayoutConstraint.activate([
+            root.widthAnchor.constraint(greaterThanOrEqualToConstant: SettingsWindowPresenter.minimumSize.width),
+            root.heightAnchor.constraint(greaterThanOrEqualToConstant: SettingsWindowPresenter.minimumSize.height),
+            label.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 40),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -40),
+        ])
+        view = root
     }
 }

@@ -1,20 +1,20 @@
-import SwiftUI
+import AppKit
 
 @MainActor
 struct HexColorPickerSelection {
-    private let fallback: Color
+    private let fallback: NSColor
     private var pendingPickerHex: String?
     private var pendingPickerReconcileRevision: Int?
     private var latestReconcileRevision: Int
-    private(set) var color: Color
+    private(set) var color: NSColor
 
-    init(state: HexColorPickerReconcileState, fallback: Color) {
+    init(state: HexColorPickerReconcileState, fallback: NSColor) {
         self.fallback = fallback
         self.latestReconcileRevision = state.revision
-        self.color = Color(cmuxHex: state.storedHex) ?? fallback
+        self.color = NSColor(cmuxHex: state.storedHex) ?? fallback
     }
 
-    mutating func applyPickerSelection(_ newColor: Color) -> String {
+    mutating func applyPickerSelection(_ newColor: NSColor) -> String {
         color = newColor
         let hex = newColor.cmuxHexString
         pendingPickerHex = hex
@@ -32,6 +32,6 @@ struct HexColorPickerSelection {
         }
         pendingPickerHex = nil
         pendingPickerReconcileRevision = nil
-        color = Color(cmuxHex: state.storedHex) ?? fallback
+        color = NSColor(cmuxHex: state.storedHex) ?? fallback
     }
 }

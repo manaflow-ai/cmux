@@ -1,137 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
-import SwiftUI
 
-/// AppKit-backed SwiftUI control that records a ``StoredShortcut``.
-///
-/// SwiftUI does not surface raw key-down events with modifier flags
-/// usable for shortcut recording, so this view wraps an
-/// `NSViewRepresentable` over an `NSButton` subclass that captures
-/// `keyDown` and `performKeyEquivalent` while focused. Click the button
-/// to enter recording mode; the button title changes to
-/// "Press shortcut…" and the next keystroke is captured and yielded
-/// via ``onStroke``.
-///
-/// When ``chordsEnabled`` is `true`, the recorder collects two
-/// keystrokes in sequence — the second is the "chord" stroke,
-/// modeled after tmux-style `Ctrl-B + p` bindings — and yields a
-/// chorded ``StoredShortcut`` via ``onChord``. Pressing Escape during
-/// the chord-pending state aborts the recording.
-///
-/// Mirrors the legacy `ShortcutRecorderButton` (NSButton with
-/// `.rounded` bezel) used in the in-app Settings keyboard shortcuts
-/// section so the package recorder is visually indistinguishable from
-/// the legacy control. The recorder installs a local NSEvent monitor
-/// while active so modifier combinations that would normally trigger
-/// app menu items (⌘W, ⌘Q, ⌘N, etc.) are captured for recording
-/// instead of firing the menu action.
-public struct ShortcutRecorderView: NSViewRepresentable {
-    private let onStroke: (ShortcutStroke) -> Void
-    private let onChord: ((StoredShortcut) -> Void)?
-    private let onBareKeyRejected: (() -> Void)?
-    private let placeholder: String
-    private let chordsEnabled: Bool
-    private let hasPendingRejection: Bool
-    private let firstStrokeRequiresModifier: Bool
-
-    /// Creates a single-stroke recorder.
-    ///
-    /// The default `placeholder` is the legacy empty label
-    /// (`shortcut.unbound.displayValue`, "None"), matching
-    /// `StoredShortcut.displayString` for an unbound binding. When the
-    /// action is unbound and the recorder is not focused, the box shows
-    /// this label rather than a recording prompt — mirroring legacy
-    /// `ShortcutRecorderNSButton` resting state.
-    ///
-    /// Set `firstStrokeRequiresModifier` to `false` only for content-scoped
-    /// shortcuts that intentionally allow vim-style bare keys, such as
-    /// diff-viewer navigation.
-    public init(
-        placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
-        hasPendingRejection: Bool = false,
-        firstStrokeRequiresModifier: Bool = true,
-        onStroke: @escaping (ShortcutStroke) -> Void,
-        onBareKeyRejected: (() -> Void)? = nil
-    ) {
-        self.placeholder = placeholder
-        self.hasPendingRejection = hasPendingRejection
-        self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        self.onStroke = onStroke
-        self.onChord = nil
-        self.onBareKeyRejected = onBareKeyRejected
-        self.chordsEnabled = false
-    }
-
-    /// Creates a recorder that can capture either a single stroke or
-    /// a two-stroke chord. When the user enters chord mode, the
-    /// recorder waits for a second keystroke and yields it via
-    /// ``onChord``. Plain single-key recordings still fire
-    /// ``onStroke``.
-    ///
-    /// Set `firstStrokeRequiresModifier` to `false` only for content-scoped
-    /// shortcuts that intentionally allow vim-style bare keys, such as
-    /// diff-viewer navigation. The chord-pending second stroke can always be
-    /// bare, matching the legacy app-target recorder.
-    public init(
-        placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
-        chordsEnabled: Bool,
-        hasPendingRejection: Bool = false,
-        firstStrokeRequiresModifier: Bool = true,
-        onStroke: @escaping (ShortcutStroke) -> Void,
-        onChord: @escaping (StoredShortcut) -> Void,
-        onBareKeyRejected: (() -> Void)? = nil
-    ) {
-        self.placeholder = placeholder
-        self.hasPendingRejection = hasPendingRejection
-        self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        self.onStroke = onStroke
-        self.onChord = onChord
-        self.onBareKeyRejected = onBareKeyRejected
-        self.chordsEnabled = chordsEnabled
-    }
-
-    public func makeNSView(context: Context) -> RecorderHostButton {
-        let button = RecorderHostButton()
-        button.placeholder = placeholder
-        button.chordsEnabled = chordsEnabled
-        button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        button.onStroke = onStroke
-        button.onChord = onChord
-        button.onBareKeyRejected = onBareKeyRejected
-        button.refreshTitle()
-        return button
-    }
-
-    public func updateNSView(_ nsView: RecorderHostButton, context: Context) {
-        nsView.placeholder = placeholder
-        nsView.chordsEnabled = chordsEnabled
-        nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        nsView.onStroke = onStroke
-        nsView.onChord = onChord
-        nsView.onBareKeyRejected = onBareKeyRejected
-        if !hasPendingRejection {
-            nsView.clearPendingRejection()
-        }
-        nsView.refreshTitle()
-    }
-
-    /// Deterministic teardown — stops any active recording when SwiftUI removes this view,
-    /// rather than relying on deinit timing. Required for safe cell reuse (Task 5).
-    public static func dismantleNSView(_ nsView: RecorderHostButton, coordinator: Void) {
-        nsView.cancelRecordingIfActive()
-    }
-}
-
-/// Focusable AppKit `NSButton` host for ``ShortcutRecorderView``.
-///
-/// Mirrors the legacy `ShortcutRecorderNSButton` shape: a rounded
-/// `NSButton` whose title swaps between the recorded shortcut, a
-/// "Press shortcut…" prompt while recording, and a `"<first> …"`
-/// preview while waiting for the second stroke of a chord. Installs
-/// an `NSEvent.addLocalMonitorForEvents` monitor while recording so
-/// menu-equivalent keystrokes (⌘W, ⌘Q, ⌘N, etc.) are captured for
-/// recording instead of firing menu items.
 public final class RecorderHostButton: NSButton {
     /// Tracks the recorder that is currently capturing keystrokes so a
     /// click on a different recorder can stop the previous one. Mirrors
@@ -225,13 +95,13 @@ public final class RecorderHostButton: NSButton {
         // Match legacy `ShortcutRecorderNSButton`, which rendered the
         // recorded chord in the default `.regular` system control font
         // for a `.rounded` bezel NSButton. When this button is hosted
-        // inside SwiftUI via `NSViewRepresentable`, the ambient
+        // inside AppKit via `NSViewController`, the ambient
         // `controlSize` environment can shrink the button to `.small`,
         // which swaps in the small system font and makes the shortcut
         // text visibly smaller/lighter than the legacy in-app control.
         // Pin both the control size and the font explicitly so the
         // package recorder renders byte-for-byte like legacy regardless
-        // of the surrounding SwiftUI environment.
+        // of the surrounding AppKit environment.
         controlSize = .regular
         applyFont()
         if fontMagnificationObserver == nil {
@@ -310,7 +180,7 @@ public final class RecorderHostButton: NSButton {
     }
 
     /// Stops an active recording session idempotently. Safe to call on any recorder
-    /// regardless of whether it is currently recording — used by ``dismantleNSView``
+    /// regardless of whether it is currently recording — used by `native teardown`
     /// so that a cell being torn down (or recycled for a different action in Task 5)
     /// does not leave an armed recorder pointed at the wrong action.
     public func cancelRecordingIfActive() {
@@ -433,7 +303,7 @@ public final class RecorderHostButton: NSButton {
 
     /// Recomputes the button title from the current recording / pending
     /// state. Called automatically on every state transition and by the
-    /// SwiftUI `updateNSView` path when the placeholder changes.
+    /// AppKit native update path when the placeholder changes.
     public func refreshTitle() {
         if isRecording {
             if let pendingFirst {
