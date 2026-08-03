@@ -13528,12 +13528,17 @@ impl App {
         if key.code == KeyCode::Tab {
             return self.run_action(Action::ToggleSidebarView);
         }
-        if matches!(key.code, KeyCode::Left | KeyCode::Char('h'))
-            && self.focus_adjacent_rail(RailKind::Workspace, -1)
-        {
-            return Ok(RenderAction::Draw);
+        if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
+            let moved = self.focus_adjacent_rail(RailKind::Workspace, -1);
+            if moved
+                || self.sidebar_view == SidebarView::Workspaces
+                || key.modifiers.contains(KeyModifiers::ALT)
+            {
+                return Ok(RenderAction::Draw);
+            }
         }
-        if self.sidebar_view == SidebarView::Workspaces
+        if (self.sidebar_view == SidebarView::Workspaces
+            || key.modifiers.contains(KeyModifiers::ALT))
             && matches!(key.code, KeyCode::Right | KeyCode::Char('l'))
         {
             if !self.focus_adjacent_rail(RailKind::Workspace, 1) {
@@ -32556,6 +32561,11 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
 
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::Pane);
 
