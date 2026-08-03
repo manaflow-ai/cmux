@@ -948,7 +948,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		DCDC1000000000000000B001 /* DockConfigurationLoadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */; };
 		DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00A /* DockControlDefinition.swift */; };
 		DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */; };
-		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7529002A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77800010000000000000002 /* DockPortalReconcileTests.swift */; };
@@ -3522,7 +3521,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigurationLoadResult.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B00A /* DockControlDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinition.swift; sourceTree = "<group>"; };
 		DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinitionDecodingTests.swift; sourceTree = "<group>"; };
-		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
 		D7529002A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPaneDropUnfocusedRoutingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		D77800010000000000000002 /* DockPortalReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPortalReconcileTests.swift; sourceTree = "<group>"; };
@@ -7003,7 +7001,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
 				DCDC1000000000000000B010 /* DockTrustRequest.swift */,
-				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
 				8777A0028777A0028777A002 /* AppDelegate+DockAttentionRouting.swift */,
 				DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */,
 				CA52D0010000000000000000 /* Canvas */,
@@ -8826,7 +8823,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */,
 				DCDC1000000000000000B001 /* DockConfigurationLoadResult.swift in Sources */,
 				DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */,
-				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */,
 				DCDC1000000000000000C020 /* DockScope.swift in Sources */,
