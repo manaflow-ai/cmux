@@ -797,7 +797,7 @@ struct FileSearchControllerTests {
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
-        let coordinator = FileExplorerPanelView.Coordinator(
+        let coordinator = FileExplorerPanelCoordinator(
             store: store,
             state: state,
             onOpenFilePreview: { _ in }
@@ -840,7 +840,7 @@ struct FileSearchControllerTests {
             let state = FileExplorerState()
             let searchController = SpyFileSearchController()
             var openedPaths: [String] = []
-            let coordinator = FileExplorerPanelView.Coordinator(
+            let coordinator = FileExplorerPanelCoordinator(
                 store: store,
                 state: state,
                 onOpenFilePreview: { path in
@@ -885,7 +885,7 @@ struct FileSearchControllerTests {
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
-        let coordinator = FileExplorerPanelView.Coordinator(
+        let coordinator = FileExplorerPanelCoordinator(
             store: store,
             state: state,
             onOpenFilePreview: { _ in }
@@ -942,7 +942,7 @@ struct FileSearchControllerTests {
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
-        let coordinator = FileExplorerPanelView.Coordinator(
+        let coordinator = FileExplorerPanelCoordinator(
             store: store,
             state: state,
             onOpenFilePreview: { _ in }

@@ -113,7 +113,7 @@ extension NSMenu {
     }
 }
 
-extension FileExplorerPanelView.Coordinator {
+extension FileExplorerPanelCoordinator {
     @MainActor
     private func contextMenuNodes(clicked node: FileExplorerNode) -> [FileExplorerNode] {
         guard let outlineView else { return [node] }

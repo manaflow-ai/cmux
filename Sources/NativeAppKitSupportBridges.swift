@@ -477,6 +477,51 @@ struct CommandPaletteCommandListRenderView: NSViewRepresentable {
     }
 }
 
+struct FileExplorerPanelView: NSViewRepresentable {
+    @ObservedObject var store: FileExplorerStore
+    @ObservedObject var state: FileExplorerState
+    let onOpenFilePreview: (String) -> Void
+    var presentation: FileExplorerPanelPresentation = .files
+    var placement: FileExplorerPanelPlacement = .rightSidebar
+    var onFocus: (() -> Void)?
+    var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+
+    func makeCoordinator() -> FileExplorerPanelController {
+        FileExplorerPanelController(
+            store: store,
+            state: state,
+            onOpenFilePreview: onOpenFilePreview,
+            presentation: presentation,
+            placement: placement,
+            onFocus: onFocus,
+            onContainerChange: onContainerChange
+        )
+    }
+
+    func makeNSView(context: Context) -> FileExplorerContainerView {
+        context.coordinator.containerView
+    }
+
+    func updateNSView(_ view: FileExplorerContainerView, context: Context) {
+        context.coordinator.update(
+            store: store,
+            state: state,
+            onOpenFilePreview: onOpenFilePreview,
+            presentation: presentation,
+            placement: placement,
+            onFocus: onFocus,
+            onContainerChange: onContainerChange
+        )
+    }
+
+    static func dismantleNSView(
+        _ view: FileExplorerContainerView,
+        coordinator: FileExplorerPanelController
+    ) {
+        coordinator.teardown()
+    }
+}
+
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating

@@ -134,8 +134,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
     }
 
-    var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
-        dataSource as? FileExplorerPanelView.Coordinator
+    var fileExplorerCoordinator: FileExplorerPanelCoordinator? {
+        dataSource as? FileExplorerPanelCoordinator
     }
 
     private func beginQuickSearch() {

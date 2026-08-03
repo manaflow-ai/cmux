@@ -362,7 +362,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
     @Test func openSelectionSearchFieldMarkedTextBypassesDelegateReturn() throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
-        let coordinator = FileExplorerPanelView.Coordinator(
+        let coordinator = FileExplorerPanelCoordinator(
             store: store,
             state: state,
             onOpenFilePreview: { _ in }

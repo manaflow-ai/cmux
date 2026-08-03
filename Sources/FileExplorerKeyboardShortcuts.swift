@@ -21,7 +21,7 @@ func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Vo
 }
 
 @MainActor
-extension FileExplorerPanelView.Coordinator {
+extension FileExplorerPanelCoordinator {
     func openSelectedNode(in outlineView: NSOutlineView) {
         guard let row = resolvedSelectionRow(in: outlineView) else { return }
         openNode(in: outlineView, at: row)

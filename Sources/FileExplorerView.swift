@@ -4,7 +4,6 @@ import Combine
 import CmuxFoundation
 import CmuxWorkspaces
 import CmuxSettings
-import SwiftUI
 
 #if DEBUG
 private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
@@ -13,7 +12,7 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
-// MARK: - File Explorer Panel (single NSViewRepresentable)
+// MARK: - File Explorer Panel
 
 enum FileExplorerPanelPresentation: Equatable {
     case files
@@ -32,19 +31,22 @@ enum FileExplorerPanelPlacement: Equatable {
     case pane
 }
 
-/// The entire file explorer panel as one AppKit view hierarchy.
-/// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
-struct FileExplorerPanelView: NSViewRepresentable {
-    @ObservedObject var store: FileExplorerStore
-    @ObservedObject var state: FileExplorerState
-    let onOpenFilePreview: (String) -> Void
-    var presentation: FileExplorerPanelPresentation = .files
-    var placement: FileExplorerPanelPlacement = .rightSidebar
-    var onFocus: (() -> Void)?
-    var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+/// Owns the file explorer's AppKit hierarchy and observation lifecycle.
+@MainActor
+final class FileExplorerPanelController {
+    let coordinator: FileExplorerPanelCoordinator
+    let containerView: FileExplorerContainerView
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
+    init(
+        store: FileExplorerStore,
+        state: FileExplorerState,
+        onOpenFilePreview: @escaping (String) -> Void,
+        presentation: FileExplorerPanelPresentation,
+        placement: FileExplorerPanelPlacement,
+        onFocus: (() -> Void)?,
+        onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    ) {
+        let coordinator = FileExplorerPanelCoordinator(
             store: store,
             state: state,
             onOpenFilePreview: onOpenFilePreview,
@@ -52,39 +54,44 @@ struct FileExplorerPanelView: NSViewRepresentable {
             onFocus: onFocus,
             onContainerChange: onContainerChange
         )
+        self.coordinator = coordinator
+        containerView = FileExplorerContainerView(coordinator: coordinator, presentation: presentation)
+        coordinator.containerView = containerView
+        coordinator.onContainerChange?(containerView)
     }
 
-    func makeNSView(context: Context) -> FileExplorerContainerView {
-        let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
-        context.coordinator.containerView = container
-        context.coordinator.onContainerChange?(container)
-        return container
+    func update(
+        store: FileExplorerStore,
+        state: FileExplorerState,
+        onOpenFilePreview: @escaping (String) -> Void,
+        presentation: FileExplorerPanelPresentation,
+        placement: FileExplorerPanelPlacement,
+        onFocus: (() -> Void)?,
+        onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    ) {
+        coordinator.store = store
+        coordinator.state = state
+        coordinator.onOpenFilePreview = onOpenFilePreview
+        coordinator.placement = placement
+        coordinator.onFocus = onFocus
+        coordinator.onContainerChange = onContainerChange
+        coordinator.onContainerChange?(containerView)
+        containerView.updateShortcutPlacement(placement)
+        containerView.updateHeader(store: store)
+        containerView.updatePresentation(presentation)
+        coordinator.reloadIfNeeded()
+        containerView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateNSView(_ container: FileExplorerContainerView, context: Context) {
-        context.coordinator.store = store
-        context.coordinator.state = state
-        context.coordinator.onOpenFilePreview = onOpenFilePreview
-        context.coordinator.placement = placement
-        context.coordinator.onFocus = onFocus
-        context.coordinator.onContainerChange = onContainerChange
-        context.coordinator.onContainerChange?(container)
-        container.updateShortcutPlacement(placement)
-        container.updateHeader(store: store)
-        container.updatePresentation(presentation)
-        context.coordinator.reloadIfNeeded()
-        container.registerWithKeyboardFocusCoordinatorIfNeeded()
-    }
-
-    static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
-        _ = nsView
+    func teardown() {
         coordinator.onContainerChange?(nil)
     }
+}
 
-    // MARK: - Coordinator
+// MARK: - Coordinator
 
-    @MainActor
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+@MainActor
+final class FileExplorerPanelCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
@@ -154,7 +161,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
-        deinit {
+        isolated deinit {
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -627,7 +634,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(relativePath, forType: .string)
         }
-    }
 }
 
 // MARK: - Container View (all-AppKit)
@@ -666,7 +672,7 @@ final class FileExplorerContainerView: NSView {
         }
     }
     private var presentation: FileExplorerPanelPresentation
-    private let coordinator: FileExplorerPanelView.Coordinator
+    private let coordinator: FileExplorerPanelCoordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
@@ -681,7 +687,7 @@ final class FileExplorerContainerView: NSView {
 #endif
 
     init(
-        coordinator: FileExplorerPanelView.Coordinator,
+        coordinator: FileExplorerPanelCoordinator,
         presentation: FileExplorerPanelPresentation,
         searchController: (any FileSearchControlling)? = nil
     ) {
@@ -793,7 +799,7 @@ final class FileExplorerContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
+        outlineView.doubleAction = #selector(FileExplorerPanelCoordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
 
@@ -1089,7 +1095,7 @@ final class FileExplorerContainerView: NSView {
             searchResultsView.reloadData()
             updateSearchLayout()
         }
-        (outlineView.dataSource as? FileExplorerPanelView.Coordinator)?
+        (outlineView.dataSource as? FileExplorerPanelCoordinator)?
             .ensureSelection(in: outlineView, fallbackToFirstVisible: true, scroll: true)
         let result = window.makeFirstResponder(outlineView)
 #if DEBUG
