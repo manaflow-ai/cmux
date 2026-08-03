@@ -79,8 +79,8 @@
   },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
-    "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-    "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, and any CLI tool."
+    "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+    "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
   "common": {
     "downloadForMac": "Download for Mac",
@@ -734,7 +734,7 @@
     "faqPlatformQ": "What platforms does it support?",
     "faqPlatformA": "Open the Download menu to see available cmux builds. <waitlist>Join the waitlist</waitlist> for any platform that is not released yet.",
     "faqAgentsQ": "What coding agents does cmux work with?",
-    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
+    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
     "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>agent hooks</hooksLink>. Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
