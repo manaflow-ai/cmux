@@ -635,4 +635,114 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["branch"] == .null)
         #expect(payload["cleared"] == .bool(true))
     }
+
+    @Test func surfaceOverlaySetParsesPlacementAndReturnsResolvedOverlay() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        context.overlayResolution = .set(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            overlay: ControlSurfaceOverlaySnapshot(
+                id: "agent.latest-message",
+                text: "keep this visible",
+                anchor: .viewportTop,
+                alignment: .right
+            )
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.overlay.set",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "overlay_id": .string("agent.latest-message"),
+                "text": .string("keep this visible"),
+                "anchor": .string("sticky"),
+                "position": .string("right"),
+            ]
+        ))
+
+        #expect(context.overlayInvocation?.surfaceID == surfaceID)
+        #expect(context.overlayInvocation?.hasSurfaceIDParam == true)
+        #expect(context.overlayInvocation?.action == .set(ControlSurfaceOverlaySetInputs(
+            id: "agent.latest-message",
+            text: "keep this visible",
+            anchor: .viewportTop,
+            alignment: .right
+        )))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let overlay)? = payload["overlay"] else {
+            Issue.record("expected overlay set payload")
+            return
+        }
+        #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["surface_id"] == .string(surfaceID.uuidString))
+        #expect(overlay["id"] == .string("agent.latest-message"))
+        #expect(overlay["anchor"] == .string("viewport"))
+        #expect(overlay["position"] == .string("right"))
+    }
+
+    @Test func surfaceOverlayListExposesResolvedScrollbackAnchor() {
+        let context = FakeSurfaceControlCommandContext()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        context.overlayResolution = .listed(
+            windowID: nil,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            overlays: [ControlSurfaceOverlaySnapshot(
+                id: "build-note",
+                text: "anchored",
+                anchor: .scrollbackTop,
+                alignment: .left,
+                scrollbackRow: 42,
+                rowSpaceRevision: 7
+            )]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.overlay.list",
+            params: [:]
+        ))
+
+        guard case .ok(.object(let payload)) = result,
+              case .array(let overlays)? = payload["overlays"],
+              case .object(let overlay)? = overlays.first else {
+            Issue.record("expected overlay list payload")
+            return
+        }
+        #expect(overlay["anchor"] == .string("scrollback"))
+        #expect(overlay["scrollback_row"] == .int(42))
+        #expect(overlay["row_space_revision"] == .int(7))
+    }
+
+    @Test func surfaceOverlayRejectsUnknownAnchorBeforeMutation() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.overlay.set",
+            params: [
+                "overlay_id": .string("note"),
+                "text": .string("content"),
+                "anchor": .string("cursor"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid anchor: cursor",
+            data: nil
+        ))
+        #expect(context.overlayInvocation == nil)
+    }
 }

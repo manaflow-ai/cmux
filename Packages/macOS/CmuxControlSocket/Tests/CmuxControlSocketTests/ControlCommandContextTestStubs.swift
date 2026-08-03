@@ -468,6 +468,29 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
+    func controlSurfaceOverlayStrings() -> ControlSurfaceOverlayStrings {
+        ControlSurfaceOverlayStrings(
+            tabManagerUnavailable: "window unavailable",
+            workspaceNotFound: "workspace not found",
+            surfaceNotFound: "surface not found",
+            noFocusedSurface: "no focused surface",
+            surfaceNotTerminal: "surface not terminal",
+            invalidIdentifier: "invalid identifier",
+            emptyText: "empty text",
+            textTooLongFormat: "text too long: %lld",
+            invalidAnchorFormat: "invalid anchor: %@",
+            invalidAlignmentFormat: "invalid position: %@",
+            scrollbackUnavailable: "scrollback unavailable"
+        )
+    }
+
+    func controlSurfaceOverlay(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        action: ControlSurfaceOverlayAction
+    ) -> ControlSurfaceOverlayResolution { .tabManagerUnavailable }
+
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }

@@ -148,6 +148,130 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testTerminalOverlaySocketRendersUpdatesAndRemovesPassiveCard() throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-terminal-overlay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workingDirectory,
+            withIntermediateDirectories: true
+        )
+        temporaryRoots.append(workingDirectory)
+
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += [
+            "-\(modeKey)", "allowAll",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        defer { app.terminate() }
+        app.launch()
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for terminal overlay test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
+
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "title": "Terminal overlay XCUITest",
+                    "working_directory": workingDirectory.path,
+                    "focus": true,
+                ]
+            ),
+            "Expected workspace.create to succeed"
+        )
+        let surfaceID = try XCTUnwrap(
+            workspace["surface_id"] as? String,
+            "Expected workspace.create to return a terminal surface"
+        )
+
+        let overlayID = "xcuitest.latest-message"
+        let initialText = "Latest user message: check the auth error"
+        let initial = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.set",
+                params: [
+                    "surface_id": surfaceID,
+                    "overlay_id": overlayID,
+                    "text": initialText,
+                    "anchor": "viewport",
+                    "position": "center",
+                ]
+            ),
+            "Expected surface.overlay.set to succeed"
+        )
+        XCTAssertEqual(
+            (initial["overlay"] as? [String: Any])?["id"] as? String,
+            overlayID
+        )
+
+        let card = app.staticTexts["terminal-overlay-\(overlayID)"]
+        XCTAssertTrue(
+            card.waitForExistence(timeout: 8.0),
+            "Expected the passive terminal overlay card to render"
+        )
+        XCTAssertEqual(card.label, initialText)
+
+        let updatedText = "Latest user message: rerun the focused test"
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.set",
+                params: [
+                    "surface_id": surfaceID,
+                    "overlay_id": overlayID,
+                    "text": updatedText,
+                    "anchor": "viewport",
+                    "position": "right",
+                ]
+            ),
+            "Expected keyed surface.overlay.set update to succeed"
+        )
+        let updated = expectation(
+            for: NSPredicate(format: "label == %@", updatedText),
+            evaluatedWith: card
+        )
+        wait(for: [updated], timeout: 8.0)
+
+        let listed = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.list",
+                params: ["surface_id": surfaceID]
+            ),
+            "Expected surface.overlay.list to succeed"
+        )
+        let overlays = listed["overlays"] as? [[String: Any]] ?? []
+        XCTAssertEqual(overlays.count, 1, "A keyed update must replace rather than duplicate")
+        XCTAssertEqual(overlays.first?["position"] as? String, "right")
+
+        let removed = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.remove",
+                params: ["surface_id": surfaceID, "overlay_id": overlayID]
+            ),
+            "Expected surface.overlay.remove to succeed"
+        )
+        XCTAssertEqual(removed["removed"] as? Bool, true)
+        let disappeared = expectation(
+            for: NSPredicate(format: "exists == false"),
+            evaluatedWith: card
+        )
+        wait(for: [disappeared], timeout: 8.0)
+    }
+
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
         let skillRoot = try makeSkillFixtureRoot(
             skillNames: [
