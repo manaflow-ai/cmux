@@ -13377,6 +13377,59 @@ mod tests {
     }
 
     #[test]
+    fn journal_hook_list_omits_absent_optional_filters() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-hook-list-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("hook-list-contract", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let put = resource_request(
+            "journal-hook-put",
+            "session.journal.hook.put",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "manifest":{
+                    "hook_id":"contract_hook",
+                    "manifest_version":1,
+                    "filter":{"kinds":["plugin.contract.*"]},
+                    "exec":{"argv":["/usr/bin/true"],"timeout_ms":1000,"max_parallel":1},
+                    "delivery":{"start":"tail","retry":{"max_attempts":1,"backoff_ms":0}},
+                    "permissions":["journal.read"],
+                },
+            }),
+            Some("journal-hook-put-1"),
+        );
+        assert!(handle_connection_message(&mux, client, &put, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+
+        let list = resource_request(
+            "journal-hook-list",
+            "session.journal.hook.list",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &list, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        let filter = &response["result"]["hooks"][0]["manifest"]["filter"];
+        assert_eq!(filter["kinds"], json!(["plugin.contract.*"]));
+        assert!(filter.get("classes").is_none());
+        assert!(filter.get("subject_kinds").is_none());
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     #[ignore = "manual throughput probe"]
     fn journal_compiled_regex_throughput_probe() {
         let document = JournalDocument::new(SessionJournalRecord {
