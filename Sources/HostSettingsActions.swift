@@ -6,7 +6,6 @@ import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
 import OSLog
-import SwiftUI
 
 private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
@@ -23,10 +22,9 @@ final class HostSettingsActions: SettingsHostActions {
     private let fontConfigWriter = FontConfigWriter()
 
     /// AppKit window identifier the dedicated terminal-config window carries.
-    /// Matches the value `ConfigSettingsView.configureWindow` assigns so the
-    /// host reuses a config window opened from any entrypoint (the legacy
-    /// in-app button's SwiftUI scene or this host-presented window).
-    private let configWindowIdentifier = "cmux.configEditor"
+    /// Matches the identifier assigned by the native config controller so the
+    /// host reuses a config window opened from any entrypoint.
+    private let configWindowIdentifier = ConfigSettingsViewController.windowIdentifier.rawValue
 
     /// Observes the `appIconMode` defaults key the settings package writes
     /// so the host can re-apply the dock/app-switcher icon when the user
@@ -38,7 +36,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// only via KVO (`UserDefaults`). The token is invalidated in `deinit`.
     private var appIconModeObservation: NSKeyValueObservation?
 
-    /// Retains the AppKit window hosting ``ConfigSettingsView`` so repeated
+    /// Retains the AppKit window hosting ``ConfigSettingsViewController`` so repeated
     /// "Open Config" presses reuse the same dedicated terminal-config
     /// window instead of stacking duplicates.
     private var configWindow: NSWindow?
@@ -207,26 +205,25 @@ final class HostSettingsActions: SettingsHostActions {
     func openTerminalConfigWindow() {
         NSApp.activate(ignoringOtherApps: true)
 
-        // Legacy opened the dedicated config window via the SwiftUI
-        // `openWindow(id: ConfigSettingsView.windowID)` environment. The
-        // settings package can't reach that environment, so the host opens
-        // the same `ConfigSettingsView` directly. Reuse the existing window
-        // (identifier set by `ConfigSettingsView.configureWindow`) when one
-        // is already open so repeated presses focus instead of duplicate.
+        // Reuse the existing controller-owned window when one is already open
+        // so repeated presses focus it instead of creating duplicates.
         if let existing = existingConfigWindow() {
             existing.makeKeyAndOrderFront(nil)
             existing.orderFrontRegardless()
             return
         }
 
-        let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        let root = ConfigSettingsView()
-            .cmuxAppearanceColorScheme(appearanceMode)
-        let hostingController = NSHostingController(rootView: root)
-
-        let window = NSWindow(contentViewController: hostingController)
+        let window = NSWindow(contentViewController: ConfigSettingsViewController())
         window.title = String(localized: "settings.config.windowTitle", defaultValue: "Config")
         window.identifier = NSUserInterfaceItemIdentifier(configWindowIdentifier)
+        switch AppearanceSettings.resolvedMode() {
+        case .system, .auto:
+            window.appearance = nil
+        case .light:
+            window.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            window.appearance = NSAppearance(named: .darkAqua)
+        }
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 980, height: 680))
         window.center()

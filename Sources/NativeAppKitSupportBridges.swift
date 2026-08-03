@@ -94,6 +94,19 @@ extension View {
     }
 }
 
+struct ConfigSettingsView: NSViewControllerRepresentable {
+    static let windowID = ConfigSettingsViewController.windowID
+
+    func makeNSViewController(context: Context) -> ConfigSettingsViewController {
+        ConfigSettingsViewController()
+    }
+
+    func updateNSViewController(
+        _ viewController: ConfigSettingsViewController,
+        context: Context
+    ) {}
+}
+
 private extension Font.Weight {
     var nsFontWeight: NSFont.Weight {
         if self == .ultraLight { return .ultraLight }

@@ -1,17 +1,51 @@
 import AppKit
 import CmuxFoundation
 import CmuxWorkspaces
-import SwiftUI
 
-struct ConfigSettingsView: View {
+@MainActor
+final class ConfigSettingsViewController: NSViewController, NSTextViewDelegate {
     static let windowID = "config-editor"
+    static let windowIdentifier = NSUserInterfaceItemIdentifier("cmux.configEditor")
 
-    @State private var configSource: ConfigSource = .cmux
-    @State private var snapshots: [ConfigSource: ConfigSourceSnapshot] = [:]
-    @State private var cmuxDraft = ""
-    @State private var cmuxLastLoadedContents = ""
-    @State private var statusMessage = ""
-    @State private var statusIsError = false
+    private var configSource: ConfigSource = .cmux
+    private var snapshots: [ConfigSource: ConfigSourceSnapshot] = [:]
+    private var cmuxDraft = ""
+    private var cmuxLastLoadedContents = ""
+    private var configReloadTask: Task<Void, Never>?
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+
+    private let sourceControl = NSSegmentedControl(
+        labels: ConfigSource.allCases.map(\.localizedTitle),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    private let pathsStack = NSStackView()
+    private let bannerView = ConfigSettingsBannerView()
+    private let editorScrollView = NSScrollView()
+    private let editorTextView = NSTextView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let openEditorButton = NSButton()
+    private let revealFinderButton = NSButton()
+    private let reloadButton = NSButton()
+    private let saveButton = NSButton()
+
+    override func loadView() {
+        view = ConfigSettingsRootView()
+        configureControls()
+        buildHierarchy()
+        refreshSnapshots(preserveCmuxDraft: false)
+        observeConfigurationReloads()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        configureWindow(view.window)
+    }
+
+    deinit {
+        configReloadTask?.cancel()
+    }
 
     private var currentSnapshot: ConfigSourceSnapshot {
         snapshots[configSource] ?? configSource.snapshot(environment: .live())
@@ -21,139 +55,235 @@ struct ConfigSettingsView: View {
         cmuxDraft != cmuxLastLoadedContents
     }
 
-    private var currentBannerText: String? {
+    private var currentBannerText: String {
         switch configSource {
         case .cmux:
-            return String(
+            String(
                 localized: "settings.config.banner.cmux",
                 defaultValue: "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
             )
+        case .synced where currentSnapshot.hasStandaloneGhosttyConfig:
+            String(
+                localized: "settings.config.banner.synced",
+                defaultValue: "This is a generated preview of the effective config. Edit the cmux tab to change what cmux reads."
+            )
         case .synced:
-            if currentSnapshot.hasStandaloneGhosttyConfig {
-                return String(
-                    localized: "settings.config.banner.synced",
-                    defaultValue: "This is a generated preview of the effective config. Edit the cmux tab to change what cmux reads."
-                )
-            }
-            return String(
+            String(
                 localized: "settings.config.banner.syncedNoGhostty",
                 defaultValue: "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
             )
         }
     }
 
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Spacer(minLength: 0)
-                Picker(
-                    String(localized: "settings.config.source.label", defaultValue: "Config Source"),
-                    selection: $configSource
-                ) {
-                    ForEach(ConfigSource.allCases) { source in
-                        Text(source.localizedTitle).tag(source)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-                Spacer(minLength: 0)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(currentSnapshot.displayPaths, id: \.self) { path in
-                    Text(verbatim: path)
-                        .cmuxFont(size: 12, weight: .regular, design: .monospaced)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let bannerText = currentBannerText {
-                ConfigSettingsBanner(text: bannerText)
-            }
-
-            Group {
-                if configSource == .cmux {
-                    ConfigSettingsTextView(text: $cmuxDraft, isEditable: true)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(editorBackground)
-                        .accessibilityIdentifier("ConfigSettingsCmuxEditor")
-                } else {
-                    ConfigSettingsTextView(text: .constant(currentSnapshot.contents), isEditable: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(editorBackground)
-                    .accessibilityIdentifier("ConfigSettingsReadOnlyView")
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
-                    .allowsHitTesting(false)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            HStack(spacing: 8) {
-                if !statusMessage.isEmpty {
-                    Text(statusMessage)
-                        .cmuxFont(.caption)
-                        .foregroundColor(statusIsError ? .red : .secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Button(openEditorButtonTitle) {
-                    openCurrentSourceInEditor()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(revealFinderButtonTitle) {
-                    revealCurrentSourceInFinder()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(String(localized: "settings.config.action.reload", defaultValue: "Reload")) {
-                    reloadFromDisk()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(String(localized: "settings.config.action.save", defaultValue: "Save")) {
-                    saveCmuxConfig()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(configSource != .cmux || !hasUnsavedCmuxChanges)
-            }
-        }
-        .padding(16)
-        .frame(minWidth: 760, minHeight: 540)
-        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
-        .background(
-            WindowAccessor { window in
-                configureWindow(window)
-            }
+    private func configureControls() {
+        sourceControl.selectedSegment = ConfigSource.allCases.firstIndex(of: configSource) ?? 0
+        sourceControl.target = self
+        sourceControl.action = #selector(sourceDidChange(_:))
+        sourceControl.setAccessibilityLabel(
+            String(localized: "settings.config.source.label", defaultValue: "Config Source")
         )
-        .onAppear {
-            refreshSnapshots(preserveCmuxDraft: false)
+
+        pathsStack.orientation = .vertical
+        pathsStack.alignment = .leading
+        pathsStack.spacing = 4
+
+        editorScrollView.drawsBackground = true
+        editorScrollView.backgroundColor = .textBackgroundColor
+        editorScrollView.hasVerticalScroller = true
+        editorScrollView.autohidesScrollers = true
+        editorScrollView.borderType = .noBorder
+        editorScrollView.wantsLayer = true
+        editorScrollView.layer?.cornerRadius = 10
+        editorScrollView.layer?.borderWidth = 1
+        editorScrollView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
+
+        editorTextView.isRichText = false
+        editorTextView.importsGraphics = false
+        editorTextView.allowsUndo = true
+        editorTextView.isSelectable = true
+        editorTextView.textColor = .textColor
+        editorTextView.backgroundColor = .textBackgroundColor
+        editorTextView.insertionPointColor = .textColor
+        editorTextView.textContainerInset = NSSize(width: 10, height: 10)
+        editorTextView.autoresizingMask = [.width]
+        editorTextView.isVerticallyResizable = true
+        editorTextView.isHorizontallyResizable = false
+        editorTextView.minSize = .zero
+        editorTextView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        editorTextView.textContainer?.widthTracksTextView = true
+        editorTextView.textContainer?.containerSize = NSSize(
+            width: editorScrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        editorTextView.delegate = self
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
         }
-        .onChange(of: configSource) { _ in
-            statusMessage = ""
-            statusIsError = false
+        editorScrollView.documentView = editorTextView
+
+        statusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+
+        configureButton(
+            openEditorButton,
+            action: #selector(openCurrentSourceInEditor),
+            title: openEditorButtonTitle
+        )
+        configureButton(
+            revealFinderButton,
+            action: #selector(revealCurrentSourceInFinder),
+            title: revealFinderButtonTitle
+        )
+        configureButton(
+            reloadButton,
+            action: #selector(reloadFromDisk),
+            title: String(localized: "settings.config.action.reload", defaultValue: "Reload")
+        )
+        configureButton(
+            saveButton,
+            action: #selector(saveCmuxConfig),
+            title: String(localized: "settings.config.action.save", defaultValue: "Save")
+        )
+        saveButton.keyEquivalent = "\r"
+    }
+
+    private func configureButton(_ button: NSButton, action: Selector, title: String) {
+        button.title = title
+        button.target = self
+        button.action = action
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+    }
+
+    private func buildHierarchy() {
+        let sourceRow = NSView()
+        sourceControl.translatesAutoresizingMaskIntoConstraints = false
+        sourceRow.addSubview(sourceControl)
+        NSLayoutConstraint.activate([
+            sourceControl.centerXAnchor.constraint(equalTo: sourceRow.centerXAnchor),
+            sourceControl.topAnchor.constraint(equalTo: sourceRow.topAnchor),
+            sourceControl.bottomAnchor.constraint(equalTo: sourceRow.bottomAnchor),
+            sourceControl.widthAnchor.constraint(equalToConstant: 280),
+        ])
+
+        let separator = NSBox()
+        separator.boxType = .separator
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let footer = NSStackView(views: [
+            statusLabel,
+            spacer,
+            openEditorButton,
+            revealFinderButton,
+            reloadButton,
+            saveButton,
+        ])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 8
+
+        let content = NSStackView(views: [
+            sourceRow,
+            separator,
+            pathsStack,
+            bannerView,
+            editorScrollView,
+            footer,
+        ])
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 12
+        view.addSubview(content)
+
+        for stretchedView in [sourceRow, separator, pathsStack, bannerView, editorScrollView, footer] {
+            stretchedView.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshSnapshots(preserveCmuxDraft: true)
+        editorScrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        editorScrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            content.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            content.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            content.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
+            editorScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 300),
+            view.widthAnchor.constraint(greaterThanOrEqualToConstant: 760),
+            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 540),
+        ])
+    }
+
+    private func observeConfigurationReloads() {
+        configReloadTask?.cancel()
+        configReloadTask = Task { @MainActor [weak self] in
+            let notifications = NotificationCenter.default.notifications(named: .ghosttyConfigDidReload)
+            for await _ in notifications {
+                guard !Task.isCancelled, let self else { break }
+                self.refreshSnapshots(preserveCmuxDraft: true)
+            }
         }
     }
 
-    private var editorBackground: some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(Color(nsColor: .textBackgroundColor))
+    private func configureWindow(_ window: NSWindow?) {
+        guard let window else { return }
+        window.identifier = Self.windowIdentifier
+        window.minSize = NSSize(width: 700, height: 500)
+        window.tabbingMode = .disallowed
+        window.animationBehavior = .utilityWindow
+        window.adoptCmuxPeerWindowLevel()
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
+    }
+
+    private func refreshSnapshots(preserveCmuxDraft: Bool) {
+        let wasDirty = hasUnsavedCmuxChanges
+        let environment = ConfigSourceEnvironment.live()
+        let newSnapshots = Dictionary(
+            uniqueKeysWithValues: ConfigSource.allCases.map { source in
+                (source, source.snapshot(environment: environment))
+            }
+        )
+        snapshots = newSnapshots
+
+        let latestCmuxContents = newSnapshots[.cmux]?.contents ?? ""
+        if !preserveCmuxDraft || !wasDirty {
+            cmuxDraft = latestCmuxContents
+        }
+        cmuxLastLoadedContents = latestCmuxContents
+        render()
+    }
+
+    private func render() {
+        let displayedText = configSource == .cmux ? cmuxDraft : currentSnapshot.contents
+        if editorTextView.string != displayedText {
+            editorTextView.string = displayedText
+        }
+        editorTextView.isEditable = configSource == .cmux
+        editorTextView.setAccessibilityIdentifier(
+            configSource == .cmux ? "ConfigSettingsCmuxEditor" : "ConfigSettingsReadOnlyView"
+        )
+
+        pathsStack.arrangedSubviews.forEach {
+            pathsStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        for path in currentSnapshot.displayPaths {
+            let label = NSTextField(labelWithString: path)
+            label.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
+            label.textColor = .secondaryLabelColor
+            label.isSelectable = true
+            pathsStack.addArrangedSubview(label)
+        }
+
+        bannerView.update(text: currentBannerText)
+        openEditorButton.title = openEditorButtonTitle
+        revealFinderButton.title = revealFinderButtonTitle
+        saveButton.isEnabled = configSource == .cmux && hasUnsavedCmuxChanges
     }
 
     private var openEditorButtonTitle: String {
@@ -176,124 +306,88 @@ struct ConfigSettingsView: View {
         return String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")
     }
 
-    private func configureWindow(_ window: NSWindow) {
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.configEditor")
-        window.minSize = NSSize(width: 700, height: 500)
-        window.tabbingMode = .disallowed
-        window.animationBehavior = .utilityWindow
-        // The Config editor is a top-level peer window, not a floating
-        // inspector: clicking the main window must be able to raise it above
-        // the editor (https://github.com/manaflow-ai/cmux/issues/5081).
-        window.adoptCmuxPeerWindowLevel()
-        window.collectionBehavior.insert(.fullScreenAuxiliary)
+    @objc private func sourceDidChange(_ sender: NSSegmentedControl) {
+        let sources = ConfigSource.allCases
+        guard sources.indices.contains(sender.selectedSegment) else { return }
+        configSource = sources[sender.selectedSegment]
+        setStatus("")
+        render()
     }
 
-    private func refreshSnapshots(preserveCmuxDraft: Bool) {
-        let wasDirty = hasUnsavedCmuxChanges
-        let environment = ConfigSourceEnvironment.live()
-        let newSnapshots = Dictionary(
-            uniqueKeysWithValues: ConfigSource.allCases.map { source in
-                (source, source.snapshot(environment: environment))
-            }
-        )
-        snapshots = newSnapshots
-
-        let latestCmuxContents = newSnapshots[.cmux]?.contents ?? ""
-        if !preserveCmuxDraft || !wasDirty {
-            cmuxDraft = latestCmuxContents
-        }
-        cmuxLastLoadedContents = latestCmuxContents
-    }
-
-    private func reloadFromDisk() {
+    @objc private func reloadFromDisk() {
         refreshSnapshots(preserveCmuxDraft: false)
-        let completion: GhosttyApp.ConfigurationReloadCompletion = {
-            statusMessage = String(
-                localized: "settings.config.status.reloaded",
-                defaultValue:
-                    "Reloaded configuration from disk."
+        let completion: GhosttyApp.ConfigurationReloadCompletion = { [weak self] in
+            self?.setStatus(
+                String(
+                    localized: "settings.config.status.reloaded",
+                    defaultValue: "Reloaded configuration from disk."
+                )
             )
-            statusIsError = false
         }
-        let completionWasAdmitted: Bool
-        if let appDelegate = AppDelegate.shared {
-            completionWasAdmitted =
-                appDelegate.reloadConfiguration(
-                    source: "settings.configWindow.reload",
-                    completion: completion
-                )
-        } else {
-            completionWasAdmitted =
-                GhosttyApp.shared.reloadConfiguration(
-                    source: "settings.configWindow.reload",
-                    completion: completion
-                )
-        }
-        if !completionWasAdmitted {
+        let admitted = AppDelegate.shared?.reloadConfiguration(
+            source: "settings.configWindow.reload",
+            completion: completion
+        ) ?? GhosttyApp.shared.reloadConfiguration(
+            source: "settings.configWindow.reload",
+            completion: completion
+        )
+        if !admitted {
             reportReloadAdmissionFailure()
         }
     }
 
-    private func saveCmuxConfig() {
+    @objc private func saveCmuxConfig() {
         let environment = ConfigSourceEnvironment.live()
-
         do {
             try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
-            let completion:
-                GhosttyApp.ConfigurationReloadCompletion = {
-                    statusMessage = String(
-                        localized:
-                            "settings.config.status.saved",
-                        defaultValue:
-                            "Saved to cmux config and reloaded."
+            let completion: GhosttyApp.ConfigurationReloadCompletion = { [weak self] in
+                self?.setStatus(
+                    String(
+                        localized: "settings.config.status.saved",
+                        defaultValue: "Saved to cmux config and reloaded."
                     )
-                    statusIsError = false
-                }
-            let completionWasAdmitted: Bool
-            if let appDelegate = AppDelegate.shared {
-                completionWasAdmitted =
-                    appDelegate.reloadConfiguration(
-                        source: "settings.configWindow.save",
-                        completion: completion
-                    )
-            } else {
-                completionWasAdmitted =
-                    GhosttyApp.shared.reloadConfiguration(
-                        source: "settings.configWindow.save",
-                        completion: completion
-                    )
+                )
             }
-            if !completionWasAdmitted {
+            let admitted = AppDelegate.shared?.reloadConfiguration(
+                source: "settings.configWindow.save",
+                completion: completion
+            ) ?? GhosttyApp.shared.reloadConfiguration(
+                source: "settings.configWindow.save",
+                completion: completion
+            )
+            if !admitted {
                 reportReloadAdmissionFailure()
             }
         } catch {
             NSSound.beep()
-            statusMessage = String(
-                localized: "settings.config.status.saveFailed",
-                defaultValue: "Couldn't save the cmux config."
+            setStatus(
+                String(
+                    localized: "settings.config.status.saveFailed",
+                    defaultValue: "Couldn't save the cmux config."
+                ),
+                isError: true
             )
-            statusIsError = true
         }
     }
 
     private func reportReloadAdmissionFailure() {
-        statusMessage = String(
-            localized:
-                "settings.config.status.reloadBusy",
-            defaultValue:
-                "Reload queued; too many requests are pending to confirm completion."
+        setStatus(
+            String(
+                localized: "settings.config.status.reloadBusy",
+                defaultValue: "Reload queued; too many requests are pending to confirm completion."
+            ),
+            isError: true
         )
-        statusIsError = true
     }
 
-    private func openCurrentSourceInEditor() {
+    @objc private func openCurrentSourceInEditor() {
         guard let url = materializedCmuxConfigURL() else { return }
         PreferredEditorService(defaults: .standard).open(url)
     }
 
-    private func revealCurrentSourceInFinder() {
+    @objc private func revealCurrentSourceInFinder() {
         guard let url = materializedCmuxConfigURL() else { return }
         if FileManager.default.fileExists(atPath: url.path) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -303,124 +397,91 @@ struct ConfigSettingsView: View {
     }
 
     private func materializedCmuxConfigURL() -> URL? {
-        let environment = ConfigSourceEnvironment.live()
         do {
-            return try environment.materializeCmuxConfigFileIfNeeded()
+            return try ConfigSourceEnvironment.live().materializeCmuxConfigFileIfNeeded()
         } catch {
             NSSound.beep()
-            statusMessage = String(
-                localized: "settings.config.status.openFailed",
-                defaultValue: "Couldn't open the cmux config."
+            setStatus(
+                String(
+                    localized: "settings.config.status.openFailed",
+                    defaultValue: "Couldn't open the cmux config."
+                ),
+                isError: true
             )
-            statusIsError = true
             return nil
         }
     }
-}
 
-private struct ConfigSettingsBanner: View {
-    let text: String
+    private func setStatus(_ message: String, isError: Bool = false) {
+        statusLabel.stringValue = message
+        statusLabel.textColor = isError ? .systemRed : .secondaryLabelColor
+    }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
-            Text(text)
-                .cmuxFont(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+    private func applyGlobalFont() {
+        editorTextView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
+    }
+
+    func textDidChange(_ notification: Notification) {
+        guard configSource == .cmux,
+              notification.object as? NSTextView === editorTextView else { return }
+        cmuxDraft = editorTextView.string
+        saveButton.isEnabled = hasUnsavedCmuxChanges
     }
 }
 
-private struct ConfigSettingsTextView: NSViewRepresentable {
-    @Binding var text: String
-    let isEditable: Bool
+@MainActor
+private final class ConfigSettingsRootView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
+}
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+@MainActor
+private final class ConfigSettingsBannerView: NSView {
+    private let iconView = NSImageView()
+    private let label = NSTextField(wrappingLabelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        iconView.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = .secondaryLabelColor
+        label.font = GlobalFontMagnification.systemFont(ofSize: 11)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(iconView)
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+        ])
+        updateBackground()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-
-        let textView = NSTextView()
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.allowsUndo = true
-        textView.isEditable = isEditable
-        textView.isSelectable = true
-        textView.string = text
-        textView.textColor = .textColor
-        textView.backgroundColor = .textBackgroundColor
-        textView.insertionPointColor = .textColor
-        textView.textContainerInset = NSSize(width: 10, height: 10)
-        textView.autoresizingMask = [.width]
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.delegate = context.coordinator
-        context.coordinator.installGlobalFontObserver(for: textView)
-
-        scrollView.documentView = textView
-        return scrollView
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.text = $text
-
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-        }
-        textView.isEditable = isEditable
-        textView.isSelectable = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.textColor = .textColor
-        textView.insertionPointColor = .textColor
-        context.coordinator.applyGlobalFont(to: textView)
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBackground()
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
-        var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    func update(text: String) {
+        label.stringValue = text
+    }
 
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func installGlobalFontObserver(for textView: NSTextView) {
-            applyGlobalFont(to: textView)
-            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak textView] in
-                guard let self, let textView else { return }
-                self.applyGlobalFont(to: textView)
-            }
-        }
-
-        func applyGlobalFont(to textView: NSTextView) {
-            textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
-        }
+    private func updateBackground() {
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     }
 }
 
@@ -428,9 +489,9 @@ private extension ConfigSource {
     var localizedTitle: String {
         switch self {
         case .cmux:
-            return String(localized: "settings.config.source.cmux", defaultValue: "cmux")
+            String(localized: "settings.config.source.cmux", defaultValue: "cmux")
         case .synced:
-            return String(localized: "settings.config.source.synced", defaultValue: "synced")
+            String(localized: "settings.config.source.synced", defaultValue: "synced")
         }
     }
 }
