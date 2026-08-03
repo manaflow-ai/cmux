@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -230,25 +231,48 @@ fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
                 batch.push(next);
             }
         }
-        loop {
-            let Some(mux) = mux.upgrade() else {
-                complete_batch(&batch, Err("session journal stopped".into()));
-                return;
-            };
-            let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-            match mux.commit_session_journal_events(&events) {
-                Ok(()) => {
-                    complete_batch(&batch, Ok(()));
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("cmux-tui: append session journal batch: {error:#}");
-                    if !retryable_sqlite_error(&error) {
-                        complete_batch(&batch, Err(format!("{error:#}")));
+        let mut pending = VecDeque::from([batch]);
+        while let Some(mut batch) = pending.pop_front() {
+            let mut delay = Duration::from_millis(10);
+            let mut reported_error = None;
+            loop {
+                let Some(mux) = mux.upgrade() else {
+                    let result = Err("session journal stopped".into());
+                    complete_batch(&batch, result.clone());
+                    for pending_batch in pending {
+                        complete_batch(&pending_batch, result.clone());
+                    }
+                    return;
+                };
+                let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
+                match mux.commit_session_journal_events(&events) {
+                    Ok(()) => {
+                        complete_batch(&batch, Ok(()));
                         break;
                     }
-                    let epoch = mux.journal_event_epoch();
-                    mux.wait_for_journal_event(epoch, Duration::from_secs(1));
+                    Err(error) => {
+                        let summary = format!("{error:#}");
+                        if reported_error.as_deref() != Some(summary.as_str()) {
+                            eprintln!("cmux-tui: append session journal batch: {summary}");
+                            reported_error = Some(summary.clone());
+                        }
+                        if retryable_sqlite_error(&error)
+                            || (batch.len() == 1 && batch[0].completion.is_none())
+                        {
+                            let epoch = mux.journal_event_epoch();
+                            mux.wait_for_journal_event(epoch, delay);
+                            delay = (delay * 2).min(Duration::from_secs(1));
+                            continue;
+                        }
+                        if batch.len() > 1 {
+                            let later = batch.split_off(batch.len() / 2);
+                            pending.push_front(later);
+                            pending.push_front(batch);
+                        } else {
+                            complete_batch(&batch, Err(summary));
+                        }
+                        break;
+                    }
                 }
             }
         }
