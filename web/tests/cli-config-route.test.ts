@@ -11,6 +11,7 @@ const testEnvironment = {
   NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
   SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
+  VERCEL_ENV: "preview",
 } satisfies Record<CliConfigEnvKey, string>;
 
 async function withCliConfigEnvironment(

@@ -767,7 +767,7 @@ describe("account deletion route", () => {
     expect(hostedTenantDeleteRequests).toHaveLength(1);
     const [tenantDeleteUrl, tenantDeleteInit] = hostedTenantDeleteRequests[0]!;
     expect(String(tenantDeleteUrl)).toBe(
-      "https://sr.cmux.com/_subrouter/auth/stack/tenant",
+      "https://staging.sr.cmux.com/_subrouter/auth/stack/tenant",
     );
     expect(new Headers(tenantDeleteInit?.headers).get("authorization")).toBe(
       "Bearer access-token",

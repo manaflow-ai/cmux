@@ -1,5 +1,5 @@
 import { env } from "../../app/env";
-import { DEFAULT_HOSTED_SUBROUTER_URL } from "./constants";
+import { defaultHostedSubrouterURL } from "./constants";
 import type { SubrouterAccount, SubrouterAccountInput } from "./types";
 
 export type HostedTenant = {
@@ -34,7 +34,7 @@ export function createHostedSubrouterClient(options: {
   readonly fetch?: typeof fetch;
 } = {}): HostedSubrouterClient {
   const baseUrl = (options.baseUrl ?? env.SUBROUTER_HOSTED_URL ??
-    DEFAULT_HOSTED_SUBROUTER_URL).replace(/\/+$/, "");
+    defaultHostedSubrouterURL()).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
   const tenantDeleteToken = (
     options.tenantDeleteToken ?? env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ?? ""

@@ -28,6 +28,7 @@ import {
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
+  vaultCliAuthRequests,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -1206,7 +1207,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx.delete(subrouterTenants).where(
       inArray(subrouterTenants.teamId, deletionTeamIds),
     );
-
+    await tx.delete(vaultCliAuthRequests).where(
+      eq(vaultCliAuthRequests.userId, userId),
+    );
   });
 }
 

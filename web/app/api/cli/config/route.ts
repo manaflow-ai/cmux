@@ -1,4 +1,4 @@
-import { DEFAULT_HOSTED_SUBROUTER_URL } from "@/services/subrouter/constants";
+import { defaultHostedSubrouterURL } from "@/services/subrouter/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export function GET(request: Request): Response {
       subrouter: {
         url:
           process.env.SUBROUTER_HOSTED_URL?.trim() ||
-          DEFAULT_HOSTED_SUBROUTER_URL,
+          defaultHostedSubrouterURL(),
       },
     },
     {

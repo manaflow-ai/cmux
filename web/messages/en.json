@@ -290,6 +290,20 @@
       "latestUpload": "Latest upload",
       "never": "Never"
     },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "Approve CLI access",
+      "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Approve Subrouter access",
+      "subrouterDescription": "Confirm the code shown by sr to connect this device to your signed-in cmux team.",
+      "codeLabel": "User code",
+      "approveButton": "Approve access",
+      "approving": "Approving...",
+      "success": "Access approved. You can return to the terminal.",
+      "error": "Could not approve this code. Check that it has not expired."
+    },
     "sessions": {
       "section": "vault",
       "eyebrow": "cmux Vault",

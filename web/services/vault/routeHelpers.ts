@@ -46,6 +46,25 @@ export async function withVaultApiRoute(
   );
 }
 
+// CLI authentication is shared infrastructure for Subrouter and transcript
+// vaults. It needs Stack Auth and Postgres, but not transcript object storage.
+export async function withCliAuthApiRoute(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  handler: (context: VaultRouteContext) => Promise<Response>,
+): Promise<Response> {
+  return withVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    false,
+    handler,
+  );
+}
+
 async function withVaultApiRouteConfiguration(
   request: Request,
   route: string,
@@ -88,6 +107,27 @@ export async function withAuthedVaultApiRoute(
     verifyOptions,
     handler,
     true,
+    verify,
+  );
+}
+
+export async function withAuthedCliAuthApiRoute(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  verifyOptions: VerifyRequestOptions,
+  handler: (context: AuthedVaultRouteContext) => Promise<Response>,
+  verify: typeof verifyRequest = verifyRequest,
+): Promise<Response> {
+  return withAuthedVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    verifyOptions,
+    handler,
+    false,
     verify,
   );
 }

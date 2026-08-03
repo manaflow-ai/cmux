@@ -290,6 +290,20 @@
       "latestUpload": "最新アップロード",
       "never": "なし"
     },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "CLIアクセスを承認",
+      "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Subrouterアクセスを承認",
+      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
+      "codeLabel": "ユーザーコード",
+      "approveButton": "アクセスを承認",
+      "approving": "承認中...",
+      "success": "アクセスを承認しました。ターミナルに戻れます。",
+      "error": "このコードを承認できませんでした。有効期限が切れていないか確認してください。"
+    },
     "sessions": {
       "section": "vault",
       "eyebrow": "cmux Vault",
