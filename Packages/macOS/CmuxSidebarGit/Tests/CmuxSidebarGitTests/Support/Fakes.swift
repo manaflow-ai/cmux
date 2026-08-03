@@ -6,7 +6,7 @@ import CmuxFoundation
 /// A reader returning canned metadata, with an optional gate the test holds
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
-    private let metadata: GitWorkspaceMetadata
+    private var metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
     private var isOpen = false
@@ -24,6 +24,10 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         while !gateWaiters.isEmpty {
             gateWaiters.removeFirst().resume()
         }
+    }
+
+    func setMetadata(_ metadata: GitWorkspaceMetadata) {
+        self.metadata = metadata
     }
 
     func waitForTrackedPathEventGenerationProbe(
@@ -126,14 +130,19 @@ struct ForbiddenCommandRunner: CommandRunning {
 }
 
 extension GitWorkspaceMetadata {
-    static func repository(branch: String, isDirty: Bool = false) -> GitWorkspaceMetadata {
+    static func repository(
+        branch: String?,
+        isDirty: Bool = false,
+        repositoryLink: GitRepositoryLink? = nil
+    ) -> GitWorkspaceMetadata {
         GitWorkspaceMetadata(
             isRepository: true,
             branch: branch,
             isDirty: isDirty,
             indexSignature: "index",
             indexContentSignature: "content",
-            headSignature: "head"
+            headSignature: "head",
+            repositoryLink: repositoryLink
         )
     }
 

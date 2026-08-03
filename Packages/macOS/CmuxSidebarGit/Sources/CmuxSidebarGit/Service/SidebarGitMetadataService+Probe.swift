@@ -329,6 +329,10 @@ extension SidebarGitMetadataService {
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
         )
+        let previousRepositoryLink = host.panelRepositoryLink(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )
         let previousPullRequestBadge = host.panelPullRequestBadge(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
@@ -385,6 +389,35 @@ extension SidebarGitMetadataService {
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             didApplyMaterialSidebarGitChange = previousBranchState != nil
             host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+        }
+
+        if let nextRepositoryLink = snapshot.repositoryLink {
+            let repositoryLinkChanged = previousRepositoryLink?.remoteName != nextRepositoryLink.remoteName
+                || previousRepositoryLink?.displayName != nextRepositoryLink.displayName
+                || previousRepositoryLink?.url != nextRepositoryLink.url
+            let currentRepositoryLink = host.panelRepositoryLink(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId
+            )
+            let repositoryLinkNeedsProjection = currentRepositoryLink?.remoteName != nextRepositoryLink.remoteName
+                || currentRepositoryLink?.displayName != nextRepositoryLink.displayName
+                || currentRepositoryLink?.url != nextRepositoryLink.url
+            didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange || repositoryLinkChanged
+            if repositoryLinkNeedsProjection {
+                host.updatePanelRepositoryLink(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId,
+                    remoteName: nextRepositoryLink.remoteName,
+                    displayName: nextRepositoryLink.displayName,
+                    url: nextRepositoryLink.url
+                )
+            }
+        } else if previousRepositoryLink != nil {
+            didApplyMaterialSidebarGitChange = true
+            host.clearPanelRepositoryLink(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId
+            )
         }
 
         switch snapshot.pullRequest {

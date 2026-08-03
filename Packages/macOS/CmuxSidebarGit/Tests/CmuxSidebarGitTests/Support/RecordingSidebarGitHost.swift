@@ -10,6 +10,8 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         case panelDirectory(UUID, UUID, String)
         case gitBranch(UUID, UUID, String, Bool)
         case clearGitBranch(UUID, UUID)
+        case repositoryLink(UUID, UUID, String, String, URL)
+        case clearRepositoryLink(UUID, UUID)
         case pullRequestBadge(UUID, UUID, SidebarPullRequestBadge)
         case clearPullRequestBadge(UUID, UUID)
         case scheduleGitMetadataProbe(UUID, UUID, String)
@@ -21,6 +23,9 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         var directory: String?
         var hasTrustedRemoteDirectory = false
         var branch: SidebarPanelGitBranch?
+        var repositoryRemoteName: String?
+        var repositoryDisplayName: String?
+        var repositoryURL: URL?
         var badge: SidebarPullRequestBadge?
         var isTerminal = true
         var isRemoteTerminal = false
@@ -104,6 +109,18 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
         state(workspaceId)?.panels[panelId]?.branch
     }
+    func panelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> (remoteName: String, displayName: String, url: URL)? {
+        guard let panel = state(workspaceId)?.panels[panelId],
+              let remoteName = panel.repositoryRemoteName,
+              let displayName = panel.repositoryDisplayName,
+              let url = panel.repositoryURL else {
+            return nil
+        }
+        return (remoteName, displayName, url)
+    }
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.branch != nil }.keys)
@@ -120,7 +137,9 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
     func hasWorkspaceLevelGitSignal(_ workspaceId: UUID) -> Bool {
         guard let state = state(workspaceId) else { return false }
-        return state.panels.values.contains { $0.branch != nil || $0.badge != nil }
+        return state.panels.values.contains {
+            $0.branch != nil || $0.badge != nil || $0.repositoryURL != nil
+        }
     }
     func isSelectedFocusedPanel(workspaceId: UUID, panelId: UUID) -> Bool {
         selectedWorkspaceId == workspaceId && state(workspaceId)?.focusedPanelId == panelId
@@ -160,9 +179,36 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID) {
         mutate(workspaceId) {
             $0.panels[panelId]?.branch = nil
+            $0.panels[panelId]?.repositoryRemoteName = nil
+            $0.panels[panelId]?.repositoryDisplayName = nil
+            $0.panels[panelId]?.repositoryURL = nil
             $0.panels[panelId]?.badge = nil
         }
         record(.clearGitBranch(workspaceId, panelId))
+    }
+
+    func updatePanelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID,
+        remoteName: String,
+        displayName: String,
+        url: URL
+    ) {
+        mutate(workspaceId) {
+            $0.panels[panelId]?.repositoryRemoteName = remoteName
+            $0.panels[panelId]?.repositoryDisplayName = displayName
+            $0.panels[panelId]?.repositoryURL = url
+        }
+        record(.repositoryLink(workspaceId, panelId, remoteName, displayName, url))
+    }
+
+    func clearPanelRepositoryLink(workspaceId: UUID, panelId: UUID) {
+        mutate(workspaceId) {
+            $0.panels[panelId]?.repositoryRemoteName = nil
+            $0.panels[panelId]?.repositoryDisplayName = nil
+            $0.panels[panelId]?.repositoryURL = nil
+        }
+        record(.clearRepositoryLink(workspaceId, panelId))
     }
 
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge) {
@@ -183,6 +229,9 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         for index in workspaces.indices {
             for panelId in workspaces[index].state.panels.keys {
                 workspaces[index].state.panels[panelId]?.branch = nil
+                workspaces[index].state.panels[panelId]?.repositoryRemoteName = nil
+                workspaces[index].state.panels[panelId]?.repositoryDisplayName = nil
+                workspaces[index].state.panels[panelId]?.repositoryURL = nil
                 workspaces[index].state.panels[panelId]?.badge = nil
             }
         }

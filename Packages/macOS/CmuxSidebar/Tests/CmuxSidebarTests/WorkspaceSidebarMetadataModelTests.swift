@@ -152,4 +152,26 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(emitted.count == 3)
         #expect(emitted.last == [:])
     }
+
+    @Test func panelRepositoryLinksPublisherSeedsUpdatesAndClearsImmutableState() {
+        let model = makeModel()
+        let panelID = UUID()
+        let link = SidebarRepositoryLinkState(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        var emitted: [[UUID: SidebarRepositoryLinkState]] = []
+        let cancellable = model.panelRepositoryLinksPublisher
+            .sink { emitted.append($0) }
+        defer { cancellable.cancel() }
+
+        #expect(emitted == [[:]])
+
+        model.updatePanelRepositoryLinks([panelID: link])
+        #expect(emitted == [[:], [panelID: link]])
+
+        model.updatePanelRepositoryLinks([:])
+        #expect(emitted == [[:], [panelID: link], [:]])
+    }
 }
