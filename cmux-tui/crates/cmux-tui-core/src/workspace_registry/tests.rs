@@ -3087,6 +3087,138 @@ fn terminal_journal_subject_expands_to_every_live_view_path() {
     }
 }
 
+fn receipt_test_producer() -> JournalProducerManifest {
+    JournalProducerManifest {
+        producer_id: "receipt_test".into(),
+        namespace: "plugin.receipt_test".into(),
+        manifest_version: 1,
+        max_sensitivity: JournalSensitivity::Metadata,
+        permissions: vec!["journal.append.plugin.receipt_test".into()],
+        events: vec![JournalEventSchema {
+            kind: "plugin.receipt_test.event".into(),
+            schema_version: 1,
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Metadata,
+            payload_schema: json!({"type":"object","additionalProperties":true}),
+        }],
+    }
+}
+
+#[test]
+fn journal_idempotency_keys_are_scoped_to_the_calling_origin() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-origin-receipts").unwrap();
+    let manifest = receipt_test_producer();
+    let first =
+        registry.put_journal_producer(&manifest, "client_origin_one", "shared_key").unwrap();
+    let second =
+        registry.put_journal_producer(&manifest, "client_origin_two", "shared_key").unwrap();
+    let replay =
+        registry.put_journal_producer(&manifest, "client_origin_one", "shared_key").unwrap();
+    assert!(!first.replayed);
+    assert!(!second.replayed);
+    assert!(second.sequence > first.sequence);
+    assert!(replay.replayed);
+    assert_eq!(replay.sequence, first.sequence);
+
+    let ingress = JournalIngress {
+        producer_id: manifest.producer_id.clone(),
+        manifest_version: manifest.manifest_version,
+        kind: manifest.events[0].kind.clone(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: Vec::new(),
+        sensitivity: None,
+        payload: json!({"message":"same payload"}),
+        causation_id: None,
+        correlation_id: None,
+    };
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Metadata,
+    };
+    let first = registry
+        .append_journal_ingress(&ingress, &validated, "client_origin_one", "shared_ingress_key")
+        .unwrap();
+    let second = registry
+        .append_journal_ingress(&ingress, &validated, "client_origin_two", "shared_ingress_key")
+        .unwrap();
+    assert!(!first.replayed);
+    assert!(!second.replayed);
+    assert!(second.sequence > first.sequence);
+}
+
+#[test]
+fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
+    let root = temp_root("schema-eleven-journal-receipts");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let manifest = receipt_test_producer();
+    let first = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry.put_journal_producer(&manifest, "client_legacy", "legacy_shared_key").unwrap()
+    };
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             ALTER TABLE journal_operation_receipts RENAME TO journal_operation_receipts_current;
+             CREATE TABLE journal_operation_receipts (
+               operation TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+               result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+               journal_sequence INTEGER NOT NULL UNIQUE,
+               PRIMARY KEY(operation, idempotency_key)
+             );
+             INSERT INTO journal_operation_receipts(
+               operation, idempotency_key, fingerprint, result_json, journal_sequence
+             )
+             SELECT operation, idempotency_key, fingerprint, result_json, journal_sequence
+             FROM journal_operation_receipts_current;
+             DROP TABLE journal_operation_receipts_current;
+             ALTER TABLE journal_ingress_receipts RENAME TO journal_ingress_receipts_current;
+             CREATE TABLE journal_ingress_receipts (
+               producer_id TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+               event_id TEXT NOT NULL UNIQUE,
+               journal_sequence INTEGER NOT NULL UNIQUE,
+               result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+               PRIMARY KEY(producer_id, idempotency_key),
+               FOREIGN KEY(producer_id) REFERENCES journal_producers(producer_id)
+             );
+             INSERT INTO journal_ingress_receipts(
+               producer_id, idempotency_key, fingerprint, event_id,
+               journal_sequence, result_json
+             )
+             SELECT producer_id, idempotency_key, fingerprint, event_id,
+                    journal_sequence, result_json
+             FROM journal_ingress_receipts_current;
+             DROP TABLE journal_ingress_receipts_current;
+             UPDATE meta SET value = '11' WHERE key = 'schema_version';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let replay =
+        migrated.put_journal_producer(&manifest, "client_legacy", "legacy_shared_key").unwrap();
+    let other_origin =
+        migrated.put_journal_producer(&manifest, "client_new", "legacy_shared_key").unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.sequence, first.sequence);
+    assert!(!other_origin.replayed);
+    assert!(other_origin.sequence > first.sequence);
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
