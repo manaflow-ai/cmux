@@ -10,6 +10,7 @@ import Testing
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -18,7 +19,7 @@ struct SidebarAppKitRowCellTests {
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
@@ -56,6 +57,7 @@ struct SidebarAppKitRowCellTests {
         isActive: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
@@ -64,7 +66,10 @@ struct SidebarAppKitRowCellTests {
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                customDescription: customDescription,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -228,6 +233,90 @@ struct SidebarAppKitRowCellTests {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
+    @discardableResult
+    private static func layoutCell(
+        _ cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel,
+        width: CGFloat = 440
+    ) -> NSWindow {
+        let height = cell.layoutContent(model: model, width: width, apply: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        window.contentView = host
+        cell.frame = host.bounds
+        host.addSubview(cell)
+        cell.needsLayout = true
+        cell.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    private static func textField(
+        in cell: SidebarWorkspaceRowTableCellView,
+        linkedTo url: URL
+    ) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { field in
+                let attributedString = field.attributedStringValue
+                guard attributedString.length > 0 else { return false }
+                var found = false
+                attributedString.enumerateAttribute(
+                    .link,
+                    in: NSRange(location: 0, length: attributedString.length)
+                ) { value, _, stop in
+                    let linkedURL: URL?
+                    if let value = value as? URL {
+                        linkedURL = value
+                    } else if let value = value as? String {
+                        linkedURL = URL(string: value)
+                    } else {
+                        linkedURL = nil
+                    }
+                    if linkedURL == url {
+                        found = true
+                        stop.pointee = true
+                    }
+                }
+                return found
+            }
+    }
+
+    private static func click(_ view: NSView, at point: NSPoint) throws {
+        let window = try #require(view.window)
+        let windowPoint = view.convert(point, to: nil)
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp + 0.01,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+        let hitView = try #require(window.contentView?.hitTest(windowPoint))
+        hitView.mouseDown(with: down)
+        hitView.mouseUp(with: up)
+    }
+
     private static let linkedMetadataMarkdown =
         "[acme/widgets](https://github.com/acme/widgets/tree/branch) • " +
         "[PR#123](https://github.com/acme/widgets/pull/123) • " +
@@ -322,6 +411,42 @@ struct SidebarAppKitRowCellTests {
         #expect(link.isEnabled)
         link.performClick(nil)
         #expect(openedURL == url)
+    }
+
+    /// Regression for #8596: a link-attributed workspace description must
+    /// consume the link hit instead of falling through to row selection.
+    @Test
+    func workspaceDescriptionLinkHitInvokesOpenWithoutSelectingRow() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let manager = TabManager()
+        let originallySelectedWorkspaceId = try #require(manager.selectedTabId)
+        let targetWorkspace = manager.addWorkspace(select: false)
+        let model = Self.makeModel(
+            workspaceId: targetWorkspace.id,
+            customDescription: url.absoluteString
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            tab: targetWorkspace,
+            tabManager: manager,
+            onOpenStatusURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let descriptionField = try #require(Self.textField(in: cell, linkedTo: url))
+        let textRect = descriptionField.cell?.titleRect(forBounds: descriptionField.bounds)
+            ?? descriptionField.bounds
+        let linkPoint = NSPoint(
+            x: textRect.minX + min(4, textRect.width / 2),
+            y: textRect.midY
+        )
+
+        #expect(!descriptionField.isSelectable)
+        try Self.click(descriptionField, at: linkPoint)
+        #expect(openedURL == url)
+        #expect(manager.selectedTabId == originallySelectedWorkspaceId)
+        #expect(!descriptionField.isSelectable)
+        _ = window
     }
 
     @Test
