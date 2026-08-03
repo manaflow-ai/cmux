@@ -107,6 +107,24 @@ struct ConfigSettingsView: NSViewControllerRepresentable {
     ) {}
 }
 
+struct ShortcutDiscoveryButton: NSViewRepresentable {
+    @Binding var isPopoverPresented: Bool
+
+    func makeNSView(context: Context) -> ShortcutDiscoveryButtonView {
+        ShortcutDiscoveryButtonView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+    }
+
+    func updateNSView(_ view: ShortcutDiscoveryButtonView, context: Context) {
+        view.update(isPresented: isPopoverPresented) { presented in
+            isPopoverPresented = presented
+        }
+    }
+
+    static func dismantleNSView(_ view: ShortcutDiscoveryButtonView, coordinator: ()) {
+        view.teardown()
+    }
+}
+
 private extension Font.Weight {
     var nsFontWeight: NSFont.Weight {
         if self == .ultraLight { return .ultraLight }

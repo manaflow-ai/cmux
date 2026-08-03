@@ -1,42 +1,87 @@
-import SwiftUI
+import AppKit
 
-/// Sidebar-footer button that reveals the full keyboard-shortcut list in a
-/// native popover. It is mounted only while the Command-hold shortcut-hint
-/// signal is active (see `SidebarFooterButtons`), matching the modifier-hold
-/// reveal used for the per-row shortcut badges, so it appears next to the
-/// update pill / help button while ⌘ is held and hides on release.
-///
-/// The popover is a native SwiftUI `.popover` (not an AppKit host): it has no
-/// first-responder text field, so the hover-tracking pitfalls that pushed other
-/// surfaces onto a custom AppKit anchor do not apply here.
-struct ShortcutDiscoveryButton: View {
-    private let buttonSize: CGFloat = 22
-    private let iconSize: CGFloat = 11
-    private let helpText = String(
-        localized: "shortcutDiscovery.button.help",
-        defaultValue: "Show all shortcuts"
-    )
+@MainActor
+final class ShortcutDiscoveryButtonView: NSButton, NSPopoverDelegate {
+    private let popover = NSPopover()
+    private var presented = false
+    private var onPresentationChange: ((Bool) -> Void)?
 
-    /// Owned by the footer so the popover survives releasing ⌘ (which unmounts
-    /// the ⌘-hold reveal); the footer keeps this view mounted while it is true.
-    @Binding var isPopoverPresented: Bool
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let helpText = String(
+            localized: "shortcutDiscovery.button.help",
+            defaultValue: "Show all shortcuts"
+        )
+        title = ""
+        image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "keyboard",
+            pointSize: 11,
+            weight: .medium
+        )
+        imagePosition = .imageOnly
+        contentTintColor = .secondaryLabelColor
+        isBordered = false
+        focusRingType = .none
+        toolTip = helpText
+        target = self
+        action = #selector(togglePopover)
+        setAccessibilityLabel(helpText)
+        setAccessibilityIdentifier("SidebarShortcutDiscoveryButton")
 
-    var body: some View {
-        Button {
-            isPopoverPresented.toggle()
-        } label: {
-            CmuxSystemSymbolImage(systemName: "keyboard", pointSize: iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        popover.behavior = .transient
+        popover.animates = true
+        popover.delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if presented {
+            showPopoverIfPossible()
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
-            AllShortcutsPopover()
+    }
+
+    func update(isPresented: Bool, onPresentationChange: @escaping (Bool) -> Void) {
+        self.onPresentationChange = onPresentationChange
+        setPresented(isPresented, notifiesOwner: false)
+    }
+
+    func teardown() {
+        popover.close()
+        popover.contentViewController = nil
+        onPresentationChange = nil
+    }
+
+    @objc private func togglePopover() {
+        setPresented(!presented, notifiesOwner: true)
+    }
+
+    private func setPresented(_ value: Bool, notifiesOwner: Bool) {
+        guard presented != value || (value && !popover.isShown) else { return }
+        presented = value
+        if value {
+            showPopoverIfPossible()
+        } else if popover.isShown {
+            popover.close()
         }
-        .accessibilityElement(children: .ignore)
-        .safeHelp(helpText)
-        .accessibilityLabel(helpText)
-        .accessibilityIdentifier("SidebarShortcutDiscoveryButton")
+        if notifiesOwner {
+            onPresentationChange?(value)
+        }
+    }
+
+    private func showPopoverIfPossible() {
+        guard window != nil, !popover.isShown else { return }
+        popover.contentViewController = AllShortcutsPopoverController()
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        popover.contentViewController = nil
+        guard presented else { return }
+        presented = false
+        onPresentationChange?(false)
     }
 }
