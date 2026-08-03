@@ -150,6 +150,44 @@ struct CmuxExtensionSidebarWorkspaceRowView: NSViewRepresentable, Equatable {
     }
 }
 
+struct BrowserDownloadsToolbarButton: NSViewRepresentable {
+    let downloads: [BrowserDownloadRecord]
+    let isDownloading: Bool
+    let iconPointSize: CGFloat
+    let hitSize: CGFloat
+    let onOpen: (BrowserDownloadRecord) -> Void
+    let onReveal: (BrowserDownloadRecord) -> Void
+    let onClear: () -> Void
+
+    func makeNSView(context: Context) -> BrowserDownloadsToolbarButtonView {
+        BrowserDownloadsToolbarButtonView()
+    }
+
+    func updateNSView(_ view: BrowserDownloadsToolbarButtonView, context: Context) {
+        view.update(
+            downloads: downloads,
+            isDownloading: isDownloading,
+            iconPointSize: iconPointSize,
+            hitSize: hitSize,
+            onOpen: onOpen,
+            onReveal: onReveal,
+            onClear: onClear
+        )
+    }
+
+    static func dismantleNSView(_ view: BrowserDownloadsToolbarButtonView, coordinator: ()) {
+        view.teardown()
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: BrowserDownloadsToolbarButtonView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: hitSize, height: hitSize)
+    }
+}
+
 struct ShortcutDiscoveryButton: NSViewRepresentable {
     @Binding var isPopoverPresented: Bool
 
