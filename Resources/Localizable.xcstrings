@@ -51442,6 +51442,23 @@
         }
       }
     },
+    "cli.socket.error.connectFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to connect to socket at %1$@ (%2$@, errno %3$lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のソケットに接続できませんでした（%2$@、errno %3$lld）"
+          }
+        }
+      }
+    },
     "cli.socket.error.conflictingEnvironment": {
       "extractionState": "manual",
       "localizations": {
@@ -51591,6 +51608,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "予期しない余分なバッチソケット応答を受信しました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.unknownSystemError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown error: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエラー: %lld"
           }
         }
       }
