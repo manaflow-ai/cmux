@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxFeedback
 import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
