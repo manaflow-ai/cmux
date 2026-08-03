@@ -500,13 +500,16 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
         "python-preflight",
     ):
         assert prerequisite in registry
-    for artifact in (
-        "cmux-rust-client-crate",
-        "cmux-rust-sidebar-crate",
-        "cmux-npm-dist",
-        "cmux-python-dist",
-    ):
+    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
         assert f"name: {artifact}" in registry
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in registry
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in registry
+    )
     assert registry.count("reconcile_registry_artifact.py check") == 5
     assert "id-token: write" not in registry
     assert "registry-preflight" in revalidate_tags
@@ -527,13 +530,16 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
 
     assert "actions: read" in revalidate_tags
     assert "name: sdk-release" in revalidate_tags
-    for artifact in (
-        "cmux-rust-client-crate",
-        "cmux-rust-sidebar-crate",
-        "cmux-npm-dist",
-        "cmux-python-dist",
-    ):
+    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
         assert f"name: {artifact}" in revalidate_tags
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in revalidate_tags
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in revalidate_tags
+    )
     assert revalidate_tags.count("verify_release_registry_state.sh") == 1
     assert "remote_state_sha256" in revalidate_tags
     assert "revalidate-tags" in cut_tags
@@ -607,13 +613,21 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     assert "--expected-ref refs/heads/main" in registry
 
     for dependency in (
+        "typescript-preflight",
+        "python-preflight",
         "publish-npm",
         "publish-python-wheel",
         "publish-python-sdist",
     ):
         assert dependency in stable
-    assert "name: cmux-npm-dist" in stable
-    assert "name: cmux-python-dist" in stable
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in stable
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in stable
+    )
     assert "verify_npm_provenance.py" in stable
     assert "verify_pypi_provenance.py" in stable
     assert "publish-crate-client" in stable
@@ -921,14 +935,14 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
-    assert release.count("name: cmux-npm-dist") == 3
+    assert release.count("name: cmux-npm-dist") == 0
     assert "npm pack --pack-destination" in npm
     npm_publish = workflow_job(release, "publish-npm")
     assert "Download the validated npm artifact" in npm_publish
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 3
+    assert release.count("name: cmux-python-dist") == 0
     for job in ("publish-python-wheel", "publish-python-sdist"):
         python_publish = workflow_job(release, job)
         assert "Download distributions" in python_publish
@@ -941,11 +955,25 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
     bootstrap_python = workflow("sdk-bootstrap-pypi.yml")
     release = workflow("sdk-release-cut.yml")
 
-    for preflight in (npm, python, bootstrap_python):
+    for preflight, job, artifact in (
+        (npm, "bindings-e2e-typescript", "cmux-npm-dist"),
+        (python, "build", "cmux-python-dist"),
+        (bootstrap_python, "build", "cmux-python-bootstrap-dist"),
+    ):
         assert "steps.upload.outputs.artifact-id" in preflight
         assert "artifact_sha256:" in preflight
-        assert "overwrite: true" not in preflight
-        assert "${{ github.run_attempt }}" in preflight
+        producer = workflow_job(preflight, job)
+        assert "overwrite: true" not in producer
+        assert f"name: {artifact}-${{{{ github.run_attempt }}}}" in producer
+
+    for job in ("registry-preflight", "revalidate-tags", "verify-stable-provenance"):
+        block = workflow_job(release, job)
+        assert "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}" in block
+        assert "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}" in block
+
+    for job in ("preflight", "publish", "verify"):
+        block = workflow_job(bootstrap_python, job)
+        assert "artifact-ids: ${{ needs.build.outputs.artifact_id }}" in block
 
     npm_publish = workflow_job(release, "publish-npm")
     assert "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}" in npm_publish
