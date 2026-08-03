@@ -2,7 +2,6 @@
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import SwiftUI
 import UIKit
 
 /// Array-backed data source, exact sizing, and UIKit interactions for ``WorkspaceListTable``.
@@ -42,6 +41,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case collapsedHeader(IndexPath)
     }
 
+    enum PendingGroupPresentationKind {
+        case rename
+        case ungroup
+        case delete
+    }
+
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
     private static let section = 0
 
@@ -49,7 +54,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     weak var tableViewController: WorkspaceListTableViewController?
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: WorkspaceListTableDataSource?
-    private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    private let sizingCell = WorkspaceListNativeCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
     private var isDragSessionActive = false
@@ -67,6 +72,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var pendingContextMenuWorkspaceClose: (
         workspace: MobileWorkspacePreview,
         sourceView: UIView
+    )?
+    private var pendingContextMenuGroupPresentation: (
+        group: MobileWorkspaceGroupPreview,
+        sourceView: UIView,
+        kind: PendingGroupPresentationKind
     )?
 
     init(configuration: WorkspaceListTable) {
@@ -88,7 +98,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         tableView.dropDelegate = self
         tableView.dragInteractionEnabled = configuration.enablesReorder
         tableView.register(
-            UITableViewCell.self,
+            WorkspaceListNativeCell.self,
             forCellReuseIdentifier: Self.cellReuseIdentifier
         )
         let dataSource = WorkspaceListTableDataSource(
@@ -117,6 +127,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func detach() {
         pendingContextMenuWorkspaceClose = nil
+        pendingContextMenuGroupPresentation = nil
         tableViewController = nil
     }
 
@@ -637,17 +648,31 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard
-            let workspace = workspace(at: indexPath),
-            let sourceView = tableView.cellForRow(at: indexPath)?.contentView
-        else { return nil }
-        let actions = contextMenuActions(for: workspace, sourceView: sourceView)
-        guard !actions.isEmpty else { return nil }
-        return UIContextMenuConfiguration(
-            identifier: workspace.id.rawValue as NSString,
-            previewProvider: nil
-        ) { _ in
-            UIMenu(children: actions)
+        guard let item = dataSource?.itemIdentifier(for: indexPath),
+              let sourceView = tableView.cellForRow(at: indexPath)?.contentView else { return nil }
+        switch item {
+        case .workspace:
+            guard let workspace = workspace(at: indexPath) else { return nil }
+            let actions = contextMenuActions(for: workspace, sourceView: sourceView)
+            guard !actions.isEmpty else { return nil }
+            return UIContextMenuConfiguration(
+                identifier: workspace.id.rawValue as NSString,
+                previewProvider: nil
+            ) { _ in
+                UIMenu(children: actions)
+            }
+        case .groupHeader(let groupID):
+            guard let group = configuration.groupsByID[groupID] else { return nil }
+            let actions = contextMenuActions(for: group, sourceView: sourceView)
+            guard !actions.isEmpty else { return nil }
+            return UIContextMenuConfiguration(
+                identifier: "group.\(group.id.rawValue)" as NSString,
+                previewProvider: nil
+            ) { _ in
+                UIMenu(children: actions)
+            }
+        case .chrome, .filterEmpty, .groupFooter:
+            return nil
         }
     }
 
@@ -656,6 +681,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         willEndContextMenuInteraction configuration: UIContextMenuConfiguration,
         animator: (any UIContextMenuInteractionAnimating)?
     ) {
+        if let pending = pendingContextMenuGroupPresentation,
+           let menuIdentifier = configuration.identifier as? NSString,
+           menuIdentifier as String == "group.\(pending.group.id.rawValue)" {
+            let present: () -> Void = { [weak self] in
+                self?.presentPendingContextMenuGroupPresentation()
+            }
+            if let animator {
+                animator.addCompletion(present)
+            } else {
+                present()
+            }
+            return
+        }
+
         guard
             let pendingContextMenuWorkspaceClose,
             let menuWorkspaceID = configuration.identifier as? NSString,
@@ -697,6 +736,97 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             for: pending.workspace,
             sourceView: pending.sourceView
         )
+    }
+
+    func requestGroupPresentation(
+        for group: MobileWorkspaceGroupPreview,
+        sourceView: UIView,
+        kind: PendingGroupPresentationKind
+    ) {
+        pendingContextMenuGroupPresentation = (group, sourceView, kind)
+    }
+
+    private func presentPendingContextMenuGroupPresentation() {
+        guard let pending = pendingContextMenuGroupPresentation else { return }
+        pendingContextMenuGroupPresentation = nil
+        switch pending.kind {
+        case .rename:
+            presentGroupRename(for: pending.group)
+        case .ungroup, .delete:
+            presentGroupDestructiveConfirmation(
+                for: pending.group,
+                sourceView: pending.sourceView,
+                kind: pending.kind
+            )
+        }
+    }
+
+    private func presentGroupRename(for group: MobileWorkspaceGroupPreview) {
+        guard let tableViewController,
+              tableViewController.presentedViewController == nil,
+              let rename = configuration.renameWorkspaceGroup else { return }
+        let editor = WorkspaceGroupRenameViewController(currentName: group.name) { name in
+            rename(group.id, name)
+        }
+        tableViewController.present(
+            UINavigationController(rootViewController: editor),
+            animated: true
+        )
+    }
+
+    private func presentGroupDestructiveConfirmation(
+        for group: MobileWorkspaceGroupPreview,
+        sourceView: UIView,
+        kind: PendingGroupPresentationKind
+    ) {
+        guard let tableViewController,
+              tableViewController.presentedViewController == nil,
+              sourceView.window != nil else { return }
+
+        let title: String
+        let message: String
+        let actionTitle: String
+        let accessibilityIdentifier: String
+        let action: () -> Void
+        switch kind {
+        case .ungroup:
+            guard let ungroup = configuration.ungroupWorkspaceGroup else { return }
+            title = L10n.string("mobile.workspaceGroup.ungroup.confirmTitle", defaultValue: "Ungroup Group?")
+            message = L10n.string(
+                "mobile.workspaceGroup.ungroup.confirmMessage",
+                defaultValue: "This will dissolve the group on your Mac and keep its workspaces."
+            )
+            actionTitle = L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup")
+            accessibilityIdentifier = "MobileWorkspaceGroupUngroupConfirmation-\(group.id.rawValue)"
+            action = { ungroup(group.id) }
+        case .delete:
+            guard let delete = configuration.deleteWorkspaceGroup else { return }
+            title = L10n.string("mobile.workspaceGroup.delete.confirmTitle", defaultValue: "Delete Group?")
+            message = L10n.string(
+                "mobile.workspaceGroup.delete.confirmMessage",
+                defaultValue: "This will delete the group and close its workspaces on your Mac."
+            )
+            actionTitle = L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group")
+            accessibilityIdentifier = "MobileWorkspaceGroupDeleteConfirmation-\(group.id.rawValue)"
+            action = { delete(group.id) }
+        case .rename:
+            return
+        }
+
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .actionSheet)
+        alert.view.accessibilityIdentifier = accessibilityIdentifier
+        alert.addAction(UIAlertAction(title: actionTitle, style: .destructive) { _ in
+            MainActor.assumeIsolated { action() }
+        })
+        alert.addAction(UIAlertAction(
+            title: L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
+            style: .cancel
+        ))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceView.bounds
+        }
+        tableViewController.present(alert, animated: true)
     }
 
     private func presentWorkspaceCloseConfirmation(
@@ -784,52 +914,39 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.isAccessibilityElement = false
         cell.accessibilityIdentifier = nil
         cell.accessibilityCustomActions = nil
-        let content = hostedView(for: item)
-        var hosting = UIHostingConfiguration { content }
-            .margins(.all, 0)
+        cell.contentConfiguration = nil
+
+        guard let cell = cell as? WorkspaceListNativeCell else { return }
+        let content = nativeView(for: item)
+        var margins = NSDirectionalEdgeInsets.zero
         switch item {
         case .workspace:
-            hosting = hosting
-                .margins(.top, 4)
-                .margins(.bottom, 4)
-                .margins(.leading, item.isIndentedWorkspace ? 32 : 12)
-                .margins(.trailing, 12)
+            margins = NSDirectionalEdgeInsets(
+                top: 4,
+                leading: item.isIndentedWorkspace ? 32 : 12,
+                bottom: 4,
+                trailing: 12
+            )
         case .groupHeader:
-            // Zero the hosting configuration's default minimum content size:
-            // it would clamp this compact header to ~42pt where the List
-            // rendered 32pt content (44pt row). The 44pt tap target comes from
-            // the row height (32 + 12 margins), matching the List exactly.
-            hosting = hosting
-                .margins(.top, 6)
-                .margins(.bottom, 6)
-                .margins(.leading, 12)
-                .margins(.trailing, 12)
-                .minSize(width: 0, height: 0)
+            margins = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
         case .groupFooter(let groupID):
             let boundaryState = isDragSessionActive ? "active" : "inactive"
             cell.accessibilityIdentifier =
                 "MobileWorkspaceGroupFooterBoundary-\(groupID.rawValue)-\(boundaryState)"
-            hosting = hosting
-                .margins(.leading, 32)
-                .margins(.trailing, 12)
-                .minSize(width: 0, height: 0)
+            margins = NSDirectionalEdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 12)
         case .chrome:
-            hosting = hosting
-                .margins(.top, 8)
-                .margins(.bottom, 8)
-                .margins(.leading, 12)
-                .margins(.trailing, 12)
+            margins = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
         case .filterEmpty:
             break
         }
-        cell.contentConfiguration = hosting
+        cell.setHostedView(content, margins: margins)
     }
 
-    private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
+    private func nativeView(for item: WorkspaceListTableItem) -> UIView {
         switch item {
         case .workspace(let workspaceID, _):
             guard let workspace = configuration.workspacesByID[workspaceID] else {
-                return AnyView(EmptyView())
+                return UIView()
             }
             let capabilities = workspace.actionCapabilities
             let connectionStatus = workspace.macConnectionStatus ?? configuration.connectionStatus
@@ -843,126 +960,111 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             } else {
                 onOpenChanges = nil
             }
-            return AnyView(
-                WorkspaceRow(
-                    workspace: workspace,
-                    connectionStatus: connectionStatus,
-                    isSelected: configuration.navigationStyle == .sidebar
-                        && configuration.selectedWorkspaceID == workspace.id,
-                    changesChip: changesChip,
-                    onOpenChanges: onOpenChanges,
-                    wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
-                    previewLineLimit: configuration.previewLineLimit,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+            let customizeOrRename: (() -> Void)?
+            let customizeOrRenameTitle: String?
+            if capabilities.supportsWorkspaceActions,
+               capabilities.supportsWorkspaceMetadata,
+               let customizeRequest = configuration.customizeRequest {
+                customizeOrRename = { customizeRequest(workspace.id) }
+                customizeOrRenameTitle = L10n.string(
+                    "mobile.workspace.customize.action",
+                    defaultValue: "Customize"
                 )
-                .accessibilityElement(
-                    children: onOpenChanges == nil ? .combine : .contain
+            } else if capabilities.supportsWorkspaceActions,
+                      let renameRequest = configuration.renameRequest {
+                customizeOrRename = { renameRequest(workspace.id) }
+                customizeOrRenameTitle = L10n.string(
+                    "mobile.workspace.rename.action",
+                    defaultValue: "Rename"
                 )
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
-                .accessibilityLabel(workspace.name)
-                .accessibilityValue(
-                    workspace.accessibilitySummary(connectionStatus: connectionStatus)
-                )
-                .accessibilityActions {
-                    if capabilities.supportsWorkspaceActions,
-                       capabilities.supportsWorkspaceMetadata,
-                       let customizeRequest = configuration.customizeRequest {
-                        Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
-                            customizeRequest(workspace.id)
-                        }
-                    } else if capabilities.supportsWorkspaceActions,
-                              let renameRequest = configuration.renameRequest {
-                        Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
-                            renameRequest(workspace.id)
-                        }
-                    }
-                    if capabilities.supportsWorkspaceActions,
-                       let setPinned = configuration.setPinned {
-                        Button(
-                            workspace.isPinned
-                                ? L10n.string("mobile.workspace.unpin", defaultValue: "Unpin")
-                                : L10n.string("mobile.workspace.pin", defaultValue: "Pin")
-                        ) {
-                            setPinned(workspace.id, !workspace.isPinned)
-                        }
-                    }
-                }
+            } else {
+                customizeOrRename = nil
+                customizeOrRenameTitle = nil
+            }
+            let setPinned: ((Bool) -> Void)? = if capabilities.supportsWorkspaceActions,
+                                                  let action = configuration.setPinned {
+                { action(workspace.id, $0) }
+            } else {
+                nil
+            }
+            let view = WorkspaceNativeRowView()
+            view.configure(
+                workspace: workspace,
+                connectionStatus: connectionStatus,
+                isSelected: configuration.navigationStyle == .sidebar
+                    && configuration.selectedWorkspaceID == workspace.id,
+                changes: changesChip,
+                onOpenChanges: onOpenChanges,
+                wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
+                previewLineLimit: configuration.previewLineLimit,
+                unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
+                customizeOrRename: customizeOrRename,
+                customizeOrRenameTitle: customizeOrRenameTitle,
+                setPinned: setPinned
             )
+            return view
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID] else {
-                return AnyView(EmptyView())
+                return UIView()
             }
             let capabilities = configuration.workspacesByID[group.anchorWorkspaceID]?
                 .actionCapabilities ?? .none
-            return AnyView(
-                WorkspaceGroupHeaderRow(
-                    value: WorkspaceGroupHeaderRowValue(
-                        group: group,
-                        hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
-                        navigationStyle: configuration.navigationStyle,
-                        isAnchorSelected: configuration.navigationStyle == .sidebar
-                            && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
-                        canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
-                        canRenameGroup: capabilities.supportsGroupActions
-                            && configuration.renameWorkspaceGroup != nil,
-                        canSetGroupPinned: capabilities.supportsGroupActions
-                            && configuration.setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: capabilities.supportsGroupActions
-                            && configuration.ungroupWorkspaceGroup != nil,
-                        canDeleteWorkspaceGroup: capabilities.supportsGroupActions
-                            && configuration.deleteWorkspaceGroup != nil,
-                        canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
-                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
-                    ),
-                    actions: WorkspaceGroupHeaderRowActions(
-                        selectWorkspace: configuration.selectWorkspace,
-                        createWorkspaceInGroup: configuration.createWorkspaceInGroup,
-                        renameGroup: configuration.renameWorkspaceGroup,
-                        setGroupPinned: configuration.setGroupPinned,
-                        ungroupWorkspaceGroup: configuration.ungroupWorkspaceGroup,
-                        deleteWorkspaceGroup: configuration.deleteWorkspaceGroup,
-                        toggleCollapsed: configuration.toggleGroupCollapsed
-                    )
+            let view = WorkspaceNativeGroupHeaderView()
+            view.configure(
+                value: WorkspaceGroupHeaderRowValue(
+                    group: group,
+                    hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
+                    navigationStyle: configuration.navigationStyle,
+                    isAnchorSelected: configuration.navigationStyle == .sidebar
+                        && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
+                    canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
+                    canRenameGroup: capabilities.supportsGroupActions
+                        && configuration.renameWorkspaceGroup != nil,
+                    canSetGroupPinned: capabilities.supportsGroupActions
+                        && configuration.setGroupPinned != nil,
+                    canUngroupWorkspaceGroup: capabilities.supportsGroupActions
+                        && configuration.ungroupWorkspaceGroup != nil,
+                    canDeleteWorkspaceGroup: capabilities.supportsGroupActions
+                        && configuration.deleteWorkspaceGroup != nil,
+                    canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
+                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                ),
+                actions: WorkspaceGroupHeaderRowActions(
+                    selectWorkspace: configuration.selectWorkspace,
+                    createWorkspaceInGroup: configuration.createWorkspaceInGroup,
+                    renameGroup: configuration.renameWorkspaceGroup,
+                    setGroupPinned: configuration.setGroupPinned,
+                    ungroupWorkspaceGroup: configuration.ungroupWorkspaceGroup,
+                    deleteWorkspaceGroup: configuration.deleteWorkspaceGroup,
+                    toggleCollapsed: configuration.toggleGroupCollapsed
                 )
-                .equatable()
-                .frame(minHeight: 32)
             )
+            return view
         case .groupFooter(let groupID):
-            return AnyView(
-                WorkspaceGroupFooterRow(
-                    groupName: configuration.groupsByID[groupID]?.name,
-                    showsBoundary: isDragSessionActive
-                )
+            return WorkspaceNativeGroupFooterView(
+                groupName: configuration.groupsByID[groupID]?.name,
+                showsBoundary: isDragSessionActive
             )
         case .chrome(.recoveryBanner):
-            return AnyView(
-                MobileConnectionRecoveryBanner(
-                    connectionRequiresReauth: configuration.connectionRequiresReauth,
-                    connectionError: configuration.connectionError,
-                    signOut: configuration.signOut,
-                    rendersInline: true
-                )
+            return WorkspaceNativeRecoveryView(
+                error: configuration.connectionError,
+                signOut: configuration.signOut
             )
         case .chrome(.macStatusRow):
-            return AnyView(
-                MobileMacConnectionStatusRow(
-                    host: configuration.host,
-                    status: configuration.connectionStatus,
-                    showsSpinner: configuration.isInitialConnectionLoading,
-                    titleOverride: configuration.initialConnectionTitle,
-                    descriptionOverride: configuration.initialConnectionDescription,
-                    retry: configuration.retryInitialConnection,
-                    addDevice: configuration.showAddDevice,
-                    reconnect: configuration.reconnect
-                )
+            return WorkspaceNativeConnectionStatusView(
+                host: configuration.host,
+                status: configuration.connectionStatus,
+                showsSpinner: configuration.isInitialConnectionLoading,
+                titleOverride: configuration.initialConnectionTitle,
+                descriptionOverride: configuration.initialConnectionDescription,
+                retry: configuration.retryInitialConnection,
+                addDevice: configuration.showAddDevice,
+                reconnect: configuration.reconnect
             )
         case .filterEmpty:
-            return AnyView(
-                WorkspaceListFilterEmptyRow(
-                    filter: configuration.filter,
-                    showAll: configuration.showAll
-                )
+            return WorkspaceNativeFilterEmptyView(
+                filter: configuration.filter,
+                showAll: configuration.showAll
             )
         }
     }

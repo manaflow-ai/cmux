@@ -47,6 +47,26 @@ import UIKit
         )
     }
 
+    @Test func coordinatorBuildsNativeUIKitRowContent() throws {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        let cell = try #require(
+            tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? WorkspaceListNativeCell
+        )
+
+        #expect(cell.contentConfiguration == nil)
+        #expect(
+            cell.contentView.descendants.contains { $0 is WorkspaceNativeRowView },
+            "The native table must not wrap workspace rows in UIHostingConfiguration."
+        )
+    }
+
     @Test func structuralUpdateAppliesThroughNativeDataSource() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
@@ -331,6 +351,12 @@ import UIKit
             reconnect: nil,
             refresh: nil
         )
+    }
+}
+
+private extension UIView {
+    var descendants: [UIView] {
+        subviews + subviews.flatMap(\.descendants)
     }
 }
 #endif
