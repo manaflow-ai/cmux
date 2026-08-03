@@ -35,10 +35,11 @@ export async function POST(
   }
   try {
     const tenant = await context.client.exchangeTeam(context.accessToken, context.team);
-    const account = await context.client.createAccount(tenant.tenantKey, input.value);
-    if (account.id !== accountId) {
-      await context.client.deleteAccount(tenant.tenantKey, accountId);
-    }
+    const account = await context.client.repairAccount(
+      tenant.tenantKey,
+      accountId,
+      input.value,
+    );
     return jsonResponse({ teamId: context.team.teamId, account });
   } catch (err) {
     return subrouterErrorResponse(err);

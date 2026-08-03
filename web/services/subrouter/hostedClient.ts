@@ -19,6 +19,11 @@ export type HostedSubrouterClient = {
     tenantKey: string,
     input: SubrouterAccountInput,
   ) => Promise<SubrouterAccount>;
+  readonly repairAccount: (
+    tenantKey: string,
+    accountId: string,
+    input: SubrouterAccountInput,
+  ) => Promise<SubrouterAccount>;
   readonly deleteAccount: (tenantKey: string, accountId: string) => Promise<void>;
 };
 
@@ -30,8 +35,37 @@ export function createHostedSubrouterClient(options: {
     DEFAULT_HOSTED_SUBROUTER_URL).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
 
-  const tenantURL = (tenantKey: string, path: string): string =>
-    `${baseUrl}/t/${encodeURIComponent(tenantKey)}${path}`;
+  const tenantRequest = (
+    tenantKey: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<unknown> => {
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${tenantKey}`);
+    return requestJson(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+  };
+  const uploadAccount = async (
+    tenantKey: string,
+    input: SubrouterAccountInput,
+    targetAccountID?: string,
+  ): Promise<SubrouterAccount> => {
+    const response = await tenantRequest(
+      tenantKey,
+      "/_subrouter/accounts",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...input,
+          ...(targetAccountID ? { targetAccountID } : {}),
+        }),
+      },
+    );
+    if (!isRecord(response) || !isRecord(response.account)) {
+      throw new HostedSubrouterError("invalid account response", 502);
+    }
+    return parseAccountEnvelope(response.account);
+  };
 
   return {
     exchangeTeam: async (accessToken, team) => {
@@ -50,36 +84,22 @@ export function createHostedSubrouterClient(options: {
       return parseHostedTenant(response);
     },
     listAccounts: async (tenantKey) => {
-      const response = await requestJson(
-        fetchImpl,
-        tenantURL(tenantKey, "/_subrouter/accounts"),
+      const response = await tenantRequest(
+        tenantKey,
+        "/_subrouter/accounts",
         { method: "GET" },
       );
       if (!Array.isArray(response)) throw new HostedSubrouterError("invalid account list", 502);
       return response.map(parseHostedAccount);
     },
-    createAccount: async (tenantKey, input) => {
-      const response = await requestJson(
-        fetchImpl,
-        tenantURL(tenantKey, "/_subrouter/accounts"),
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      if (!isRecord(response) || !isRecord(response.account)) {
-        throw new HostedSubrouterError("invalid account response", 502);
-      }
-      return parseAccountEnvelope(response.account);
-    },
+    createAccount: async (tenantKey, input) =>
+      await uploadAccount(tenantKey, input),
+    repairAccount: async (tenantKey, accountId, input) =>
+      await uploadAccount(tenantKey, input, accountId),
     deleteAccount: async (tenantKey, accountId) => {
-      await requestJson(
-        fetchImpl,
-        tenantURL(
-          tenantKey,
-          `/_subrouter/accounts/${encodeURIComponent(accountId)}`,
-        ),
+      await tenantRequest(
+        tenantKey,
+        `/_subrouter/accounts/${encodeURIComponent(accountId)}`,
         { method: "DELETE" },
       );
     },
