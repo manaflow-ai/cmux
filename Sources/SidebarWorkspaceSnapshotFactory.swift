@@ -76,7 +76,7 @@ struct SidebarWorkspaceSnapshotFactory {
         let checklistProgress = workspace.checklistProgressSummary
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: presentationKey,
+            presentationKey: presentationKey(todoControlsEnabled: todoControlsEnabled),
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
@@ -121,13 +121,20 @@ struct SidebarWorkspaceSnapshotFactory {
         )
     }
 
-    private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+    private func presentationKey(
+        todoControlsEnabled: Bool
+    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        Self.presentationKey(
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled
+        )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        todoControlsEnabled: Bool = WorkspaceTodoFeature.isEnabled
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -135,6 +142,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }

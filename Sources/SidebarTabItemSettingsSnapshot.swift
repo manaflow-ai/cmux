@@ -30,6 +30,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
+    /// Participates in snapshot equality so the settings store publishes a
+    /// local todo-controls gate change even though rows resolve the combined
+    /// local-or-remote gate separately.
+    let workspaceTodoControlsLocalOptIn: Bool
 
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
@@ -91,6 +95,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
+        workspaceTodoControlsLocalOptIn = WorkspaceTodoFeature.localControlsOptIn(defaults: defaults)
     }
 
     private static func bool(
