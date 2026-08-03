@@ -3,17 +3,6 @@ import Testing
 
 @testable import CmuxSimulatorUI
 
-@MainActor
-private enum CmuxRemoteFrameViewNotificationProbe {
-    static var receivedCount = 0
-}
-
-extension CmuxRemoteFrameView {
-    @objc fileprivate func recordUnrelatedTestNotification(_ notification: Notification) {
-        CmuxRemoteFrameViewNotificationProbe.receivedCount += 1
-    }
-}
-
 @Suite("Remote frame hit testing")
 @MainActor
 struct CmuxRemoteFrameViewHitTestingTests {

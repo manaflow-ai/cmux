@@ -1,16 +1,6 @@
 public import Foundation
 internal import Darwin
 
-struct SocketTransportWriteOutcome: Equatable, Sendable {
-    let didWriteAllBytes: Bool
-    let socketIsReusable: Bool
-
-    static let failed = SocketTransportWriteOutcome(
-        didWriteAllBytes: false,
-        socketIsReusable: false
-    )
-}
-
 extension SocketTransport {
     /// Writes all of `data` to `socket`, retrying on `EINTR` and partial
     /// writes.

@@ -5,12 +5,6 @@ import Darwin
 import Foundation
 import Security
 
-enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
-    case ready
-    case notCapturable
-    case unavailable
-}
-
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
 /// The main cmux process never calls TCC-protected APIs and never executes the
@@ -18,13 +12,6 @@ enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
 final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
-    enum ReboundHelperProfileReconciliation: Equatable {
-        case unchanged
-        case noListeningPeer
-        case ownedPeer(AgentPIDProcessIdentity)
-        case blocked
-    }
-
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
     nonisolated private static let maximumApplicationWindowDimension =
@@ -1805,7 +1792,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         reprobePeer: () async -> AgentPIDProcessIdentity?,
         validatePeer: (AgentPIDProcessIdentity) -> Bool,
         adoptPeer: (AgentPIDProcessIdentity) -> Void
-    ) async -> ReboundHelperProfileReconciliation {
+    ) async -> ComputerUseReboundHelperProfileReconciliation {
         guard
             let trackedIdentity,
             let peerIdentity,
@@ -3027,7 +3014,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         return ComputerUsePermissionStatus(structuredContent: structured)
     }
 
-    nonisolated private static func sendDaemonRequest(
+    nonisolated static func sendDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
@@ -3053,26 +3040,6 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             requestTask.cancel()
         }
     }
-
-    #if DEBUG
-    nonisolated static func sendDaemonRequestForTesting(
-        _ request: [String: Any],
-        paths: ComputerUseRuntimePaths,
-        transport: SocketTransport,
-        timeout: TimeInterval,
-        socketURL: URL,
-        persistentConnection: PersistentSocketLineConnection? = nil
-    ) async -> [String: Any]? {
-        await sendDaemonRequest(
-            request,
-            paths: paths,
-            transport: transport,
-            timeout: timeout,
-            socketURL: socketURL,
-            persistentConnection: persistentConnection
-        )
-    }
-    #endif
 
     nonisolated private static func performDaemonRequest(
         _ request: [String: Any],

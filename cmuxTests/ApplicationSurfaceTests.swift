@@ -73,7 +73,7 @@ struct ApplicationSurfaceTests {
         )
         defer { responder.stop() }
         let request = Task {
-            await ComputerUseRuntimeService.sendDaemonRequestForTesting(
+            await ComputerUseRuntimeService.sendDaemonRequest(
                 ["method": "application_windows"],
                 paths: paths,
                 transport: SocketTransport(),
@@ -137,7 +137,7 @@ struct ApplicationSurfaceTests {
         defer { responder.stop() }
         let connection = PersistentSocketLineConnection()
         let request = Task {
-            await ComputerUseRuntimeService.sendDaemonRequestForTesting(
+            await ComputerUseRuntimeService.sendDaemonRequest(
                 ["method": "application_surface_start"],
                 paths: paths,
                 transport: SocketTransport(),
