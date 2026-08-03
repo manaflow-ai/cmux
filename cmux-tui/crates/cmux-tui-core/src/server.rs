@@ -13666,6 +13666,14 @@ mod tests {
         assert_eq!(replayed["result"]["replayed"], true);
         assert_eq!(replayed["result"]["value"]["event_id"], event_id);
 
+        let (retry_writer, retry_outbound) = captured_writer();
+        let retry_client =
+            mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(handle_connection_message(&mux, retry_client, &append, &retry_writer, &scheduler,));
+        let reconnected_replay = pop_json(&retry_outbound);
+        assert_eq!(reconnected_replay["result"]["replayed"], true);
+        assert_eq!(reconnected_replay["result"]["value"]["event_id"], event_id);
+
         let invalid = resource_request(
             "journal-ingress-invalid",
             "session.journal.append",
@@ -13706,6 +13714,7 @@ mod tests {
         assert_eq!(item["item"]["event_id"], event_id);
         assert_eq!(item["item"]["producer"]["id"], "demo");
         assert_eq!(item["item"]["payload"]["question"], "Continue?");
+        assert!(disconnect_client(&mux, retry_client, false));
         assert!(disconnect_client(&mux, client, false));
     }
 
