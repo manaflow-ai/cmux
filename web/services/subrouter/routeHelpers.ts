@@ -175,8 +175,13 @@ export function subrouterErrorResponse(err: unknown): Response {
   if (err instanceof HostedSubrouterError) {
     console.error("Subrouter upstream request failed", {
       status: err.status,
+      authentication: err.authentication,
     });
-    const status = err.status >= 400 && err.status < 500
+    const internalAuthenticationFailure =
+      (err.status === 401 || err.status === 403) &&
+      err.authentication !== "caller";
+    const status = !internalAuthenticationFailure &&
+        err.status >= 400 && err.status < 500
       ? err.status
       : 502;
     return jsonResponse({ error: "upstream_request_failed" }, status);

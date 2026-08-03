@@ -402,6 +402,9 @@ export const subrouterTenants = pgTable(
     tenantId: text("tenant_id").notNull(),
     tenantName: text("tenant_name").notNull(),
     encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    // The hosted control plane must not serve a mapped legacy tenant until
+    // the credential-safe operator has verified its hosted copy.
+    hostedReadyAt: timestamp("hosted_ready_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

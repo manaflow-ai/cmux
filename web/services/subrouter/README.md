@@ -9,9 +9,11 @@ Production defaults to `https://sr.cmux.com`; previews and local development
 default to `https://staging.sr.cmux.com`. `SUBROUTER_HOSTED_URL` overrides the
 environment default.
 
-The legacy `subrouter_tenants` table remains a recovery and retirement map
-until every pre-hosted tenant has moved. Run the migration operator from the
-worktree root in three explicit phases:
+The legacy `subrouter_tenants` table remains a cutover gate, recovery map, and
+retirement map until every pre-hosted tenant has moved. A mapped team cannot
+use the hosted control plane until the migration operator verifies its copy
+and records `hosted_ready_at`. Run the operator from the worktree root in three
+explicit phases:
 
 ```sh
 bun --cwd web subrouter:migrate-legacy production

@@ -131,6 +131,7 @@ export function createHostedSubrouterClient(options: {
           },
           body: JSON.stringify(team),
         },
+        "caller",
       );
       const tenant = parseHostedTenant(response);
       if (tenant.tenantId !== team.teamId) {
@@ -238,6 +239,7 @@ export class HostedSubrouterError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly authentication: "caller" | "internal" = "internal",
   ) {
     super(message);
     this.name = "HostedSubrouterError";
@@ -248,8 +250,14 @@ async function requestJson(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
+  authentication: "caller" | "internal" = "internal",
 ): Promise<unknown> {
-  const response = await requestResponse(fetchImpl, url, init);
+  const response = await requestResponse(
+    fetchImpl,
+    url,
+    init,
+    authentication,
+  );
   return await responseJson(response);
 }
 
@@ -265,6 +273,7 @@ async function requestResponse(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
+  authentication: "caller" | "internal" = "internal",
 ): Promise<Response> {
   let response: Response;
   try {
@@ -276,7 +285,11 @@ async function requestResponse(
     throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
   }
   if (!response.ok) {
-    throw new HostedSubrouterError("hosted Subrouter request failed", response.status);
+    throw new HostedSubrouterError(
+      "hosted Subrouter request failed",
+      response.status,
+      authentication,
+    );
   }
   return response;
 }

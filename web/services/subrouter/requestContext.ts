@@ -18,6 +18,7 @@ import {
   createHostedSubrouterClient,
   type HostedSubrouterClient,
 } from "./hostedClient";
+import { hostedSubrouterCutoverReadyForTeam } from "./cutover";
 import {
   resolveTeam,
   serviceUnavailableResponse,
@@ -76,6 +77,30 @@ export async function resolveSubrouterRequestContext(
         return {
           ok: false,
           response: jsonResponse({ error: "forbidden" }, 403),
+        };
+      }
+
+      let hostedCutoverReady: boolean;
+      try {
+        hostedCutoverReady = await hostedSubrouterCutoverReadyForTeam(
+          team.teamId,
+        );
+      } catch (error) {
+        console.error("Subrouter cutover state unavailable", {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return {
+          ok: false,
+          response: serviceUnavailableResponse(),
+        };
+      }
+      if (!hostedCutoverReady) {
+        return {
+          ok: false,
+          response: jsonResponse(
+            { error: "subrouter_migration_pending" },
+            503,
+          ),
         };
       }
 

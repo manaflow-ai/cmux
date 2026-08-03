@@ -55,6 +55,7 @@ export async function runLegacyTenantMigration(options: {
     readonly migrated: number;
     readonly sourceFinalized: boolean;
   }>;
+  readonly markHostedReady: (teamId: string) => Promise<void>;
   readonly log: (value: unknown) => void;
 }): Promise<{
   readonly planned: number;
@@ -124,6 +125,7 @@ export async function runLegacyTenantMigration(options: {
         `legacy source finalization mismatch for ${destination.mapping.tenantId}`,
       );
     }
+    await options.markHostedReady(destination.mapping.teamId);
     migrated += result.migrated;
     options.log({
       mode: options.finalizeSource ? "finalize" : "pre-copy",
@@ -147,29 +149,35 @@ async function main(): Promise<void> {
   const destinationUrl = target === "production"
     ? "https://sr.cmux.com"
     : "https://staging.sr.cmux.com";
-  const mappings = await loadLegacyTenantMappings(runtimeEnv);
-  const legacyClient = createLegacySubrouterRetirementClient({
-    ...legacySubrouterRetirementConfig(runtimeEnv),
-  });
-  const stackApp = stackAppFromEnv(runtimeEnv);
+  const store = await openLegacyTenantMigrationStore(runtimeEnv);
+  try {
+    const mappings = await store.loadMappings();
+    const legacyClient = createLegacySubrouterRetirementClient({
+      ...legacySubrouterRetirementConfig(runtimeEnv),
+    });
+    const stackApp = stackAppFromEnv(runtimeEnv);
 
-  const result = await runLegacyTenantMigration({
-    mappings,
-    apply,
-    finalizeSource,
-    destinationUrl,
-    openStackSession: (mapping) =>
-      openStackMigrationSession(stackApp, mapping, runtimeEnv),
-    exchangeHostedTenant,
-    migrateLegacyTenant: async (input) =>
-      await legacyClient.migrateTenant(input.legacyTenantId, {
-        destinationUrl: input.destinationUrl,
-        tenantKey: input.tenantKey,
-        finalizeSource: input.finalizeSource,
-      }),
-    log: (value) => console.log(JSON.stringify(value)),
-  });
-  console.log(JSON.stringify({ ok: true, target, ...result }));
+    const result = await runLegacyTenantMigration({
+      mappings,
+      apply,
+      finalizeSource,
+      destinationUrl,
+      openStackSession: (mapping) =>
+        openStackMigrationSession(stackApp, mapping, runtimeEnv),
+      exchangeHostedTenant,
+      migrateLegacyTenant: async (input) =>
+        await legacyClient.migrateTenant(input.legacyTenantId, {
+          destinationUrl: input.destinationUrl,
+          tenantKey: input.tenantKey,
+          finalizeSource: input.finalizeSource,
+        }),
+      markHostedReady: store.markHostedReady,
+      log: (value) => console.log(JSON.stringify(value)),
+    });
+    console.log(JSON.stringify({ ok: true, target, ...result }));
+  } finally {
+    await store.close();
+  }
 }
 
 function parseArguments(args: readonly string[]): {
@@ -194,9 +202,13 @@ function parseArguments(args: readonly string[]): {
   };
 }
 
-async function loadLegacyTenantMappings(
+async function openLegacyTenantMigrationStore(
   runtimeEnv: Record<string, string | undefined>,
-): Promise<readonly LegacyTenantMapping[]> {
+): Promise<{
+  readonly loadMappings: () => Promise<readonly LegacyTenantMapping[]>;
+  readonly markHostedReady: (teamId: string) => Promise<void>;
+  readonly close: () => Promise<void>;
+}> {
   for (const key of ["AWS_REGION", "PGHOST", "PGPORT", "PGUSER", "PGDATABASE"]) {
     if (!runtimeEnv[key]?.trim()) throw new Error(`migration environment is missing ${key}`);
   }
@@ -230,20 +242,32 @@ async function loadLegacyTenantMappings(
     },
     max: 1,
   });
-  try {
-    const result = await pool.query<{
-      teamId: string;
-      tenantId: string;
-      tenantName: string;
-    }>(
-      `select team_id as "teamId", tenant_id as "tenantId", tenant_name as "tenantName"
-       from subrouter_tenants
-       order by team_id`,
-    );
-    return result.rows;
-  } finally {
-    await pool.end();
-  }
+  return {
+    loadMappings: async () => {
+      const result = await pool.query<{
+        teamId: string;
+        tenantId: string;
+        tenantName: string;
+      }>(
+        `select team_id as "teamId", tenant_id as "tenantId", tenant_name as "tenantName"
+         from subrouter_tenants
+         order by team_id`,
+      );
+      return result.rows;
+    },
+    markHostedReady: async (teamId) => {
+      const result = await pool.query(
+        `update subrouter_tenants
+         set hosted_ready_at = coalesce(hosted_ready_at, now()), updated_at = now()
+         where team_id = $1`,
+        [teamId],
+      );
+      if (result.rowCount !== 1) {
+        throw new Error(`legacy tenant mapping disappeared for ${teamId}`);
+      }
+    },
+    close: async () => await pool.end(),
+  };
 }
 
 function stackAppFromEnv(runtimeEnv: Record<string, string | undefined>) {
