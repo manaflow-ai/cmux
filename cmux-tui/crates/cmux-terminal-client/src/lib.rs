@@ -32,6 +32,8 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+mod frontend;
+
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 
 pub struct CmuxTerminalClient {
@@ -513,6 +515,33 @@ async fn connect_client(
     ),
     String,
 > {
+    let transport = connect_transport(invitation_uri, "TerminalBytes Demo").await?;
+    let state = Arc::new(Mutex::new(
+        ClientState::new(
+            transport.provider_name,
+            transport.path,
+            transport.generation,
+            terminal_id.clone(),
+        )
+        .map_err(|error| format!("libghostty: {error}"))?,
+    ));
+    let stream = open_terminal_stream(&transport.multiplexer, &terminal_id).await?;
+    Ok((stream, transport.connection, transport.provider, transport.multiplexer, state))
+}
+
+struct ConnectedTransport {
+    connection: Arc<ClientConnection>,
+    provider: Arc<IrohProvider>,
+    multiplexer: Arc<ServiceMultiplexer>,
+    provider_name: String,
+    path: String,
+    generation: u64,
+}
+
+async fn connect_transport(
+    invitation_uri: &str,
+    device_name: &str,
+) -> Result<ConnectedTransport, String> {
     let invitation = EnrollmentInvitation::from_uri(invitation_uri)
         .map_err(|error| format!("invitation: {error}"))?;
     let route = invitation
@@ -550,7 +579,7 @@ async fn connect_client(
                 id: invitation.id,
                 secret: Zeroizing::new(invitation_secret),
             },
-            device_name: "TerminalBytes Demo".into(),
+            device_name: device_name.into(),
             session,
             lane_policy: LanePolicy::Isolated,
             limits: Default::default(),
@@ -566,18 +595,16 @@ async fn connect_client(
         .as_ref()
         .map(|path| format!("{:?}", path.kind).to_lowercase())
         .unwrap_or_else(|| snapshot.transport.route.clone());
-    let state = Arc::new(Mutex::new(
-        ClientState::new(
-            snapshot.transport.provider,
-            path,
-            snapshot.generation,
-            terminal_id.clone(),
-        )
-        .map_err(|error| format!("libghostty: {error}"))?,
-    ));
+    let provider_name = snapshot.transport.provider;
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = open_terminal_stream(&multiplexer, &terminal_id).await?;
-    Ok((stream, connection, provider, multiplexer, state))
+    Ok(ConnectedTransport {
+        connection,
+        provider,
+        multiplexer,
+        provider_name,
+        path,
+        generation: snapshot.generation,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -728,7 +755,7 @@ async fn supervise_terminal_stream(
 }
 
 fn start_terminal_tasks(
-    runtime: &Runtime,
+    runtime: &tokio::runtime::Handle,
     stream: Arc<ServiceStream>,
     multiplexer: Arc<ServiceMultiplexer>,
     terminal_id: TerminalPublicId,
@@ -834,7 +861,7 @@ impl CmuxTerminalClient {
         *self.state.lock().unwrap() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
-            &self.runtime,
+            self.runtime.handle(),
             stream,
             self.multiplexer.clone(),
             terminal_id,
@@ -970,7 +997,7 @@ unsafe fn connect_terminal_client(
                 }
             });
             let terminal = start_terminal_tasks(
-                &runtime,
+                runtime.handle(),
                 stream,
                 multiplexer.clone(),
                 terminal_id,
@@ -1949,7 +1976,7 @@ mod tests {
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
             let active = start_terminal_tasks(
-                &runtime,
+                runtime.handle(),
                 stream,
                 client.clone(),
                 terminal_id,
@@ -2022,7 +2049,7 @@ mod tests {
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
             let active = start_terminal_tasks(
-                &runtime,
+                runtime.handle(),
                 stream,
                 client.clone(),
                 terminal_id,

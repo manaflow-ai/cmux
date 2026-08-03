@@ -10,7 +10,7 @@ pub mod daemon;
 pub mod http;
 pub mod identity;
 pub mod link;
-mod mux_codec;
+pub mod mux_codec;
 mod mux_input;
 mod mux_lanes;
 pub mod observability;

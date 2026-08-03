@@ -6941,6 +6941,16 @@
               "name": "float64"
             }
           },
+          "viewport_width": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0.1,
+              "maximum": 1.0
+            },
+            "description": "When present with direction right, creates a horizontal viewport column at this viewport-relative width instead of an ordinary split."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -6976,6 +6986,7 @@
         "extra": false,
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
+          "viewport_width requires direction right and is finite from 0.1 through 1.0.",
           "cols and rows are paired."
         ]
       },

@@ -10,7 +10,72 @@ extern "C" {
 #endif
 
 typedef struct CmuxTerminalClient CmuxTerminalClient;
+typedef struct CmuxFrontendClient CmuxFrontendClient;
+typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
+
+// Native frontend API. One enrolled client owns resource control plus any
+// number of terminal renderer attachments. Disconnect every terminal before
+// disconnecting its client.
+CmuxFrontendClient *cmux_frontend_client_connect_with_timeout(
+    const char *invitation_uri,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
+void cmux_frontend_client_set_update_callback(
+    const CmuxFrontendClient *client,
+    CmuxTerminalClientUpdateCallback callback,
+    void *context);
+char *cmux_frontend_client_request(
+    CmuxFrontendClient *client,
+    const char *operation,
+    const char *params_json,
+    bool mutation,
+    char *error_buffer,
+    size_t error_capacity);
+void cmux_frontend_string_free(char *value);
+CmuxFrontendTerminal *cmux_frontend_client_attach_terminal(
+    CmuxFrontendClient *client,
+    const char *terminal_id,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
+size_t cmux_frontend_client_copy_diagnostics(
+    const CmuxFrontendClient *client,
+    char *buffer,
+    size_t capacity);
+void cmux_frontend_client_disconnect(CmuxFrontendClient *client);
+
+void cmux_frontend_terminal_set_update_callback(
+    const CmuxFrontendTerminal *terminal,
+    CmuxTerminalClientUpdateCallback callback,
+    void *context);
+bool cmux_frontend_terminal_send(
+    CmuxFrontendTerminal *terminal,
+    const uint8_t *bytes,
+    size_t length);
+bool cmux_frontend_terminal_send_key(
+    CmuxFrontendTerminal *terminal,
+    const char *chord,
+    bool repeat);
+bool cmux_frontend_terminal_paste(
+    CmuxFrontendTerminal *terminal,
+    const uint8_t *bytes,
+    size_t length);
+bool cmux_frontend_terminal_resize(
+    CmuxFrontendTerminal *terminal,
+    uint16_t cols,
+    uint16_t rows);
+size_t cmux_frontend_terminal_copy_frame(
+    const CmuxFrontendTerminal *terminal,
+    char *buffer,
+    size_t capacity);
+size_t cmux_frontend_terminal_copy_diagnostics(
+    const CmuxFrontendTerminal *terminal,
+    char *buffer,
+    size_t capacity);
+bool cmux_frontend_terminal_has_exited(const CmuxFrontendTerminal *terminal);
+void cmux_frontend_terminal_disconnect(CmuxFrontendTerminal *terminal);
 
 CmuxTerminalClient *cmux_terminal_client_connect(
     const char *invitation_uri,

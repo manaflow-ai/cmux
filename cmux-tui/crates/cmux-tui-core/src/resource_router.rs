@@ -648,6 +648,15 @@ fn validate_operation_constraints(
                     "ratio must be greater than zero and less than one",
                 ));
             }
+            if operation == ResourceOperation::PaneSplit
+                && fields.contains_key("viewport_width")
+                && fields.get("direction").and_then(Value::as_str) != Some("right")
+            {
+                return Err(invalid_value(
+                    "pane.split.viewport_width",
+                    "viewport_width requires direction right",
+                ));
+            }
         }
         ResourceOperation::BrowserInputMouse => validate_browser_mouse(fields)?,
         ResourceOperation::TerminalInputMouse => validate_terminal_mouse(fields)?,
@@ -1792,6 +1801,55 @@ mod tests {
         assert_eq!(renamed["result"]["value"]["name"], "renamed");
         assert_eq!(renamed["result"]["value"]["id"], workspace_id);
         assert_eq!(renamed["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn pane_split_exposes_horizontal_viewport_column_creation() {
+        let mux = test_mux();
+        mux.new_workspace(Some("Viewport".into()), None).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let pane = initial["panes"][0]["id"].as_str().unwrap();
+
+        let invalid = parse_resource_request(&request(
+            "viewport-invalid",
+            "pane.split",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "pane":pane,
+                "direction":"down",
+                "viewport_width":0.66,
+            }),
+            Some("viewport-invalid-key"),
+        ))
+        .unwrap_err();
+        assert_eq!(invalid.code, "validation.invalid");
+
+        let created = handle_resource_message(
+            &mux,
+            &request(
+                "viewport-create",
+                "pane.split",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "pane":pane,
+                    "direction":"right",
+                    "viewport_width":0.66,
+                }),
+                Some("viewport-create-key"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(created["ok"], true);
+        assert!(created["result"]["value"]["pane_id"].as_str().unwrap().starts_with("pane_"));
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let root = &snapshot["screens"][0]["layout"]["root"];
+        assert_eq!(root["kind"], "viewport");
+        assert_eq!(root["columns"].as_array().unwrap().len(), 2);
+        let width = root["columns"][1]["width"].as_f64().unwrap();
+        assert!((width - 0.66).abs() < 0.000_001);
     }
 
     #[test]
