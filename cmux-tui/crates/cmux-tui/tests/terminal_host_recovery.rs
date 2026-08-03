@@ -1838,6 +1838,60 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
 }
 
 #[test]
+fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology() {
+    let harness = RecoveryHarness::start("reserved-short-lived-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Short-lived",
+            "key":"018f6e21-7b70-7e70-8000-000000000046",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"018f6e21-7b70-7e70-8000-000000000046",
+        "argv":["/bin/sh","-c","exit 17"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["already_exited"], true);
+    assert_eq!(first["lifecycle"], "exited");
+    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    assert_eq!(first["surface"], serde_json::Value::Null);
+    assert_eq!(first["pane"], serde_json::Value::Null);
+    assert_eq!(first["screen"], serde_json::Value::Null);
+    assert_eq!(first["workspace"], serde_json::Value::Null);
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["already_exited"], true);
+    assert_eq!(retry["lifecycle"], "exited");
+    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["surface"], serde_json::Value::Null);
+    assert_eq!(retry["pane"], serde_json::Value::Null);
+    assert_eq!(retry["screen"], serde_json::Value::Null);
+    assert_eq!(retry["workspace"], serde_json::Value::Null);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     let harness = RecoveryHarness::start("stalled-renderer");
     let created = request(
@@ -2686,7 +2740,7 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
         std::thread::sleep(Duration::from_millis(25));
-    };
+    }
     wait_for_no_host_records(&harness.host_root());
     let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = recovered["workspaces"]
