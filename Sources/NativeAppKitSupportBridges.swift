@@ -705,14 +705,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 paneOwnershipOverride: configuration.paneOwnershipOverride,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
-        case .project:
-            guard let projectPanel = panel as? ProjectPanel else { return setEmpty() }
-            rootView = AnyView(ProjectPanelView(
-                panel: projectPanel,
-                isFocused: configuration.isFocused,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
-        case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
+        case .project, .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
              .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading,
              .workspaceTodo:
             setEmpty()
