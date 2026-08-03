@@ -2128,15 +2128,15 @@ fn apply_journal_hook_context(
     let object = event
         .as_object_mut()
         .ok_or_else(|| UsageError::new("--event-json must contain a JSON object"))?;
-    if let Some(causation_id) = causation_id {
-        if object.get("causation_id").is_none_or(Value::is_null) {
-            object.insert("causation_id".into(), Value::String(causation_id.into()));
-        }
+    if let Some(causation_id) = causation_id
+        && object.get("causation_id").is_none_or(Value::is_null)
+    {
+        object.insert("causation_id".into(), Value::String(causation_id.into()));
     }
-    if let Some(correlation_id) = correlation_id {
-        if object.get("correlation_id").is_none_or(Value::is_null) {
-            object.insert("correlation_id".into(), Value::String(correlation_id.into()));
-        }
+    if let Some(correlation_id) = correlation_id
+        && object.get("correlation_id").is_none_or(Value::is_null)
+    {
+        object.insert("correlation_id".into(), Value::String(correlation_id.into()));
     }
     if let Some(hook_id) = hook_id {
         let subjects = object.entry("subjects").or_insert_with(|| Value::Array(Vec::new()));
