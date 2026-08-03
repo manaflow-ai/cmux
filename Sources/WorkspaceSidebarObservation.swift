@@ -3,7 +3,6 @@ import CmuxCore
 import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
-import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
@@ -13,146 +12,114 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
-extension View {
-    /// Observes row-affecting workspace publishers above the lazy-list boundary.
-    ///
-    /// Each task retains the workspace identity that produced a change, so a
-    /// status/metadata/title update rebuilds one immutable row projection
-    /// instead of walking every workspace. The initial CombineLatest value is
-    /// intentionally delivered: it closes the gap between the owner's first
-    /// snapshot and subscription setup, while the snapshot equality guard makes
-    /// an unchanged initial value a no-op.
-    func sidebarWorkspaceObservations(
+@MainActor
+enum WorkspaceSidebarObservationTasks {
+    static func observeWorkspaces(
         ids: [UUID],
         workspaces: [Workspace],
         debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
         onChange: @MainActor @escaping (UUID) -> Void
-    ) -> some View {
-        task(id: ids) { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (id, workspace) in zip(ids, workspaces) {
-                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
-                    let debouncedChanges = workspace.sidebarObservationPublisher
-                        // DispatchQueue.main, not RunLoop.main: the RunLoop
-                        // scheduler delivers only in the DEFAULT runloop mode,
-                        // so modal panels (rename alert), context menus, and
-                        // drag tracking stalled every sidebar row update until
-                        // the mode unwound. Main-queue delivery is mode-agnostic.
-                        .receive(on: DispatchQueue.main)
-                        .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
-                        .values
-                    group.addTask { @MainActor in
-                        for await _ in immediateChanges {
-                            if Task.isCancelled { break }
-                            onChange(id)
-                        }
+    ) async {
+        await withDiscardingTaskGroup { group in
+            for (id, workspace) in zip(ids, workspaces) {
+                let immediateChanges = workspace.sidebarImmediateObservationPublisher.values
+                let debouncedChanges = workspace.sidebarObservationPublisher
+                    .receive(on: DispatchQueue.main)
+                    .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
+                    .values
+                group.addTask { @MainActor in
+                    for await _ in immediateChanges {
+                        if Task.isCancelled { break }
+                        onChange(id)
                     }
-                    group.addTask { @MainActor in
-                        for await _ in debouncedChanges {
-                            if Task.isCancelled { break }
-                            onChange(id)
-                        }
+                }
+                group.addTask { @MainActor in
+                    for await _ in debouncedChanges {
+                        if Task.isCancelled { break }
+                        onChange(id)
                     }
                 }
             }
         }
     }
 
-    func sidebarAgentRuntimeObservation(
-        id: UUID,
+    static func observeAgentRuntime(
         model: WorkspaceSidebarAgentRuntimeObservationModel,
         onChange: @MainActor @escaping () -> Void
-    ) -> some View {
-        task(id: id) { @MainActor in
-            for await _ in model.changes() {
-                if Task.isCancelled { break }
-                onChange()
-            }
+    ) async {
+        for await _ in model.changes() {
+            if Task.isCancelled { break }
+            onChange()
         }
     }
 
-    func sidebarProcessTitleObservation(
-        id: UUID,
+    static func observeProcessTitle(
         model: WorkspaceSidebarProcessTitleObservationModel,
         onChange: @MainActor @escaping () -> Void
-    ) -> some View {
-        task(id: id) { @MainActor in
-            for await _ in model.changes() {
-                if Task.isCancelled { break }
-                onChange()
-            }
+    ) async {
+        for await _ in model.changes() {
+            if Task.isCancelled { break }
+            onChange()
         }
     }
 
-    func sidebarProcessTitleObservations(
-        ids: [UUID],
+    static func observeAggregateProcessTitles(
         models: [WorkspaceSidebarProcessTitleObservationModel],
         onChange: @MainActor @escaping () -> Void
-    ) -> some View {
-        task(id: ids) { @MainActor in
-            let aggregateObservation = WorkspaceSidebarProcessTitleObservationModel(
-                settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
-            )
-            let aggregateChanges = aggregateObservation.changes()
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    for await _ in aggregateChanges {
-                        if Task.isCancelled { break }
-                        onChange()
-                    }
+    ) async {
+        let aggregateObservation = WorkspaceSidebarProcessTitleObservationModel(
+            settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
+        )
+        let aggregateChanges = aggregateObservation.changes()
+        await withDiscardingTaskGroup { group in
+            group.addTask { @MainActor in
+                for await _ in aggregateChanges {
+                    if Task.isCancelled { break }
+                    onChange()
                 }
-                for model in models {
-                    let changes = model.changes()
-                    group.addTask { @MainActor in
-                        for await _ in changes {
-                            if Task.isCancelled { break }
-                            aggregateObservation.processTitleDidChange()
-                        }
+            }
+            for model in models {
+                let changes = model.changes()
+                group.addTask { @MainActor in
+                    for await _ in changes {
+                        if Task.isCancelled { break }
+                        aggregateObservation.processTitleDidChange()
                     }
                 }
             }
         }
     }
 
-    /// Observes every default-sidebar workspace above the lazy row boundary.
-    /// The callback identifies the changed workspace so the owner can rebuild
-    /// its immutable projection without mounting an observation task per row.
-    func sidebarProcessTitleObservations(
+    static func observeProcessTitles(
         ids: [UUID],
         models: [WorkspaceSidebarProcessTitleObservationModel],
         onChange: @MainActor @escaping (UUID) -> Void
-    ) -> some View {
-        task(id: ids) { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (id, model) in zip(ids, models) {
-                    let changes = model.changes()
-                    group.addTask { @MainActor in
-                        for await _ in changes {
-                            if Task.isCancelled { break }
-                            onChange(id)
-                        }
+    ) async {
+        await withDiscardingTaskGroup { group in
+            for (id, model) in zip(ids, models) {
+                let changes = model.changes()
+                group.addTask { @MainActor in
+                    for await _ in changes {
+                        if Task.isCancelled { break }
+                        onChange(id)
                     }
                 }
             }
         }
     }
 
-    /// Agent-runtime counterpart to ``sidebarProcessTitleObservations(ids:models:onChange:)``.
-    func sidebarAgentRuntimeObservations(
+    static func observeAgentRuntimes(
         ids: [UUID],
         models: [WorkspaceSidebarAgentRuntimeObservationModel],
         onChange: @MainActor @escaping (UUID) -> Void
-    ) -> some View {
-        task(id: ids) { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (id, model) in zip(ids, models) {
-                    let changes = model.changes()
-                    group.addTask { @MainActor in
-                        for await _ in changes {
-                            if Task.isCancelled { break }
-                            onChange(id)
-                        }
+    ) async {
+        await withDiscardingTaskGroup { group in
+            for (id, model) in zip(ids, models) {
+                let changes = model.changes()
+                group.addTask { @MainActor in
+                    for await _ in changes {
+                        if Task.isCancelled { break }
+                        onChange(id)
                     }
                 }
             }

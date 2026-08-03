@@ -1,5 +1,6 @@
 import Bonsplit
 import AVKit
+import Combine
 import CmuxAppKitSupportUI
 import CmuxFeedback
 import CmuxFoundation
@@ -13,6 +14,85 @@ import CmuxSwiftRenderUI
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
 import SwiftUI
+
+extension View {
+    func sidebarWorkspaceObservations(
+        ids: [UUID],
+        workspaces: [Workspace],
+        debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeWorkspaces(
+                ids: ids,
+                workspaces: workspaces,
+                debouncedInterval: debouncedInterval,
+                onChange: onChange
+            )
+        }
+    }
+
+    func sidebarAgentRuntimeObservation(
+        id: UUID,
+        model: WorkspaceSidebarAgentRuntimeObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeAgentRuntime(model: model, onChange: onChange)
+        }
+    }
+
+    func sidebarProcessTitleObservation(
+        id: UUID,
+        model: WorkspaceSidebarProcessTitleObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeProcessTitle(model: model, onChange: onChange)
+        }
+    }
+
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeAggregateProcessTitles(
+                models: models,
+                onChange: onChange
+            )
+        }
+    }
+
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeProcessTitles(
+                ids: ids,
+                models: models,
+                onChange: onChange
+            )
+        }
+    }
+
+    func sidebarAgentRuntimeObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarAgentRuntimeObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await WorkspaceSidebarObservationTasks.observeAgentRuntimes(
+                ids: ids,
+                models: models,
+                onChange: onChange
+            )
+        }
+    }
+}
 
 private extension Font.Weight {
     var nsFontWeight: NSFont.Weight {
