@@ -91,6 +91,10 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
             snapshot = replacement
             installHandler?(replacement)
         }
+        guard generation == requestedGeneration else {
+            beginLoad(generation: requestedGeneration)
+            return
+        }
         isLoading = false
         let waiters = idleWaiters
         idleWaiters.removeAll()
