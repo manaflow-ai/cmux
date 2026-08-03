@@ -64,6 +64,32 @@ def main() -> int:
                 len(nested_items) == 1 and isinstance(nested_items[0], dict),
                 f"Expected DOMRect dictionary inside array: {nested_result}",
             )
+
+            cross_realm_result = client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": """
+                    (() => {
+                      const frame = document.createElement('iframe');
+                      document.body.appendChild(frame);
+                      const rect = frame.contentDocument.documentElement.getBoundingClientRect();
+                      const isCrossRealm = !(rect instanceof DOMRectReadOnly);
+                      frame.remove();
+                      return {isCrossRealm, rect};
+                    })()
+                    """,
+                },
+            ) or {}
+            cross_realm_value = _value(cross_realm_result) or {}
+            _must(
+                cross_realm_value.get("isCrossRealm") is True,
+                f"Expected iframe DOMRect to come from another JavaScript realm: {cross_realm_result}",
+            )
+            _must(
+                isinstance(cross_realm_value.get("rect"), dict),
+                f"Expected cross-realm DOMRect dictionary: {cross_realm_result}",
+            )
         finally:
             if surface_id:
                 try:
