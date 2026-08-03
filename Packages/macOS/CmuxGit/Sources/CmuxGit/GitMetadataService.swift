@@ -153,7 +153,10 @@ public struct GitMetadataService: Sendable {
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: resolvedReferences.headSignature
+            headSignature: resolvedReferences.headSignature,
+            repositoryLink: Self.gitRemoteVOutput(repository: repository).flatMap {
+                Self.repositoryLink(fromGitRemoteVOutput: $0)
+            }
         )
     }
 

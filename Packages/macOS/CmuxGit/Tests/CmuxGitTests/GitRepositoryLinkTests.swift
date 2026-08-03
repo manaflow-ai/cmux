@@ -1,0 +1,100 @@
+import Foundation
+import Testing
+@testable import CmuxGit
+
+@Suite struct GitRepositoryLinkTests {
+    @Test(arguments: [
+        ("origin\thttps://github.com/manaflow-ai/cmux.git (fetch)\n", "manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux"),
+        ("origin\thttp://git.example.com/group/repo.git (fetch)\n", "group/repo", "http://git.example.com/group/repo"),
+        ("origin\tgit@gitlab.example.com:group/subgroup/repo.git (fetch)\n", "group/subgroup/repo", "https://gitlab.example.com/group/subgroup/repo"),
+        ("origin\tssh://deploy@git.example.com/group/repo.git?token=secret#fragment (fetch)\n", "group/repo", "https://git.example.com/group/repo"),
+        ("origin\tgit://bitbucket.example.com/team/repo.git (fetch)\n", "team/repo", "https://bitbucket.example.com/team/repo"),
+    ])
+    func normalizesBrowsableRemote(output: String, displayName: String, url: String) {
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.displayName == displayName)
+        #expect(link?.url.absoluteString == url)
+    }
+
+    @Test(arguments: [
+        "/local/repo.git",
+        "../repo",
+        "file:///tmp/repo.git",
+        "ftp://host/repo.git",
+        "https:///group/repo.git",
+        "ssh://git@/group/repo.git",
+    ])
+    func rejectsNonBrowsableRemote(remoteURL: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
+    @Test func ignoresPushOnlyRemotes() {
+        let output = "origin\thttps://github.com/manaflow-ai/cmux.git (push)\n"
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
+    @Test func prefersOriginOverUpstream() {
+        let output = """
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "origin")
+        #expect(link?.displayName == "fork/cmux")
+    }
+
+    @Test func prefersUpstreamOverAlphabeticFallback() {
+        let output = """
+        backup\thttps://github.com/backup/cmux.git (fetch)
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "upstream")
+    }
+
+    @Test func ordersFallbackRemotesCaseInsensitivelyWithCaseSensitiveTieBreak() {
+        let output = """
+        zebra\thttps://github.com/zebra/cmux.git (fetch)
+        Alpha\thttps://github.com/upper/cmux.git (fetch)
+        alpha\thttps://github.com/lower/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "Alpha")
+    }
+
+    @Test func ignoresDuplicateRemoteLines() {
+        let output = """
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        origin\thttps://github.com/fork/cmux.git (fetch)
+        upstream\thttps://github.com/canonical/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "origin")
+        #expect(link?.url.absoluteString == "https://github.com/fork/cmux")
+    }
+
+    @Test func fallsThroughInvalidOriginToValidUpstream() {
+        let output = """
+        origin\tfile:///tmp/cmux.git (fetch)
+        upstream\thttps://github.com/manaflow-ai/cmux.git (fetch)
+        """
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.remoteName == "upstream")
+    }
+
+    @Test func attachesRepositoryLinkToWorkspaceMetadata() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = git@gitlab.example.com:group/subgroup/repo.git
+        """)
+
+        let metadata = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.repositoryLink?.remoteName == "origin")
+        #expect(metadata.repositoryLink?.displayName == "group/subgroup/repo")
+        #expect(metadata.repositoryLink?.url.absoluteString == "https://gitlab.example.com/group/subgroup/repo")
+    }
+}
