@@ -3622,6 +3622,12 @@ class TerminalController {
         controlCommandCoordinator.resolveRef(handle)
     }
 
+    /// Resolves a handle ref that arrived under a specific param key, restricted
+    /// to the handle kinds that key accepts.
+    func v2ResolveHandleRef(_ handle: String, forParamKey key: String) -> UUID? {
+        controlCommandCoordinator.resolveRef(handle, forParamKey: key)
+    }
+
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2MainSync { v2EnsureHandleRef(kind: kind, uuid: uuid) }

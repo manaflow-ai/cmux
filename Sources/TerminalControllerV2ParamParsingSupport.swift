@@ -89,7 +89,11 @@ extension TerminalController {
         if let uuid = UUID(uuidString: s) {
             return uuid
         }
-        return v2MainSync { v2ResolveHandleRef(s) }
+        // A `kind:N` ref only resolves for the kinds this param key expects, so a
+        // wrong-kind ref (`group_id: "surface:1"`) fails outright instead of
+        // resolving, missing its lookup, and degrading to the active window
+        // (https://github.com/manaflow-ai/cmux/issues/9424).
+        return v2MainSync { v2ResolveHandleRef(s, forParamKey: key) }
     }
 
     func v2UUIDAny(_ raw: Any?) -> UUID? {

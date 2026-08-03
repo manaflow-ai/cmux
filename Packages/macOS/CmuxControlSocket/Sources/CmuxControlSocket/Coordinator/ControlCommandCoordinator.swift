@@ -242,13 +242,59 @@ public final class ControlCommandCoordinator {
 
     /// A UUID param, accepting either a UUID string or a `kind:N` ref resolved
     /// through the handle registry (matches legacy `v2UUID`).
+    ///
+    /// A `kind:N` ref only resolves when it was minted for one of the kinds the
+    /// param key expects, so `group_id: "surface:1"` no longer resolves to a
+    /// surface, misses its group lookup, and degrades to the active window
+    /// (https://github.com/manaflow-ai/cmux/issues/9424). Keys with no declared
+    /// expectation (`id`, notification/todo ids) keep the unrestricted search.
     func uuid(_ params: [String: JSONValue], _ key: String) -> UUID? {
         guard let raw = string(params, key) else { return nil }
         if let parsed = UUID(uuidString: raw) {
             return parsed
         }
-        return handles.uuid(forRef: raw)
+        return resolveRef(raw, forParamKey: key)
     }
+
+    /// Resolves a `kind:N` ref for a named param key, restricted to the handle
+    /// kinds that key accepts. Unknown keys keep the unrestricted search.
+    ///
+    /// - Parameters:
+    ///   - ref: The ref string.
+    ///   - key: The param key the ref arrived under.
+    /// - Returns: The identifier, or `nil` if unknown or of the wrong kind.
+    public func resolveRef(_ ref: String, forParamKey key: String) -> UUID? {
+        guard let kinds = Self.expectedHandleKinds[key] else {
+            return handles.uuid(forRef: ref)
+        }
+        return handles.uuid(forRef: ref, kinds: kinds)
+    }
+
+    /// The handle kinds each routing/target param key accepts as a `kind:N` ref.
+    ///
+    /// Only the two aliases the protocol really uses are widened: `tab:N` for
+    /// surfaces (handled inside the registry), and a *window* identity passed as
+    /// `workspace_id`, which the Window Dock does legitimately.
+    static let expectedHandleKinds: [String: [ControlHandleKind]] = [
+        "window_id": [.window],
+        "workspace_id": [.workspace, .window],
+        "reference_workspace_id": [.workspace, .window],
+        "before_workspace_id": [.workspace, .window],
+        "after_workspace_id": [.workspace, .window],
+        "_cmux_remote_workspace_id": [.workspace],
+        "group_id": [.workspaceGroup],
+        "before_group_id": [.workspaceGroup],
+        "after_group_id": [.workspaceGroup],
+        "pane_id": [.pane],
+        "target_pane_id": [.pane],
+        "surface_id": [.surface],
+        "target_surface_id": [.surface],
+        "before_surface_id": [.surface],
+        "after_surface_id": [.surface],
+        "terminal_id": [.surface],
+        "tab_id": [.surface],
+        "panel_id": [.surface],
+    ]
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).

@@ -82,4 +82,21 @@ struct ControlCommandCoordinatorRoutingKindTests {
                 == handles.window
         )
     }
+
+    @Test func registryRejectsRefsOutsideTheRequestedKinds() {
+        var registry = ControlHandleRegistry()
+        let surfaceID = UUID()
+        let paneID = UUID()
+        _ = registry.ensureRef(kind: .surface, uuid: surfaceID)
+        _ = registry.ensureRef(kind: .pane, uuid: paneID)
+
+        #expect(registry.uuid(forRef: "surface:1", kinds: [.surface]) == surfaceID)
+        #expect(registry.uuid(forRef: "tab:1", kinds: [.surface]) == surfaceID)
+        #expect(registry.uuid(forRef: "surface:1", kinds: [.pane]) == nil)
+        #expect(registry.uuid(forRef: "tab:1", kinds: [.pane]) == nil)
+        #expect(registry.uuid(forRef: "pane:1", kinds: [.pane, .surface]) == paneID)
+        #expect(registry.uuid(forRef: "pane:1", kinds: []) == nil)
+        // The unrestricted overload is unchanged for kind-agnostic callers.
+        #expect(registry.uuid(forRef: "pane:1") == paneID)
+    }
 }
