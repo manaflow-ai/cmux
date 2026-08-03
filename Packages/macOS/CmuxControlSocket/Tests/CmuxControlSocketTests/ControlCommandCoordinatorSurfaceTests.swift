@@ -648,8 +648,10 @@ struct ControlCommandCoordinatorSurfaceTests {
             overlay: ControlSurfaceOverlaySnapshot(
                 id: "agent.latest-message",
                 text: "keep this visible",
-                anchor: .viewportTop,
-                alignment: .right
+                anchor: .scrollbackSticky,
+                alignment: .right,
+                scrollbackRow: 42,
+                rowSpaceRevision: 7
             )
         )
         let coordinator = ControlCommandCoordinator(context: context)
@@ -672,7 +674,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.overlayInvocation?.action == .set(ControlSurfaceOverlaySetInputs(
             id: "agent.latest-message",
             text: "keep this visible",
-            anchor: .viewportTop,
+            anchor: .scrollbackSticky,
             alignment: .right
         )))
         guard case .ok(.object(let payload)) = result,
@@ -684,8 +686,10 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
         #expect(payload["surface_id"] == .string(surfaceID.uuidString))
         #expect(overlay["id"] == .string("agent.latest-message"))
-        #expect(overlay["anchor"] == .string("viewport"))
+        #expect(overlay["anchor"] == .string("sticky"))
         #expect(overlay["position"] == .string("right"))
+        #expect(overlay["scrollback_row"] == .int(42))
+        #expect(overlay["row_space_revision"] == .int(7))
     }
 
     @Test func surfaceOverlayListExposesResolvedScrollbackAnchor() {

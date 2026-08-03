@@ -4,6 +4,7 @@ public import Foundation
 public enum ControlSurfaceOverlayAnchor: String, Equatable, Sendable {
     case viewportTop
     case scrollbackTop
+    case scrollbackSticky
 }
 
 /// Producer-facing horizontal placement accepted by `surface.overlay.set`.

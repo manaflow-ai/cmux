@@ -39,7 +39,7 @@ extension TerminalController {
             ),
             invalidAnchorFormat: String(
                 localized: "socket.surfaceOverlay.error.invalidAnchorFormat",
-                defaultValue: "Unknown overlay anchor '%@'; use viewport or scrollback"
+                defaultValue: "Unknown overlay anchor '%@'; use viewport, scrollback, or sticky"
             ),
             invalidAlignmentFormat: String(
                 localized: "socket.surfaceOverlay.error.invalidPositionFormat",
@@ -143,10 +143,15 @@ extension TerminalController {
         case .set(let inputs):
             let request: TerminalOverlayRequest
             do {
+                let anchor: TerminalOverlayRequestedAnchor = switch inputs.anchor {
+                case .viewportTop: .viewportTop
+                case .scrollbackTop: .scrollbackTop
+                case .scrollbackSticky: .scrollbackSticky
+                }
                 request = try TerminalOverlayRequest(
                     id: inputs.id,
                     text: inputs.text,
-                    anchor: inputs.anchor == .viewportTop ? .viewportTop : .scrollbackTop,
+                    anchor: anchor,
                     horizontalAlignment: terminalOverlayAlignment(inputs.alignment)
                 )
             } catch let error as TerminalOverlayValidationError {
@@ -230,11 +235,11 @@ extension TerminalController {
                 anchor: .viewportTop,
                 alignment: alignment
             )
-        case .scrollback(let row, let rowSpaceRevision):
+        case .scrollback(let row, let rowSpaceRevision, let sticksToViewportTop):
             return ControlSurfaceOverlaySnapshot(
                 id: overlay.id,
                 text: overlay.text,
-                anchor: .scrollbackTop,
+                anchor: sticksToViewportTop ? .scrollbackSticky : .scrollbackTop,
                 alignment: alignment,
                 scrollbackRow: row,
                 rowSpaceRevision: rowSpaceRevision

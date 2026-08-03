@@ -9,13 +9,14 @@ extension CMUXCLI {
     static let surfaceOverlayCommandHelp = String(
         localized: "cli.surfaceOverlay.help",
         defaultValue: """
-        Usage: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback>] [--position <left|center|right>] [target flags]
+        Usage: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback|sticky>] [--position <left|center|right>] [target flags]
                cmux surface overlay list [target flags]
                cmux surface overlay remove <id> [target flags]
                cmux surface overlay clear [target flags]
 
-        Render passive text above a terminal without taking keyboard or mouse input.
-        A viewport overlay stays at the visible top. A scrollback overlay captures the current top row.
+        Render passive one-row strips over a terminal without taking keyboard or mouse input.
+        Viewport stays at the visible top. Scrollback stays at the captured top row.
+        Sticky follows the captured row, then pins when that row reaches the viewport top.
 
         Target flags:
           --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
@@ -23,8 +24,8 @@ extension CMUXCLI {
           --window <id|ref|index>      Window context for workspace and surface refs/indexes
 
         Set flags:
-          --anchor <viewport|scrollback>   Vertical anchor (default: viewport)
-          --position <left|center|right>   Horizontal position (default: center)
+          --anchor <viewport|scrollback|sticky>   Vertical anchor (default: viewport)
+          --position <left|center|right>   Text alignment (default: center)
 
         Use '-' as text to read the overlay from standard input.
 
@@ -32,6 +33,7 @@ extension CMUXCLI {
           cmux surface overlay set latest-message "check the auth error"
           printf 'build\\npassed' | cmux surface overlay set build-status - --position right
           cmux surface overlay set review-note "inspect this output" --anchor scrollback --position left
+          cmux surface overlay set latest-message "keep this visible" --anchor sticky --position left
         """
     )
 
@@ -185,8 +187,8 @@ extension CMUXCLI {
                 "surface_id": surfaceId,
                 "overlay_id": "agent.codex.latest-user-message",
                 "text": boundedPrompt,
-                "anchor": "viewport",
-                "position": "center",
+                "anchor": "sticky",
+                "position": "left",
             ]
         )
     }

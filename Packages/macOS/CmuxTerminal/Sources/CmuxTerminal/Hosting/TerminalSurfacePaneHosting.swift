@@ -42,7 +42,9 @@ public protocol TerminalSurfacePaneHosting: NSView {
     ///
     /// Returns `nil` until the runtime has established authoritative scrollback
     /// geometry. Viewport-sticky overlays do not require this capture.
-    func captureTerminalOverlayScrollbackAnchor() -> TerminalOverlayAnchor?
+    func captureTerminalOverlayScrollbackAnchor(
+        sticksToViewportTop: Bool
+    ) -> TerminalOverlayAnchor?
 
     /// Applies the complete retained overlay snapshot for this surface.
     func setTerminalOverlays(_ overlays: [TerminalOverlay])

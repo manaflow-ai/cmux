@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import Foundation
 import Testing
 
 @Suite struct TerminalOverlayTests {
@@ -66,5 +67,100 @@ import Testing
             topPadding: 10,
             overlayHeight: 100
         ) == nil)
+    }
+
+    @Test func removesScrollbackAnchorsAfterRowSpaceInvalidation() throws {
+        let viewport = try TerminalOverlayRequest(id: "viewport", text: "always")
+            .resolved(anchor: .viewportTop)
+        let anchored = try TerminalOverlayRequest(id: "anchored", text: "row")
+            .resolved(anchor: .scrollback(
+                row: 20,
+                rowSpaceRevision: 7,
+                sticksToViewportTop: false
+            ))
+        let sticky = try TerminalOverlayRequest(id: "sticky", text: "pin")
+            .resolved(anchor: .scrollback(
+                row: 30,
+                rowSpaceRevision: 8,
+                sticksToViewportTop: true
+            ))
+        var store = TerminalOverlayStore(overlays: [viewport, anchored, sticky])
+
+        let removed = store.removeInvalidatedScrollbackAnchors(
+            currentRowSpaceRevision: 8
+        )
+
+        #expect(removed == ["anchored"])
+        #expect(store.overlays.map(\.id) == ["viewport", "sticky"])
+    }
+
+    @Test func stickyScrollbackRowsHideFollowAndPin() {
+        let common = (
+            row: 40,
+            capturedRowSpaceRevision: UInt64(7),
+            sticksToViewportTop: true,
+            visibleRows: 20,
+            totalRows: 100,
+            currentRowSpaceRevision: UInt64(7)
+        )
+
+        #expect(TerminalOverlayGeometry.scrollbackPlacement(
+            row: common.row,
+            capturedRowSpaceRevision: common.capturedRowSpaceRevision,
+            sticksToViewportTop: common.sticksToViewportTop,
+            viewportTopRow: 10,
+            visibleRows: common.visibleRows,
+            totalRows: common.totalRows,
+            currentRowSpaceRevision: common.currentRowSpaceRevision
+        ) == .hidden)
+        #expect(TerminalOverlayGeometry.scrollbackPlacement(
+            row: common.row,
+            capturedRowSpaceRevision: common.capturedRowSpaceRevision,
+            sticksToViewportTop: common.sticksToViewportTop,
+            viewportTopRow: 30,
+            visibleRows: common.visibleRows,
+            totalRows: common.totalRows,
+            currentRowSpaceRevision: common.currentRowSpaceRevision
+        ) == .document)
+        #expect(TerminalOverlayGeometry.scrollbackPlacement(
+            row: common.row,
+            capturedRowSpaceRevision: common.capturedRowSpaceRevision,
+            sticksToViewportTop: common.sticksToViewportTop,
+            viewportTopRow: 40,
+            visibleRows: common.visibleRows,
+            totalRows: common.totalRows,
+            currentRowSpaceRevision: common.currentRowSpaceRevision
+        ) == .viewportTop)
+        #expect(TerminalOverlayGeometry.scrollbackPlacement(
+            row: common.row,
+            capturedRowSpaceRevision: common.capturedRowSpaceRevision,
+            sticksToViewportTop: common.sticksToViewportTop,
+            viewportTopRow: 41,
+            visibleRows: common.visibleRows,
+            totalRows: common.totalRows,
+            currentRowSpaceRevision: common.currentRowSpaceRevision
+        ) == .viewportTop)
+        #expect(TerminalOverlayGeometry.scrollbackPlacement(
+            row: common.row,
+            capturedRowSpaceRevision: common.capturedRowSpaceRevision,
+            sticksToViewportTop: common.sticksToViewportTop,
+            viewportTopRow: 41,
+            visibleRows: common.visibleRows,
+            totalRows: common.totalRows,
+            currentRowSpaceRevision: 8
+        ) == .invalidated)
+    }
+
+    @Test func stripFrameMatchesOneTerminalGridRow() throws {
+        let frame = try #require(TerminalOverlayGeometry.gridStripFrame(
+            containerFrame: CGRect(x: 12, y: 20, width: 820, height: 500),
+            columns: 80,
+            cellSize: CGSize(width: 10, height: 21),
+            leftPadding: 5,
+            topPadding: 7,
+            stackIndex: 1
+        ))
+
+        #expect(frame == CGRect(x: 17, y: 471, width: 800, height: 21))
     }
 }

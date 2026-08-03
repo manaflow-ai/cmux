@@ -11,10 +11,12 @@ public enum TerminalOverlayHorizontalAlignment: String, CaseIterable, Hashable, 
 ///
 /// `scrollbackTop` captures the first visible terminal row when the overlay is
 /// created. The resolved overlay then stays attached to that row rather than
-/// following the viewport.
+/// following the viewport. `scrollbackSticky` captures the same row, follows
+/// it while visible, and pins to the viewport top when that row reaches it.
 public enum TerminalOverlayRequestedAnchor: String, CaseIterable, Hashable, Sendable {
     case viewportTop
     case scrollbackTop
+    case scrollbackSticky
 }
 
 /// The resolved vertical anchor of one terminal overlay.
@@ -22,8 +24,9 @@ public enum TerminalOverlayAnchor: Equatable, Hashable, Sendable {
     /// Follows the top edge of the visible terminal viewport.
     case viewportTop
 
-    /// Follows one absolute Ghostty row while its row-space revision remains valid.
-    case scrollback(row: Int, rowSpaceRevision: UInt64)
+    /// Follows one absolute Ghostty row while its row-space revision remains
+    /// valid. Sticky rows pin when they reach the viewport top.
+    case scrollback(row: Int, rowSpaceRevision: UInt64, sticksToViewportTop: Bool)
 }
 
 /// Validation failures for producer-supplied terminal overlay content.
@@ -199,6 +202,43 @@ public struct TerminalOverlayStore: Equatable, Sendable {
         overlays.removeAll(keepingCapacity: true)
         return count
     }
+
+    /// Removes scrollback overlays whose absolute row space is no longer valid.
+    ///
+    /// Ghostty changes this revision after reflow, reset, or bounded-scrollback
+    /// eviction. Those operations can renumber rows without exposing a stable
+    /// row identity, so retaining the old anchor could attach it to unrelated
+    /// output.
+    @discardableResult
+    public mutating func removeInvalidatedScrollbackAnchors(
+        currentRowSpaceRevision: UInt64
+    ) -> [String] {
+        var removedIDs: [String] = []
+        overlays.removeAll { overlay in
+            guard case .scrollback(_, let revision, _) = overlay.anchor,
+                  revision != currentRowSpaceRevision else {
+                return false
+            }
+            removedIDs.append(overlay.id)
+            return true
+        }
+        return removedIDs
+    }
+}
+
+/// Where a scrollback overlay belongs for one authoritative viewport snapshot.
+public enum TerminalOverlayScrollbackPlacement: Equatable, Sendable {
+    /// The captured row space or row no longer exists.
+    case invalidated
+
+    /// A sticky row is below the visible viewport and should not render yet.
+    case hidden
+
+    /// The strip follows its captured row in the scrollback document.
+    case document
+
+    /// The captured row is above the viewport, so the strip pins to its top.
+    case viewportTop
 }
 
 /// Pure placement calculations shared by the AppKit renderer and package tests.
@@ -242,5 +282,67 @@ public enum TerminalOverlayGeometry {
             return nil
         }
         return documentHeight - max(0, topPadding) - CGFloat(row) * cellHeight - overlayHeight
+    }
+
+    /// Resolves sticky and non-sticky behavior without depending on AppKit.
+    public static func scrollbackPlacement(
+        row: Int,
+        capturedRowSpaceRevision: UInt64,
+        sticksToViewportTop: Bool,
+        viewportTopRow: Int,
+        visibleRows: Int,
+        totalRows: Int,
+        currentRowSpaceRevision: UInt64
+    ) -> TerminalOverlayScrollbackPlacement {
+        guard capturedRowSpaceRevision == currentRowSpaceRevision,
+              row >= 0,
+              row < totalRows else {
+            return .invalidated
+        }
+        guard sticksToViewportTop else { return .document }
+        guard visibleRows > 0 else { return .hidden }
+        if row <= viewportTopRow {
+            return .viewportTop
+        }
+        if row - viewportTopRow >= visibleRows {
+            return .hidden
+        }
+        return .document
+    }
+
+    /// Returns a full terminal-grid strip exactly one cell row high.
+    public static func gridStripFrame(
+        containerFrame: CGRect,
+        columns: Int,
+        cellSize: CGSize,
+        leftPadding: CGFloat,
+        topPadding: CGFloat,
+        stackIndex: Int
+    ) -> CGRect? {
+        guard containerFrame.width.isFinite,
+              containerFrame.height.isFinite,
+              columns > 0,
+              cellSize.width.isFinite,
+              cellSize.width > 0,
+              cellSize.height.isFinite,
+              cellSize.height > 0,
+              leftPadding.isFinite,
+              topPadding.isFinite,
+              stackIndex >= 0 else {
+            return nil
+        }
+        let safeLeftPadding = max(0, leftPadding)
+        let availableWidth = max(0, containerFrame.width - safeLeftPadding)
+        let width = min(availableWidth, CGFloat(columns) * cellSize.width)
+        let originY = containerFrame.maxY
+            - max(0, topPadding)
+            - CGFloat(stackIndex + 1) * cellSize.height
+        guard width > 0, originY >= containerFrame.minY else { return nil }
+        return CGRect(
+            x: containerFrame.minX + safeLeftPadding,
+            y: originY,
+            width: width,
+            height: cellSize.height
+        )
     }
 }

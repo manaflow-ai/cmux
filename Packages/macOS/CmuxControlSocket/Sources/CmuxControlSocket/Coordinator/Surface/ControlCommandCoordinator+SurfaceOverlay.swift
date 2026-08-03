@@ -7,10 +7,12 @@ extension ControlCommandCoordinator {
         let rawAnchor = optionalTrimmedRawString(params, "anchor") ?? "viewport"
         let anchor: ControlSurfaceOverlayAnchor
         switch rawAnchor.lowercased() {
-        case "viewport", "viewport-top", "sticky":
+        case "viewport", "viewport-top":
             anchor = .viewportTop
         case "scrollback", "scrollback-top":
             anchor = .scrollbackTop
+        case "sticky", "scrollback-sticky":
+            anchor = .scrollbackSticky
         default:
             return overlayValidationError(.invalidAnchor(rawAnchor))
         }
@@ -169,10 +171,15 @@ extension ControlCommandCoordinator {
     }
 
     private func surfaceOverlayPayload(_ overlay: ControlSurfaceOverlaySnapshot) -> JSONValue {
-        .object([
+        let anchor = switch overlay.anchor {
+        case .viewportTop: "viewport"
+        case .scrollbackTop: "scrollback"
+        case .scrollbackSticky: "sticky"
+        }
+        return .object([
             "id": .string(overlay.id),
             "text": .string(overlay.text),
-            "anchor": .string(overlay.anchor == .viewportTop ? "viewport" : "scrollback"),
+            "anchor": .string(anchor),
             "position": .string(overlay.alignment.rawValue),
             "scrollback_row": overlay.scrollbackRow.map { .int(Int64($0)) } ?? .null,
             "row_space_revision": overlay.rowSpaceRevision.map { .int(Int64(clamping: $0)) } ?? .null,

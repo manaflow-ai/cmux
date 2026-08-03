@@ -4,13 +4,7 @@ import CmuxTerminalCore
 import GhosttyKit
 
 @MainActor
-final class TerminalOverlayCardView: NSVisualEffectView {
-    private enum Metrics {
-        static let horizontalPadding: CGFloat = 12
-        static let verticalPadding: CGFloat = 9
-        static let minimumContentWidth: CGFloat = 96
-    }
-
+final class TerminalOverlayLineView: NSVisualEffectView {
     private let label = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -18,21 +12,17 @@ final class TerminalOverlayCardView: NSVisualEffectView {
         material = .hudWindow
         blendingMode = .withinWindow
         state = .active
-        alphaValue = 0.96
-        wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.masksToBounds = true
+        alphaValue = 0.92
 
         label.isEditable = false
         label.isSelectable = false
         label.drawsBackground = false
         label.isBezeled = false
-        label.usesSingleLineMode = false
-        label.lineBreakMode = .byWordWrapping
-        label.cell?.wraps = true
+        label.usesSingleLineMode = true
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.wraps = false
         label.textColor = .labelColor
         addSubview(label)
-        updateBorderColor()
     }
 
     required init?(coder: NSCoder) {
@@ -45,84 +35,73 @@ final class TerminalOverlayCardView: NSVisualEffectView {
         nil
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateBorderColor()
-    }
-
     func apply(
         _ overlay: TerminalOverlay,
         cellSize: CGSize,
-        availableWidth: CGFloat
+        stripWidth: CGFloat
     ) -> CGSize {
         let cellWidth = cellSize.width > 0 ? cellSize.width : 8
         let cellHeight = cellSize.height > 0 ? cellSize.height : 18
-        let fontSize = max(10, min(20, cellHeight * 0.72))
-        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium)
-        let maximumCardWidth = min(
-            max(0, availableWidth - 16),
-            CGFloat(overlay.maximumWidthColumns) * cellWidth + Metrics.horizontalPadding * 2
-        )
-        guard maximumCardWidth > Metrics.horizontalPadding * 2 else { return .zero }
-
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let naturalLineWidth = overlay.text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line in
-                ceil((String(line) as NSString).size(withAttributes: attributes).width)
-            }
-            .max() ?? Metrics.minimumContentWidth
-        // `NSTextFieldCell` keeps a small horizontal text inset even for a
-        // borderless label. Reserve one terminal cell so the final word does
-        // not wrap into a clipped second line when the measured text otherwise
-        // fits exactly.
+        guard stripWidth > 0 else { return .zero }
+        let horizontalInset = min(cellWidth, stripWidth / 4)
+        let availableContentWidth = max(0, stripWidth - horizontalInset * 2)
         let contentWidth = min(
-            maximumCardWidth - Metrics.horizontalPadding * 2,
-            max(Metrics.minimumContentWidth, naturalLineWidth + cellWidth)
+            availableContentWidth,
+            CGFloat(overlay.maximumWidthColumns) * cellWidth
         )
-        let measuredTextWidth = max(1, contentWidth - cellWidth)
-        let maximumContentHeight = CGFloat(overlay.maximumHeightRows) * cellHeight
-        let measured = (overlay.text as NSString).boundingRect(
-            with: CGSize(width: measuredTextWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes
-        )
-        let contentHeight = min(maximumContentHeight, max(cellHeight, ceil(measured.height)))
-        let size = CGSize(
-            width: contentWidth + Metrics.horizontalPadding * 2,
-            height: contentHeight + Metrics.verticalPadding * 2
-        )
+        guard contentWidth > 0 else { return .zero }
+        let contentOriginX: CGFloat
+        switch overlay.horizontalAlignment {
+        case .left:
+            contentOriginX = horizontalInset
+            label.alignment = .left
+        case .center:
+            contentOriginX = max(0, (stripWidth - contentWidth) / 2)
+            label.alignment = .center
+        case .right:
+            contentOriginX = max(0, stripWidth - horizontalInset - contentWidth)
+            label.alignment = .right
+        }
 
-        label.stringValue = overlay.text
-        label.font = font
-        label.maximumNumberOfLines = overlay.maximumHeightRows
+        let displayText = overlay.text
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        label.stringValue = displayText
+        label.font = NSFont.monospacedSystemFont(
+            ofSize: max(9, min(18, cellHeight * 0.65)),
+            weight: .regular
+        )
+        label.maximumNumberOfLines = 1
         label.frame = CGRect(
-            x: Metrics.horizontalPadding,
-            y: Metrics.verticalPadding,
+            x: contentOriginX,
+            y: 0,
             width: contentWidth,
-            height: contentHeight
+            height: cellHeight
         )
         label.identifier = NSUserInterfaceItemIdentifier("terminal-overlay-\(overlay.id)")
         label.setAccessibilityIdentifier("terminal-overlay-\(overlay.id)")
-        label.setAccessibilityLabel(overlay.text)
-        return size
-    }
-
-    private func updateBorderColor() {
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.65).cgColor
+        label.setAccessibilityLabel(displayText)
+        return CGSize(width: stripWidth, height: cellHeight)
     }
 }
 
 private struct TerminalOverlayGridMetrics {
+    let columns: Int
     let cellSize: CGSize
+    let leftPadding: CGFloat
     let topPadding: CGFloat
 }
 
 private struct ScrollbackOverlayStackKey: Hashable {
     let row: Int
     let rowSpaceRevision: UInt64
-    let alignment: TerminalOverlayHorizontalAlignment
+}
+
+private struct ScrollbackOverlayLinePlacement {
+    let line: TerminalOverlayLineView
+    let row: Int
+    let rowSpaceRevision: UInt64
+    let size: CGSize
 }
 
 @MainActor
@@ -137,14 +116,17 @@ extension GhosttyNSView {
               native.cell_width > 0,
               native.cell_height.isFinite,
               native.cell_height > 0,
+              native.padding_left.isFinite,
               native.padding_top.isFinite else {
             return nil
         }
         return TerminalOverlayGridMetrics(
+            columns: Int(native.columns),
             cellSize: CGSize(
                 width: CGFloat(native.cell_width),
                 height: CGFloat(native.cell_height)
             ),
+            leftPadding: max(0, CGFloat(native.padding_left)),
             topPadding: max(0, CGFloat(native.padding_top))
         )
     }
@@ -152,19 +134,17 @@ extension GhosttyNSView {
 
 @MainActor
 extension GhosttySurfaceScrollView {
-    private enum OverlayMetrics {
-        static let edgeMargin: CGFloat = 8
-        static let stackSpacing: CGFloat = 6
-    }
-
-    func captureTerminalOverlayScrollbackAnchor() -> TerminalOverlayAnchor? {
+    func captureTerminalOverlayScrollbackAnchor(
+        sticksToViewportTop: Bool
+    ) -> TerminalOverlayAnchor? {
         guard let geometry = surfaceView.authoritativeScrollbarGeometry(),
               geometry.scrollbar.len > 0 else {
             return nil
         }
         return .scrollback(
             row: Int(clamping: geometry.scrollbar.offset),
-            rowSpaceRevision: geometry.rowSpaceRevision
+            rowSpaceRevision: geometry.rowSpaceRevision,
+            sticksToViewportTop: sticksToViewportTop
         )
     }
 
@@ -177,7 +157,7 @@ extension GhosttySurfaceScrollView {
             terminalOverlayViews.removeValue(forKey: id)
         }
         for overlay in overlays where terminalOverlayViews[overlay.id] == nil {
-            terminalOverlayViews[overlay.id] = TerminalOverlayCardView(frame: .zero)
+            terminalOverlayViews[overlay.id] = TerminalOverlayLineView(frame: .zero)
         }
         synchronizeTerminalOverlays()
     }
@@ -187,102 +167,145 @@ extension GhosttySurfaceScrollView {
 
         let gridMetrics = surfaceView.terminalOverlayGridMetrics()
         let cellSize = gridMetrics?.cellSize ?? surfaceView.cellSize
-        var viewportStackOffsets: [TerminalOverlayHorizontalAlignment: CGFloat] = [:]
-        var scrollbackStackOffsets: [ScrollbackOverlayStackKey: CGFloat] = [:]
+        guard cellSize.width > 0, cellSize.height > 0 else { return }
+        let fallbackColumns = max(1, Int(sessionContentFrame.width / cellSize.width))
+        let columns = gridMetrics?.columns ?? fallbackColumns
+        let leftPadding = gridMetrics?.leftPadding ?? 0
+        let topPadding = gridMetrics?.topPadding ?? 0
+        var viewportLines: [TerminalOverlayLineView] = []
+        var scrollbackLines: [ScrollbackOverlayLinePlacement] = []
         let scrollbackGeometry = renderedTerminalOverlays.contains(where: {
             if case .scrollback = $0.anchor { return true }
             return false
         }) ? surfaceView.authoritativeScrollbarGeometry() : nil
-        let topPadding = gridMetrics?.topPadding ?? 0
+
+        if let scrollbackGeometry,
+           renderedTerminalOverlays.contains(where: { overlay in
+               guard case .scrollback(_, let revision, _) = overlay.anchor else { return false }
+               return revision != scrollbackGeometry.rowSpaceRevision
+           }),
+           let terminalSurface = surfaceView.terminalSurface,
+           !terminalSurface.removeInvalidatedTerminalOverlayAnchors(
+               currentRowSpaceRevision: scrollbackGeometry.rowSpaceRevision
+           ).isEmpty {
+            return
+        }
 
         for overlay in renderedTerminalOverlays {
-            guard let card = terminalOverlayViews[overlay.id] else { continue }
-            let availableWidth: CGFloat
+            guard let line = terminalOverlayViews[overlay.id] else { continue }
+            let containerWidth: CGFloat
             switch overlay.anchor {
             case .viewportTop:
-                availableWidth = sessionContentFrame.width
+                containerWidth = sessionContentFrame.width
             case .scrollback:
-                availableWidth = documentView.bounds.width
+                containerWidth = documentView.bounds.width
             }
-            let cardSize = card.apply(
+            let stripWidth = min(
+                max(0, containerWidth - leftPadding),
+                CGFloat(columns) * cellSize.width
+            )
+            let lineSize = line.apply(
                 overlay,
                 cellSize: cellSize,
-                availableWidth: availableWidth
+                stripWidth: stripWidth
             )
-            guard cardSize.width > 0, cardSize.height > 0 else {
-                card.isHidden = true
+            guard lineSize.width > 0, lineSize.height > 0 else {
+                line.isHidden = true
                 continue
             }
 
             switch overlay.anchor {
             case .viewportTop:
-                if card.superview !== self {
-                    card.removeFromSuperview()
-                    addSubview(card, positioned: .above, relativeTo: scrollView)
-                }
-                let stackOffset = viewportStackOffsets[overlay.horizontalAlignment, default: 0]
-                let localX = TerminalOverlayGeometry.horizontalOrigin(
-                    containerWidth: sessionContentFrame.width,
-                    overlayWidth: cardSize.width,
-                    alignment: overlay.horizontalAlignment,
-                    margin: OverlayMetrics.edgeMargin
-                )
-                let originY = sessionContentFrame.maxY
-                    - OverlayMetrics.edgeMargin
-                    - stackOffset
-                    - cardSize.height
-                card.frame = CGRect(
-                    x: sessionContentFrame.minX + localX,
-                    y: originY,
-                    width: cardSize.width,
-                    height: cardSize.height
-                )
-                card.isHidden = originY < sessionContentFrame.minY
-                viewportStackOffsets[overlay.horizontalAlignment] = stackOffset
-                    + cardSize.height
-                    + OverlayMetrics.stackSpacing
+                attachTerminalOverlayLineToViewport(line)
+                viewportLines.append(line)
 
-            case .scrollback(let row, let rowSpaceRevision):
-                if card.superview !== documentView {
-                    card.removeFromSuperview()
-                    documentView.addSubview(card, positioned: .above, relativeTo: surfaceView)
-                }
+            case .scrollback(let row, let rowSpaceRevision, let sticksToViewportTop):
                 guard let geometry = scrollbackGeometry,
-                      geometry.rowSpaceRevision == rowSpaceRevision,
-                      let originY = TerminalOverlayGeometry.scrollbackOverlayOriginY(
-                          documentHeight: documentHeight(),
-                          row: row,
-                          totalRows: Int(clamping: geometry.scrollbar.total),
-                          cellHeight: cellSize.height,
-                          topPadding: topPadding,
-                          overlayHeight: cardSize.height
-                      ) else {
-                    card.isHidden = true
+                      geometry.scrollbar.len > 0 else {
+                    line.isHidden = true
                     continue
                 }
-                let stackKey = ScrollbackOverlayStackKey(
+                let placement = TerminalOverlayGeometry.scrollbackPlacement(
                     row: row,
-                    rowSpaceRevision: rowSpaceRevision,
-                    alignment: overlay.horizontalAlignment
+                    capturedRowSpaceRevision: rowSpaceRevision,
+                    sticksToViewportTop: sticksToViewportTop,
+                    viewportTopRow: Int(clamping: geometry.scrollbar.offset),
+                    visibleRows: Int(clamping: geometry.scrollbar.len),
+                    totalRows: Int(clamping: geometry.scrollbar.total),
+                    currentRowSpaceRevision: geometry.rowSpaceRevision
                 )
-                let stackOffset = scrollbackStackOffsets[stackKey, default: 0]
-                let originX = TerminalOverlayGeometry.horizontalOrigin(
-                    containerWidth: documentView.bounds.width,
-                    overlayWidth: cardSize.width,
-                    alignment: overlay.horizontalAlignment,
-                    margin: OverlayMetrics.edgeMargin
-                )
-                card.frame = CGRect(
-                    x: originX,
-                    y: originY - stackOffset,
-                    width: cardSize.width,
-                    height: cardSize.height
-                )
-                card.isHidden = false
-                scrollbackStackOffsets[stackKey] = stackOffset
-                    + cardSize.height
-                    + OverlayMetrics.stackSpacing
+                switch placement {
+                case .invalidated, .hidden:
+                    line.isHidden = true
+
+                case .viewportTop:
+                    attachTerminalOverlayLineToViewport(line)
+                    viewportLines.append(line)
+
+                case .document:
+                    if line.superview !== documentView {
+                        line.removeFromSuperview()
+                        documentView.addSubview(line, positioned: .above, relativeTo: surfaceView)
+                    }
+                    scrollbackLines.append(ScrollbackOverlayLinePlacement(
+                        line: line,
+                        row: row,
+                        rowSpaceRevision: rowSpaceRevision,
+                        size: lineSize
+                    ))
+                }
             }
+        }
+
+        for (stackIndex, line) in viewportLines.enumerated() {
+            guard let frame = TerminalOverlayGeometry.gridStripFrame(
+                containerFrame: sessionContentFrame,
+                columns: columns,
+                cellSize: cellSize,
+                leftPadding: leftPadding,
+                topPadding: topPadding,
+                stackIndex: stackIndex
+            ) else {
+                line.isHidden = true
+                continue
+            }
+            line.frame = frame
+            line.isHidden = false
+        }
+
+        var scrollbackStackIndexes: [ScrollbackOverlayStackKey: Int] = [:]
+        for placement in scrollbackLines {
+            let stackKey = ScrollbackOverlayStackKey(
+                row: placement.row,
+                rowSpaceRevision: placement.rowSpaceRevision
+            )
+            let stackIndex = scrollbackStackIndexes[stackKey, default: 0]
+            guard let originY = TerminalOverlayGeometry.scrollbackOverlayOriginY(
+                documentHeight: documentHeight(),
+                row: placement.row,
+                totalRows: Int(clamping: scrollbackGeometry?.scrollbar.total ?? 0),
+                cellHeight: cellSize.height,
+                topPadding: topPadding,
+                overlayHeight: placement.size.height
+            ) else {
+                placement.line.isHidden = true
+                continue
+            }
+            placement.line.frame = CGRect(
+                x: leftPadding,
+                y: originY - CGFloat(stackIndex) * cellSize.height,
+                width: placement.size.width,
+                height: placement.size.height
+            )
+            placement.line.isHidden = false
+            scrollbackStackIndexes[stackKey] = stackIndex + 1
+        }
+    }
+
+    private func attachTerminalOverlayLineToViewport(_ line: TerminalOverlayLineView) {
+        if line.superview !== self {
+            line.removeFromSuperview()
+            addSubview(line, positioned: .above, relativeTo: scrollView)
         }
     }
 }

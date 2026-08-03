@@ -216,8 +216,8 @@ final class AutomationSocketUITests: XCTestCase {
                     "surface_id": surfaceID,
                     "overlay_id": overlayID,
                     "text": initialText,
-                    "anchor": "viewport",
-                    "position": "center",
+                    "anchor": "sticky",
+                    "position": "left",
                 ]
             ),
             "Expected surface.overlay.set to succeed"
@@ -233,6 +233,36 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected the passive terminal overlay card to render"
         )
         XCTAssertEqual(card.label, initialText)
+
+        let secondOverlayID = "xcuitest.build-status"
+        let secondText = "Build passed"
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.set",
+                params: [
+                    "surface_id": surfaceID,
+                    "overlay_id": secondOverlayID,
+                    "text": secondText,
+                    "anchor": "viewport",
+                    "position": "right",
+                ]
+            ),
+            "Expected a second keyed terminal overlay to render"
+        )
+        let secondLine = app.staticTexts["terminal-overlay-\(secondOverlayID)"]
+        XCTAssertTrue(
+            secondLine.waitForExistence(timeout: 8.0),
+            "Expected both terminal overlay lines to coexist"
+        )
+        XCTAssertEqual(secondLine.label, secondText)
+        XCTAssertEqual(card.frame.height, secondLine.frame.height, accuracy: 1.0)
+        XCTAssertLessThanOrEqual(card.frame.height, 32.0, "Each overlay should occupy one terminal row")
+        XCTAssertEqual(
+            abs(card.frame.minY - secondLine.frame.minY),
+            card.frame.height,
+            accuracy: 2.0,
+            "Multiple top overlays should stack on adjacent terminal rows"
+        )
 
         let updatedText = "Latest user message: rerun the focused test"
         _ = try XCTUnwrap(
@@ -262,8 +292,10 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected surface.overlay.list to succeed"
         )
         let overlays = listed["overlays"] as? [[String: Any]] ?? []
-        XCTAssertEqual(overlays.count, 1, "A keyed update must replace rather than duplicate")
-        XCTAssertEqual(overlays.first?["position"] as? String, "right")
+        XCTAssertEqual(overlays.count, 2, "Multiple keys coexist and a keyed update replaces in place")
+        let updatedOverlay = overlays.first { $0["id"] as? String == overlayID }
+        XCTAssertEqual(updatedOverlay?["position"] as? String, "right")
+        XCTAssertEqual(updatedOverlay?["anchor"] as? String, "viewport")
 
         let removed = try XCTUnwrap(
             socketResult(
@@ -278,6 +310,15 @@ final class AutomationSocketUITests: XCTestCase {
             evaluatedWith: card
         )
         wait(for: [disappeared], timeout: 8.0)
+        XCTAssertTrue(secondLine.exists, "Removing one key must preserve the other overlay")
+
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.overlay.clear",
+                params: ["surface_id": surfaceID]
+            ),
+            "Expected surface.overlay.clear to remove remaining lines"
+        )
     }
 
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {

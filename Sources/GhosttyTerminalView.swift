@@ -8236,7 +8236,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
-    var terminalOverlayViews: [String: TerminalOverlayCardView] = [:]
+    var terminalOverlayViews: [String: TerminalOverlayLineView] = [:]
     var renderedTerminalOverlays: [TerminalOverlay] = []
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()

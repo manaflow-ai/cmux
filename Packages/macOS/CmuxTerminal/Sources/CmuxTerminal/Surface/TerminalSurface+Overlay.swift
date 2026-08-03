@@ -15,8 +15,10 @@ extension TerminalSurface {
         switch request.anchor {
         case .viewportTop:
             resolvedAnchor = .viewportTop
-        case .scrollbackTop:
-            guard let captured = paneHost.captureTerminalOverlayScrollbackAnchor() else {
+        case .scrollbackTop, .scrollbackSticky:
+            guard let captured = paneHost.captureTerminalOverlayScrollbackAnchor(
+                sticksToViewportTop: request.anchor == .scrollbackSticky
+            ) else {
                 return .failure(.scrollbackGeometryUnavailable)
             }
             resolvedAnchor = captured
@@ -54,5 +56,24 @@ extension TerminalSurface {
             paneHost.setTerminalOverlays([])
         }
         return count
+    }
+
+    /// Drops absolute-row overlays after Ghostty invalidates their row space.
+    ///
+    /// Reflow and bounded-scrollback eviction can renumber rows without a
+    /// persistent row identity. Removing the stale resource is safer than
+    /// rendering it over unrelated output.
+    @MainActor
+    @discardableResult
+    public func removeInvalidatedTerminalOverlayAnchors(
+        currentRowSpaceRevision: UInt64
+    ) -> [String] {
+        let removedIDs = terminalOverlayStore.removeInvalidatedScrollbackAnchors(
+            currentRowSpaceRevision: currentRowSpaceRevision
+        )
+        if !removedIDs.isEmpty {
+            paneHost.setTerminalOverlays(terminalOverlayStore.overlays)
+        }
+        return removedIDs
     }
 }

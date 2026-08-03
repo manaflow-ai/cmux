@@ -35328,13 +35328,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback>] [--position <left|center|right>] [target flags]\n       cmux surface overlay list [target flags]\n       cmux surface overlay remove <id> [target flags]\n       cmux surface overlay clear [target flags]\n\nRender passive text above a terminal without taking keyboard or mouse input.\nA viewport overlay stays at the visible top. A scrollback overlay captures the current top row.\n\nTarget flags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Terminal context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n\nSet flags:\n  --anchor <viewport|scrollback>   Vertical anchor (default: viewport)\n  --position <left|center|right>   Horizontal position (default: center)\n\nUse '-' as text to read the overlay from standard input.\n\nExamples:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left"
+            "value": "Usage: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback|sticky>] [--position <left|center|right>] [target flags]\n       cmux surface overlay list [target flags]\n       cmux surface overlay remove <id> [target flags]\n       cmux surface overlay clear [target flags]\n\nRender passive one-row strips over a terminal without taking keyboard or mouse input.\nViewport stays at the visible top. Scrollback stays at the captured top row.\nSticky follows the captured row, then pins when that row reaches the viewport top.\n\nTarget flags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Terminal context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n\nSet flags:\n  --anchor <viewport|scrollback|sticky>   Vertical anchor (default: viewport)\n  --position <left|center|right>   Text alignment (default: center)\n\nUse '-' as text to read the overlay from standard input.\n\nExamples:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left\n  cmux surface overlay set latest-message \"keep this visible\" --anchor sticky --position left"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback>] [--position <left|center|right>] [対象フラグ]\n          cmux surface overlay list [対象フラグ]\n          cmux surface overlay remove <id> [対象フラグ]\n          cmux surface overlay clear [対象フラグ]\n\nキーボードやマウス入力を奪わず、ターミナルの上に受動的なテキストを表示します。\nviewport オーバーレイは表示領域の上端に残ります。scrollback オーバーレイは現在の上端行を基準に固定されます。\n\n対象フラグ:\n  --workspace <id|ref|index>   ワークスペース (既定: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     ターミナル (既定: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・インデックスに使うウインドウ\n\nset フラグ:\n  --anchor <viewport|scrollback>   垂直アンカー (既定: viewport)\n  --position <left|center|right>   水平位置 (既定: center)\n\nテキストに '-' を指定すると標準入力から読み取ります。\n\n例:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left"
+            "value": "使用方法: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback|sticky>] [--position <left|center|right>] [対象フラグ]\n          cmux surface overlay list [対象フラグ]\n          cmux surface overlay remove <id> [対象フラグ]\n          cmux surface overlay clear [対象フラグ]\n\nキーボードやマウス入力を奪わず、ターミナル上に受動的な1行ストリップを表示します。\nviewport は表示領域の上端に残ります。scrollback は取得した上端行に残ります。\nsticky は取得した行を追従し、その行が表示領域の上端に達すると固定されます。\n\n対象フラグ:\n  --workspace <id|ref|index>   ワークスペース (既定: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     ターミナル (既定: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・インデックスに使うウインドウ\n\nset フラグ:\n  --anchor <viewport|scrollback|sticky>   垂直アンカー (既定: viewport)\n  --position <left|center|right>   テキスト配置 (既定: center)\n\nテキストに '-' を指定すると標準入力から読み取ります。\n\n例:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left\n  cmux surface overlay set latest-message \"keep this visible\" --anchor sticky --position left"
           }
         }
       }
@@ -230356,13 +230356,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown overlay anchor '%@'; use viewport or scrollback"
+            "value": "Unknown overlay anchor '%@'; use viewport, scrollback, or sticky"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明なオーバーレイアンカー '%@' です。viewport または scrollback を使用してください"
+            "value": "不明なオーバーレイアンカー '%@' です。viewport、scrollback、または sticky を使用してください"
           }
         }
       }
