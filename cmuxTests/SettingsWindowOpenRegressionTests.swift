@@ -30,7 +30,11 @@ extension SettingsWindowSharedStateSuites {
 
             let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
             window.orderFrontRegardless()
-            for _ in 0..<20 { await Task.yield() }
+            #expect(await waitUntil {
+                window.isVisible && window.contentView?.window === window
+            })
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
 
             #expect(window.contentViewController == nil)
             #expect(window.contentView != nil)
@@ -38,8 +42,10 @@ extension SettingsWindowSharedStateSuites {
             window.orderOut(nil)
             window.contentViewController = nil
             window.contentView = nil
-            for _ in 0..<20 { await Task.yield() }
             window.close()
+            #expect(await waitUntil {
+                !window.isVisible && window.contentView == nil
+            })
         }
 
         @Test func showAlwaysProducesAVisibleSettingsWindow() {
@@ -57,15 +63,20 @@ extension SettingsWindowSharedStateSuites {
             defer { closeSettingsWindows() }
             let presenter = SettingsWindowPresenter()
 
-            presenter.show()
-            await drainMainQueue()
+            #expect(presenter.show() == .presented)
+            #expect(await waitUntil { visibleSettingsWindow() != nil })
             let firstWindow = visibleSettingsWindow()
             #expect(firstWindow != nil)
             firstWindow?.close()
-            await drainMainQueue()
+            #expect(await waitUntil {
+                firstWindow?.identifier == nil && firstWindow?.isVisible == false
+            })
 
-            presenter.show()
-            await drainMainQueue()
+            #expect(presenter.show() == .presented)
+            #expect(await waitUntil {
+                guard let window = visibleSettingsWindow() else { return false }
+                return window !== firstWindow
+            })
             let secondWindow = visibleSettingsWindow()
 
             #expect(secondWindow != nil)
@@ -161,8 +172,19 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        private func drainMainQueue() async {
-            for _ in 0..<20 { await Task.yield() }
+        private func waitUntil(
+            timeout: Duration = .seconds(2),
+            _ predicate: () -> Bool
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while clock.now < deadline {
+                if predicate() {
+                    return true
+                }
+                await Task.yield()
+            }
+            return predicate()
         }
     }
 }

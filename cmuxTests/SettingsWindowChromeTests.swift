@@ -26,13 +26,12 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
-        @Test func presenterBuildsNativeSplitViewChrome() async throws {
+        @Test func presenterBuildsNativeSplitViewChrome() throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
             let presenter = SettingsWindowPresenter()
             #expect(presenter.show() == .presented)
-            await drainMainQueue()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -78,13 +77,12 @@ extension SettingsWindowSharedStateSuites {
             )
         }
 
-        @Test func toolbarToggleSharesTheMenuCommandNotificationPath() async throws {
+        @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
             let presenter = SettingsWindowPresenter()
             #expect(presenter.show() == .presented)
-            await drainMainQueue()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -121,10 +119,6 @@ extension SettingsWindowSharedStateSuites {
                 window.close()
             }
             UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
-        }
-
-        private func drainMainQueue() async {
-            for _ in 0..<20 { await Task.yield() }
         }
     }
 }

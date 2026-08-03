@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Comprehensive v2 browser API coverage (ported from agent-browser test themes)."""
 
+import contextlib
+import http.server
 import os
 import sys
+import threading
 import time
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,10 +19,6 @@ SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 def _must(cond: bool, msg: str) -> None:
     if not cond:
         raise cmuxError(msg)
-
-
-def _data_url(html: str) -> str:
-    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
 
 
 def _wait_until(pred, timeout_s: float, label: str) -> None:
@@ -77,7 +75,7 @@ def _wait_with_fallback(c: cmux, surface_id: str, params: dict, pred, timeout_s:
     _wait_until(pred, timeout_s=timeout_s, label=f"{label} fallback")
 
 
-def _build_pages() -> tuple[str, str]:
+def _build_pages() -> dict[str, str]:
     page1 = """
 <!doctype html>
 <html>
@@ -139,13 +137,56 @@ def _build_pages() -> tuple[str, str]:
 </html>
 """.strip()
 
-    return _data_url(page1), _data_url(page2)
+    return {
+        "/probe.html": "<!doctype html><html><body><button id='probe'>P</button></body></html>",
+        "/cmux-browser-comprehensive-1.html": page1,
+        "/cmux-browser-comprehensive-2.html": page2,
+    }
+
+
+@contextlib.contextmanager
+def _serve_pages(pages: dict[str, str]):
+    encoded_pages = {path: html.encode("utf-8") for path, html in pages.items()}
+
+    class FixtureHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+            body = encoded_pages.get(path)
+            if body is None:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="cmux-browser-comprehensive-fixtures",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        port = int(server.server_address[1])
+        yield {path: f"http://127.0.0.1:{port}{path}" for path in pages}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+        _must(not thread.is_alive(), "Timed out stopping browser fixture server")
 
 
 def main() -> int:
-    page1_url, page2_url = _build_pages()
+    pages = _build_pages()
 
-    with cmux(SOCKET_PATH) as c:
+    with _serve_pages(pages) as page_urls, cmux(SOCKET_PATH) as c:
+        page1_url = page_urls["/cmux-browser-comprehensive-1.html"]
+        page2_url = page_urls["/cmux-browser-comprehensive-2.html"]
         opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
         sid = str(opened.get("surface_id") or "")
         sref = str(opened.get("surface_ref") or "")
@@ -154,7 +195,7 @@ def main() -> int:
         if sref:
             _ = c._call("browser.url.get", {"surface_id": sref})
 
-        probe_url = _data_url("<!doctype html><html><body><button id='probe'>P</button></body></html>")
+        probe_url = page_urls["/probe.html"]
         c._call("browser.navigate", {"surface_id": target, "url": probe_url})
         _wait_with_fallback(
             c,
@@ -193,10 +234,10 @@ def main() -> int:
         _wait_with_fallback(
             c,
             target,
-            {"url_contains": "data:text/html", "timeout_ms": 3000},
-            lambda: "data:text/html" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
+            {"url_contains": "cmux-browser-comprehensive-1.html", "timeout_ms": 3000},
+            lambda: "cmux-browser-comprehensive-1.html" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
             timeout_s=4.0,
-            label="browser.wait url_contains data:text/html",
+            label="browser.wait url_contains page1",
         )
 
         _wait_until(
@@ -206,7 +247,10 @@ def main() -> int:
             label="browser.get.title page1",
         )
         url_payload = c._call("browser.url.get", {"surface_id": target}) or {}
-        _must("data:text/html" in str(url_payload.get("url") or ""), f"Expected data URL from browser.url.get: {url_payload}")
+        _must(
+            "cmux-browser-comprehensive-1.html" in str(url_payload.get("url") or ""),
+            f"Expected fixture URL from browser.url.get: {url_payload}",
+        )
 
         c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "cmux"})
         c._call("browser.click", {"surface_id": target, "selector": "#btn"})

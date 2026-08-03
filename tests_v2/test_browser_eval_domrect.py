@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: browser.eval serializes direct and nested DOMRect values."""
+"""Regression: browser.eval returns bridge-safe JSON or explicit cycle errors."""
 
 import os
 import sys
@@ -19,6 +19,33 @@ def _must(condition: bool, message: str) -> None:
 
 def _value(payload: dict):
     return (payload or {}).get("value")
+
+
+def _expect_circular_reference_error(client: cmux, surface_id: str) -> None:
+    try:
+        client._call(
+            "browser.eval",
+            {
+                "surface_id": surface_id,
+                "script": "(() => { const value = {}; value.self = value; return value; })()",
+            },
+        )
+    except cmuxError as exc:
+        message = str(exc)
+        _must(
+            "circular_reference" in message,
+            f"Expected explicit circular_reference error, got: {message}",
+        )
+        _must(
+            "browser.eval result contains a circular reference" in message,
+            f"Expected deterministic circular-reference message, got: {message}",
+        )
+        _must(
+            "encode_error" not in message,
+            f"Circular values must be rejected before response encoding: {message}",
+        )
+        return
+    raise cmuxError("Expected browser.eval to reject a circular result")
 
 
 def main() -> int:
@@ -90,14 +117,37 @@ def main() -> int:
                 isinstance(cross_realm_value.get("rect"), dict),
                 f"Expected cross-realm DOMRect dictionary: {cross_realm_result}",
             )
+
+            repeated_alias_result = client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": """
+                    (() => {
+                      const shared = {answer: 42};
+                      return {first: shared, second: shared, items: [shared, shared]};
+                    })()
+                    """,
+                },
+            ) or {}
+            repeated_alias_value = _value(repeated_alias_result) or {}
+            expected_alias = {"answer": 42}
+            _must(
+                repeated_alias_value.get("first") == expected_alias
+                and repeated_alias_value.get("second") == expected_alias
+                and repeated_alias_value.get("items") == [expected_alias, expected_alias],
+                f"Expected repeated aliases to become JSON-safe copies: {repeated_alias_result}",
+            )
+
+            _expect_circular_reference_error(client, surface_id)
         finally:
             if surface_id:
                 try:
                     client._call("surface.close", {"surface_id": surface_id})
-                except cmuxError:
+                except (cmuxError, OSError):
                     pass
 
-    print("PASS: browser.eval serializes direct, nested, and cross-realm DOMRect values")
+    print("PASS: browser.eval returns bridge-safe DOMRects, aliases, and cycle errors")
     return 0
 
 
