@@ -23,7 +23,6 @@ struct FileDropOverlayViewTests {
             tabManager: tabManager,
             windowId: windowId
         )
-            .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())

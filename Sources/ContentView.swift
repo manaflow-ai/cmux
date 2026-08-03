@@ -1743,6 +1743,7 @@ struct ContentView: View {
     private var sidebarView: some View {
         let sidebar = VerticalTabsSidebar(
             updateViewModel: updateViewModel,
+            tabManager: tabManager,
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
@@ -1772,6 +1773,7 @@ struct ContentView: View {
                 sidebar
             }
         }
+        .environmentObject(tabManager)
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(SidebarPointerEventHost(
@@ -1898,7 +1900,10 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(selection: $sidebarSelectionState.selection)
+            NotificationsPage(
+                tabManager: tabManager,
+                selection: $sidebarSelectionState.selection
+            )
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
@@ -10539,6 +10544,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     var updateViewModel: UpdateStateModel
+    @ObservedObject var tabManager: TabManager
     // `SidebarFooter` owns this observation. A file-explorer width update must
     // not rebuild the O(workspaces) projection at this composition boundary.
     var fileExplorerState: FileExplorerState
@@ -10552,7 +10558,6 @@ struct VerticalTabsSidebar: View, Equatable {
     let onNewTab: () -> Void
     let observedWindowReference: WeakWindowReference
     var observedWindow: NSWindow? { observedWindowReference.window }
-    @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?

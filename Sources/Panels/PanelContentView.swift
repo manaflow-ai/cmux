@@ -108,6 +108,7 @@ struct PanelContentView: View {
             if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
                 RightSidebarToolPanelView(
                     panel: rightSidebarToolPanel,
+                    tabManager: customSidebarTabManager,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     appearance: appearance,

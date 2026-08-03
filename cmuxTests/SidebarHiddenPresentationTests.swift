@@ -214,7 +214,6 @@ struct SidebarHiddenPresentationTests {
             windowId: UUID(),
             featureFlags: featureFlags
         )
-            .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(SidebarSelectionState())

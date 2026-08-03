@@ -247,7 +247,6 @@ final class WorkspaceContentViewVisibilityTests {
             tabManager: tabManager,
             windowId: UUID()
         )
-            .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
@@ -324,7 +323,6 @@ final class WorkspaceContentViewVisibilityTests {
             tabManager: tabManager,
             windowId: UUID()
         )
-            .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
@@ -408,7 +406,6 @@ final class WorkspaceContentViewVisibilityTests {
             windowId: UUID(),
             sidebarUnread: unread
         )
-            .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
