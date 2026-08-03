@@ -174,6 +174,25 @@ import Testing
         ) == false)
     }
 
+    @Test(arguments: ["workspaces", "notifications"])
+    func notificationFeedPreviewSearchMountRaceAcceptsSupportedScopes(_ scope: String) {
+        #if DEBUG
+        #expect(UITestConfig.notificationFeedPreviewSearchMountRaceScope(
+            from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE": scope]
+        ) == scope)
+        #else
+        #expect(UITestConfig.notificationFeedPreviewSearchMountRaceScope(
+            from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE": scope]
+        ) == nil)
+        #endif
+    }
+
+    @Test func notificationFeedPreviewSearchMountRaceRejectsUnknownScope() {
+        #expect(UITestConfig.notificationFeedPreviewSearchMountRaceScope(
+            from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE": "all"]
+        ) == nil)
+    }
+
     @Test func taskComposerPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
         #if DEBUG

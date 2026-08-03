@@ -93,6 +93,9 @@ public struct NotificationFeedPreviewView: View {
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
         }
+        .task {
+            await reproduceSearchDestinationMountRaceIfEnabled()
+        }
     }
 
     /// The notifications-tab feed with the optional profiling scroll driver.
@@ -181,6 +184,30 @@ public struct NotificationFeedPreviewView: View {
         items = items.map { item in
             item.id == id ? item.updating(isRead: isRead) : item
         }
+    }
+
+    @MainActor
+    private func reproduceSearchDestinationMountRaceIfEnabled() async {
+        guard let rawScope = UITestConfig.notificationFeedPreviewSearchMountRaceScope else {
+            return
+        }
+        let targetScope: MobilePrimarySearchScope = rawScope == "notifications"
+            ? .notifications
+            : .workspaces
+
+        primarySearchCoordinator.synchronizeSelection(targetScope.primaryTab)
+        selectedTab = targetScope.primaryTab
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+
+        // Match the system ordering behind the reported race: Search begins
+        // presenting before TabView commits its Search-tab selection. When
+        // `.searchable` belongs to that not-yet-mounted destination, SwiftUI
+        // may install its fallback drawer on the active primary stack.
+        primarySearchCoordinator.setPresentation(true)
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        selectedTab = .search
     }
 
     private func consumePendingSearchNavigation(for tab: MobilePrimaryTab) {

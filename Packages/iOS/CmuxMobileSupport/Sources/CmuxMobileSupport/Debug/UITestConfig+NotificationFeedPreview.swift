@@ -53,4 +53,25 @@ extension UITestConfig {
         return false
         #endif
     }
+
+    /// The primary-search scope used to reproduce late Search-tab selection.
+    ///
+    /// `CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE` accepts
+    /// `workspaces` or `notifications`. The preview raises search presentation
+    /// before selecting Search, matching the system transition ordering.
+    public static var notificationFeedPreviewSearchMountRaceScope: String? {
+        notificationFeedPreviewSearchMountRaceScope(from: ProcessInfo.processInfo.environment)
+    }
+
+    static func notificationFeedPreviewSearchMountRaceScope(
+        from env: [String: String]
+    ) -> String? {
+        #if DEBUG
+        guard let scope = env["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE"],
+              scope == "workspaces" || scope == "notifications" else { return nil }
+        return scope
+        #else
+        return nil
+        #endif
+    }
 }

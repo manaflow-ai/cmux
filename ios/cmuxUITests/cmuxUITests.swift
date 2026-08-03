@@ -1406,6 +1406,105 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(searchMatches.count, 1)
     }
 
+    /// Regression: switching primary tabs could leave the Search tab's
+    /// `.searchable` configuration undiscovered while the new destination was
+    /// mounting. SwiftUI then rendered its fallback navigation-bar drawer at
+    /// the top while the detached Search control remained selected below.
+    @MainActor
+    func testSearchStaysInBottomTabBarAfterSwitchingPrimaryRoots() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached primary search control requires iOS 26.")
+        }
+        func launchFixture() -> XCUIApplication {
+            launchApp(mockData: false, environment: [
+                "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            ])
+        }
+
+        var app = launchFixture()
+        defer { app.terminate() }
+
+        func assertBottomSearch(
+            afterSelecting tabLabel: String,
+            prompt: String,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            let tab = app.tabBars.buttons[tabLabel]
+            XCTAssertTrue(waitForHittable(tab, timeout: 3), file: file, line: line)
+            tab.tap()
+
+            let searchButton = app.tabBars.buttons
+                .matching(NSPredicate(format: "label == %@", "Search"))
+                .firstMatch
+            XCTAssertTrue(searchButton.waitForExistence(timeout: 3), file: file, line: line)
+            searchButton.tap()
+
+            let searchFields = app.searchFields.matching(
+                NSPredicate(format: "label == %@", prompt)
+            )
+            let searchField = searchFields.firstMatch
+            XCTAssertTrue(searchField.waitForExistence(timeout: 3), file: file, line: line)
+            XCTAssertEqual(
+                searchFields.count,
+                1,
+                "Search must expose exactly one field after switching tabs.",
+                file: file,
+                line: line
+            )
+            guard let searchFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
+                return XCTFail("Search field had no usable frame.", file: file, line: line)
+            }
+            XCTAssertGreaterThan(
+                searchFrame.midY,
+                app.frame.midY,
+                "Search fell back to the top navigation drawer: \(searchFrame)",
+                file: file,
+                line: line
+            )
+        }
+
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 8))
+        workspacesTab.tap()
+        assertBottomSearch(afterSelecting: "Notifications", prompt: "Search notifications")
+
+        app.terminate()
+        app = launchFixture()
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 8))
+        assertBottomSearch(afterSelecting: "Workspaces", prompt: "Search workspaces")
+    }
+
+    /// Regression: native search presentation may begin before TabView commits
+    /// the Search selection while the destination-owned modifier is unmounted.
+    @MainActor
+    func testPresentationBeforeSearchSelectionStaysInBottomTabBar() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached primary search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_SEARCH_MOUNT_RACE": "workspaces",
+        ])
+        defer { app.terminate() }
+
+        let searchFields = app.searchFields.matching(
+            NSPredicate(format: "label == %@", "Search workspaces")
+        )
+        let searchField = searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 8))
+        XCTAssertEqual(searchFields.count, 1)
+        guard let searchFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
+            return XCTFail("Search field had no usable frame.")
+        }
+        XCTAssertGreaterThan(
+            searchFrame.midY,
+            app.frame.midY,
+            "Search fell back to the top navigation drawer: \(searchFrame)"
+        )
+    }
+
     @MainActor
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
