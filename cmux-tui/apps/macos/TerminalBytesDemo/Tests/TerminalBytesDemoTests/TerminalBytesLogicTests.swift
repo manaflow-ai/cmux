@@ -41,6 +41,25 @@ private final class LockedCounter: @unchecked Sendable {
     }
 }
 
+private final class LockedInputs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    @discardableResult
+    func record(_ value: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(value)
+        return storage.count
+    }
+}
+
 private final class LockedClientCalls: @unchecked Sendable {
     // NSLock protects all mutable storage. Pointers are recorded as integer
     // addresses so snapshots only contain Sendable values.
@@ -192,6 +211,37 @@ struct TerminalBytesLogicTests {
         #expect(
             terminalSelections(preserving: [], utf16Length: 0).map(\.rangeValue)
                 == [NSRange(location: 0, length: 0)]
+        )
+
+        #expect(
+            terminalSelections(
+                preserving: [NSValue(range: NSRange(location: 3, length: 2))],
+                applying: TerminalTextEdit(
+                    range: NSRange(location: 1, length: 0),
+                    replacement: "XX"
+                ),
+                utf16Length: 7
+            ).map(\.rangeValue) == [NSRange(location: 5, length: 2)]
+        )
+        #expect(
+            terminalSelections(
+                preserving: [NSValue(range: NSRange(location: 5, length: 2))],
+                applying: TerminalTextEdit(
+                    range: NSRange(location: 1, length: 2),
+                    replacement: ""
+                ),
+                utf16Length: 5
+            ).map(\.rangeValue) == [NSRange(location: 3, length: 2)]
+        )
+        #expect(
+            terminalSelections(
+                preserving: [NSValue(range: NSRange(location: 2, length: 4))],
+                applying: TerminalTextEdit(
+                    range: NSRange(location: 3, length: 3),
+                    replacement: "Q"
+                ),
+                utf16Length: 6
+            ).map(\.rangeValue) == [NSRange(location: 2, length: 2)]
         )
     }
 
@@ -360,6 +410,55 @@ struct TerminalBytesLogicTests {
         await handle.shutdown()
         await handle.shutdown()
         #expect(calls.destroyed == [rawAddress])
+    }
+
+    @Test @MainActor
+    func terminalInputIsBoundedAndDeliveredInFIFOOrder() async throws {
+        let inputs = LockedInputs()
+        let firstStarted = LockedFlag()
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let handle = TerminalClientHandle(
+            rawAddress: 7,
+            attachClient: { _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            sendClient: { _, buffer, length in
+                let bytes = buffer.map {
+                    Array(UnsafeBufferPointer(start: $0, count: length))
+                } ?? []
+                let position = inputs.record(String(decoding: bytes, as: UTF8.self))
+                if position == 1 {
+                    firstStarted.set()
+                    releaseFirst.wait()
+                }
+                return true
+            },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true
+        )
+
+        model.submit(.bytes(Data("0".utf8)))
+        #expect(await waitUntil { firstStarted.value })
+        for value in 1...300 {
+            model.submit(.bytes(Data(String(value).utf8)))
+        }
+        #expect(!model.errorMessage.isEmpty)
+
+        releaseFirst.signal()
+        #expect(await waitUntil { inputs.values.count >= 257 })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(inputs.values == (0...256).map(String.init))
+        model.shutdown()
     }
 
     @Test @MainActor
