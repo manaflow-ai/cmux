@@ -107,14 +107,19 @@ host-side callbacks are SPI for CMUX's own host implementation.
 Creating or splitting a browser surface with a URL requires both the surface
 action scope and `openURL`.
 
-`CmuxSidebarColumns` provides the same independently resizable two-column
+`CmuxSidebarColumns` provides the same independently resizable parent-and-child
 container used by CMUX. Request `creationContexts`, render
-`context.snapshot.creationContexts` in its leading column, and call
-`context.host.selectCreationContext(_:)` when the user selects one. Creation
-contexts only supply defaults to shared creation actions. They never own or
-filter `context.snapshot.workspaces`. Nest `CmuxSidebarColumns` containers to
-add further leading layers; each container owns only its internal divider, so
-the host can still resize and hide the complete sidebar region atomically.
+`context.snapshot.creationContexts` in its leading column, and pass the selected
+context's `childColumn` to the container. Its `children` closure resolves that
+route's `rendererID`; `cmux.workspaces` means the shared, unfiltered
+`context.snapshot.workspaces` collection. Each context owns a unique child
+route even when several routes use that renderer. Call
+`context.host.selectCreationContext(_:)` when the user selects one. Selection
+changes creation defaults and the active child route atomically, but never
+makes a context own or filter workspaces. A child can nest another
+`CmuxSidebarColumns` for deeper navigation. Each container owns only its
+internal divider, so the host still resizes and hides the complete sidebar
+region atomically.
 
 ## Permissions
 

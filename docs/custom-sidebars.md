@@ -141,10 +141,12 @@ with:
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `creationContexts`: array of machine/default rows. Always present: `id`,
   `title`, `systemImage`, `selected`, `kind` (`automatic|local|remote`), and
-  `workspaceCount`. Remote rows can include `subtitle` and `connectionState`.
-  `selectedCreationContextId` is the active id. A context stays available with
-  zero open workspaces and changes creation defaults without owning or filtering
-  workspaces.
+  `workspaceCount`. Every row also has `childColumn` (`{ id, rendererId }`).
+  Route ids are parent-specific; the built-in `cmux.workspaces` renderer uses
+  the shared, unfiltered `workspaces` collection. Remote rows can include
+  `subtitle` and `connectionState`. `selectedCreationContextId` is the active
+  id. A context stays available with zero open workspaces and changes creation
+  defaults plus the active child route without owning or filtering workspaces.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.

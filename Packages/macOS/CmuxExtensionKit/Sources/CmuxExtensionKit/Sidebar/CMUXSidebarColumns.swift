@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// A native two-column sidebar region whose leading column can be resized
-/// independently from the host-owned trailing edge.
+/// A native parent-and-children sidebar region whose leading column can be
+/// resized independently from the host-owned trailing edge.
 ///
 /// CMUX uses this primitive for its execution-context and workspace columns.
 /// Sidebar extensions can use the same container so custom navigation layers
@@ -14,6 +14,7 @@ public struct CmuxSidebarColumns<Leading: View, Trailing: View>: View {
     private let minimumLeadingWidth: CGFloat
     private let maximumLeadingWidth: CGFloat
     private let dividerAccessibilityIdentifier: String
+    private let childColumn: CmuxSidebarChildColumn
     private let onResizeBegan: @MainActor () -> Void
     private let onResizeEnded: @MainActor () -> Void
     private let leading: Leading
@@ -21,42 +22,35 @@ public struct CmuxSidebarColumns<Leading: View, Trailing: View>: View {
 
     @State private var dragStartWidth: CGFloat?
 
-    /// Creates a native two-column sidebar region.
+    /// Creates a native column region whose selected parent owns the next
+    /// column's route.
     ///
-    /// The divider changes only `leadingWidth`. The host remains responsible
-    /// for resizing the region's trailing edge, which keeps both column widths
-    /// independently controllable.
-    ///
-    /// - Parameters:
-    ///   - leadingWidth: Persisted width of the leading column.
-    ///   - trailingWidth: Current width of the trailing column.
-    ///   - minimumLeadingWidth: Smallest accepted leading-column width.
-    ///   - maximumLeadingWidth: Largest accepted leading-column width.
-    ///   - dividerAccessibilityIdentifier: Stable identifier for UI automation.
-    ///   - onResizeBegan: Called once when an interactive divider drag begins.
-    ///   - onResizeEnded: Called once when an interactive divider drag ends.
-    ///   - leading: Content for the leading column.
-    ///   - trailing: Content for the trailing column.
+    /// The child builder receives the route descriptor from the selected
+    /// parent. Switching routes gives the child subtree the route's stable
+    /// identity. A child can nest another `CmuxSidebarColumns` to continue the
+    /// hierarchy without changing this container.
     public init(
         leadingWidth: Binding<CGFloat>,
         trailingWidth: CGFloat,
+        childColumn: CmuxSidebarChildColumn,
         minimumLeadingWidth: CGFloat = 120,
         maximumLeadingWidth: CGFloat = 320,
         dividerAccessibilityIdentifier: String = "SidebarColumnResizer",
         onResizeBegan: @escaping @MainActor () -> Void = {},
         onResizeEnded: @escaping @MainActor () -> Void = {},
         @ViewBuilder leading: () -> Leading,
-        @ViewBuilder trailing: () -> Trailing
+        @ViewBuilder children: (CmuxSidebarChildColumn) -> Trailing
     ) {
         _leadingWidth = leadingWidth
         self.trailingWidth = trailingWidth
         self.minimumLeadingWidth = minimumLeadingWidth
         self.maximumLeadingWidth = maximumLeadingWidth
         self.dividerAccessibilityIdentifier = dividerAccessibilityIdentifier
+        self.childColumn = childColumn
         self.onResizeBegan = onResizeBegan
         self.onResizeEnded = onResizeEnded
         self.leading = leading()
-        self.trailing = trailing()
+        self.trailing = children(childColumn)
     }
 
     public var body: some View {
@@ -71,6 +65,7 @@ public struct CmuxSidebarColumns<Leading: View, Trailing: View>: View {
                 }
 
             trailing
+                .id(childColumn.id)
                 .frame(width: resolvedTrailingWidth)
                 .frame(maxHeight: .infinity)
         }

@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxExtensionKit
 import Foundation
 
 /// A machine-level identity used for creation defaults.
@@ -71,6 +72,8 @@ struct SidebarCreationContextSnapshot: Identifiable, Equatable, Sendable {
     let kind: Kind
     let workspaceCount: Int
     let connectionState: WorkspaceRemoteConnectionState?
+    /// Stable parent-owned route to the column rendered after this row.
+    let childColumn: CmuxSidebarChildColumn
 }
 
 /// Terminal launch values resolved from a selected remote context.
@@ -171,7 +174,8 @@ extension TabManager {
             isSelected: effectiveSelection == .automatic,
             kind: .automatic,
             workspaceCount: 0,
-            connectionState: nil
+            connectionState: nil,
+            childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.automaticID)
         )
         let local = SidebarCreationContextSnapshot(
             id: SidebarCreationContextSelection.localID,
@@ -181,7 +185,8 @@ extension TabManager {
             isSelected: effectiveSelection == .local,
             kind: .local,
             workspaceCount: tabs.filter { $0.remoteConfiguration == nil }.count,
-            connectionState: nil
+            connectionState: nil,
+            childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.localID)
         )
         var machinesByID = [SidebarCreationContextSelection.localID: local]
         for key in remoteOrder {
@@ -199,7 +204,8 @@ extension TabManager {
                 isSelected: effectiveSelection == .remote(key),
                 kind: .remote,
                 workspaceCount: aggregate.workspaceCount,
-                connectionState: aggregate.connectionState
+                connectionState: aggregate.connectionState,
+                childColumn: .sharedWorkspaces(parentID: key.id)
             )
         }
         let machineOrder = reconciledSidebarMachineCreationContextOrder()
@@ -210,6 +216,13 @@ extension TabManager {
         rememberLiveSidebarRemoteCreationContexts()
         let availableKeys = Set(sidebarRemoteCreationContextOrder)
         return effectiveSidebarCreationContextSelection(availableRemoteKeys: availableKeys).id
+    }
+
+    /// The child route owned by the selected context. All built-in contexts
+    /// currently resolve to the shared workspace renderer, but keep distinct
+    /// route identities so parents can evolve independently.
+    var selectedSidebarChildColumn: CmuxSidebarChildColumn {
+        .sharedWorkspaces(parentID: selectedSidebarCreationContextID)
     }
 
     @discardableResult

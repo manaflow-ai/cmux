@@ -11,6 +11,16 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var selectedCreationContextID: String?
     public var workspaces: [CmuxSidebarWorkspace]
 
+    /// The child-column route owned by the selected creation context.
+    public var selectedChildColumn: CmuxSidebarChildColumn? {
+        if let selectedCreationContextID,
+           let selected = creationContexts.first(where: { $0.id == selectedCreationContextID })
+        {
+            return selected.childColumn
+        }
+        return creationContexts.first(where: \.isSelected)?.childColumn
+    }
+
     public init(
         apiVersion: CmuxExtensionAPIVersion = .sidebarV2,
         sequence: UInt64,

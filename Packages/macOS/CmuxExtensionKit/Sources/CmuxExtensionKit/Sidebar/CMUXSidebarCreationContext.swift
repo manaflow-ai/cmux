@@ -18,6 +18,18 @@ public enum CmuxSidebarCreationContextKind: String, Codable, Equatable, Sendable
 /// The host supplies contexts in the user's saved order, with `Automatic`
 /// fixed before the reorderable machine contexts.
 public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case detail
+        case systemImageName
+        case kind
+        case isSelected
+        case workspaceCount
+        case connectionState
+        case childColumn
+    }
+
     public var id: String
     public var title: String
     public var detail: String?
@@ -26,6 +38,8 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
     public var isSelected: Bool
     public var workspaceCount: Int
     public var connectionState: String?
+    /// The parent-specific route rendered in the column after this context.
+    public var childColumn: CmuxSidebarChildColumn
 
     public init(
         id: String,
@@ -35,7 +49,8 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         kind: CmuxSidebarCreationContextKind,
         isSelected: Bool,
         workspaceCount: Int = 0,
-        connectionState: String? = nil
+        connectionState: String? = nil,
+        childColumn: CmuxSidebarChildColumn? = nil
     ) {
         self.id = id
         self.title = title
@@ -45,5 +60,22 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         self.isSelected = isSelected
         self.workspaceCount = workspaceCount
         self.connectionState = connectionState
+        self.childColumn = childColumn ?? .sharedWorkspaces(parentID: id)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        systemImageName = try container.decode(String.self, forKey: .systemImageName)
+        kind = try container.decode(CmuxSidebarCreationContextKind.self, forKey: .kind)
+        isSelected = try container.decode(Bool.self, forKey: .isSelected)
+        workspaceCount = try container.decodeIfPresent(Int.self, forKey: .workspaceCount) ?? 0
+        connectionState = try container.decodeIfPresent(String.self, forKey: .connectionState)
+        childColumn = try container.decodeIfPresent(
+            CmuxSidebarChildColumn.self,
+            forKey: .childColumn
+        ) ?? .sharedWorkspaces(parentID: id)
     }
 }

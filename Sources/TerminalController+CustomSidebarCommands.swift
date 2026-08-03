@@ -323,6 +323,10 @@ extension TerminalController {
                     "kind": context.kind.rawValue,
                     "workspace_count": context.workspaceCount,
                     "connection_state": context.connectionState?.rawValue ?? NSNull(),
+                    "child_column": [
+                        "id": context.childColumn.id,
+                        "renderer_id": context.childColumn.rendererID,
+                    ],
                 ] as [String: Any]
             },
         ]

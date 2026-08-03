@@ -1858,6 +1858,7 @@ struct ContentView: View {
                     }
                 ),
                 trailingWidth: primaryWidth,
+                childColumn: tabManager.selectedSidebarChildColumn,
                 minimumLeadingWidth: minimumSidebarLeadingColumnWidth,
                 maximumLeadingWidth: maxSidebarLeadingColumnWidth(),
                 dividerAccessibilityIdentifier: "SidebarColumnResizer",
@@ -1877,11 +1878,25 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } trailing: {
-                sidebarView
+            } children: { childColumn in
+                sidebarChildColumn(childColumn)
             }
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func sidebarChildColumn(_ childColumn: CmuxSidebarChildColumn) -> some View {
+        if childColumn.rendererID == CmuxSidebarChildColumn.sharedWorkspacesRendererID {
+            ZStack(alignment: .topLeading) {
+                sidebarView
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SidebarChildColumn.\(childColumn.id)")
+        } else {
+            EmptyView()
+        }
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
@@ -10846,7 +10861,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     isSelected: context.isSelected,
                     kind: context.kind.rawValue,
                     workspaceCount: context.workspaceCount,
-                    connectionState: context.connectionState?.rawValue
+                    connectionState: context.connectionState?.rawValue,
+                    childColumn: context.childColumn
                 )
             },
             selectedCreationContextId: tabManager.selectedSidebarCreationContextID,
@@ -12488,7 +12504,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     kind: CmuxSidebarCreationContextKind(rawValue: context.kind.rawValue) ?? .automatic,
                     isSelected: context.isSelected,
                     workspaceCount: context.workspaceCount,
-                    connectionState: context.connectionState?.rawValue
+                    connectionState: context.connectionState?.rawValue,
+                    childColumn: context.childColumn
                 )
             },
             selectedCreationContextID: tabManager.selectedSidebarCreationContextID,

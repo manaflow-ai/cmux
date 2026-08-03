@@ -71,6 +71,10 @@ public struct CustomSidebarDataContextBuilder {
             "selected": .bool(context.isSelected),
             "kind": .string(context.kind),
             "workspaceCount": .int(context.workspaceCount),
+            "childColumn": .object([
+                "id": .string(context.childColumn.id),
+                "rendererId": .string(context.childColumn.rendererID),
+            ]),
         ]
         if let subtitle = context.subtitle, !subtitle.isEmpty {
             fields["subtitle"] = .string(subtitle)
