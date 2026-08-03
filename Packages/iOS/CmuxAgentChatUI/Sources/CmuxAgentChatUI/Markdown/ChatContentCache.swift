@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 /// Bounded main-actor cache for the non-markdown row-body work that is too
 /// expensive to repeat per lazy re-materialization: ANSI-sanitized terminal
@@ -106,10 +105,4 @@ public final class ChatContentCache {
         segmentOrder.append(key)
         return result
     }
-}
-
-extension EnvironmentValues {
-    /// The shared row-content cache, injected by the conversation screen.
-    /// Rows fall back to uncached computation when absent (previews).
-    @Entry public var chatContentCache: ChatContentCache? = nil
 }

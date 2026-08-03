@@ -1,11 +1,15 @@
-import SwiftUI
+/// Framework-neutral foreground treatment for a composer shortcut.
+public enum ChatAccessoryTint: Sendable {
+    case secondary
+    case red
+}
 
 /// One host-provided shortcut rendered in the chat composer's horizontal row.
 public struct ChatAccessoryShortcut: Identifiable {
     /// Backward-compatible nested spelling for ``ChatAccessoryShortcutSemanticAction``.
     public typealias SemanticAction = ChatAccessoryShortcutSemanticAction
 
-    /// Stable identity for SwiftUI diffing and accessibility tests.
+    /// Stable identity for list updates and accessibility tests.
     public let id: String
     /// Short title shown on the button when ``systemImage`` is nil.
     public let title: String
@@ -14,7 +18,7 @@ public struct ChatAccessoryShortcut: Identifiable {
     /// VoiceOver label for icon-only or abbreviated shortcuts.
     public let accessibilityLabel: String?
     /// Optional foreground tint for contextual actions.
-    public let tint: Color?
+    public let tint: ChatAccessoryTint?
     /// Optional composer-owned behavior attached to this visual shortcut.
     public let semanticAction: SemanticAction?
     private let action: () -> Void
@@ -33,7 +37,7 @@ public struct ChatAccessoryShortcut: Identifiable {
         title: String,
         systemImage: String? = nil,
         accessibilityLabel: String? = nil,
-        tint: Color? = nil,
+        tint: ChatAccessoryTint? = nil,
         semanticAction: SemanticAction? = nil,
         action: @escaping () -> Void
     ) {

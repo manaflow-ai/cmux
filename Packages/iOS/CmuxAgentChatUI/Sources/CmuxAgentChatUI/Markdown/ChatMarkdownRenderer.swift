@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 /// Bounded main-actor cache of parsed markdown, keyed by message identity.
 ///
@@ -72,11 +71,4 @@ public final class ChatMarkdownRenderer {
             }
         }
     }
-}
-
-extension EnvironmentValues {
-    /// The markdown renderer for transcript rows, injected by the screen
-    /// that owns the conversation. Rows fall back to uncached parsing when
-    /// absent (previews).
-    @Entry public var chatMarkdownRenderer: ChatMarkdownRenderer? = nil
 }

@@ -2,6 +2,23 @@ import CmuxAgentChat
 import CmuxMobileToast
 import SwiftUI
 
+private struct ChatArtifactLoaderEnvironmentKey: EnvironmentKey {
+    static let defaultValue = ChatArtifactLoader.unsupported()
+}
+
+public extension EnvironmentValues {
+    var chatArtifactLoader: ChatArtifactLoader {
+        get { self[ChatArtifactLoaderEnvironmentKey.self] }
+        set { self[ChatArtifactLoaderEnvironmentKey.self] = newValue }
+    }
+
+    /// Shared row-content cache. Rows fall back to uncached work when absent.
+    @Entry var chatContentCache: ChatContentCache? = nil
+
+    /// Shared parsed-markdown cache. Rows fall back to direct parsing when absent.
+    @Entry var chatMarkdownRenderer: ChatMarkdownRenderer? = nil
+}
+
 #if canImport(UIKit)
 import Accessibility
 import UIKit

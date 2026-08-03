@@ -1,6 +1,5 @@
 import CmuxAgentChat
 import Foundation
-import SwiftUI
 
 /// In-memory thumbnail cache shared by artifact rows and sheets.
 public actor ChatArtifactThumbnailCache {
@@ -346,16 +345,5 @@ public struct ChatArtifactLoader: Sendable {
             return diskKey
         }
         return "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
-    }
-}
-
-private struct ChatArtifactLoaderEnvironmentKey: EnvironmentKey {
-    static let defaultValue = ChatArtifactLoader.unsupported()
-}
-
-public extension EnvironmentValues {
-    var chatArtifactLoader: ChatArtifactLoader {
-        get { self[ChatArtifactLoaderEnvironmentKey.self] }
-        set { self[ChatArtifactLoaderEnvironmentKey.self] = newValue }
     }
 }

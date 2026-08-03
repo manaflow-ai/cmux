@@ -160,7 +160,7 @@ public struct ChatAccessoryChipRow: View {
         Button(action: shortcut.perform) {
             chipContent(shortcut)
                 .font(.footnote)
-                .foregroundStyle(shortcut.tint ?? .primary)
+                .foregroundStyle(shortcut.tint?.color ?? Color.primary)
                 .padding(.horizontal, shortcut.systemImage == nil ? 12 : 8)
                 .frame(minWidth: 32)
                 .frame(height: 32)
@@ -168,7 +168,7 @@ public struct ChatAccessoryChipRow: View {
                 .mobileGlassPill()
                 #else
                 .background(
-                    (shortcut.tint?.opacity(0.12) ?? Color.secondary.opacity(0.15)),
+                    (shortcut.tint?.color.opacity(0.12) ?? Color.secondary.opacity(0.15)),
                     in: .capsule
                 )
                 #endif
@@ -207,6 +207,15 @@ public struct ChatAccessoryChipRow: View {
         } else {
             Rectangle()
                 .fill(.black)
+        }
+    }
+}
+
+private extension ChatAccessoryTint {
+    var color: Color {
+        switch self {
+        case .secondary: .secondary
+        case .red: .red
         }
     }
 }
