@@ -2061,8 +2061,10 @@ struct ContentView: View {
         return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme)
-                    .nativeWindowChromeColorScheme,
+                colorScheme: AppearanceSettings.effectiveColorScheme(
+                    for: appearanceMode,
+                    fallback: colorScheme.nativeWindowChromeColorScheme
+                ),
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,

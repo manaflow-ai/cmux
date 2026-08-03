@@ -182,6 +182,35 @@ extension ColorScheme {
     }
 }
 
+/// Keeps transitional SwiftUI roots synchronized with the native appearance
+/// source of truth while those roots are being removed.
+private struct AppearanceColorSchemeModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var systemAppearanceGeneration = 0
+    let rawValue: String?
+
+    func body(content: Content) -> some View {
+        let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
+        let _ = systemAppearanceGeneration
+        let effective = AppearanceSettings.effectiveColorScheme(
+            for: rawValue,
+            fallback: colorScheme.nativeWindowChromeColorScheme
+        )
+        content
+            .environment(\.colorScheme, effective.transitionalColorScheme)
+            .preferredColorScheme(override?.transitionalColorScheme)
+            .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+                systemAppearanceGeneration &+= 1
+            }
+    }
+}
+
+extension View {
+    func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
+        modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
+    }
+}
+
 struct NativeWindowBackdropLayer: NSViewRepresentable {
     let role: WindowBackdropRole
     let snapshot: WindowAppearanceSnapshot

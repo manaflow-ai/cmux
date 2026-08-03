@@ -1,5 +1,5 @@
 import AppKit
-import SwiftUI
+import CmuxAppKitSupportUI
 import CmuxTerminalCore
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -133,7 +133,7 @@ enum AppearanceSettings {
         NSAppearance(named: SystemAppearance.current(defaults: defaults).prefersDark ? .darkAqua : .aqua)
     }
 
-    static func colorSchemeOverride(for rawValue: String?) -> ColorScheme? {
+    static func colorSchemeOverride(for rawValue: String?) -> WindowChromeColorScheme? {
         switch mode(for: rawValue) {
         case .system, .auto:
             return nil
@@ -144,7 +144,10 @@ enum AppearanceSettings {
         }
     }
 
-    static func colorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
+    static func colorScheme(
+        for rawValue: String?,
+        fallback: WindowChromeColorScheme
+    ) -> WindowChromeColorScheme {
         colorSchemeOverride(for: rawValue) ?? fallback
     }
 
@@ -157,13 +160,13 @@ enum AppearanceSettings {
     @MainActor
     static func effectiveColorScheme(
         for rawValue: String?,
-        fallback: ColorScheme,
+        fallback: WindowChromeColorScheme,
         isApplicationFinishedLaunching: @MainActor () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
         effectivePrefersDark: @MainActor () -> Bool? = {
             guard let app = NSApp else { return nil }
             return app.effectiveAppearance.cmuxPrefersDark
         }
-    ) -> ColorScheme {
+    ) -> WindowChromeColorScheme {
         if let override = colorSchemeOverride(for: rawValue) { return override }
         guard isApplicationFinishedLaunching() else { return fallback }
         guard let prefersDark = effectivePrefersDark() else { return fallback }
@@ -338,42 +341,5 @@ final class AppearanceSettingsUserDefaultsObserver {
         guard rawValue != lastObservedRawValue else { return }
         let appliedMode = environment.applyStoredMode(rawValue, source)
         lastObservedRawValue = appliedMode.rawValue
-    }
-}
-
-/// Re-resolves and re-injects the color scheme at the window root.
-///
-/// In system mode, the ambient `colorScheme` supplied by the hosting bridge's
-/// `@Environment` can go stale on scripted OS appearance changes (Shortcuts'
-/// "Set Appearance", #6385) — SwiftUI doesn't reliably re-resolve it for
-/// already-visible windows. So in system mode this modifier ignores the
-/// ambient value and instead resolves fresh from `NSApp.effectiveAppearance`
-/// (see `AppearanceSettings.effectiveColorScheme`), then re-injects the result
-/// at the window root via `.environment(\.colorScheme, ...)` so it propagates
-/// to every descendant that reads the ambient color scheme. Re-resolution is
-/// keyed off `.systemAppearanceDidChange`, which `SystemAppearanceObserver`
-/// posts whenever the effective appearance actually changes while in system
-/// mode.
-private struct AppearanceColorSchemeModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var systemAppearanceGeneration = 0
-    let rawValue: String?
-
-    func body(content: Content) -> some View {
-        let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
-        let _ = systemAppearanceGeneration
-        let effective = AppearanceSettings.effectiveColorScheme(for: rawValue, fallback: colorScheme)
-        content
-            .environment(\.colorScheme, effective)
-            .preferredColorScheme(override)
-            .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
-                systemAppearanceGeneration &+= 1
-            }
-    }
-}
-
-extension View {
-    func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
-        modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
     }
 }
