@@ -158,20 +158,14 @@ impl JournalIngressSender {
                 terminal_id,
                 generation,
                 occurred_at_ms,
-                mut bytes,
+                bytes,
             } if bytes.len() > TERMINAL_OUTPUT_INGRESS_BYTES => {
-                let mut chunks =
-                    Vec::with_capacity(bytes.len().div_ceil(TERMINAL_OUTPUT_INGRESS_BYTES));
-                while bytes.len() > TERMINAL_OUTPUT_INGRESS_BYTES {
-                    chunks.push(bytes.split_off(bytes.len() - TERMINAL_OUTPUT_INGRESS_BYTES));
-                }
-                chunks.push(bytes);
-                for bytes in chunks.into_iter().rev() {
+                for bytes in bytes.chunks(TERMINAL_OUTPUT_INGRESS_BYTES) {
                     let event = JournalIngressEvent::TerminalOutput {
                         terminal_id: terminal_id.clone(),
                         generation: generation.clone(),
                         occurred_at_ms,
-                        bytes,
+                        bytes: bytes.to_vec(),
                     };
                     if sender.send(QueuedJournalEvent { event, completion: None }).is_err() {
                         return;
@@ -475,7 +469,7 @@ mod tests {
         });
 
         let mut rebuilt = Vec::new();
-        for expected_len in [17, TERMINAL_OUTPUT_INGRESS_BYTES, TERMINAL_OUTPUT_INGRESS_BYTES] {
+        for expected_len in [TERMINAL_OUTPUT_INGRESS_BYTES, TERMINAL_OUTPUT_INGRESS_BYTES, 17] {
             let queued = receiver.recv().unwrap();
             let JournalIngressEvent::TerminalOutput { bytes, occurred_at_ms, .. } = queued.event
             else {
