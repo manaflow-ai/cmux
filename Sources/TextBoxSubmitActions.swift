@@ -369,7 +369,7 @@ extension TextBoxInputContainer {
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
         } else if let assetName = resolvedSubmitActionAssetName(for: action) {
-            CmuxResolvedIconImage(request: submitActionIconRequest(
+            NativeResolvedIconImage(request: submitActionIconRequest(
                 assetName: assetName,
                 tintColor: action.id == "codex" ? .black : nil
             ))
@@ -400,7 +400,7 @@ extension TextBoxInputContainer {
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
         } else if let assetName = resolvedSubmitActionAssetName(for: action) {
-            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
+            NativeResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize

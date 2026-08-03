@@ -1,4 +1,4 @@
-public import SwiftUI
+import Foundation
 
 /// User settings needed to resolve window appearance.
 public struct WindowAppearanceUserSettingsSnapshot {
@@ -6,7 +6,7 @@ public struct WindowAppearanceUserSettingsSnapshot {
     public let unifySurfaceBackdrops: Bool
 
     /// Color scheme selected for sidebar tint resolution.
-    public let colorScheme: ColorScheme
+    public let colorScheme: WindowChromeColorScheme
 
     /// Raw `sidebarMaterial` value.
     public let sidebarMaterial: String
@@ -47,7 +47,7 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// Creates a user settings snapshot for window appearance.
     public init(
         unifySurfaceBackdrops: Bool,
-        colorScheme: ColorScheme,
+        colorScheme: WindowChromeColorScheme,
         sidebarMaterial: String,
         sidebarBlendMode: String,
         sidebarState: String,

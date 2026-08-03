@@ -12,7 +12,7 @@ public enum AboutWindowKind: String, CaseIterable, Identifiable, Sendable {
     /// The primary "About cmux" window.
     case about
 
-    /// Stable identity for SwiftUI list iteration.
+    /// Stable identity for picker rows.
     public var id: String { rawValue }
 
     /// Human-readable label shown as the editor section title.

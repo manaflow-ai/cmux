@@ -467,7 +467,7 @@ struct CmuxTaskManagerRowView: View, Equatable {
     @ViewBuilder
     private var rowIcon: some View {
         if let agentAssetName = row.agentAssetName {
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+            NativeResolvedIconImage(request: CmuxResolvedIconRequest(
                 source: .asset(name: agentAssetName, bundle: .main),
                 size: NSSize(width: 14, height: 14)
             ))

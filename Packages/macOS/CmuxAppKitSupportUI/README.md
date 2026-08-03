@@ -1,6 +1,6 @@
 # CmuxAppKitSupportUI
 
-AppKit/SwiftUI support pieces for the macOS app, grouped by concern. Each top-level folder is
+Native AppKit support pieces for the macOS app, grouped by concern. Each top-level folder is
 one concern: `WindowChrome/` (this is what the ContentView extraction added), plus the
 pre-existing `AboutTitlebarDebug/`, `Mouse/`, `Popover/`, and `Scroll/`. Most types are small
 `Sendable` value types or narrow `@MainActor` controllers, so resolution logic can be unit
@@ -37,7 +37,7 @@ The window background fill and how it is applied to AppKit.
 - `WindowBackdropControllerDependencies.swift`: protocol of app-provided side effects the controller needs (injected).
 - `WindowBackdropController.swift`: `@MainActor` type that applies a plan/snapshot to an `NSWindow`.
 - `WindowBackdropApplicationResult.swift`: what changed after the controller ran.
-- `WindowBackdropLayer.swift`: SwiftUI view that renders the resolved backdrop for one role.
+- `WindowBackdropLayer.swift`: native view that renders the resolved backdrop for one role.
 - `LayerBackedBackdropColor.swift`: internal non-hit-testing AppKit color fill for transparent windows.
 
 ### Glass/
@@ -52,12 +52,12 @@ The macOS 26 `NSGlassEffectView` window glass, with an `NSVisualEffectView` fall
 ### Titlebar/
 The native AppKit titlebar.
 - `NativeTitlebarBackdropCoordinator.swift`: `@MainActor` type that hides/restores the native titlebar backdrop.
-- `TitlebarLeadingInsetReader.swift`: SwiftUI reader for the inset needed to clear traffic lights and accessories.
+- `TitlebarLeadingInsetReader.swift`: native reader for the inset needed to clear traffic lights and accessories.
 
 ### Border/
 The hairline borders between chrome surfaces.
 - `WindowChromeBorderOrientation.swift`: orientation of a one-pixel border.
-- `WindowChromeBorder.swift`: SwiftUI one-pixel border derived from the chrome background color.
+- `WindowChromeBorder.swift`: native one-pixel border derived from the chrome background color.
 
 ### Color/
 Color math shared across chrome.

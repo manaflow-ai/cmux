@@ -1,55 +1,74 @@
-public import SwiftUI
-import AppKit
+public import AppKit
 
-/// SwiftUI layer that renders the resolved backdrop for one chrome role.
-public struct WindowBackdropLayer: View {
-    private let role: WindowBackdropRole
-    private let snapshot: WindowAppearanceSnapshot
+/// Native resolved backdrop for one window-chrome role.
+@MainActor
+public final class WindowBackdropLayer: NSView {
+    private var role: WindowBackdropRole
+    private var snapshot: WindowAppearanceSnapshot
 
-    /// Creates a backdrop layer for a chrome role.
+    /// Creates a native backdrop for a chrome role.
     public init(role: WindowBackdropRole, snapshot: WindowAppearanceSnapshot) {
         self.role = role
         self.snapshot = snapshot
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        setAccessibilityElement(false)
+        rebuild()
     }
 
-    /// Rendered backdrop body.
-    public var body: some View {
-        backdrop(for: snapshot.policy(for: role))
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    @ViewBuilder
-    private func backdrop(for policy: WindowBackdropPolicy) -> some View {
-        switch policy {
+    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Reapplies a changed role or appearance snapshot.
+    public func update(role: WindowBackdropRole, snapshot: WindowAppearanceSnapshot) {
+        self.role = role
+        self.snapshot = snapshot
+        rebuild()
+    }
+
+    private func rebuild() {
+        subviews.forEach { $0.removeFromSuperview() }
+        layer?.backgroundColor = nil
+
+        switch snapshot.policy(for: role) {
         case let .ghosttyTerminalBackdrop(color, opacity, _):
-            let backdropColor = color.withAlphaComponent(opacity)
-            switch role {
-            case .windowRoot:
-                Color(nsColor: backdropColor)
-            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
-                LayerBackedBackdropColor(color: backdropColor)
-            }
+            install(LayerBackedBackdropColor(color: color.withAlphaComponent(opacity)))
         case let .sidebarMaterial(materialPolicy):
-            ZStack {
-                let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
-                    SidebarVisualEffectBackground.liquidGlassAvailable
-                if let material = materialPolicy.material,
-                   !materialPolicy.usesWindowLevelGlass {
-                    SidebarVisualEffectBackground(
-                        material: material,
-                        blendingMode: materialPolicy.blendingMode,
-                        state: materialPolicy.state,
-                        opacity: materialPolicy.opacity,
-                        tintColor: materialPolicy.tintColor,
-                        cornerRadius: materialPolicy.cornerRadius,
-                        preferLiquidGlass: materialPolicy.preferLiquidGlass
-                    )
-                }
-                if !materialPolicy.usesWindowLevelGlass && !usingNativeLiquidGlass {
-                    Color(nsColor: materialPolicy.tintColor)
-                }
+            guard !materialPolicy.usesWindowLevelGlass else { return }
+            let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
+                SidebarVisualEffectBackground.liquidGlassAvailable
+            if let material = materialPolicy.material {
+                install(SidebarVisualEffectBackground(
+                    material: material,
+                    blendingMode: materialPolicy.blendingMode,
+                    state: materialPolicy.state,
+                    opacity: materialPolicy.opacity,
+                    tintColor: materialPolicy.tintColor,
+                    cornerRadius: materialPolicy.cornerRadius,
+                    preferLiquidGlass: materialPolicy.preferLiquidGlass
+                ))
+            }
+            if !usingNativeLiquidGlass {
+                install(LayerBackedBackdropColor(color: materialPolicy.tintColor))
             }
         case .clear:
-            Color.clear
+            break
         }
+    }
+
+    private func install(_ view: NSView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 }

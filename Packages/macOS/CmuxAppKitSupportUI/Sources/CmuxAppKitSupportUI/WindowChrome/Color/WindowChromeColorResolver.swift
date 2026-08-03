@@ -1,5 +1,4 @@
 public import AppKit
-public import SwiftUI
 
 /// Resolves color math used by window chrome, titlebar, and backdrop policy.
 public struct WindowChromeColorResolver: Sendable {
@@ -52,7 +51,7 @@ public struct WindowChromeColorResolver: Sendable {
     }
 
     /// Returns the color scheme with stronger contrast against `backgroundColor`.
-    public func readableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
+    public func readableColorScheme(for backgroundColor: NSColor) -> WindowChromeColorScheme {
         let backgroundLuminance = relativeLuminance(backgroundColor)
         let whiteContrast = contrastRatio(backgroundLuminance, 1.0)
         let blackContrast = contrastRatio(backgroundLuminance, 0.0)

@@ -308,7 +308,7 @@ struct SidebarAccountMenuButton: View {
         .buttonStyle(SidebarFooterIconButtonStyle())
         .disabled(accountFlow?.isWorkingOnAuth == true)
         .frame(width: buttonSize, height: buttonSize)
-        .background(ArrowlessPopoverAnchor(
+        .background(NativeArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
             detachedGap: 4

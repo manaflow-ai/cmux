@@ -1,213 +1,172 @@
 public import AppKit
-public import SwiftUI
 
-/// An `NSViewRepresentable` that presents SwiftUI content in an `NSPopover` with the
-/// popover arrow hidden, anchored to an invisible SwiftUI-backed view.
-///
-/// The popover is positioned relative to a synthetic rect inset toward the anchor so the
-/// detached content sits a fixed gap from the anchoring edge while the arrow stays hidden.
-public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable {
-    @Binding public var isPresented: Bool
-    public let preferredEdge: NSRectEdge
-    public let detachedGap: CGFloat
-    @ViewBuilder public let content: () -> PopoverContent
+/// Native anchor for a detached popover whose arrow is hidden.
+@MainActor
+public final class ArrowlessPopoverAnchor: NSView, NSPopoverDelegate {
+    public var preferredEdge: NSRectEdge
+    public var detachedGap: CGFloat
+    public var onPresentationChange: @MainActor (Bool) -> Void
 
-    /// Creates an arrowless popover anchor.
-    /// - Parameters:
-    ///   - isPresented: Binding driving popover presentation.
-    ///   - preferredEdge: The edge of the anchor the popover prefers to appear from.
-    ///   - detachedGap: The gap, in points, between the anchor edge and the popover.
-    ///   - content: The SwiftUI content rendered inside the popover.
+    private var contentViewController: NSViewController
+    private var popover: NSPopover?
+    private var isPresented = false
+
+    /// Whether the underlying popover is currently visible.
+    public var isPopoverShown: Bool { popover?.isShown == true }
+
+    /// Creates an arrowless popover anchor around a native content controller.
     public init(
-        isPresented: Binding<Bool>,
+        isPresented: Bool,
         preferredEdge: NSRectEdge,
         detachedGap: CGFloat,
-        @ViewBuilder content: @escaping () -> PopoverContent
+        contentViewController: NSViewController,
+        onPresentationChange: @MainActor @escaping (Bool) -> Void = { _ in }
     ) {
-        self._isPresented = isPresented
         self.preferredEdge = preferredEdge
         self.detachedGap = detachedGap
-        self.content = content
-    }
-
-    public func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.anchorView = view
-        return view
-    }
-
-    public func updateNSView(_ nsView: NSView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.anchorView = nsView
-        switch ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
+        self.contentViewController = contentViewController
+        self.onPresentationChange = onPresentationChange
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+        update(
             isPresented: isPresented,
-            popoverIsShown: coordinator.isPopoverShown
-        ) {
-        case .none:
-            coordinator.cancelDeferredRootViewUpdate()
-        case .immediate:
-            coordinator.updateRootView(AnyView(content()))
-        case .deferredVisible:
-            coordinator.deferVisibleRootViewUpdate(AnyView(content()))
-        }
+            preferredEdge: preferredEdge,
+            detachedGap: detachedGap,
+            contentViewController: contentViewController
+        )
+    }
 
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reconcilePresentation()
+    }
+
+    /// Applies presentation and content changes to the native popover.
+    public func update(
+        isPresented: Bool,
+        preferredEdge: NSRectEdge,
+        detachedGap: CGFloat,
+        contentViewController: NSViewController
+    ) {
+        self.isPresented = isPresented
+        self.preferredEdge = preferredEdge
+        self.detachedGap = detachedGap
+        self.contentViewController = contentViewController
+        if let popover {
+            popover.contentViewController = contentViewController
+            updateContentSize(of: popover)
+        }
+        reconcilePresentation()
+    }
+
+    /// Presents the popover when the anchor is attached to a window.
+    public func present() {
+        isPresented = true
+        reconcilePresentation()
+    }
+
+    /// Closes the popover and publishes the presentation change.
+    public func dismiss() {
+        isPresented = false
+        popover?.performClose(nil)
+        if popover == nil { onPresentationChange(false) }
+    }
+
+    public func popoverDidClose(_ notification: Notification) {
+        popover = nil
         if isPresented {
-            coordinator.present(
+            isPresented = false
+            onPresentationChange(false)
+        }
+    }
+
+    private func reconcilePresentation() {
+        guard isPresented else {
+            if popover?.isShown == true { popover?.performClose(nil) }
+            return
+        }
+        guard window != nil else { return }
+        let popover = popover ?? makePopover()
+        guard !popover.isShown else { return }
+        updateContentSize(of: popover)
+        popover.show(
+            relativeTo: positioningRect(
+                for: bounds,
                 preferredEdge: preferredEdge,
                 detachedGap: detachedGap
-            )
-        } else {
-            coordinator.dismiss()
-        }
+            ),
+            of: self,
+            preferredEdge: preferredEdge
+        )
     }
 
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
+    private func makePopover() -> NSPopover {
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.animates = true
+        popover.setValue(true, forKeyPath: "shouldHideAnchor")
+        popover.contentViewController = contentViewController
+        popover.delegate = self
+        self.popover = popover
+        return popover
     }
 
-    /// Bridges popover lifecycle between AppKit's `NSPopover` and the SwiftUI binding.
-    @MainActor
-    public final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
+    private func updateContentSize(of popover: NSPopover) {
+        let view = contentViewController.view
+        view.invalidateIntrinsicContentSize()
+        view.layoutSubtreeIfNeeded()
+        let fittingSize = view.fittingSize
+        guard fittingSize.width > 0, fittingSize.height > 0 else { return }
+        CmuxPopoverMutation.setContentSize(
+            NSSize(width: ceil(fittingSize.width), height: ceil(fittingSize.height)),
+            on: popover
+        )
+    }
 
-        weak var anchorView: NSView?
-        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
-        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
-        private var popover: NSPopover?
-        private var pendingVisibleRootView: AnyView?
-        var isPopoverShown: Bool { popover?.isShown == true }
+    private func positioningRect(
+        for bounds: CGRect,
+        preferredEdge: NSRectEdge,
+        detachedGap: CGFloat
+    ) -> CGRect {
+        let hiddenArrowInset: CGFloat = 13
+        let compensation = max(hiddenArrowInset - detachedGap, 0)
 
-        init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
-        }
-
-        func updateRootView(_ rootView: AnyView) {
-            CmuxPopoverMutation.performWithoutImplicitAnimation {
-                hostingController.rootView = AnyView(rootView.fixedSize())
-                hostingController.view.invalidateIntrinsicContentSize()
-                hostingController.view.layoutSubtreeIfNeeded()
-            }
-        }
-
-        func deferVisibleRootViewUpdate(_ rootView: AnyView) {
-            pendingVisibleRootView = rootView
-            visibleUpdateScheduler.schedule { [weak self] in
-                self?.flushDeferredRootViewUpdate()
-            }
-        }
-
-        func cancelDeferredRootViewUpdate() {
-            pendingVisibleRootView = nil
-            visibleUpdateScheduler.cancel()
-        }
-
-        private func flushDeferredRootViewUpdate() {
-            guard popover?.isShown == true, let pendingVisibleRootView else {
-                self.pendingVisibleRootView = nil
-                return
-            }
-            self.pendingVisibleRootView = nil
-            updateRootView(pendingVisibleRootView)
-        }
-
-        func present(preferredEdge: NSRectEdge, detachedGap: CGFloat) {
-            guard let anchorView else {
-                isPresented = false
-                dismiss()
-                return
-            }
-
-            let popover = popover ?? makePopover()
-            if popover.isShown {
-                return
-            }
-
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            let fittingSize = hostingController.view.fittingSize
-            if fittingSize.width > 0, fittingSize.height > 0 {
-                CmuxPopoverMutation.setContentSize(NSSize(
-                    width: ceil(fittingSize.width),
-                    height: ceil(fittingSize.height)
-                ), on: popover)
-            }
-
-            popover.show(
-                relativeTo: positioningRect(
-                    for: anchorView.bounds,
-                    preferredEdge: preferredEdge,
-                    detachedGap: detachedGap
-                ),
-                of: anchorView,
-                preferredEdge: preferredEdge
+        return switch preferredEdge {
+        case .maxY:
+            NSRect(
+                x: bounds.minX,
+                y: bounds.maxY - compensation,
+                width: bounds.width,
+                height: compensation
             )
-        }
-
-        func dismiss() {
-            cancelDeferredRootViewUpdate()
-            popover?.performClose(nil)
-            popover = nil
-        }
-
-        public func popoverDidClose(_ notification: Notification) {
-            cancelDeferredRootViewUpdate()
-            popover = nil
-            if isPresented {
-                isPresented = false
-            }
-        }
-
-        private func makePopover() -> NSPopover {
-            let popover = NSPopover()
-            popover.behavior = .semitransient
-            popover.animates = true
-            popover.setValue(true, forKeyPath: "shouldHideAnchor")
-            popover.contentViewController = hostingController
-            popover.delegate = self
-            self.popover = popover
-            return popover
-        }
-
-        private func positioningRect(
-            for bounds: CGRect,
-            preferredEdge: NSRectEdge,
-            detachedGap: CGFloat
-        ) -> CGRect {
-            let hiddenArrowInset: CGFloat = 13
-            let compensation = max(hiddenArrowInset - detachedGap, 0)
-
-            switch preferredEdge {
-            case .maxY:
-                return NSRect(
-                    x: bounds.minX,
-                    y: bounds.maxY - compensation,
-                    width: bounds.width,
-                    height: compensation
-                )
-            case .minY:
-                return NSRect(
-                    x: bounds.minX,
-                    y: bounds.minY,
-                    width: bounds.width,
-                    height: compensation
-                )
-            case .maxX:
-                return NSRect(
-                    x: bounds.maxX - compensation,
-                    y: bounds.minY,
-                    width: compensation,
-                    height: bounds.height
-                )
-            case .minX:
-                return NSRect(
-                    x: bounds.minX,
-                    y: bounds.minY,
-                    width: compensation,
-                    height: bounds.height
-                )
-            @unknown default:
-                return bounds
-            }
+        case .minY:
+            NSRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: bounds.width,
+                height: compensation
+            )
+        case .maxX:
+            NSRect(
+                x: bounds.maxX - compensation,
+                y: bounds.minY,
+                width: compensation,
+                height: bounds.height
+            )
+        case .minX:
+            NSRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: compensation,
+                height: bounds.height
+            )
+        @unknown default:
+            bounds
         }
     }
 }

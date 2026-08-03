@@ -70,7 +70,7 @@ struct AppWindowChromeComposition {
     func appearanceSnapshotFromUserDefaults(
         defaults: UserDefaults = .standard,
         app: GhosttyApp = .shared,
-        colorScheme: ColorScheme? = nil
+        colorScheme: WindowChromeColorScheme? = nil
     ) -> WindowAppearanceSnapshot {
         appearanceResolver(app: app).currentFromUserDefaults(
             defaults: defaults,
@@ -81,7 +81,7 @@ struct AppWindowChromeComposition {
     @MainActor
     private static func currentAppColorScheme(
         appearance: NSAppearance? = nil
-    ) -> ColorScheme {
+    ) -> WindowChromeColorScheme {
         let resolved = appearance ?? NSApplication.shared.effectiveAppearance
         return resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }

@@ -1,20 +1,16 @@
-public import SwiftUI
+public import AppKit
 
-/// SwiftUI bridge for appearance-resolved AppKit icons.
+/// Native convenience view for an appearance-resolved cmux icon.
 @MainActor
-public struct CmuxResolvedIconImage: NSViewRepresentable {
-    public let request: CmuxResolvedIconRequest?
-
-    /// Creates a SwiftUI icon backed by ``CmuxResolvedIconImageView``.
+public final class CmuxResolvedIconImage: CmuxResolvedIconImageView {
+    /// Creates and immediately applies an icon request.
     public init(request: CmuxResolvedIconRequest?) {
-        self.request = request
+        super.init(frame: .zero)
+        apply(request)
     }
 
-    public func makeNSView(context: Context) -> CmuxResolvedIconImageView {
-        CmuxResolvedIconImageView(frame: .zero)
-    }
-
-    public func updateNSView(_ nsView: CmuxResolvedIconImageView, context: Context) {
-        nsView.apply(request)
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

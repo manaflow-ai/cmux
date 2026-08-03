@@ -16,7 +16,7 @@ public enum TitlebarToolbarStyleOption: String, CaseIterable, Identifiable, Send
     /// Unified compact toolbar style.
     case unifiedCompact
 
-    /// Stable identity for SwiftUI list iteration.
+    /// Stable identity for picker rows.
     public var id: String { rawValue }
 
     /// Human-readable label shown in the picker.

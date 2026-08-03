@@ -53,7 +53,7 @@ func sidebarActiveForegroundNSColor(
 func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
     let app = GhosttyApp.shared
     let bestMatch = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-    let colorScheme: ColorScheme = bestMatch == .darkAqua ? .dark : .light
+    let colorScheme: WindowChromeColorScheme = bestMatch == .darkAqua ? .dark : .light
     let appearance = WindowAppearanceResolver(
         terminalAppearance: WindowTerminalAppearanceSnapshot(
             backgroundColor: app.defaultBackgroundColor,

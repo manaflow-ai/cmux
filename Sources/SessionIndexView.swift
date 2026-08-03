@@ -262,7 +262,7 @@ private struct AgentIconImage: View, Equatable {
 
     var body: some View {
         if let assetName = agent.assetName {
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+            NativeResolvedIconImage(request: CmuxResolvedIconRequest(
                 source: .asset(name: assetName, bundle: .main),
                 size: NSSize(width: size, height: size)
             ))

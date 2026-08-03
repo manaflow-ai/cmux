@@ -2,7 +2,7 @@ public import AppKit
 
 /// AppKit image view that re-renders its icon when the window or effective appearance changes.
 @MainActor
-public final class CmuxResolvedIconImageView: NSView {
+public class CmuxResolvedIconImageView: NSView {
     private let imageView = NSImageView(frame: .zero)
     private let renderer = CmuxResolvedIconRenderer()
     private var request: CmuxResolvedIconRequest?

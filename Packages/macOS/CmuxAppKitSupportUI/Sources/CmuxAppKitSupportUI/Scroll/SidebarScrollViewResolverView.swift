@@ -1,7 +1,7 @@
 public import AppKit
 
-/// Resolves the sidebar list's enclosing `NSScrollView` for the SwiftUI layer
-/// (``SidebarScrollViewResolver``), which applies the overlay configuration in
+/// Resolves the sidebar list's enclosing `NSScrollView` for the native layer,
+/// which applies the overlay configuration in
 /// ``AppKit/NSScrollView/applySidebarOverlayScrollerConfiguration()`` through
 /// `onResolve`.
 public final class SidebarScrollViewResolverView: NSView {
@@ -22,8 +22,8 @@ public final class SidebarScrollViewResolverView: NSView {
         // preference when the preferred scroller style changes (mouse
         // connect/disconnect, System Settings "Show scroll bars"). That
         // clobbers the forced overlay configuration with a legacy,
-        // space-reserving scrollbar until the next SwiftUI update happens to
-        // re-run the resolver — re-resolve immediately instead. The .main
+        // space-reserving scrollbar until the next hierarchy update happens to
+        // re-run the resolver, so re-resolve immediately instead. The .main
         // queue keeps the block on the main thread for any posting thread,
         // and the async main hop in resolveScrollView() runs after AppKit's
         // own synchronous per-scroll-view reset regardless of observer

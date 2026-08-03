@@ -1,7 +1,6 @@
 #if canImport(AppKit)
 
 public import AppKit
-public import SwiftUI
 
 /// Hosts the ``AboutTitlebarDebugView`` editor in a floating utility panel.
 ///
@@ -66,7 +65,7 @@ public final class AboutTitlebarDebugWindowController: NSWindowController, NSWin
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.aboutTitlebarDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: AboutTitlebarDebugView(store: store))
+        window.contentView = AboutTitlebarDebugView(store: store)
         decorator?.applyWindowDecorations(to: window)
         return window
     }

@@ -1,44 +1,51 @@
 public import AppKit
-public import SwiftUI
 
-/// Reads the leading inset required to clear traffic lights and titlebar accessories.
-public struct TitlebarLeadingInsetReader: NSViewRepresentable {
-    @Binding private var inset: CGFloat
-    private let baseLeadingInset: @MainActor () -> CGFloat
+/// Native reader for the leading inset occupied by traffic lights and titlebar accessories.
+@MainActor
+public final class TitlebarLeadingInsetReader: NSView {
+    public var baseLeadingInset: @MainActor () -> CGFloat
+    public var onInsetChange: @MainActor (CGFloat) -> Void
+    private var lastInset: CGFloat?
 
-    /// Creates a titlebar leading inset reader.
+    /// Creates a titlebar inset reader.
     public init(
-        inset: Binding<CGFloat>,
-        baseLeadingInset: @escaping @MainActor () -> CGFloat
+        baseLeadingInset: @MainActor @escaping () -> CGFloat,
+        onInsetChange: @MainActor @escaping (CGFloat) -> Void
     ) {
-        _inset = inset
         self.baseLeadingInset = baseLeadingInset
+        self.onInsetChange = onInsetChange
+        super.init(frame: .zero)
+        setFrameSize(.zero)
     }
 
-    /// Creates the passthrough AppKit reader view.
-    public func makeNSView(context: Context) -> NSView {
-        let view = TitlebarLeadingInsetPassthroughView()
-        view.setFrameSize(.zero)
-        return view
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    /// Updates the SwiftUI binding with the current leading inset.
-    public func updateNSView(_ nsView: NSView, context: Context) {
-        Task { @MainActor in
-            guard let window = nsView.window else { return }
-            var leading = baseLeadingInset()
-            for accessory in window.titlebarAccessoryViewControllers
-                where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
-                leading += accessory.view.frame.width
-            }
-            if leading != inset {
-                inset = leading
-            }
+    public override var mouseDownCanMoveWindow: Bool { false }
+    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resolveInset()
+    }
+
+    public override func layout() {
+        super.layout()
+        resolveInset()
+    }
+
+    /// Recomputes and reports the current inset when it changed.
+    public func resolveInset() {
+        guard let window else { return }
+        var leading = baseLeadingInset()
+        for accessory in window.titlebarAccessoryViewControllers
+            where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
+            leading += accessory.view.frame.width
         }
+        guard leading != lastInset else { return }
+        lastInset = leading
+        onInsetChange(leading)
     }
-}
-
-final class TitlebarLeadingInsetPassthroughView: NSView {
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

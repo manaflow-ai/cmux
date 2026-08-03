@@ -1,6 +1,6 @@
 import AppKit
-public import SwiftUI
 import CmuxFoundation
+public import Foundation
 
 /// Builds `WindowAppearanceSnapshot` values from injected terminal and user settings.
 public struct WindowAppearanceResolver {
@@ -49,7 +49,7 @@ public struct WindowAppearanceResolver {
     /// Resolves window appearance from a `UserDefaults` store.
     public func currentFromUserDefaults(
         defaults: UserDefaults,
-        colorScheme: ColorScheme
+        colorScheme: WindowChromeColorScheme
     ) -> WindowAppearanceSnapshot {
         let tintDefaults = WindowChromeSidebarTintDefaults()
         return current(settings: WindowAppearanceUserSettingsSnapshot(

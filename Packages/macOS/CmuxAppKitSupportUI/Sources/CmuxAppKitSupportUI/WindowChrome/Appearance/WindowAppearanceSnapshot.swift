@@ -1,5 +1,4 @@
 public import AppKit
-public import SwiftUI
 public import CmuxFoundation
 public import CmuxWorkspaces
 
@@ -78,12 +77,12 @@ public struct WindowAppearanceSnapshot {
     }
 
     /// Color scheme readable against the chrome background.
-    public var chromeColorScheme: ColorScheme {
+    public var chromeColorScheme: WindowChromeColorScheme {
         WindowChromeColorResolver().readableColorScheme(for: compositedTerminalBackgroundColor)
     }
 
     /// Color scheme used for sidebar content.
-    public var sidebarContentColorScheme: ColorScheme {
+    public var sidebarContentColorScheme: WindowChromeColorScheme {
         unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 

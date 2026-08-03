@@ -1,5 +1,4 @@
 import AppKit
-public import SwiftUI
 import CmuxFoundation
 
 /// Persisted sidebar backdrop settings captured as a value.
@@ -32,7 +31,7 @@ public struct SidebarBackdropSettingsSnapshot {
     public let blurOpacity: Double
 
     /// Color scheme used to pick light/dark tint overrides.
-    public let colorScheme: ColorScheme
+    public let colorScheme: WindowChromeColorScheme
 
     /// Creates a sidebar backdrop settings snapshot.
     public init(
@@ -45,7 +44,7 @@ public struct SidebarBackdropSettingsSnapshot {
         tintOpacity: Double,
         cornerRadius: Double,
         blurOpacity: Double,
-        colorScheme: ColorScheme
+        colorScheme: WindowChromeColorScheme
     ) {
         self.materialRawValue = materialRawValue
         self.blendModeRawValue = blendModeRawValue

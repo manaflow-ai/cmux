@@ -1,70 +1,68 @@
 public import AppKit
-public import SwiftUI
 
-/// One-pixel border derived from the terminal chrome background.
-public struct WindowChromeBorder: View {
-    private let orientation: WindowChromeBorderOrientation
-    private let ignoresSafeAreaValue: Bool
+/// Native one-pixel border derived from the current chrome background.
+@MainActor
+public final class WindowChromeBorder: NSView {
+    public let orientation: WindowChromeBorderOrientation
+    public let ignoresSafeArea: Bool
     private let backgroundColorProvider: @MainActor () -> NSColor
-    private let refreshNotificationName: Notification.Name?
-    @State private var separatorColor: NSColor
+    private nonisolated(unsafe) var refreshObserver: NSObjectProtocol?
 
-    /// Creates a chrome border with an injected background color provider.
+    /// Creates a native chrome border with an injected color provider.
     public init(
         orientation: WindowChromeBorderOrientation,
         ignoresSafeArea: Bool = true,
         refreshNotificationName: Notification.Name? = nil,
-        backgroundColorProvider: @escaping @MainActor () -> NSColor
+        backgroundColorProvider: @MainActor @escaping () -> NSColor
     ) {
         self.orientation = orientation
-        self.ignoresSafeAreaValue = ignoresSafeArea
-        self.refreshNotificationName = refreshNotificationName
+        self.ignoresSafeArea = ignoresSafeArea
         self.backgroundColorProvider = backgroundColorProvider
-        _separatorColor = State(
-            initialValue: WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColorProvider())
-        )
-    }
-
-    /// Rendered border body.
-    public var body: some View {
-        if ignoresSafeAreaValue {
-            border.ignoresSafeArea()
-        } else {
-            border
-        }
-    }
-
-    @ViewBuilder
-    private var border: some View {
-        let base = borderShape
-            .onAppear {
-                refreshSeparatorColor()
-            }
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        setAccessibilityElement(false)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        refresh()
 
         if let refreshNotificationName {
-            base.onReceive(NotificationCenter.default.publisher(for: refreshNotificationName)) { _ in
-                refreshSeparatorColor()
+            refreshObserver = NotificationCenter.default.addObserver(
+                forName: refreshNotificationName,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refresh() }
             }
-        } else {
-            base
         }
     }
 
-    private var borderShape: some View {
-        Rectangle()
-            .fill(Color(nsColor: separatorColor))
-            .frame(
-                maxWidth: orientation == .horizontal ? .infinity : nil,
-                maxHeight: orientation == .vertical ? .infinity : nil
-            )
-            .frame(
-                width: orientation == .vertical ? 1 : nil,
-                height: orientation == .horizontal ? 1 : nil
-            )
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private func refreshSeparatorColor() {
-        separatorColor = WindowChromeColorResolver()
+    deinit {
+        if let refreshObserver {
+            NotificationCenter.default.removeObserver(refreshObserver)
+        }
+    }
+
+    public override var intrinsicContentSize: NSSize {
+        switch orientation {
+        case .horizontal:
+            NSSize(width: NSView.noIntrinsicMetric, height: 1)
+        case .vertical:
+            NSSize(width: 1, height: NSView.noIntrinsicMetric)
+        }
+    }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Refreshes the separator color from the provider.
+    public func refresh() {
+        let color = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColorProvider())
+        layer?.backgroundColor = color.cgColor
     }
 }

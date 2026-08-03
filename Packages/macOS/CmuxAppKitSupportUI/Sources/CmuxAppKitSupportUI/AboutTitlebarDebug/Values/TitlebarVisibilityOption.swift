@@ -10,7 +10,7 @@ public enum TitlebarVisibilityOption: String, CaseIterable, Identifiable, Sendab
     /// Show the window title text.
     case visible
 
-    /// Stable identity for SwiftUI list iteration.
+    /// Stable identity for picker rows.
     public var id: String { rawValue }
 
     /// Human-readable label shown in the picker.

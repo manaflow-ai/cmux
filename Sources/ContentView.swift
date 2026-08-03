@@ -1938,7 +1938,7 @@ struct ContentView: View {
         role: WindowBackdropRole,
         appearance: WindowAppearanceSnapshot
     ) -> some View {
-        WindowBackdropLayer(role: role, snapshot: appearance)
+        NativeWindowBackdropLayer(role: role, snapshot: appearance)
             .ignoresSafeArea()
             .frame(width: width)
             .clipShape(RoundedRectangle(cornerRadius: appearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
@@ -1956,7 +1956,7 @@ struct ContentView: View {
         ZStack(alignment: alignment) {
             sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
-                .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                .environment(\.colorScheme, appearance.sidebarContentColorScheme.transitionalColorScheme)
         }
         .frame(width: width)
     }
@@ -1975,7 +1975,7 @@ struct ContentView: View {
         }
         .overlay(alignment: .leading) {
             if rightSidebarVisible {
-                WindowChromeBorder(
+                NativeWindowChromeBorder(
                     orientation: .vertical,
                     refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
                     backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
@@ -2061,7 +2061,8 @@ struct ContentView: View {
         return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
+                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme)
+                    .nativeWindowChromeColorScheme,
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,
@@ -2152,7 +2153,7 @@ struct ContentView: View {
             // view draggable (which breaks drag gestures like tab reordering).
             WindowDragHandleView()
 
-            TitlebarLeadingInsetReader(
+            NativeTitlebarLeadingInsetReader(
                 inset: $titlebarLeadingInset,
                 baseLeadingInset: { MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset() }
             )
@@ -2204,7 +2205,7 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
             SidebarWidthReader(layout: sidebarLayout) { width in
-                WindowChromeBorder(
+                NativeWindowChromeBorder(
                     orientation: .horizontal,
                     refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
                     backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
@@ -2249,8 +2250,8 @@ struct ContentView: View {
                         .environment(
                             \.colorScheme,
                             sidebarState.isVisible
-                                ? appearance.sidebarContentColorScheme
-                                : appearance.chromeColorScheme
+                                ? appearance.sidebarContentColorScheme.transitionalColorScheme
+                                : appearance.chromeColorScheme.transitionalColorScheme
                         )
                         // Same vertical frame as the title row (`customTitlebar`)
                         // so the controls' center matches the folder icon / title.
@@ -2680,7 +2681,7 @@ struct ContentView: View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                NativeWindowBackdropLayer(role: .windowRoot, snapshot: appearance)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -11060,7 +11061,7 @@ struct VerticalTabsSidebar: View, Equatable {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            WindowChromeBorder(
+            NativeWindowChromeBorder(
                 orientation: .vertical,
                 refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
                 backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
@@ -11260,7 +11261,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
-                SidebarScrollViewResolver { scrollView in
+                NativeSidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
@@ -11297,7 +11298,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(height: scrollInsets.top)
             }
             .background(Color.clear)
-            .modifier(ClearScrollBackground())
+            .background(NativeScrollBackgroundClearer())
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
             }
@@ -12111,7 +12112,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             }
             .background(
-                SidebarScrollViewResolver { scrollView in
+                NativeSidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
@@ -12140,7 +12141,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 minimalModeSidebarTitlebarControlsOverlay()
             }
             .background(Color.clear)
-            .modifier(ClearScrollBackground())
+            .background(NativeScrollBackgroundClearer())
             .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
@@ -14789,7 +14790,7 @@ private struct SidebarHelpMenuButton: View {
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .background(ArrowlessPopoverAnchor(
+        .background(NativeArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
             detachedGap: 4

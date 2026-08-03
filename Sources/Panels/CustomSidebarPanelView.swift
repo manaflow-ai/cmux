@@ -43,7 +43,7 @@ struct CustomSidebarPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(sidebarBackdrop)
-        .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
+        .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme.transitionalColorScheme)
         .background(
             RightSidebarToolFocusAnchor(onViewChange: panel.attachFocusAnchor)
                 .frame(width: 0, height: 0)
@@ -73,7 +73,7 @@ struct CustomSidebarPanelView: View {
     private var sidebarBackdrop: some View {
         ZStack {
             Color(nsColor: appearance.backgroundColor)
-            WindowBackdropLayer(role: .rightSidebar, snapshot: windowAppearance)
+            NativeWindowBackdropLayer(role: .rightSidebar, snapshot: windowAppearance)
         }
         .clipShape(RoundedRectangle(cornerRadius: windowAppearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
     }

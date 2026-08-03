@@ -1,49 +1,38 @@
 import AppKit
-import SwiftUI
+import QuartzCore
 
-/// Non-hit-testing AppKit color fill used where SwiftUI colors blend poorly
-/// with transparent window backdrops.
-struct LayerBackedBackdropColor: NSViewRepresentable {
-    let color: NSColor
-
-    func makeNSView(context _: Context) -> NSView {
-        let view = NonHitTestingLayerBackedColorView()
-        view.setBackdropColor(color)
-        return view
+/// Non-hit-testing native color fill for transparent window backdrops.
+@MainActor
+final class LayerBackedBackdropColor: NSView {
+    init(color: NSColor) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        setBackdropColor(color)
     }
 
-    func updateNSView(_ nsView: NSView, context _: Context) {
-        (nsView as? NonHitTestingLayerBackedColorView)?.setBackdropColor(color)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private final class NonHitTestingLayerBackedColorView: NSView {
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            wantsLayer = true
-            layer?.masksToBounds = true
-            layer?.isOpaque = false
-        }
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            wantsLayer = true
-            layer?.masksToBounds = true
-            layer?.isOpaque = false
-        }
+    func setBackdropColor(_ color: NSColor) {
+        wantsLayer = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = resolvedCGColor(color)
+        layer?.isOpaque = color.alphaComponent >= 1
+        CATransaction.commit()
+    }
 
-        override var isOpaque: Bool { false }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
+    private func resolvedCGColor(_ color: NSColor) -> CGColor {
+        var resolved = color.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.deviceRGB)?.cgColor ?? color.cgColor
         }
-
-        func setBackdropColor(_ color: NSColor) {
-            wantsLayer = true
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.backgroundColor = color.cgColor
-            layer?.isOpaque = color.alphaComponent >= 1
-            CATransaction.commit()
-        }
+        return resolved
     }
 }

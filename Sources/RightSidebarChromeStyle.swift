@@ -170,7 +170,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(
+            NativeWindowChromeBorder(
                 orientation: .horizontal,
                 ignoresSafeArea: false,
                 refreshNotificationName: .ghosttyDefaultBackgroundDidChange,

@@ -5,7 +5,7 @@ extension NSScrollView {
     /// configuration, writing each property only when it differs to avoid
     /// cancelling an in-flight scroller fade.
     ///
-    /// `SidebarScrollViewResolver` re-resolves on every SwiftUI update of the
+    /// `SidebarScrollViewResolver` re-resolves on every native hierarchy update of the
     /// sidebar, so this is called repeatedly for the same scroll view —
     /// including while AppKit is mid-way through an overlay-scroller fade. Any
     /// write to these properties (even with an unchanged value) re-tiles the
