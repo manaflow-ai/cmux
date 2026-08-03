@@ -10,7 +10,7 @@ import Testing
 
 @MainActor
 @Suite struct TextBoxInlineAttachmentRenderingTests {
-    @Test func oversizedAttachmentBatchDoesNotMutateTextView() {
+    @Test func largeAttachmentBatchUsesOneInlineCellWithoutDroppingFiles() {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 420, height: 30)
         )
@@ -19,28 +19,7 @@ import Testing
         textView.string = "existing text"
         textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
 
-        let attachments = (0..<101).map { index in
-            TextBoxAttachment(
-                displayName: "file-\(index).txt",
-                submissionText: "/tmp/file-\(index).txt",
-                submissionPath: "/tmp/file-\(index).txt",
-                localURL: nil
-            )
-        }
-
-        textView.insertAttachments(attachments)
-
-        #expect(textView.string == "existing text")
-        #expect(textView.inlineAttachments().isEmpty)
-    }
-
-    @Test func attachmentBatchAtLimitIsInserted() {
-        let textView = TextBoxInputTextView(
-            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
-        )
-        textView.font = NSFont.systemFont(ofSize: 14)
-        textView.textColor = .labelColor
-        let attachments = (0..<TextBoxAttachmentCapacity.maximumCount).map { index in
+        let attachments = (0..<1_000).map { index in
             TextBoxAttachment(
                 displayName: "file-\(index).txt",
                 submissionText: "/tmp/file-\(index).txt",
@@ -50,7 +29,65 @@ import Testing
         }
 
         #expect(textView.insertAttachments(attachments))
-        #expect(textView.inlineAttachments().count == TextBoxAttachmentCapacity.maximumCount)
+
+        #expect(textView.inlineAttachments().map(\.submissionPath) == attachments.map(\.submissionPath))
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
+        let submissionParts = textView.submissionParts()
+        #expect(submissionParts.count == 1_001)
+        guard submissionParts.count == 1_001 else { return }
+        guard case .text(let prefix) = submissionParts[0],
+              case .attachment(let firstAttachment) = submissionParts[1],
+              case .attachment(let lastAttachment) = submissionParts[1_000] else {
+            Issue.record("Large attachment groups must expand into ordered submission parts.")
+            return
+        }
+        #expect(prefix == "existing text ")
+        #expect(firstAttachment.submissionPath == "/tmp/file-0.txt")
+        #expect(lastAttachment.submissionPath == "/tmp/file-999.txt")
+    }
+
+    @Test func normalAttachmentBatchKeepsIndividualCells() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let maximumIndividualCells = 20
+        let attachments = (0..<maximumIndividualCells).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        #expect(textView.insertAttachments(attachments))
+        #expect(textView.inlineAttachments().count == attachments.count)
+        #expect(inlineAttachmentCellCount(in: textView) == attachments.count)
+    }
+
+    @Test func deletingLargeAttachmentGroupRemovesEveryLogicalFile() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let attachments = (0..<1_000).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+        #expect(textView.insertAttachments(attachments))
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
+
+        textView.deleteAttachment(at: 0)
+
+        #expect(textView.inlineAttachments().isEmpty)
+        #expect(inlineAttachmentCellCount(in: textView) == 0)
     }
 
     @Test func imageAttachmentCreatesThumbnailSourceWithoutReadingTheFile() {
@@ -65,8 +102,8 @@ import Testing
         #expect(attachment.inlineThumbnailSource != nil)
     }
 
-    @Test func oversizedSessionDraftIsBoundedBeforeRendering() {
-        let attachmentParts = (0..<101).map { index in
+    @Test func largeSessionDraftRestoresEveryFileIntoOneInlineCell() {
+        let attachmentParts = (0..<1_000).map { index in
             SessionTextBoxInputDraftPart.attachment(
                 SessionTextBoxInputAttachmentSnapshot(
                     displayName: "file-\(index).txt",
@@ -89,8 +126,24 @@ import Testing
 
         textView.installSessionDraft(draft)
 
-        #expect(textView.inlineAttachments().count == TextBoxAttachmentCapacity.maximumCount)
+        #expect(textView.inlineAttachments().count == 1_000)
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
         #expect(textView.plainText() == "before  after")
+    }
+
+    private func inlineAttachmentCellCount(in textView: TextBoxInputTextView) -> Int {
+        var count = 0
+        let attributed = textView.attributedString()
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, _, _ in
+            if value is TextBoxInlineTextAttachment {
+                count += 1
+            }
+        }
+        return count
     }
 
     @Test func identicalRefreshReusesRenderedChipImage() throws {
