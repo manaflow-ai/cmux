@@ -1303,6 +1303,52 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Moving away from a long prompt's caret must leave the editor at the
+    /// user's chosen scroll position. Inserting at the visible top proves the
+    /// viewport did not silently return to the caret at the end of the draft.
+    @MainActor
+    func testTaskComposerPromptScrollAwayFromCaretRemainsAtTop() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+
+        for _ in 0..<3 {
+            prompt.swipeDown(velocity: .fast)
+        }
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        modelPill.tap()
+        tapMenuItem(app.buttons["Opus 4.8"], in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+
+        let marker = "TOP_SCROLL_MARKER"
+        prompt.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.12)).tap()
+        prompt.typeText(marker)
+
+        let value = try XCTUnwrap(prompt.value as? String)
+        let markerRange = try XCTUnwrap(value.range(of: marker))
+        let markerOffset = value[..<markerRange.lowerBound].utf16.count
+        XCTAssertLessThan(
+            markerOffset,
+            value.utf16.count / 3,
+            "The prompt returned to its bottom caret after the user scrolled to the top"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-position"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Switching templates without a template-specific directory must keep the
     /// selected Mac's focused project instead of restoring older task history.
     @MainActor
