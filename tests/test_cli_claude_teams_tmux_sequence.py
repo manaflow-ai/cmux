@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import pty
 import socketserver
 import subprocess
 import tempfile
@@ -36,7 +37,7 @@ def read_text(path: Path) -> str:
 
 
 class FakeCmuxState:
-    def __init__(self) -> None:
+    def __init__(self, foreground_process_id: int, tty_name: str) -> None:
         self.lock = threading.Lock()
         self.requests: list[str] = []
         self.equalize_calls: list[dict[str, object]] = []
@@ -66,6 +67,8 @@ class FakeCmuxState:
                 "ref": "surface:1",
                 "pane_id": INITIAL_PANE_ID,
                 "title": "leader",
+                "foreground_process_id": foreground_process_id,
+                "tty_name": tty_name,
             }
         ]
 
@@ -158,6 +161,11 @@ class FakeCmuxState:
                             "title": surface["title"],
                             "pane_id": surface["pane_id"],
                             "pane_ref": self._pane_ref(surface["pane_id"]),
+                            **{
+                                key: surface[key]
+                                for key in ("foreground_process_id", "tty_name")
+                                if key in surface
+                            },
                         }
                         for surface in self.surfaces
                     ]
@@ -233,7 +241,14 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            request = json.loads(line.decode("utf-8"))
+            decoded = line.decode("utf-8").rstrip("\r\n")
+            if not decoded:
+                continue
+            if decoded.lower().startswith("auth"):
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
+            request = json.loads(decoded)
             response = {
                 "ok": True,
                 "result": self.server.state.handle(  # type: ignore[attr-defined]
@@ -259,7 +274,16 @@ def main() -> int:
         home.mkdir(parents=True, exist_ok=True)
 
         socket_path = tmp / "fake-cmux.sock"
-        state = FakeCmuxState()
+        pty_master, pty_slave = pty.openpty()
+        foreground_tty = os.ttyname(pty_slave)
+        foreground_process = subprocess.Popen(
+            ["/bin/sleep", "60"],
+            stdin=pty_slave,
+            stdout=pty_slave,
+            stderr=pty_slave,
+            start_new_session=True,
+        )
+        state = FakeCmuxState(foreground_process.pid, foreground_tty)
         server = FakeCmuxUnixServer(str(socket_path), state)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -293,6 +317,9 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env.pop("CMUX_SOCKET", None)
+        env.pop("CMUX_SOCKET_CAPABILITY", None)
+        env.pop("CMUX_SOCKET_PASSWORD", None)
         env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
         env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
@@ -302,6 +329,20 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
 
         try:
+            process_formats = subprocess.run(
+                [
+                    cli_path,
+                    "__tmux-compat",
+                    "display-message",
+                    "-p",
+                    "#{pane_current_command}|#{pane_pid}|#{pane_tty}",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
             proc = subprocess.run(
                 [cli_path, "claude-teams", "--version"],
                 capture_output=True,
@@ -318,12 +359,37 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+            foreground_process.terminate()
+            try:
+                foreground_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                foreground_process.kill()
+                foreground_process.wait(timeout=2)
+            os.close(pty_master)
+            os.close(pty_slave)
 
         if proc.returncode != 0:
             print("FAIL: `cmux claude-teams --version` exited non-zero")
             print(f"exit={proc.returncode}")
             print(f"stdout={proc.stdout.strip()}")
             print(f"stderr={proc.stderr.strip()}")
+            return 1
+
+        if process_formats.returncode != 0:
+            print("FAIL: tmux process format query exited non-zero")
+            print(f"exit={process_formats.returncode}")
+            print(f"stdout={process_formats.stdout.strip()}")
+            print(f"stderr={process_formats.stderr.strip()}")
+            return 1
+
+        expected_process_formats = (
+            f"sleep|{foreground_process.pid}|{foreground_tty}"
+        )
+        if process_formats.stdout.strip() != expected_process_formats:
+            print(
+                "FAIL: expected tmux process formats "
+                f"{expected_process_formats!r}, got {process_formats.stdout.strip()!r}"
+            )
             return 1
 
         initial_pane_token = stable_tmux_numeric_id(INITIAL_PANE_ID)
