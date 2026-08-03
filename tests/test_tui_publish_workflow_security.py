@@ -336,6 +336,7 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
         output = "sdk_need_publish" if name == "publish-sdk" else "sidebar_need_publish"
         assert f"needs.decisions.outputs.{output} == 'true'" in crates_publish
 
+    assert "!cancelled()" in crates_publishes["publish-sidebar"]
     assert "always()" in crates_verify
     assert "needs.publish-sdk.result" not in crates_verify
     assert "needs.publish-sidebar.result" not in crates_verify
