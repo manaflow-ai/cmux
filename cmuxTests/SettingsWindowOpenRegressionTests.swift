@@ -23,6 +23,25 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowOpenRegressionTests {
+        @Test func realWindowConstructionUsesDirectHostingView() async {
+            let previousRuntime = AppDelegate.shared?.settingsRuntime
+            AppDelegate.shared?.settingsRuntime = nil
+            defer { AppDelegate.shared?.settingsRuntime = previousRuntime }
+
+            let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
+            window.orderFrontRegardless()
+            for _ in 0..<20 { await Task.yield() }
+
+            #expect(window.contentViewController == nil)
+            #expect(window.contentView != nil)
+
+            window.orderOut(nil)
+            window.contentViewController = nil
+            window.contentView = nil
+            for _ in 0..<20 { await Task.yield() }
+            window.close()
+        }
+
         @Test func showAlwaysProducesAVisibleSettingsWindow() {
             withCleanSettingsWindows {
                 let presenter = SettingsWindowPresenter()
@@ -33,24 +52,27 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        @Test func showAfterCloseProducesAFreshVisibleSettingsWindow() {
-            withCleanSettingsWindows {
-                let presenter = SettingsWindowPresenter()
+        @Test func showAfterCloseProducesAFreshVisibleSettingsWindow() async {
+            closeSettingsWindows()
+            defer { closeSettingsWindows() }
+            let presenter = SettingsWindowPresenter()
 
-                presenter.show()
-                let firstWindow = visibleSettingsWindow()
-                #expect(firstWindow != nil)
-                firstWindow?.close()
+            presenter.show()
+            await drainMainQueue()
+            let firstWindow = visibleSettingsWindow()
+            #expect(firstWindow != nil)
+            firstWindow?.close()
+            await drainMainQueue()
 
-                presenter.show()
-                let secondWindow = visibleSettingsWindow()
+            presenter.show()
+            await drainMainQueue()
+            let secondWindow = visibleSettingsWindow()
 
-                #expect(secondWindow != nil)
-                // The reopened window must be a fresh, fully-populated window —
-                // never the half-closed previous one (the #4964 blank-content and
-                // #5321 lingering-window classes).
-                #expect(secondWindow !== firstWindow)
-            }
+            #expect(secondWindow != nil)
+            // The reopened window must be a fresh, fully-populated window —
+            // never the half-closed previous one (the #4964 blank-content and
+            // #5321 lingering-window classes).
+            #expect(secondWindow !== firstWindow)
         }
 
         @Test func openCloseChurnNeverWedgesTheOpenPath() {
@@ -137,6 +159,10 @@ extension SettingsWindowSharedStateSuites {
                 window.identifier = nil
                 window.close()
             }
+        }
+
+        private func drainMainQueue() async {
+            for _ in 0..<20 { await Task.yield() }
         }
     }
 }

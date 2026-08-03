@@ -84,7 +84,7 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        @Test func closingReleasesTheWindowContent() {
+        @Test func closingRetiresTheWholeWindowWithoutDismantlingContent() {
             withCleanSettingsWindows {
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in makeFactoryWindow() })
 
@@ -94,9 +94,12 @@ extension SettingsWindowSharedStateSuites {
 
                 window?.close()
 
-                // The content tree is released with the window so a closed
-                // Settings cannot linger half-alive (#4964 / #5321 classes).
-                #expect(window?.contentViewController == nil)
+                // Retire the complete graph. Clearing hosted content from a
+                // willClose callback can race AppKit/SwiftUI teardown; the
+                // presenter instead drops identity and ownership so this
+                // externally-retained window remains internally consistent.
+                #expect(window?.identifier == nil)
+                #expect(window?.contentViewController != nil)
             }
         }
 

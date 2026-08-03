@@ -26,12 +26,13 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
-        @Test func presenterBuildsNativeSplitViewChrome() throws {
+        @Test func presenterBuildsNativeSplitViewChrome() async throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
             let presenter = SettingsWindowPresenter()
             #expect(presenter.show() == .presented)
+            await drainMainQueue()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -53,16 +54,15 @@ extension SettingsWindowSharedStateSuites {
             #expect(window.titleVisibility == .visible)
             #expect(window.titlebarSeparatorStyle == .automatic)
 
-            // Only the title is scene-bridged. `.toolbars` must stay off:
-            // the bridge never materializes NavigationSplitView's implicit
-            // sidebar toggle in an AppKit-hosted window (and bridged items
-            // don't materialize in the CI harness at all), so the factory
-            // owns the toolbar in AppKit, deterministically.
-            let hostingController = try #require(
-                window.contentViewController as? NSHostingController<SettingsWindowHostRoot>
+            // The factory owns both title and toolbar in AppKit. SwiftUI is
+            // hosted directly so content measurement cannot feed window
+            // geometry back through NSHostingController's scene bridge.
+            #expect(window.title == String(localized: "settings.title", defaultValue: "Settings"))
+            #expect(window.contentViewController == nil)
+            let hostingView = try #require(
+                window.contentView as? NSHostingView<SettingsWindowHostRoot>
             )
-            #expect(hostingController.sceneBridgingOptions.contains(.title))
-            #expect(!hostingController.sceneBridgingOptions.contains(.toolbars))
+            #expect(hostingView.sceneBridgingOptions.isEmpty)
 
             // [flexible space, sidebar toggle, sidebar tracking separator]
             // is the exact item layout SwiftUI builds for its own
@@ -78,12 +78,13 @@ extension SettingsWindowSharedStateSuites {
             )
         }
 
-        @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
+        @Test func toolbarToggleSharesTheMenuCommandNotificationPath() async throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
             let presenter = SettingsWindowPresenter()
             #expect(presenter.show() == .presented)
+            await drainMainQueue()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -120,6 +121,10 @@ extension SettingsWindowSharedStateSuites {
                 window.close()
             }
             UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
+        }
+
+        private func drainMainQueue() async {
+            for _ in 0..<20 { await Task.yield() }
         }
     }
 }

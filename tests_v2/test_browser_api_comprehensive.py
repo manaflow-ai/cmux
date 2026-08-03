@@ -252,6 +252,40 @@ def main() -> int:
         _must(int(key_value.get("up", 0)) >= 2, f"Expected keyup counter >= 2: {key_stats}")
         _must(int(key_value.get("press", 0)) >= 1, f"Expected keypress counter >= 1: {key_stats}")
 
+        dom_rect_result = c._call(
+            "browser.eval",
+            {
+                "surface_id": target,
+                "script": "document.querySelector('#status').getBoundingClientRect()",
+            },
+        ) or {}
+        dom_rect = _value(dom_rect_result)
+        _must(
+            isinstance(dom_rect, dict),
+            f"Expected DOMRect to cross the browser bridge as a dictionary: {dom_rect_result}",
+        )
+        _must(
+            float(dom_rect.get("width") or 0.0) > 0.0,
+            f"Expected bridged DOMRect width to be positive: {dom_rect_result}",
+        )
+
+        nested_dom_rect_result = c._call(
+            "browser.eval",
+            {
+                "surface_id": target,
+                "script": "({bounds: document.querySelector('#status').getBoundingClientRect()})",
+            },
+        ) or {}
+        nested_dom_rect = (_value(nested_dom_rect_result) or {}).get("bounds")
+        _must(
+            isinstance(nested_dom_rect, dict),
+            f"Expected nested DOMRect to cross the browser bridge as a dictionary: {nested_dom_rect_result}",
+        )
+        _must(
+            float(nested_dom_rect.get("height") or 0.0) > 0.0,
+            f"Expected bridged nested DOMRect height to be positive: {nested_dom_rect_result}",
+        )
+
         c._call("browser.check", {"surface_id": target, "selector": "#chk"})
         is_checked = c._call("browser.is.checked", {"surface_id": target, "selector": "#chk"}) or {}
         _must(bool(_value(is_checked)) is True, f"Expected checked=true: {is_checked}")
