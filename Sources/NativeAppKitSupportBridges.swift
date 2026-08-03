@@ -775,6 +775,42 @@ struct BrowserOmnibarInteractionRepresentable: NSViewRepresentable {
     }
 }
 
+extension GhosttyTerminalView {
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: NSView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? max(1, nsView.bounds.width),
+            height: proposal.height ?? max(1, nsView.bounds.height)
+        )
+    }
+}
+
+struct SidebarAgentActivityIndicator: View {
+    let spinnerColor: NSColor
+    let side: CGFloat
+
+    var body: some View {
+        GPUSpinner(style: .macOSSpokes, color: spinnerColor)
+            .frame(width: side, height: side)
+            .fixedSize()
+    }
+}
+
+struct SidebarWorkspaceLoadingSpinner: View {
+    let side: CGFloat
+    let color: NSColor
+    let tooltip: String
+
+    var body: some View {
+        SidebarAgentActivityIndicator(spinnerColor: color, side: side)
+            .safeHelp(tooltip)
+            .accessibilityLabel(Text(tooltip))
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 
