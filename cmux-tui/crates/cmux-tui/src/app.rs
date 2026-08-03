@@ -32520,6 +32520,80 @@ mod tests {
     }
 
     #[test]
+    fn alt_directional_focus_traverses_sidebar_at_the_pane_boundary() {
+        let (mux, surface) = test_mux("alt-sidebar-boundary-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.session_available = true;
+        app.machine_ui = Some(machine_ui);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::MachineRail);
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_headers_are_the_only_pointer_entrypoint_for_rail_focus() {
+        let (mux, surface) = test_mux("sidebar-pointer-focus-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.session_available = true;
+        app.machine_ui = Some(machine_ui);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 16));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let machine_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::Machine { .. }).then_some(*rect))
+            .unwrap();
+        let workspace_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::Workspace { .. }).then_some(*rect))
+            .unwrap();
+        let machine_area = app.sidebar_layout.machine.unwrap();
+        let workspace_area = app.sidebar_layout.workspace.unwrap();
+
+        app.focus = FocusTarget::WorkspaceRail;
+        app.handle_left_down(workspace_row.x, workspace_row.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(workspace_row.x, workspace_row.y).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        app.handle_left_down(workspace_area.x + 1, workspace_area.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(workspace_area.x + 1, workspace_area.y).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_left_down(machine_row.x, machine_row.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(machine_row.x, machine_row.y).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        app.handle_left_down(machine_area.x + 1, machine_area.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_up(machine_area.x + 1, machine_area.y).unwrap();
+        assert_eq!(app.focus, FocusTarget::MachineRail);
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn mouse_drag_resizes_machine_and_workspace_rails_independently() {
         let mux = Mux::new("rail-mouse-resize-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -32985,7 +33059,7 @@ mod tests {
             .unwrap();
         app.handle_left_down(disclosure.x, disclosure.y, KeyModifiers::NONE).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
+        assert_eq!(app.focus, FocusTarget::Pane);
         assert!(!app.hits.iter().any(|(_, hit)| matches!(
             hit,
             super::Hit::ProjectionRow {
@@ -32996,6 +33070,12 @@ mod tests {
                 ..
             } if *hit_surface == surface.id
         )));
+
+        let area = app.sidebar_layout.rail(RailKind::Projection(0)).unwrap();
+        app.handle_left_down(area.x + 1, area.y + 10, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        app.handle_left_down(area.x + 1, area.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -33040,6 +33120,7 @@ mod tests {
             .expect("isolated action hit");
 
         app.handle_left_down(isolated.x, isolated.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
