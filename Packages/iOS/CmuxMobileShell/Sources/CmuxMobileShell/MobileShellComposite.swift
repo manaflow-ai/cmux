@@ -11983,12 +11983,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // to leave the existing sections intact. Authoritative groups are passed
         // through the device-local collapse store before entering the per-Mac
         // source of truth, so derived groups keep this phone's collapse choices.
-        let groups: [MobileWorkspaceGroupPreview]? =
-            (mergeExistingWorkspaces || !groupsAreAuthoritative)
-                ? nil
-                : groupCollapseStore.apply(
-                    to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-                )
+        // Empty or missing group metadata during reconnect/rebind is not enough to
+        // remove sections; only a healthy, complete ungrouped snapshot can do that.
+        let groups = remoteWorkspaceGroups(
+            from: response,
+            mergeExistingWorkspaces: mergeExistingWorkspaces,
+            groupsAreAuthoritative: groupsAreAuthoritative
+        )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
         #if DEBUG
@@ -12030,6 +12031,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
+    }
+
+    private func remoteWorkspaceGroups(
+        from response: MobileSyncWorkspaceListResponse,
+        mergeExistingWorkspaces: Bool,
+        groupsAreAuthoritative: Bool
+    ) -> [MobileWorkspaceGroupPreview]? {
+        guard !mergeExistingWorkspaces, groupsAreAuthoritative else { return nil }
+        guard response.groupsFieldWasPresent else { return nil }
+        let groups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        guard groups.isEmpty else {
+            return groupCollapseStore.apply(to: groups)
+        }
+        guard canAcceptEmptyGroupSnapshot(from: response) else { return nil }
+        return []
+    }
+
+    private func canAcceptEmptyGroupSnapshot(
+        from response: MobileSyncWorkspaceListResponse
+    ) -> Bool {
+        guard connectionState == .connected, macConnectionStatus == .connected else {
+            return false
+        }
+        let responseStillReferencesGroups = response.workspaces.contains { workspace in
+            workspace.groupID?.isEmpty == false
+        }
+        guard !responseStillReferencesGroups else { return false }
+        return true
     }
 
     private func remoteWorkspacesPreservingSnapshots(
