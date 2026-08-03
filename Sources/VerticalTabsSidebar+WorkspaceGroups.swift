@@ -5,7 +5,7 @@ import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces
 
-extension VerticalTabsSidebar {
+extension DefaultWorkspaceSidebarView {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],

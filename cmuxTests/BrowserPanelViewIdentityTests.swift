@@ -110,6 +110,7 @@ private struct BrowserPanelReplacementHarness: View {
             appearance: PanelAppearance(
                 backgroundColor: .windowBackgroundColor,
                 foregroundColor: .labelColor,
+                fontSize: 13,
                 dividerColor: .clear,
                 unfocusedOverlayNSColor: .clear,
                 unfocusedOverlayOpacity: 0,

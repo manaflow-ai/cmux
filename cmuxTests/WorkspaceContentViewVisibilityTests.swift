@@ -62,16 +62,19 @@ final class WorkspaceContentViewVisibilityTests {
     @MainActor
     func workspaceAppearanceProjectionLoadsOneConfigForThreeHundredPanels() {
         var loadCount = 0
+        var sourceConfig = GhosttyConfig()
+        sourceConfig.fontSize = 23
         let config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
             loadConfig: {
                 loadCount += 1
-                return GhosttyConfig()
+                return sourceConfig
             }
         )
 
         let appearances = (0..<300).map { _ in PanelAppearance.fromConfig(config) }
 
         #expect(appearances.count == 300)
+        #expect(appearances.allSatisfy { $0.fontSize == 23 })
         #expect(loadCount == 1)
     }
 

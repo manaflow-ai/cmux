@@ -255,7 +255,7 @@ import Testing
         seed.value = nil
 
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -349,7 +349,7 @@ import Testing
         final class MeasuredWidth { var value: CGFloat = 0 }
         let measured = MeasuredWidth()
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -565,7 +565,7 @@ import Testing
             panel.surface.onRuntimeReady = nil
         }
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -666,7 +666,7 @@ import Testing
             panel.surface.onRuntimeReady = nil
         }
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -806,7 +806,7 @@ import Testing
             panel.surface.onRuntimeReady = nil
         }
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -979,7 +979,7 @@ import Testing
             panel.surface.onRuntimeReady = nil
         }
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -1133,7 +1133,7 @@ import Testing
             panel.surface.onRuntimeReady = nil
         }
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
@@ -1508,7 +1508,7 @@ import Testing
         let (mirrorB, connectionB) = makeSplitMirror()
 
         let appearance = PanelAppearance(
-            backgroundColor: .black, foregroundColor: .white,
+            backgroundColor: .black, foregroundColor: .white, fontSize: 13,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
