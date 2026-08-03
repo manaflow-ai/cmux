@@ -35,6 +35,158 @@ extension EnvironmentValues {
 }
 #endif
 
+enum SidebarTitleFirstLineCenterAlignment: AlignmentID {
+    static func defaultValue(in context: ViewDimensions) -> CGFloat {
+        context[VerticalAlignment.center]
+    }
+}
+
+extension VerticalAlignment {
+    static let sidebarTitleFirstLineCenter = VerticalAlignment(
+        SidebarTitleFirstLineCenterAlignment.self
+    )
+}
+
+extension View {
+    @ViewBuilder
+    func sidebarRowDragGate(
+        isEditing: Bool,
+        _ makeProvider: @escaping () -> NSItemProvider
+    ) -> some View {
+        if isEditing { self } else { onDrag(makeProvider) }
+    }
+}
+
+struct MinimalModeTitlebarEventSurfaceLayer: View {
+    let isFullScreen: Bool
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    var body: some View {
+        MinimalModeTitlebarEventSurfaceView(
+            isEnabled: WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+                && !isFullScreen
+        )
+    }
+}
+
+struct WorkspaceContentMinimalModeSafeAreaModifier: ViewModifier {
+    let isFullScreen: Bool
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    func body(content: Content) -> some View {
+        let isMinimal = WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+        content.ignoresSafeArea(.container, edges: (isMinimal && !isFullScreen) ? .top : [])
+    }
+}
+
+struct WorkspaceTitlebarModeLayer<Titlebar: View>: View {
+    let titlebar: () -> Titlebar
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    var body: some View {
+        if WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) != .minimal {
+            titlebar()
+        }
+    }
+}
+
+private struct CanvasInlineBrowserHostingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var cmuxCanvasInlineBrowserHosting: Bool {
+        get { self[CanvasInlineBrowserHostingKey.self] }
+        set { self[CanvasInlineBrowserHostingKey.self] = newValue }
+    }
+}
+
+struct TitlebarInteractiveControlModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(TitlebarInteractiveControlRegion())
+    }
+}
+
+extension View {
+    func titlebarInteractiveControl() -> some View {
+        modifier(TitlebarInteractiveControlModifier())
+    }
+}
+
+struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
+    let isEnabled: Bool
+    let targetWorkspaceId: UUID
+    let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID?
+    let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool
+    let syncSidebarSelectionAfterDrop: @MainActor () -> Void
+    let selectTargetAfterDrop: @MainActor () -> Void
+
+    func body(content: Content) -> some View {
+        content.onDrop(
+            of: BonsplitTabDragPayload.dropContentTypes,
+            delegate: SidebarBonsplitTabDropDelegate(
+                isEnabled: isEnabled,
+                targetWorkspaceId: targetWorkspaceId,
+                bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
+                moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
+                syncSidebarSelectionAfterDrop: syncSidebarSelectionAfterDrop,
+                selectTargetAfterDrop: selectTargetAfterDrop
+            )
+        )
+    }
+}
+
+struct WorkspacePresentationModeContentTopPaddingModifier: ViewModifier {
+    let isFullScreen: Bool
+    let titlebarPadding: CGFloat
+    let hostingSafeAreaTop: CGFloat
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    func body(content: Content) -> some View {
+        content.padding(.top, ContentView.effectiveTitlebarPadding(
+            isMinimalMode: WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal,
+            isFullScreen: isFullScreen,
+            titlebarPadding: titlebarPadding,
+            hostingSafeAreaTop: hostingSafeAreaTop
+        ))
+    }
+}
+
+#if compiler(>=6.2)
+@available(macOS 26.0, *)
+enum InternalTabDragConfigurationProvider {
+    static let value = DragConfiguration(
+        operationsWithinApp: .init(allowCopy: false, allowMove: true, allowDelete: false),
+        operationsOutsideApp: .init(allowCopy: false, allowMove: false, allowDelete: false)
+    )
+}
+#endif
+
+private struct InternalTabDragConfigurationModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.dragConfiguration(InternalTabDragConfigurationProvider.value)
+        } else {
+            content
+        }
+#else
+        content
+#endif
+    }
+}
+
+extension View {
+    func internalOnlyTabDrag() -> some View {
+        modifier(InternalTabDragConfigurationModifier())
+    }
+}
+
 /// Transitional mounts for native support views while their parent surfaces
 /// are still being moved to AppKit controllers.
 
