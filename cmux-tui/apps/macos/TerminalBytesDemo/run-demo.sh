@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
 ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
 
-for command in cargo codesign jq openssl xcodebuildmcp; do
+for command in cargo codesign jq openssl swift; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "TerminalBytes demo needs $command on PATH." >&2
     exit 1
@@ -32,29 +32,12 @@ fi
 export ZIG
 export MACOSX_DEPLOYMENT_TARGET=14.0
 
-echo "Building the exact cmux-tui daemon and Rust terminal-client static library..."
-(cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
-
-echo "Building the standalone macOS app through XcodeBuildMCP..."
-xcodebuildmcp swift-package clean --package-path "$SCRIPT_DIR"
-xcodebuildmcp swift-package build \
-  --package-path "$SCRIPT_DIR" \
-  --configuration debug
-
 CMUX_TUI="$TUI_ROOT/target/debug/cmux-tui"
 STATIC_LIBRARY="$TUI_ROOT/target/debug/libcmux_terminal_client.a"
-APP_BINARY="$SCRIPT_DIR/.build/debug/TerminalBytesDemo"
-RESOURCE_BUNDLE="$SCRIPT_DIR/.build/debug/TerminalBytesDemo_TerminalBytesDemo.bundle"
-for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; do
-  if [[ ! -e "$artifact" ]]; then
-    echo "Expected build artifact is missing: $artifact" >&2
-    exit 1
-  fi
-done
-
 TEMP_PARENT="${TMPDIR:-/tmp}"
 TEMP_PARENT="${TEMP_PARENT%/}"
 DEMO_ROOT="$(mktemp -d "$TEMP_PARENT/cmux-terminal-bytes-demo.XXXXXX")"
+SWIFT_BUILD_ROOT="$DEMO_ROOT/swift-build"
 SESSION="terminal-bytes-$$"
 MUX_SOCKET="$DEMO_ROOT/mux.sock"
 MUX_STATE="$DEMO_ROOT/mux-state"
@@ -88,6 +71,29 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
+
+echo "Building the exact cmux-tui daemon and Rust terminal-client static library..."
+(cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
+
+echo "Building the standalone macOS app in an invocation-owned SwiftPM directory..."
+swift build \
+  --package-path "$SCRIPT_DIR" \
+  --scratch-path "$SWIFT_BUILD_ROOT" \
+  --configuration debug
+SWIFT_BIN_PATH="$(swift build \
+  --package-path "$SCRIPT_DIR" \
+  --scratch-path "$SWIFT_BUILD_ROOT" \
+  --configuration debug \
+  --show-bin-path)"
+
+APP_BINARY="$SWIFT_BIN_PATH/TerminalBytesDemo"
+RESOURCE_BUNDLE="$SWIFT_BIN_PATH/TerminalBytesDemo_TerminalBytesDemo.bundle"
+for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; do
+  if [[ ! -e "$artifact" ]]; then
+    echo "Expected build artifact is missing: $artifact" >&2
+    exit 1
+  fi
+done
 
 APP_BUNDLE="$DEMO_ROOT/TerminalBytesDemo.app"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/en.lproj" \

@@ -162,6 +162,18 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.keyDown(with: backspace)
 
         XCTAssertTrue(delivered.isEmpty)
+        terminal.applyTerminalFrame("prompt> output")
+        XCTAssertEqual(terminal.terminalFrameText, "prompt> output")
+        XCTAssertEqual(terminal.string, "prompt> outputかな")
+        XCTAssertEqual(terminal.markedRange(), NSRange(location: 14, length: 2))
+
+        terminal.insertText(
+            "仮名",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertEqual(delivered, [.bytes(Data("仮名".utf8))])
+        XCTAssertFalse(terminal.hasMarkedText())
+        XCTAssertEqual(terminal.string, "prompt> output")
     }
 
     func testLauncherUsesAnInvocationOwnedSwiftBuildDirectory() throws {

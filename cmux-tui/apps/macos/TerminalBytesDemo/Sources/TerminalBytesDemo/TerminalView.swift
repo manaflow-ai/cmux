@@ -49,13 +49,26 @@ func terminalKeyChord(
 }
 
 final class TerminalTextView: NSTextView {
+    private struct MarkedTextState {
+        let text: NSAttributedString
+        let anchor: Int
+        let selection: NSRange
+    }
+
     var submit: ((TerminalInput) -> Void)?
     var isInputReady = false
     var pasteboardText: () -> String? = {
         NSPasteboard.general.string(forType: .string)
     }
-    private let terminalMarkedText = NSMutableAttributedString(string: "")
+    private var terminalMarkedRange = NSRange(location: NSNotFound, length: 0)
     private var terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
+
+    var terminalFrameText: String {
+        guard let range = validMarkedRange else { return string }
+        let frame = NSMutableString(string: string)
+        frame.deleteCharacters(in: range)
+        return frame as String
+    }
 
     func configureForTerminal() {
         isEditable = false
@@ -107,12 +120,11 @@ final class TerminalTextView: NSTextView {
     }
 
     override func hasMarkedText() -> Bool {
-        terminalMarkedText.length > 0
+        validMarkedRange != nil
     }
 
     override func markedRange() -> NSRange {
-        guard hasMarkedText() else { return NSRange(location: NSNotFound, length: 0) }
-        return NSRange(location: 0, length: terminalMarkedText.length)
+        validMarkedRange ?? NSRange(location: NSNotFound, length: 0)
     }
 
     override func selectedRange() -> NSRange {
@@ -124,56 +136,168 @@ final class TerminalTextView: NSTextView {
         selectedRange: NSRange,
         replacementRange: NSRange
     ) {
+        _ = replacementRange
+        let incoming: NSAttributedString
         switch string {
         case let value as NSAttributedString:
-            terminalMarkedText.setAttributedString(value)
+            incoming = value
         case let value as String:
-            terminalMarkedText.setAttributedString(NSAttributedString(string: value))
+            incoming = NSAttributedString(string: value)
         default:
             return
         }
-        let length = terminalMarkedText.length
-        let location = min(
-            selectedRange.location == NSNotFound ? length : max(0, selectedRange.location),
-            length
+        guard incoming.length > 0 else {
+            unmarkText()
+            return
+        }
+        guard let storage = textStorage else { return }
+
+        let rendered = NSMutableAttributedString(attributedString: incoming)
+        rendered.addAttributes(
+            terminalMarkedTextAttributes,
+            range: NSRange(location: 0, length: rendered.length)
+        )
+        let replacement: NSRange
+        let anchor: Int
+        if let range = validMarkedRange {
+            replacement = range
+            anchor = range.location
+        } else {
+            let selection = super.selectedRange()
+            let (selectionEnd, overflow) = selection.location.addingReportingOverflow(
+                max(0, selection.length)
+            )
+            let proposed =
+                selection.location == NSNotFound || selection.location < 0 || overflow
+                ? storage.length
+                : selectionEnd
+            anchor = min(max(0, proposed), storage.length)
+            replacement = NSRange(location: anchor, length: 0)
+        }
+        storage.beginEditing()
+        storage.replaceCharacters(in: replacement, with: rendered)
+        storage.endEditing()
+
+        terminalMarkedRange = NSRange(location: anchor, length: rendered.length)
+        let relativeLocation = min(
+            selectedRange.location == NSNotFound ? rendered.length : max(0, selectedRange.location),
+            rendered.length
         )
         terminalMarkedSelection = NSRange(
-            location: location,
-            length: min(max(0, selectedRange.length), length - location)
+            location: anchor + relativeLocation,
+            length: min(max(0, selectedRange.length), rendered.length - relativeLocation)
         )
+        super.setSelectedRange(terminalMarkedSelection)
         needsDisplay = true
     }
 
     override func unmarkText() {
-        guard hasMarkedText() else { return }
-        terminalMarkedText.mutableString.setString("")
-        terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
+        guard let marked = detachMarkedText() else { return }
+        super.setSelectedRange(NSRange(location: marked.anchor, length: 0))
         needsDisplay = true
     }
 
     override func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        []
+        [.font, .foregroundColor, .backgroundColor, .underlineStyle]
     }
 
-    override func attributedSubstring(
-        forProposedRange range: NSRange,
-        actualRange: NSRangePointer?
-    ) -> NSAttributedString? {
-        guard hasMarkedText() else {
-            return super.attributedSubstring(forProposedRange: range, actualRange: actualRange)
+    @discardableResult
+    func applyTerminalFrame(_ next: String) -> TerminalTextEdit? {
+        let current = terminalFrameText
+        guard let edit = terminalTextEdit(from: current, to: next) else { return nil }
+        let marked = detachMarkedText()
+        guard let storage = textStorage else { return nil }
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: edit.range, with: edit.replacement)
+        let replacementRange = NSRange(
+            location: edit.range.location,
+            length: edit.replacement.utf16.count
+        )
+        if replacementRange.length > 0 {
+            storage.addAttributes(terminalTextAttributes, range: replacementRange)
         }
-        guard range.location != NSNotFound, range.location >= 0, range.length >= 0 else {
+        storage.endEditing()
+
+        if let marked {
+            let remapped = remapTerminalSelection(
+                NSRange(location: marked.anchor, length: 0),
+                applying: edit
+            )?.location ?? storage.length
+            attachMarkedText(marked, at: min(max(0, remapped), storage.length))
+        }
+        return edit
+    }
+
+    private var validMarkedRange: NSRange? {
+        guard terminalMarkedRange.location != NSNotFound,
+            terminalMarkedRange.location >= 0,
+            terminalMarkedRange.length > 0,
+            let storage = textStorage,
+            terminalMarkedRange.location <= storage.length,
+            terminalMarkedRange.length <= storage.length - terminalMarkedRange.location
+        else { return nil }
+        return terminalMarkedRange
+    }
+
+    private var terminalTextAttributes: [NSAttributedString.Key: Any] {
+        [
+            .foregroundColor: textColor ?? NSColor.white,
+            .font: font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        ]
+    }
+
+    private var terminalMarkedTextAttributes: [NSAttributedString.Key: Any] {
+        var attributes = terminalTextAttributes
+        attributes[.backgroundColor] = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35)
+        attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        return attributes
+    }
+
+    private func detachMarkedText() -> MarkedTextState? {
+        guard let range = validMarkedRange, let storage = textStorage else {
+            terminalMarkedRange = NSRange(location: NSNotFound, length: 0)
+            terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
             return nil
         }
-        let location = min(range.location, terminalMarkedText.length)
-        let length = min(range.length, terminalMarkedText.length - location)
-        let clamped = NSRange(location: location, length: length)
-        actualRange?.pointee = clamped
-        return terminalMarkedText.attributedSubstring(from: clamped)
+        let text = storage.attributedSubstring(from: range)
+        let relativeLocation: Int
+        if terminalMarkedSelection.location == NSNotFound
+            || terminalMarkedSelection.location < range.location
+        {
+            relativeLocation = range.length
+        } else {
+            relativeLocation = min(
+                terminalMarkedSelection.location - range.location,
+                range.length
+            )
+        }
+        let relativeSelection = NSRange(
+            location: relativeLocation,
+            length: min(
+                max(0, terminalMarkedSelection.length),
+                range.length - relativeLocation
+            )
+        )
+        storage.beginEditing()
+        storage.deleteCharacters(in: range)
+        storage.endEditing()
+        terminalMarkedRange = NSRange(location: NSNotFound, length: 0)
+        terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
+        return MarkedTextState(text: text, anchor: range.location, selection: relativeSelection)
     }
 
-    override func characterIndex(for point: NSPoint) -> Int {
-        selectedRange().location
+    private func attachMarkedText(_ marked: MarkedTextState, at anchor: Int) {
+        guard let storage = textStorage else { return }
+        storage.beginEditing()
+        storage.insert(marked.text, at: anchor)
+        storage.endEditing()
+        terminalMarkedRange = NSRange(location: anchor, length: marked.text.length)
+        terminalMarkedSelection = NSRange(
+            location: anchor + marked.selection.location,
+            length: marked.selection.length
+        )
+        super.setSelectedRange(terminalMarkedSelection)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -277,34 +401,19 @@ struct TerminalView: NSViewRepresentable {
         if !inputReady {
             terminal.unmarkText()
         }
-        guard terminal.string != text else { return }
-        let selection = terminal.selectedRanges
+        guard terminal.terminalFrameText != text else { return }
+        let isComposing = terminal.hasMarkedText()
+        let selection = isComposing ? [] : terminal.selectedRanges
         let visible = scroll.documentVisibleRect
         let followedBottom = visible.maxY >= terminal.bounds.maxY - 24
-        let edit = terminalTextEdit(from: terminal.string, to: text)
-        if let edit, let storage = terminal.textStorage {
-            storage.beginEditing()
-            storage.replaceCharacters(in: edit.range, with: edit.replacement)
-            let replacementRange = NSRange(
-                location: edit.range.location,
-                length: edit.replacement.utf16.count
+        let edit = terminal.applyTerminalFrame(text)
+        if !isComposing {
+            terminal.selectedRanges = terminalSelections(
+                preserving: selection,
+                applying: edit,
+                utf16Length: text.utf16.count
             )
-            if replacementRange.length > 0 {
-                storage.addAttributes(
-                    [
-                        .foregroundColor: NSColor.white,
-                        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                    ],
-                    range: replacementRange
-                )
-            }
-            storage.endEditing()
         }
-        terminal.selectedRanges = terminalSelections(
-            preserving: selection,
-            applying: edit,
-            utf16Length: text.utf16.count
-        )
         if followedBottom {
             terminal.scrollToEndOfDocument(nil)
         } else {
