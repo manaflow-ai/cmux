@@ -997,6 +997,12 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
 
 def test_publishers_revalidate_registry_authority_after_environment_approval() -> None:
     release = workflow("sdk-release-cut.yml")
+    authority_helper = (
+        ROOT
+        / "cmux-tui"
+        / "bindings"
+        / "verify_release_registry_authority.sh"
+    ).read_text()
 
     for job in ("publish-crate-client", "publish-crate-sidebar"):
         block = workflow_job(release, job)
@@ -1006,11 +1012,7 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
         authenticate = block.index("- name: Authenticate")
         authority = block[revalidate:authenticate]
         assert revalidate < authenticate
-        assert "verify_crates_ownership.py" in authority
-        assert "--package cmux-client" in authority
-        assert "--package cmux-sidebar" in authority
-        assert "--owner-id 431397" in authority
-        assert "--owner-login lawrencecchen" in authority
+        assert "verify_release_registry_authority.sh crates" in authority
 
     npm = workflow_job(release, "publish-npm")
     npm_setup = npm.index("- name: Install npm with OIDC trusted publishing support")
@@ -1020,10 +1022,7 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
     npm_publish = npm.index("- name: Publish package to npm")
     npm_authority = npm[npm_revalidate:npm_publish]
     assert npm_setup < npm_revalidate < npm_publish
-    assert "verify_npm_provenance.py" in npm_authority
-    assert "--version 0.0.0-bootstrap.0" in npm_authority
-    assert "--publisher owner" in npm_authority
-    assert "--workflow-ref refs/heads/main" in npm_authority
+    assert "verify_release_registry_authority.sh npm" in npm_authority
 
     for job, state, artifact in (
         ("publish-python-wheel", "wheel_state", "wheel"),
@@ -1039,10 +1038,21 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
         authority = block[revalidate:publish]
         assert state_check < install < revalidate < publish
         assert f"if: steps.{state}.outputs.status == 'missing'" in authority
-        assert "verify_pypi_provenance.py" in authority
-        assert "--version 0.0.0a0" in authority
-        assert "--workflow sdk-bootstrap-pypi.yml" in authority
-        assert "--environment pypi-bootstrap" in authority
+        assert "verify_release_registry_authority.sh pypi" in authority
+
+    assert "verify_crates_ownership.py" in authority_helper
+    assert "--package cmux-client" in authority_helper
+    assert "--package cmux-sidebar" in authority_helper
+    assert "--owner-id 431397" in authority_helper
+    assert "--owner-login lawrencecchen" in authority_helper
+    assert "verify_npm_provenance.py" in authority_helper
+    assert "--version 0.0.0-bootstrap.0" in authority_helper
+    assert "--publisher owner" in authority_helper
+    assert "--workflow-ref refs/heads/main" in authority_helper
+    assert "verify_pypi_provenance.py" in authority_helper
+    assert "--version 0.0.0a0" in authority_helper
+    assert "--workflow sdk-bootstrap-pypi.yml" in authority_helper
+    assert "--environment pypi-bootstrap" in authority_helper
 
 
 def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
