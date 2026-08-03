@@ -1307,8 +1307,12 @@ final class FileExplorerStore: ObservableObject {
         rootNodesRevision &+= 1
         nodesByPath.removeAll(keepingCapacity: true)
         rootNodes = nodes
-        for node in nodes {
+        var nodesToIndex = Array(nodes.reversed())
+        while let node = nodesToIndex.popLast() {
             nodesByPath[node.path] = node
+            if let children = node.children {
+                nodesToIndex.append(contentsOf: children.reversed())
+            }
         }
         publishOutlineChange(.rootsChanged)
     }

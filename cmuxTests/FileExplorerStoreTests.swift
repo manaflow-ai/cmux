@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxGit
 import Testing
 
@@ -123,6 +124,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var itemAtRowCallCount = 0
     private(set) var cellViewLookupCallCount = 0
     private(set) var reloadedNodeIdentifiers: Set<ObjectIdentifier> = []
+    private var reloadItemNestingDepth = 0
     var performsActualOutlineMutations = true
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
@@ -131,6 +133,8 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
             reloadedNodeIdentifiers.insert(ObjectIdentifier(node))
         }
         if performsActualOutlineMutations {
+            reloadItemNestingDepth += 1
+            defer { reloadItemNestingDepth -= 1 }
             super.reloadItem(item, reloadChildren: reloadChildren)
         }
     }
@@ -146,8 +150,10 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
         forRowIndexes rowIndexes: IndexSet,
         columnIndexes: IndexSet
     ) {
-        reloadRowsCallCount += 1
-        lastReloadedRowCount = rowIndexes.count
+        if reloadItemNestingDepth == 0 {
+            reloadRowsCallCount += 1
+            lastReloadedRowCount = rowIndexes.count
+        }
         if performsActualOutlineMutations {
             super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
         }
@@ -419,6 +425,7 @@ struct FileExplorerStoreTests {
 
         let selectedRow = outlineView.row(forItem: selectedChild)
         #expect(selectedRow >= 0)
+        #expect(outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode === selectedChild)
         outlineView.scrollRowToVisible(selectedRow)
         scrollView.layoutSubtreeIfNeeded()
         let initialScrollOrigin = scrollView.contentView.bounds.origin
@@ -432,12 +439,13 @@ struct FileExplorerStoreTests {
         }
 
         try await waitFor("bounded overflow reconciliation") {
-            outlineView.reloadItemCallCount >= 2
+            outlineView.reloadItemCallCount >= 1
+                && !coordinator.hasPendingOutlineReconciliation
         }
 
         #expect(outlineView.reloadDataCallCount == 0)
         #expect(outlineView.reloadRowsCallCount == 0)
-        #expect(outlineView.reloadItemCallCount == 2)
+        #expect(outlineView.reloadItemCallCount == 1)
         #expect(outlineView.isItemExpanded(directory))
         #expect(outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode === selectedChild)
         #expect(scrollView.contentView.bounds.origin == initialScrollOrigin)

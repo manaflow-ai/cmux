@@ -6073,6 +6073,42 @@ class TerminalController {
         }
     }
 
+    /// Converts an internal WebKit or page-world failure into the small,
+    /// stable error vocabulary exposed by the control socket. Raw JavaScript
+    /// text can contain page data, so it must stay inside the process.
+    private nonisolated func v2BrowserClientSafeFailure(
+        _ failure: V2JavaScriptFailure
+    ) -> V2JavaScriptFailure {
+        if failure.code == "circular_reference" {
+            return V2JavaScriptFailure(
+                code: "circular_reference",
+                message: String(
+                    localized: "cli.browser.error.circularReference",
+                    defaultValue: "browser.eval result contains a circular reference"
+                )
+            )
+        }
+        return V2JavaScriptFailure(
+            code: "js_error",
+            message: String(
+                localized: "cli.browser.error.operationFailed",
+                defaultValue: "Browser operation failed"
+            )
+        )
+    }
+
+    private nonisolated func v2BrowserClientFailureResult(
+        _ failure: V2JavaScriptFailure,
+        data: Any? = nil
+    ) -> V2CallResult {
+        let safeFailure = v2BrowserClientSafeFailure(failure)
+        return .err(
+            code: safeFailure.code,
+            message: safeFailure.message,
+            data: data
+        )
+    }
+
     /// True when a page-world JS failure looks like a CSP block of eval/function
     /// construction (script-src without 'unsafe-eval'). That is the only failure
     /// the isolated-world retry is meant to recover from; gating on it keeps the
@@ -6242,14 +6278,14 @@ class TerminalController {
         case .success(let value):
             return (value as? Bool) == true ? .met : .timedOut
         case .failure(let failure):
-            return .evaluationFailed(failure.message)
+            return .evaluationFailed(failure)
         }
     }
 
     private enum V2BrowserWaitOutcome {
         case met
         case timedOut
-        case evaluationFailed(String)
+        case evaluationFailed(V2JavaScriptFailure)
     }
 
     private nonisolated func v2BrowserSelector(_ params: [String: Any]) -> String? {
@@ -7033,10 +7069,11 @@ class TerminalController {
 
         switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, browserPanel: browserPanel, surfaceId: surfaceId, script: script, timeout: 4.0) {
         case .failure(let failure):
+            let safeFailure = v2BrowserClientSafeFailure(failure)
             return [
                 "selector": selector,
-                "diagnostics_error": failure.message,
-                "diagnostics_code": failure.code,
+                "diagnostics_error": safeFailure.message,
+                "diagnostics_code": safeFailure.code,
             ]
         case .success(let value):
             guard let dict = value as? [String: Any] else {
@@ -7152,9 +7189,8 @@ class TerminalController {
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
                 case .failure(let failure):
-                    return .err(
-                        code: failure.code,
-                        message: failure.message,
+                    return v2BrowserClientFailureResult(
+                        failure,
                         data: ["action": actionName, "selector": selector]
                     )
                 case .success(let value):
@@ -7235,7 +7271,7 @@ class TerminalController {
                 onIsolatedWorldFallback: { usedIsolatedWorld = true }
             ) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -7446,7 +7482,7 @@ class TerminalController {
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any] else {
                     return .err(code: "js_error", message: "Invalid snapshot payload", data: nil)
@@ -7631,10 +7667,9 @@ class TerminalController {
             ])
         case .timedOut:
             return .err(code: "timeout", message: "Condition not met before timeout", data: ["timeout_ms": timeoutMs])
-        case .evaluationFailed(let message):
-            return .err(
-                code: "js_error",
-                message: "Wait condition could not be evaluated: \(message)",
+        case .evaluationFailed(let failure):
+            return v2BrowserClientFailureResult(
+                failure,
                 data: [
                     "timeout_ms": timeoutMs,
                     "url": v2MainSync { webView.url?.absoluteString ?? "about:blank" },
@@ -7879,7 +7914,7 @@ class TerminalController {
             let surfaceId = ctx.surfaceId
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success:
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -7968,7 +8003,7 @@ class TerminalController {
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -8168,7 +8203,7 @@ class TerminalController {
             let script = "document.querySelectorAll(\(selectorLiteral)).length"
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let count = (value as? NSNumber)?.intValue ?? 0
                 return .ok([
@@ -8741,7 +8776,7 @@ class TerminalController {
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: ["action": actionName])
+                return v2BrowserClientFailureResult(failure, data: ["action": actionName])
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8903,7 +8938,7 @@ class TerminalController {
             let script = v2BrowserControl.findFirstScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8937,7 +8972,7 @@ class TerminalController {
             let script = v2BrowserControl.findLastScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -8977,7 +9012,7 @@ class TerminalController {
             let script = v2BrowserControl.findNthScript(selector: selector, index: index)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9029,7 +9064,7 @@ class TerminalController {
             """
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -9126,7 +9161,7 @@ class TerminalController {
                 requiresPageWorld: true
             ) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9812,7 +9847,7 @@ class TerminalController {
             let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9842,7 +9877,7 @@ class TerminalController {
             let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9863,7 +9898,7 @@ class TerminalController {
             let script = v2BrowserControl.storageClearScript(storageType: storageType)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -10205,7 +10240,7 @@ class TerminalController {
                 requiresPageWorld: true
             ) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10247,7 +10282,7 @@ class TerminalController {
                 requiresPageWorld: true
             ) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10306,7 +10341,7 @@ class TerminalController {
             let storageValue: Any
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 storageValue = v2NormalizeJSValue(value)
             }
@@ -10436,7 +10471,7 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
             case .failure(let failure):
-                return .err(code: failure.code, message: failure.message, data: nil)
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
             }

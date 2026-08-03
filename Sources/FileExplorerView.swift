@@ -113,6 +113,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var isUpdatingOutlineProgrammatically = false
         private(set) var lastNodeChangeVisibleRowInspectionCount = 0
         private(set) var lastGitStatusVisibleRowInspectionCount = 0
+        var hasPendingOutlineReconciliation: Bool {
+            outlineChangeFlushTask != nil
+                || pendingRootNodesRevision != nil
+                || !pendingNodeChanges.isEmpty
+                || !pendingNodeOrder.isEmpty
+                || pendingNodeOverflowReconciliation
+                || !expandedReconciliationPaths.isEmpty
+                || pendingSelectionChange
+                || !pendingGitStatusPaths.isEmpty
+                || pendingAllVisibleGitStatusChange
+        }
         private static let maximumNodeChangesPerFlush = 8
         private static let maximumPendingNodeChangeCount = 64
         private static let maximumReconciliationPathsInspectedPerFlush = 128
@@ -351,8 +362,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                pendingNodeOverflowReconciliation {
                 pendingNodeOverflowReconciliation = false
                 pendingSelectionChange = true
-                applyVisibleOutlineReconciliation()
-                startExpandedOutlineReconciliation()
+                let reconciledExpandedPaths = applyVisibleOutlineReconciliation()
+                startExpandedOutlineReconciliation(excluding: reconciledExpandedPaths)
             }
             if pendingNodeOrder.isEmpty,
                !expandedReconciliationPaths.isEmpty {
@@ -379,20 +390,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         @MainActor
-        private func applyVisibleOutlineReconciliation() {
-            guard let outlineView else { return }
+        private func applyVisibleOutlineReconciliation() -> Set<String> {
+            guard let outlineView else { return [] }
             let visibleRange = outlineView.rows(in: outlineView.visibleRect)
             guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
-                return
+                return []
             }
 
             var changes: [(node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)] = []
+            var reconciledExpandedPaths: Set<String> = []
             changes.reserveCapacity(visibleRange.length)
             for row in visibleRange.location..<(visibleRange.location + visibleRange.length) {
                 guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
                     continue
                 }
                 let isExpanded = store.isExpanded(node)
+                if isExpanded {
+                    reconciledExpandedPaths.insert(node.path)
+                }
                 changes.append((
                     node: node,
                     reloadChildren: isExpanded,
@@ -400,10 +415,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 ))
             }
             applyNodeChanges(changes)
+            return reconciledExpandedPaths
         }
 
-        private func startExpandedOutlineReconciliation() {
-            let snapshot = store.expandedPaths
+        private func startExpandedOutlineReconciliation(excluding excludedPaths: Set<String>) {
+            let snapshot = store.expandedPaths.subtracting(excludedPaths)
             guard !snapshot.isEmpty else { return }
             expandedReconciliationPaths = snapshot.map { path in
                 (path: path, depth: path.split(separator: "/").count)
