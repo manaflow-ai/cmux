@@ -7824,7 +7824,10 @@ struct CMUXCLI {
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsRef = response["workspace_ref"] as? String
         let wsUUID = response["workspace_id"] as? String
-        let wsDisplayId = wsRef ?? wsUUID ?? ""
+        // The ref stays first so existing `OK <ref>` parsers keep working; the
+        // UUID follows because it is the only identity that survives this
+        // process exiting and is the one the input RPCs accept.
+        let wsDisplayId = [wsRef, wsUUID].compactMap { $0 }.joined(separator: " ")
         if jsonOutput && honorJSONOutput {
             // Refs are per-connection handles that can be recycled, while the
             // input RPCs (`surface.send_text`, `surface.send_key`,
@@ -7839,15 +7842,25 @@ struct CMUXCLI {
         } else {
             print("OK \(wsDisplayId)")
         }
-        // Route the initial command by UUID, not by the ref: a ref that another
-        // connection has since recycled would silently deliver to the focused
-        // surface instead.
-        let sendTarget = wsUUID ?? wsRef
-        if layoutOpt == nil, let commandText = commandOpt, let sendTarget, !sendTarget.isEmpty {
+        // Route the initial command by UUID only. Falling back to the ref would
+        // reintroduce the wrong-session delivery this command exists to avoid:
+        // a recycled ref resolves to a different workspace, and against a
+        // server without the fail-closed routing it lands in the focused one.
+        if layoutOpt == nil, let commandText = commandOpt {
+            guard let wsUUID, !wsUUID.isEmpty else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.workspace.create.error.commandMissingWorkspaceUUID",
+                        defaultValue: "%@: the workspace was created, but the app did not return its UUID, so --command was not delivered. Update the cmux app, then send the command with 'cmux send --workspace <uuid>'."
+                    ),
+                    locale: .current,
+                    commandName
+                ))
+            }
             let text = unescapeSendText(commandText + "\\n")
             let sendParams: [String: Any] = [
                 "text": text,
-                "workspace_id": sendTarget
+                "workspace_id": wsUUID
             ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }

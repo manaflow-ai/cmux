@@ -9,6 +9,8 @@ struct CLIWorkspaceCreateIdentityMockServer: Sendable {
     private let socketPath: String
     private let listenerDescriptor: Int32
     private let expectedRequestCount: Int
+    /// Simulates an older app that answers `workspace.create` with a ref only.
+    private let omitsWorkspaceUUID: Bool
 
     static let windowID = "11111111-1111-1111-1111-111111111111"
     static let workspaceID = "4B74B022-13FA-4566-84E5-D50E4B7414FE"
@@ -16,9 +18,14 @@ struct CLIWorkspaceCreateIdentityMockServer: Sendable {
     static let workspaceRef = "workspace:39"
     static let surfaceRef = "surface:12"
 
-    init(socketPath: String, expectedRequestCount: Int) throws {
+    init(
+        socketPath: String,
+        expectedRequestCount: Int,
+        omitsWorkspaceUUID: Bool = false
+    ) throws {
         self.socketPath = socketPath
         self.expectedRequestCount = expectedRequestCount
+        self.omitsWorkspaceUUID = omitsWorkspaceUUID
 
         unlink(socketPath)
         let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -114,16 +121,19 @@ struct CLIWorkspaceCreateIdentityMockServer: Sendable {
 
         switch method {
         case "workspace.create":
-            return encodedResponse(id: requestID, result: [
+            var result: [String: Any] = [
                 "window_id": Self.windowID,
                 "window_ref": "window:1",
-                "workspace_id": Self.workspaceID,
                 "workspace_ref": Self.workspaceRef,
                 "group_id": NSNull(),
                 "group_ref": NSNull(),
                 "surface_id": Self.surfaceID,
                 "surface_ref": Self.surfaceRef,
-            ])
+            ]
+            if !omitsWorkspaceUUID {
+                result["workspace_id"] = Self.workspaceID
+            }
+            return encodedResponse(id: requestID, result: result)
         case "surface.send_text":
             return encodedResponse(id: requestID, result: [
                 "workspace_id": Self.workspaceID,

@@ -68,6 +68,54 @@ struct CLIWorkspaceCreateIdentityTests {
         )
     }
 
+    @Test("workspace create prints the UUID alongside the ref in plain output")
+    func createPlainOutputIncludesUUID() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = try await run(
+            command: [
+                "workspace", "create",
+                "--window", CLIWorkspaceCreateIdentityMockServer.windowID,
+                "--name", "issue-repro",
+            ],
+            cliPath: cliPath,
+            expectedRequestCount: 1
+        )
+        #expect(!result.process.timedOut, Comment(rawValue: result.process.stderr))
+        #expect(result.process.status == 0, Comment(rawValue: result.process.stderr))
+        #expect(
+            result.process.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "OK \(CLIWorkspaceCreateIdentityMockServer.workspaceRef) "
+                + CLIWorkspaceCreateIdentityMockServer.workspaceID,
+            Comment(rawValue: "stdout=\(result.process.stdout)")
+        )
+    }
+
+    @Test("workspace create --command fails closed when the app returns no UUID")
+    func createCommandFailsClosedWithoutUUID() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = try await run(
+            command: [
+                "workspace", "create",
+                "--window", CLIWorkspaceCreateIdentityMockServer.windowID,
+                "--name", "issue-repro",
+                "--command", "echo hi",
+            ],
+            cliPath: cliPath,
+            // Two, so the fixture keeps reading past the create and would
+            // capture a follow-up send instead of leaving it unread.
+            expectedRequestCount: 2,
+            omitsWorkspaceUUID: true
+        )
+        #expect(!result.process.timedOut, Comment(rawValue: result.process.stderr))
+        #expect(result.process.status != 0, Comment(rawValue: result.process.stdout))
+        // The ref must never be used as a send target: it can resolve to a
+        // different workspace, or to the focused one.
+        #expect(
+            !result.requests.contains { $0.contains("surface.send_text") },
+            Comment(rawValue: "requests=\(result.requests)")
+        )
+    }
+
     private struct RunResult {
         let process: (status: Int32, stdout: String, stderr: String, timedOut: Bool)
         let requests: [String]
@@ -76,12 +124,14 @@ struct CLIWorkspaceCreateIdentityTests {
     private func run(
         command: [String],
         cliPath: String,
-        expectedRequestCount: Int
+        expectedRequestCount: Int,
+        omitsWorkspaceUUID: Bool = false
     ) async throws -> RunResult {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceCreateIdentityMockServer(
             socketPath: socketPath,
-            expectedRequestCount: expectedRequestCount
+            expectedRequestCount: expectedRequestCount,
+            omitsWorkspaceUUID: omitsWorkspaceUUID
         )
         let requests = server.start()
 
