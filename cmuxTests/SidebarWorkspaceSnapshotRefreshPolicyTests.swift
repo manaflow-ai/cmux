@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNotifications
+import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 @_spi(CmuxHostTransport) import CmuxExtensionKit
@@ -11,7 +12,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+@Suite(.serialized) struct SidebarWorkspaceSnapshotRefreshPolicyTests {
     @Test @MainActor
     func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
         let workspaceID = UUID()
@@ -175,6 +176,81 @@ import Testing
         #expect(decision.workspaceSnapshotStorage == next)
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
+    @Test @MainActor
+    func todoControlsFlagFlipRebuildsCachedWorkspaceSnapshot() throws {
+        let controlsKey = BetaFeaturesCatalogSection().workspaceTodoControls
+        let defaults = UserDefaults.standard
+        let previousControlsValue = defaults.object(forKey: controlsKey.userDefaultsKey)
+        defer {
+            if let previousControlsValue {
+                defaults.set(previousControlsValue, forKey: controlsKey.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: controlsKey.userDefaultsKey)
+            }
+        }
+
+        defaults.set(false, forKey: controlsKey.userDefaultsKey)
+        try #require(!WorkspaceTodoFeature.isEnabled)
+
+        let settingsSuiteName = "cmux.sidebar.snapshot.todo-flag.\(UUID().uuidString)"
+        let settingsDefaults = try #require(UserDefaults(suiteName: settingsSuiteName))
+        defer { settingsDefaults.removePersistentDomain(forName: settingsSuiteName) }
+
+        let workspace = Workspace(title: "Todo snapshot")
+        workspace.setTaskStatusOverride(.done)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: settingsDefaults)
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        )
+        let disabledSnapshot = factory.makeSnapshot()
+        #expect(disabledSnapshot.taskStatus == nil)
+        #expect(disabledSnapshot.todoStatusMenuModel == nil)
+        #expect(!disabledSnapshot.hasManualTaskStatus)
+
+        var workspaceSnapshotsById = [workspace.id: disabledSnapshot]
+        defaults.set(true, forKey: controlsKey.userDefaultsKey)
+        try #require(WorkspaceTodoFeature.isEnabled)
+
+        let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: settings,
+            showsAgentActivity: false
+        )
+        let resolvedSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+        if let cachedSnapshot = workspaceSnapshotsById[workspace.id],
+           cachedSnapshot.presentationKey == expectedPresentationKey {
+            resolvedSnapshot = cachedSnapshot
+        } else {
+            resolvedSnapshot = factory.makeSnapshot()
+            workspaceSnapshotsById[workspace.id] = resolvedSnapshot
+        }
+
+        #expect(resolvedSnapshot.taskStatus == .done)
+        #expect(resolvedSnapshot.todoStatusMenuModel?.activeOverride == .done)
+        #expect(resolvedSnapshot.hasManualTaskStatus)
+        #expect(resolvedSnapshot != disabledSnapshot)
+    }
+
+    @Test
+    func localTodoControlsOptInInvalidatesSidebarSettingsSnapshot() throws {
+        let suiteName = "cmux.sidebar.snapshot.todo-setting.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controlsKey = BetaFeaturesCatalogSection().workspaceTodoControls
+
+        defaults.set(false, forKey: controlsKey.userDefaultsKey)
+        let disabled = SidebarTabItemSettingsSnapshot(defaults: defaults)
+
+        defaults.set(true, forKey: controlsKey.userDefaultsKey)
+        let enabled = SidebarTabItemSettingsSnapshot(defaults: defaults)
+
+        #expect(
+            disabled != enabled,
+            "Changing the local todo-controls opt-in must invalidate the sidebar settings projection."
+        )
     }
 
     static func snapshot(
