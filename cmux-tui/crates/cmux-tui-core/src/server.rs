@@ -9799,6 +9799,90 @@ mod tests {
         assert!(disconnect_client(&mux, client, false));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn connection_wait_exit_resolves_durable_detached_terminal_after_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-connection-wait-exit-restart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let session = "connection-wait-exit-restart";
+        let first = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = first.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-restart-exit-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-restart-exit-wait"),
+        );
+        assert!(handle_connection_message(&first, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        assert_eq!(created["ok"], true, "{created}");
+        let terminal_id = TerminalPublicId::parse(
+            created["result"]["value"]["terminal_id"].as_str().unwrap(),
+        )
+        .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
+        assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
+        assert!(disconnect_client(&first, client, false));
+        drop(scheduler);
+        drop(writer);
+        first.shutdown();
+        let shutdown_deadline = Instant::now() + Duration::from_secs(10);
+        while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
+        drop(first);
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(
+            reopened.surface_operation_admission.clone(),
+        ));
+        let wait = resource_request(
+            "wait-for-exit-after-restart",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&reopened, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["state"], "exited", "{response}");
+        assert_eq!(response["result"]["terminal_id"], terminal_id.as_str(), "{response}");
+        assert_eq!(response["result"]["outcome"], json!({"kind":"exit","code":0}));
+        assert_eq!(response["result"]["exited_at"], "4567890");
+
+        assert!(disconnect_client(&reopened, client, false));
+        reopened.shutdown();
+        drop(scheduler);
+        drop(writer);
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
         let mux = test_mux();
