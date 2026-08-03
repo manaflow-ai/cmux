@@ -172,6 +172,7 @@ struct TerminalBytesLogicTests {
     @Test
     func selectionClampsToAValidInsertionPointWhenTheFrameShrinks() {
         let surviving = NSValue(range: NSRange(location: 2, length: 1))
+        let clipped = NSValue(range: NSRange(location: 2, length: 4))
         let removed = NSValue(range: NSRange(location: 12, length: 4))
 
         let selections = terminalSelections(
@@ -180,6 +181,10 @@ struct TerminalBytesLogicTests {
         )
 
         #expect(selections.map(\.rangeValue) == [NSRange(location: 2, length: 1)])
+        #expect(
+            terminalSelections(preserving: [clipped], utf16Length: 4).map(\.rangeValue)
+                == [NSRange(location: 2, length: 2)]
+        )
         #expect(
             terminalSelections(preserving: [removed], utf16Length: 4).map(\.rangeValue)
                 == [NSRange(location: 4, length: 0)]
@@ -432,6 +437,40 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
+    func disconnectClearsThePreviousTerminalFrameBeforeReconnect() async throws {
+        let liveDiagnostics = #"{"status":"live","ready":true}"#
+        let handle = TerminalClientHandle(
+            rawAddress: 6,
+            attachClient: { _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, callback, context in
+                callback?(context)
+            },
+            copyFrameClient: { _, buffer, capacity in
+                copyTestCString("terminal A", buffer: buffer, capacity: capacity)
+            },
+            copyDiagnosticsClient: { _, buffer, capacity in
+                copyTestCString(liveDiagnostics, buffer: buffer, capacity: capacity)
+            }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle
+        )
+
+        model.connect()
+        #expect(await waitUntil { model.frame == "terminal A" })
+        model.disconnect()
+        #expect(model.frame.isEmpty)
+        model.shutdown()
+    }
+
+    @Test @MainActor
     func exitedDiagnosticsCloseTheAttachmentWithoutAnInputError() async throws {
         let exitedDiagnostics = #"{"status":"exited","ready":false}"#
         let handle = TerminalClientHandle(
@@ -472,4 +511,20 @@ struct TerminalBytesLogicTests {
         #expect(model.errorMessage.isEmpty)
         model.shutdown()
     }
+}
+
+private func copyTestCString(
+    _ value: String,
+    buffer: UnsafeMutablePointer<CChar>?,
+    capacity: Int
+) -> Int {
+    let bytes = Array(value.utf8)
+    if let buffer, capacity > 0 {
+        let copied = min(bytes.count, capacity - 1)
+        for index in 0..<copied {
+            buffer[index] = CChar(bitPattern: bytes[index])
+        }
+        buffer[copied] = 0
+    }
+    return bytes.count
 }
