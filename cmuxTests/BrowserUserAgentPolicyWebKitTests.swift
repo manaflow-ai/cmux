@@ -41,6 +41,16 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
+    @Test func emptyCustomUserAgentIsAlreadyEmbeddedIdentityForSheets() {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.customUserAgent = ""
+        let request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
+    }
+
     @Test func restartRequestIgnoresSubframesAndNewWindowTargets() throws {
         let request = URLRequest(url: URL(string: "https://workspace.google.com/")!)
 
