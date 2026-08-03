@@ -51,4 +51,26 @@ if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation
   exit 1
 fi
 
-echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
+cat > "$TMP_DIR/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+echo '2026-08-03 07:28:53.023099+0000 cmux DEV[10277:53052] [Listener] Listening on /tmp/cmux-xctest-logger.sock'
+SH
+chmod +x "$TMP_DIR/xcodebuild"
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=1 \
+CMUX_TAG=structured-listener-evidence \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/structured-output.log" 2>&1
+structured_status=$?
+set -e
+
+if [ "$structured_status" -ne 0 ]; then
+  cat "$TMP_DIR/structured-output.log"
+  echo "FAIL: structured socket listener evidence should satisfy the app-host guard"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries idle timeouts and recognizes structured listener evidence"
