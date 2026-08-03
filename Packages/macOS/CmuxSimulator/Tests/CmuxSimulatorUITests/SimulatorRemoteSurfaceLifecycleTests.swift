@@ -358,6 +358,39 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(pipeline.displayTick()?.sequence == 2)
     }
 
+    @Test("Controller retries a publication after its cadence fires during a copy")
+    func controllerRetriesPublicationAfterInFlightCadence() async throws {
+        let source = InvalidatingSignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        var presentedSequences: [UInt64] = []
+        let controller = SimulatorFramePresentationController(
+            source: source,
+            presentationDidComplete: {
+                presentedSequences.append($0.sequence)
+            },
+            sourceFailureDidOccur: {}
+        )
+        defer { controller.invalidate() }
+
+        controller.startPresenting(maximumFramesPerSecond: 120)
+        try await waitUntil { source.hasStartedCopy }
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(source.copyCount == 1)
+        source.releaseCopy()
+        try await waitUntil { presentedSequences == [2] }
+
+        #expect(source.copyCount == 2)
+    }
+
     @Test("Worker frame publication wakes the host pipeline")
     func workerPublicationWakesHostPipeline() async throws {
         let surface = try #require(IOSurfaceCreate([
