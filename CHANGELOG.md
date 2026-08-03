@@ -2,6 +2,24 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.22] - 2026-08-03
+
+### Fixed
+- Fix a crash seconds after launch on Intel Macs; cmux is now the only process-wide crash handler, and embedded GhosttyKit no longer links Ghostty's native Sentry initializer ([#9436](https://github.com/manaflow-ai/cmux/pull/9436))
+- Fix `cmux ssh <host>` failing immediately with a shell syntax error from the generated startup script ([#9425](https://github.com/manaflow-ai/cmux/pull/9425)) -- thanks @KousukeUchiyama for the report!
+- Clear Dock notifications when you focus the pane that raised them ([#9418](https://github.com/manaflow-ai/cmux/pull/9418))
+- Keep a restored Claude agent on its own account instead of falling back to the ambient one ([#9419](https://github.com/manaflow-ai/cmux/pull/9419)) -- thanks @seanyoungberg for the report!
+- Stop bash shell integration printing `cannot overwrite existing file` on every prompt under `set -o noclobber` ([#9420](https://github.com/manaflow-ai/cmux/pull/9420)) -- thanks @8bit-void for the report!
+- Fail closed when `close` or `respawn-pane` is given an explicit `--surface` that no longer exists, instead of acting on a different live surface ([#9422](https://github.com/manaflow-ai/cmux/pull/9422)) -- thanks @PhilipPinckaers for the report!
+
+### Thanks to 5 contributors!
+
+- [@8bit-void](https://github.com/8bit-void)
+- [@austinywang](https://github.com/austinywang)
+- [@KousukeUchiyama](https://github.com/KousukeUchiyama)
+- [@PhilipPinckaers](https://github.com/PhilipPinckaers)
+- [@seanyoungberg](https://github.com/seanyoungberg)
+
 ## [0.64.21] - 2026-08-02
 
 ### Added
