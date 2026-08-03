@@ -35593,6 +35593,40 @@
         }
       }
     },
+    "cli.events.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout は0より大きい値である必要があります"
+          }
+        }
+      }
+    },
+    "cli.events.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for a matching event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するイベントを待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
     "cli.events.help.snapshot": {
       "extractionState": "manual",
       "localizations": {

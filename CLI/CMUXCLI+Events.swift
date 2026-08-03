@@ -50,10 +50,16 @@ extension CMUXCLI {
         func socketDeadline() -> Date? {
             remainingBudget().map { Date(timeIntervalSinceNow: $0) }
         }
+        func timeoutError() -> CLIError {
+            CLIError(message: String(
+                localized: "cli.events.error.timeout",
+                defaultValue: "Timed out waiting for a matching event"
+            ))
+        }
 
         while true {
             if let remaining = remainingBudget(), remaining <= 0 {
-                throw CLIError(message: "Timed out waiting for a matching event")
+                throw timeoutError()
             }
             let client = SocketClient(path: socketPath)
             do {
@@ -67,7 +73,7 @@ extension CMUXCLI {
                 // non-negative timeout.
                 let authRemaining = remainingBudget()
                 if let authRemaining, authRemaining <= 0 {
-                    throw CLIError(message: "Timed out waiting for a matching event")
+                    throw timeoutError()
                 }
                 try authenticateClientIfNeeded(
                     client,
@@ -141,14 +147,14 @@ extension CMUXCLI {
             } catch {
                 client.close()
                 if let remaining = remainingBudget(), remaining <= 0 {
-                    throw CLIError(message: "Timed out waiting for a matching event")
+                    throw timeoutError()
                 }
                 guard options.reconnect, isTransientEventStreamError(error) else {
                     throw error
                 }
                 let remaining = remainingBudget() ?? 1
                 guard remaining > 0 else {
-                    throw CLIError(message: "Timed out waiting for a matching event")
+                    throw timeoutError()
                 }
                 waitBeforeReconnectingEventStream(maximumDelay: remaining)
                 continue
@@ -238,7 +244,10 @@ extension CMUXCLI {
                 guard let timeout = TimeInterval(raw),
                       timeout.isFinite,
                       timeout > 0 else {
-                    throw CLIError(message: "--timeout must be greater than 0")
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.invalidTimeout",
+                        defaultValue: "--timeout must be greater than 0"
+                    ))
                 }
                 options.timeout = timeout
             case "--snapshot":
