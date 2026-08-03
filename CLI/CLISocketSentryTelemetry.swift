@@ -157,14 +157,11 @@ final class CLISocketSentryTelemetry {
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
-        for (key, value) in data {
-            context[key] = value
-        }
-        if let connectError = error as? CLISocketConnectError {
-            for (key, value) in connectError.telemetryContext {
-                context[key] = value
-            }
-        }
+        context = CLISocketErrorTelemetryContext.merging(
+            base: context,
+            operation: data,
+            error: error
+        )
         let subcommand = self.subcommand
         let command = self.command
         let event = Self.makeErrorEvent(
@@ -334,17 +331,9 @@ final class CLISocketSentryTelemetry {
     ) -> CLISocketPolicyDenialContext? {
         guard let connectError = error as? CLISocketConnectError else { return nil }
 
-        var socketStat = stat()
-        let socketExists = stat(connectError.path, &socketStat) == 0
-        return CLISocketPolicyDenialContext(
+        return CLISocketPolicyDenialContext.inspecting(
             stage: stage,
-            errnoCode: connectError.errnoCode,
-            socketExists: socketExists,
-            socketIsUnixDomainSocket: socketExists &&
-                (socketStat.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK),
-            socketOwnerUID: socketExists ? socketStat.st_uid : 0,
-            processUID: getuid(),
-            effectiveUID: geteuid()
+            error: connectError
         )
     }
 

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Filesystem and process identity required to classify a socket `EPERM` as
@@ -27,5 +28,26 @@ public struct CLISocketPolicyDenialContext: Equatable, Sendable {
         self.socketOwnerUID = socketOwnerUID
         self.processUID = processUID
         self.effectiveUID = effectiveUID
+    }
+
+    /// Inspects the same resolved filesystem target that the socket client
+    /// validates before connecting. Following a symlink here keeps policy
+    /// classification consistent with the connection attempt.
+    public static func inspecting(
+        stage: String,
+        error: CLISocketConnectError
+    ) -> Self {
+        var socketMetadata = stat()
+        let socketExists = stat(error.path, &socketMetadata) == 0
+        return Self(
+            stage: stage,
+            errnoCode: error.errnoCode,
+            socketExists: socketExists,
+            socketIsUnixDomainSocket: socketExists &&
+                (socketMetadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK),
+            socketOwnerUID: socketExists ? socketMetadata.st_uid : 0,
+            processUID: getuid(),
+            effectiveUID: geteuid()
+        )
     }
 }
