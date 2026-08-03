@@ -1,112 +1,43 @@
 import AppKit
 import Bonsplit
 import CmuxFoundation
-import SwiftUI
-
-struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
-    @MainActor
+@MainActor
+enum SidebarBonsplitTabWorkspaceDropOverlay {
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
         fileprivate var targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
+        private var pendingTargetDeliveryTask: Task<Void, Never>?
+
+        func attach(_ view: SidebarBonsplitTabWorkspaceDropView) {
+            self.view = view
+        }
+
+        func detach(_ view: SidebarBonsplitTabWorkspaceDropView) {
+            guard self.view === view else { return }
+            self.view = nil
+            pendingTargetDeliveryTask?.cancel()
+            pendingTargetDeliveryTask = nil
+        }
 
         func updateTargets(_ targets: [SidebarDropPlanner.WorkspaceDropTarget]) {
             self.targets = SidebarDropPlanner.OrderedWorkspaceDropTargets(targets)
-            guard !self.targets.isEmpty else { return }
-            DispatchQueue.main.async { [weak view] in
-                view?.performPendingDropIfPossible()
+            pendingTargetDeliveryTask?.cancel()
+            guard !self.targets.isEmpty else {
+                pendingTargetDeliveryTask = nil
+                return
+            }
+            pendingTargetDeliveryTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self?.view?.performPendingDropIfPossible()
+                self?.pendingTargetDeliveryTask = nil
             }
         }
 
         func clearTargets() {
+            pendingTargetDeliveryTask?.cancel()
+            pendingTargetDeliveryTask = nil
             targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
-        }
-    }
-
-    struct TargetWriter: View {
-        let targetBridge: TargetBridge
-        let targets: [SidebarDropPlanner.WorkspaceDropTarget]
-
-        var body: some View {
-            Color.clear
-                .onAppear {
-                    targetBridge.updateTargets(targets)
-                }
-                .onChange(of: targets) { _, newTargets in
-                    targetBridge.updateTargets(newTargets)
-                }
-                .onDisappear {
-                    targetBridge.clearTargets()
-                }
-        }
-    }
-
-    let currentSelectedTabId: () -> UUID?
-    let sidebarIndexForTabId: (UUID) -> Int?
-    let moveToExistingWorkspace: (UUID, BonsplitTabDragPayload.Transfer) -> Bool
-    let moveToNewWorkspace: (Int, BonsplitTabDragPayload.Transfer) -> UUID?
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    @Binding var dropIndicator: SidebarDropIndicator?
-    let updateAutoscroll: () -> Void
-    let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
-    let isWorkspaceDropTargetCollectionActive: Bool
-    let targetBridge: TargetBridge
-
-    func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
-        SidebarBonsplitTabWorkspaceDropView()
-    }
-
-    func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
-        targetBridge.view = nsView
-        nsView.targetBridge = targetBridge
-        nsView.canPerformAction = { action, transfer in
-            guard let app = AppDelegate.shared else {
-                return false
-            }
-            switch action {
-            case .existingWorkspace(let workspaceId):
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-                   source.workspaceId == workspaceId {
-                    return true
-                }
-                return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
-            case .newWorkspace:
-                return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
-            }
-        }
-        nsView.updateAutoscroll = updateAutoscroll
-        nsView.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
-        nsView.setDropIndicator = { indicator in
-            dropIndicator = indicator
-        }
-        nsView.performExistingWorkspaceMove = { workspaceId, transfer in
-            guard moveToExistingWorkspace(workspaceId, transfer) else { return false }
-            selectedTabIds = [workspaceId]
-            syncSidebarSelection(preferredSelectedTabId: workspaceId)
-            return true
-        }
-        nsView.performNewWorkspaceMove = { insertionIndex, _, transfer in
-            guard let destinationWorkspaceId = moveToNewWorkspace(insertionIndex, transfer) else { return false }
-            selectedTabIds = [destinationWorkspaceId]
-            syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
-            return true
-        }
-        if !isWorkspaceDropTargetCollectionActive, targetBridge.targets.isEmpty {
-            nsView.clearPendingDropIfIdle()
-        }
-        if !targetBridge.targets.isEmpty {
-            DispatchQueue.main.async { [weak nsView] in
-                nsView?.performPendingDropIfPossible()
-            }
-        }
-    }
-
-    private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
-        let selectedId = preferredSelectedTabId ?? currentSelectedTabId()
-        if let selectedId {
-            lastSidebarSelectionIndex = sidebarIndexForTabId(selectedId)
-        } else {
-            lastSidebarSelectionIndex = nil
         }
     }
 }
@@ -120,7 +51,12 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let transfer: BonsplitTabDragPayload.Transfer
     }
 
-    var targetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge?
+    var targetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge? {
+        didSet {
+            oldValue?.detach(self)
+            targetBridge?.attach(self)
+        }
+    }
     var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setWorkspaceDropTargetCollectionActive: (Bool) -> Void = { _ in }
@@ -130,6 +66,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private var isRequestingWorkspaceDropTargets = false
     private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
+    private var pendingTeardownTask: Task<Void, Never>?
     private var targets: SidebarDropPlanner.OrderedWorkspaceDropTargets {
         targetBridge?.targets ?? SidebarDropPlanner.OrderedWorkspaceDropTargets([])
     }
@@ -139,6 +76,8 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     /// Retires drag state before a retained presentation is hidden or disconnected.
     func suspendPresentation() {
+        pendingTeardownTask?.cancel()
+        pendingTeardownTask = nil
         pendingDrop = nil
         isRequestingWorkspaceDropTargets = false
         setWorkspaceDropTargetCollectionActive(false)
@@ -339,22 +278,17 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func completeOrClearPendingDropAfterDragTeardown() {
-        completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: 3)
-    }
-
-    private func completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: Int) {
         let requestId = workspaceDropTargetRequestId
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingDrop?.requestId == requestId else {
-                return
-            }
-
-            if self.targets.isEmpty, remainingFrameWaits > 0 {
-                self.completeOrClearPendingDropAfterDragTeardown(
-                    remainingFrameWaits: remainingFrameWaits - 1
-                )
-                return
+        pendingTeardownTask?.cancel()
+        pendingTeardownTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<3 {
+                await Task.yield()
+                guard !Task.isCancelled,
+                      self.pendingDrop?.requestId == requestId else {
+                    return
+                }
+                if !self.targets.isEmpty { break }
             }
 
             self.performPendingDropIfPossible()
@@ -366,6 +300,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.pendingTeardown clear=1")
 #endif
+            self.pendingTeardownTask = nil
         }
     }
 
