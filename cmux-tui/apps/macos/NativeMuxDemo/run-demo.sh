@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
 ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
 
-for command in cargo codesign jq open openssl swift; do
+for command in cargo codesign jq open openssl pgrep swift; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "NativeMuxDemo needs $command on PATH." >&2
     exit 1
@@ -109,6 +109,7 @@ cp -R "$RESOURCE_BUNDLE" \
   "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle"
 codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
+APP_PROCESS_TOKEN="$(basename "$DEMO_ROOT")/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
 
 echo "Starting an isolated ephemeral Iroh daemon..."
 "$CMUX_TUI" daemon \
@@ -233,8 +234,7 @@ OPEN_PID=$!
 claimed=0
 for _ in $(seq 1 900); do
   if [[ -z "$APP_PID" ]]; then
-    APP_PID="$(ps -axo pid=,command= \
-      | awk -v executable="$APP_EXECUTABLE" '$2 == executable { print $1; exit }')"
+    APP_PID="$(pgrep -f "$APP_PROCESS_TOKEN" | head -n 1 || true)"
   fi
   if ! kill -0 "$OPEN_PID" 2>/dev/null; then
     echo "NativeMuxDemo exited before claiming its invitation." >&2
