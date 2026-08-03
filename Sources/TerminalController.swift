@@ -6418,7 +6418,18 @@ class TerminalController {
             return __value;
           }
 
-          if (typeof DOMRectReadOnly !== 'undefined' && __value instanceof DOMRectReadOnly) {
+          let __objectTag = '';
+          try {
+            __objectTag = Object.prototype.toString.call(__value);
+          } catch (_) {}
+
+          // iframe values have different constructors, so instanceof alone does
+          // not recognize their DOMRect brand.
+          const __isDOMRect =
+            (typeof DOMRectReadOnly !== 'undefined' && __value instanceof DOMRectReadOnly) ||
+            __objectTag === '[object DOMRect]' ||
+            __objectTag === '[object DOMRectReadOnly]';
+          if (__isDOMRect) {
             return {
               x: __value.x,
               y: __value.y,
