@@ -727,11 +727,14 @@ extension Workspace {
         case .accountSignIn:
             return nil
         }
+        let persistedPanelTitle = panel.panelType == .application
+            ? nil
+            : panelTitle
         return SessionPanelSnapshot(
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: panelTitle,
+            title: persistedPanelTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
             directory: directory,
