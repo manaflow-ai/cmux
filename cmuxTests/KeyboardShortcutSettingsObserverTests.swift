@@ -149,7 +149,7 @@ extension GlobalSearchShortcutBehaviorTests {
         let probe = BlockedShortcutProviderProbe()
         Task.detached {
             probe.waitUntilProviderStarts()
-            Thread.sleep(forTimeInterval: 0.2)
+            await probe.waitForMainActorHeartbeatOrDeadline()
             probe.recordHeartbeatBeforeRelease()
             probe.releaseProvider()
         }
@@ -276,6 +276,18 @@ private final class BlockedShortcutProviderProbe: @unchecked Sendable {
         lock.lock()
         recordedHeartbeat = heartbeat
         lock.unlock()
+    }
+
+    func waitForMainActorHeartbeatOrDeadline(timeout: Duration = .seconds(1)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            lock.lock()
+            let didHeartbeat = heartbeat
+            lock.unlock()
+            if didHeartbeat { return }
+            await Task.yield()
+        }
     }
 
     func waitUntilRecorded() async {
