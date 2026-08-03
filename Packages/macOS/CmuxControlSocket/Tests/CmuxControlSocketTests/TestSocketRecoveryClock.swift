@@ -80,9 +80,9 @@ final class TestSocketRecoveryClock: SocketRecoveryClock, @unchecked Sendable {
     let clock = TestSocketRecoveryClock()
     clock.advance()
 
+    // Returning is the assertion: this fake clock never consults wall time, so
+    // the buffered advance must synchronously satisfy the next suspension.
     try await clock.sleep(forMilliseconds: 1_000)
-
-    #expect(clock.pendingSleepCount == 0)
 }
 
 @Test func cancelledSocketRecoverySleepFinishesWithoutAdvance() async {

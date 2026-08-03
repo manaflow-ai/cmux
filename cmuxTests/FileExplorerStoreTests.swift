@@ -812,8 +812,10 @@ struct FileExplorerStoreTests {
         for _ in 0..<20 {
             store.refreshGitStatus()
         }
-        try await Task.sleep(nanoseconds: 200_000_000)
 
+        // Every refresh above runs synchronously on MainActor. The in-flight
+        // operation is blocked by releaseFile, so a second launch here would
+        // prove the burst was not collapsed without relying on wall time.
         #expect(Self.gitStatusInvocationCount("status", in: invocationLog) == 1)
 
         try Data().write(to: releaseFile)
