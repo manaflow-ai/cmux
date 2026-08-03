@@ -3,7 +3,6 @@ import Combine
 import CmuxFoundation
 import CmuxSidebar
 import CmuxWorkspaces
-import SwiftUI
 
 /// Pure-AppKit workspace row cell: renders every TabItemView slot without
 /// SwiftUI hosting. Subviews are created once (dynamic slots use view pools),
@@ -54,9 +53,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var pullRequestRows: [SidebarRowPullRequestLine] = []
     private var portButtons: [SidebarRowLinkButton] = []
     private let checklistSection = SidebarRowChecklistSection()
-    /// Presents the legacy SwiftUI `SidebarWorkspaceStatusPopover` from the
-    /// manual status glyph (min width 200, max height 400, below the glyph).
-    private let statusPopoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    private let statusPopoverPresenter = SidebarRowStatusPopoverPresenter()
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
@@ -901,21 +898,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         )
     }
 
-    private func statusPopoverContent(_ popoverModel: SidebarWorkspaceStatusPopoverModel) -> AnyView {
-        AnyView(SidebarWorkspaceStatusPopover(
-            model: popoverModel,
-            onSelectLane: { [weak self] status in
-                self?.actions?.applyTodoStatus(status)
-            },
-            onSelectNone: { [weak self] in
-                self?.actions?.hideTodoStatus()
-            },
-            onClose: { [weak self] in
-                self?.statusPopoverPresenter.close()
-            }
-        ))
-    }
-
     /// Glyph click toggles the status popover (min width 200, max height
     /// 400). Presented to the RIGHT of the glyph: the glyph hugs the
     /// sidebar's left edge, so a below-the-anchor popover puts its arrow
@@ -929,7 +911,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let popoverModel = statusPopoverModel(), window != nil else { return }
         lastStatusPopoverModel = popoverModel
         statusPopoverPresenter.present(
-            statusPopoverContent(popoverModel),
+            model: popoverModel,
+            onSelectLane: { [weak self] status in
+                self?.actions?.applyTodoStatus(status)
+            },
+            onSelectNone: { [weak self] in
+                self?.actions?.hideTodoStatus()
+            },
             relativeTo: statusGlyphButton.bounds,
             of: statusGlyphButton,
             preferredEdge: .maxX
@@ -947,7 +935,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         if lastStatusPopoverModel != popoverModel {
             lastStatusPopoverModel = popoverModel
-            statusPopoverPresenter.update(statusPopoverContent(popoverModel))
+            statusPopoverPresenter.update(popoverModel)
         }
     }
 
