@@ -10105,14 +10105,14 @@ impl App {
         };
         let event = match event {
             AppEvent::Input(input) => {
-                self.input_revision = self.input_revision.wrapping_add(1);
                 let mut input = TerminalInput::from_event(input);
                 if let TerminalInput::Keyboard(key) = &mut input {
                     key.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
-                    if key.is_composing() {
+                    if key.is_composing() || key.is_modifier_only() {
                         return Ok(RenderAction::None);
                     }
                 }
+                self.input_revision = self.input_revision.wrapping_add(1);
                 if input.retained_bytes() > MAX_DEFERRED_INPUT_BYTES {
                     self.status_message = Some(
                         match &input {

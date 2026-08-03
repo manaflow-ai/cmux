@@ -124,6 +124,13 @@ impl KeyboardInput {
         self.key_event.kind == KeyEventKind::Release
     }
 
+    /// Kitty can report a modifier transition as its own key event. The
+    /// modifier mask on the following semantic key is authoritative, so this
+    /// transport-only event must not participate in UI or shortcut routing.
+    pub fn is_modifier_only(&self) -> bool {
+        matches!(self.key_event.code, KeyCode::Modifier(_))
+    }
+
     pub fn suppresses_alt_shortcut(&self) -> bool {
         self.suppress_alt_shortcut
     }
