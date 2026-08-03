@@ -574,6 +574,10 @@ extension CmxIrohHostRuntimeTests {
 
     @Test(arguments: [
         CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        ),
+        CmxIrohTrustBrokerClientError.rejected(
             statusCode: 408,
             code: "request_timeout"
         ),

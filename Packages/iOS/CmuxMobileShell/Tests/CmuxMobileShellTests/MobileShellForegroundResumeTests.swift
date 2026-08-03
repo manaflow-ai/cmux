@@ -127,7 +127,9 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionRecoveryOwner.phase == .idle
     })
     #expect(store.connectionState == .connected)
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 }
 
 @MainActor
@@ -268,7 +270,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         try? FileManager.default.removeItem(at: directory)
     }
     store.connectionState = .disconnected
-    store.clearRemoteConnectionContext()
+    await store.releaseRemoteClientForReplacement()
     let failedAttempt = try #require(store.connectionRecoveryOwner.begin(
         trigger: "background-failure",
         sourceConnectionGeneration: store.connectionGeneration,

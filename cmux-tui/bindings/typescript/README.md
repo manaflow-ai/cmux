@@ -11,7 +11,7 @@ import {
   exact,
   sessionId,
   workspaceId,
-} from "cmux/node";
+} from "cmux-sdk/node";
 
 const client = new NodeClient();
 const session = client.session(
@@ -88,7 +88,7 @@ stream with a recoverable gap and sends best-effort cancellation. Pass an
 Browser code uses the browser-safe entry:
 
 ```ts
-import { Client, WebSocketTransport } from "cmux/browser";
+import { Client, WebSocketTransport } from "cmux-sdk/browser";
 
 const client = new Client({
   transport: new WebSocketTransport("wss://example.test/cmux", {
@@ -111,14 +111,14 @@ Use `onAuthenticationRejected` to remove a supplied `authToken` that the
 server rejects. First-use pairing denial or expiry closes that attempt without
 invoking the credential-rejection callback.
 
-The `cmux` and `cmux/browser` dependency graphs import no Node modules. The
-`cmux/node` entry adds Unix-socket discovery and transport.
+The `cmux-sdk` and `cmux-sdk/browser` dependency graphs import no Node modules.
+The `cmux-sdk/node` entry adds Unix-socket discovery and transport.
 
 The generated protocol-v10 API and numeric mux identities are available only
-from `cmux/raw`:
+from `cmux-sdk/raw`:
 
 ```ts
-import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
+import { CmuxClient, COMMAND_METADATA } from "cmux-sdk/raw";
 ```
 
 Raw render graphics follow one budget chain: 10,000,000 decoded image bytes

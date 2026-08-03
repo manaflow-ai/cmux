@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::fmt;
 use std::future::Future;
@@ -22,6 +22,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::{Mutex, mpsc, oneshot, watch};
+use tokio::task::{Id, JoinSet};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
@@ -51,6 +52,7 @@ const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
 const MAX_RELAY_BATCH_FRAMES: usize = 32;
 const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
 const RELAY_BATCH_DELAY: Duration = Duration::from_millis(1);
+const MAX_RELAY_INCOMING_TASKS: usize = 64;
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
 type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
@@ -198,12 +200,13 @@ impl fmt::Debug for RelayCredential {
 }
 
 async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let file = tokio::fs::File::open(path)
-        .await
-        .map_err(|_| credential_source_error("file could not be read"))?;
-    read_limited_credential(file)
-        .await
-        .map_err(|_| credential_source_error("file could not be read"))
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
+    })
+    .await
+    .map_err(|_| credential_source_error("file could not be read"))?
+    .map_err(|_| credential_source_error("file could not be read"))
 }
 
 async fn read_credential_command(
@@ -1260,30 +1263,41 @@ async fn run_registration_once(
     }
     let mut interval = tokio::time::interval(heartbeat);
     let mut nonce = 0_u64;
-    loop {
+    let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
+    let result = loop {
         tokio::select! {
+            _ = incoming_tasks.join_next(), if !incoming_tasks.is_empty() => {}
             changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() { return Ok(()) }
+                if changed.is_err() || *shutdown.borrow() { break Ok(()) }
             }
             _ = interval.tick() => {
                 nonce = nonce.wrapping_add(1);
-                send_control(&mut socket, &RelayControl::Ping { nonce }).await?;
+                if let Err(error) =
+                    send_control(&mut socket, &RelayControl::Ping { nonce }).await
+                {
+                    break Err(error);
+                }
             }
             message = read_control(&mut socket) => {
-                match message? {
+                let message = match message {
+                    Ok(message) => message,
+                    Err(error) => break Err(error),
+                };
+                match message {
                     RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
                         let daemon = daemon.clone();
                         let endpoint = config.endpoint.clone();
                         let slot = config.slot.clone();
                         let maximum = config.maximum_frame_bytes;
                         let timeout = config.control_timeout;
-                        tokio::spawn(async move {
+                        let task_circuit = circuit.clone();
+                        incoming_tasks.try_spawn(circuit, async move {
                             if let Ok(link) = join_circuit(
                                 &endpoint,
                                 &slot,
                                 RelayRole::Daemon,
                                 framing,
-                                circuit,
+                                task_circuit,
                                 lane,
                                 generation,
                                 join_ticket,
@@ -1300,7 +1314,7 @@ async fn run_registration_once(
                     }
                     RelayControl::Pong { .. } => {}
                     RelayControl::Error { code, retryable, .. } => {
-                        return Err(relay_operation_rejection(
+                        break Err(relay_operation_rejection(
                             &code,
                             retryable,
                             "relay registration is temporarily unavailable",
@@ -1310,6 +1324,60 @@ async fn run_registration_once(
                 }
             }
         }
+    };
+    incoming_tasks.shutdown().await;
+    result
+}
+
+struct IncomingCircuitTasks {
+    maximum: usize,
+    active: HashSet<CircuitId>,
+    task_circuits: HashMap<Id, CircuitId>,
+    tasks: JoinSet<()>,
+}
+
+impl IncomingCircuitTasks {
+    fn new(maximum: usize) -> Self {
+        Self {
+            maximum,
+            active: HashSet::new(),
+            task_circuits: HashMap::new(),
+            tasks: JoinSet::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    fn try_spawn(
+        &mut self,
+        circuit: CircuitId,
+        task: impl Future<Output = ()> + Send + 'static,
+    ) -> bool {
+        if self.tasks.len() >= self.maximum || !self.active.insert(circuit.clone()) {
+            return false;
+        }
+        let handle = self.tasks.spawn(task);
+        self.task_circuits.insert(handle.id(), circuit);
+        true
+    }
+
+    async fn join_next(&mut self) {
+        let task_id = match self.tasks.join_next_with_id().await {
+            Some(Ok((task_id, ()))) => Some(task_id),
+            Some(Err(error)) => Some(error.id()),
+            None => None,
+        };
+        if let Some(circuit) = task_id.and_then(|task_id| self.task_circuits.remove(&task_id)) {
+            self.active.remove(&circuit);
+        }
+    }
+
+    async fn shutdown(&mut self) {
+        self.tasks.shutdown().await;
+        self.active.clear();
+        self.task_circuits.clear();
     }
 }
 
@@ -2272,10 +2340,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn incoming_circuit_tasks_are_bounded_deduplicated_and_drained() {
+        let mut tasks = IncomingCircuitTasks::new(1);
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let first = CircuitId("first".into());
+        assert!(tasks.try_spawn(first.clone(), async move {
+            let _ = started_tx.send(());
+            let _ = release_rx.await;
+        }));
+        assert!(!tasks.try_spawn(first, async {}));
+        assert!(!tasks.try_spawn(CircuitId("overflow".into()), async {}));
+        started_rx.await.unwrap();
+        release_tx.send(()).unwrap();
+        tasks.join_next().await;
+
+        assert!(tasks.try_spawn(CircuitId("replacement".into()), async {}));
+        tasks.join_next().await;
+        assert!(tasks.is_empty());
+
+        assert!(tasks.try_spawn(CircuitId("panics".into()), async {
+            panic!("test circuit task panic");
+        }));
+        tasks.join_next().await;
+        assert!(tasks.active.is_empty());
+
+        assert!(tasks.try_spawn(CircuitId("cancelled".into()), std::future::pending()));
+        tasks.shutdown().await;
+        assert!(tasks.is_empty());
+        assert!(tasks.active.is_empty());
+    }
+
+    #[tokio::test]
     async fn file_and_callback_sources_refresh_without_caching() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt as _;
+
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("relay-ticket");
         tokio::fs::write(&path, "file-ticket-one\n").await.unwrap();
+        #[cfg(unix)]
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
         let file = RelayCredentialSource::file(&path);
         assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-one");
         tokio::fs::write(&path, "file-ticket-two\n").await.unwrap();
@@ -2291,6 +2396,36 @@ mod tests {
         });
         assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-1");
         assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-2");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn relay_credential_file_requires_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("relay-ticket");
+        tokio::fs::write(&path, "ticket\n").await.unwrap();
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        assert_eq!(RelayCredentialSource::file(&path).fetch().await.unwrap().expose(), "ticket");
+
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).await.unwrap();
+        assert!(RelayCredentialSource::file(&path).fetch().await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn relay_credential_file_rejects_symlinks() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let link = directory.path().join("relay-ticket");
+        tokio::fs::write(&target, "ticket\n").await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(RelayCredentialSource::file(&link).fetch().await.is_err());
     }
 
     #[cfg(unix)]
