@@ -2,7 +2,6 @@
 import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileTerminalKit
-import SwiftUI
 import UIKit
 
 /// Local repro harness for the "crash on fast zoom" bug. Mounts a single
@@ -16,40 +15,56 @@ import UIKit
 ///   3. Rapid font zoom on a timer.
 ///
 /// Enable with `CMUX_ZOOM_STRESS=1`; see `cmuxApp`. DEBUG-only.
-public struct MobileZoomStressView: View {
-    public init() {}
+@MainActor
+public final class MobileZoomStressView: UIView {
+    private let coordinator = Coordinator()
+    private var isRunning = false
 
-    public var body: some View {
-        ZoomStressRepresentable()
-            .ignoresSafeArea()
-            .background(Color.black)
-    }
-}
+    public init() {
+        super.init(frame: .zero)
+        backgroundColor = .black
 
-private struct ZoomStressRepresentable: UIViewRepresentable {
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> UIView {
-        guard let runtime = try? GhosttyRuntime.shared() else {
+        let contentView: UIView
+        if let runtime = try? GhosttyRuntime.shared() {
+            let surfaceView = GhosttySurfaceView(runtime: runtime, delegate: coordinator, fontSize: 12)
+            coordinator.surfaceView = surfaceView
+            contentView = surfaceView
+        } else {
             let label = UILabel()
             label.text = "ZoomStress: runtime init failed"
             label.textColor = .white
-            return label
+            label.textAlignment = .center
+            contentView = label
         }
-        let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
-        context.coordinator.surfaceView = view
-        context.coordinator.start()
-        return view
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        coordinator.stop()
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, !isRunning {
+            isRunning = true
+            coordinator.start()
+        } else if window == nil, isRunning {
+            isRunning = false
+            coordinator.stop()
+        }
     }
 
     @MainActor
-    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+    private final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         weak var surfaceView: GhosttySurfaceView?
         private var zoomTimer: Timer?
         private var byteTimer: Timer?

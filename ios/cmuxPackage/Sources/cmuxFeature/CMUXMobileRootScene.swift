@@ -333,11 +333,17 @@ public struct CMUXMobileRootScene: View {
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
-            MobileRecoveryStressView(configuration: recoveryStress)
+            MobileTerminalStressHost {
+                MobileRecoveryStressView(configuration: recoveryStress)
+            }
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileZoomStressView()
+            MobileTerminalStressHost {
+                MobileZoomStressView()
+            }
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
-            MobileBottomScrollStressView()
+            MobileTerminalStressHost {
+                MobileBottomScrollStressView()
+            }
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
             ToastGalleryHost(center: toastCenter)
         } else {
@@ -446,5 +452,21 @@ private struct ToastGalleryHost: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: UINavigationController, context: Context) {}
 }
+
+#if DEBUG
+private struct MobileTerminalStressHost: UIViewRepresentable {
+    let makeContentView: @MainActor () -> UIView
+
+    init(makeContentView: @escaping @MainActor () -> UIView) {
+        self.makeContentView = makeContentView
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        makeContentView()
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+#endif
 #endif
 #endif
