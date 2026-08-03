@@ -127,6 +127,12 @@ public final class ControlCommandCoordinator {
         _ request: ControlRequest,
         context: (any ControlCommandContext)?
     ) -> ControlCallResult? {
+        // The worker lane's twin of the main-lane preflight: an explicit
+        // target that cannot be resolved must not degrade into the focused
+        // fallback here either (issue #9410).
+        if let unresolved = unresolvedTargetErrorOnWorkerLane(request, context: context) {
+            return unresolved
+        }
         switch request.method {
         case "surface.list":
             return surfaceList(request.params, context: context)
@@ -259,7 +265,7 @@ public final class ControlCommandCoordinator {
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).
-    func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
+    nonisolated func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
         guard let value = params[key] else { return false }
         if case .null = value { return false }
         return true

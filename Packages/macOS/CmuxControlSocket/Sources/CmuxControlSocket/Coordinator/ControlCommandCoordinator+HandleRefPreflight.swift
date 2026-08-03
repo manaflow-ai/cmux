@@ -49,13 +49,52 @@ private func resolvesTargetOutsideTheHandleRegistry(method: String) -> Bool {
 /// accepted here and keeps its existing per-command not-found handling, which
 /// reports the id the caller passed.
 extension ControlCommandCoordinator {
-    /// Returns a `not_found` error when a request names a target this
-    /// coordinator cannot resolve, or `nil` when every explicit target
-    /// resolves.
+    /// Returns an error when a request names a target that is not a usable
+    /// identifier at all: present and non-null, but not a non-empty string.
+    /// A number, an object, or `"   "` would otherwise read as "no target"
+    /// and hand the command its focused-object fallback.
+    ///
+    /// `nonisolated` and registry-free, so both dispatch lanes can run it
+    /// without a main-actor hop.
+    ///
+    /// - Parameter request: The decoded request envelope.
+    /// - Returns: The error result to return instead of running the command.
+    nonisolated func malformedTargetError(_ request: ControlRequest) -> ControlCallResult? {
+        if resolvesTargetOutsideTheHandleRegistry(method: request.method) { return nil }
+        for (key, noun) in handleTargetParamNouns {
+            guard hasNonNull(request.params, key) else { continue }
+            guard string(request.params, key) == nil else { continue }
+            return .err(
+                code: "invalid_params",
+                message: "\(noun) target \(key) must be a non-empty id or handle ref",
+                data: nil
+            )
+        }
+        return nil
+    }
+
+    /// Whether any explicit target needs the handle registry to resolve, i.e.
+    /// is a string that is not already a UUID. Lets the worker lane skip its
+    /// main-actor preflight hop for the common all-UUID request.
+    ///
+    /// - Parameter request: The decoded request envelope.
+    /// - Returns: `true` when a registry lookup is required.
+    nonisolated func targetsNeedHandleRegistry(_ request: ControlRequest) -> Bool {
+        if resolvesTargetOutsideTheHandleRegistry(method: request.method) { return false }
+        return handleTargetParamNouns.contains { key, _ in
+            guard let raw = string(request.params, key) else { return false }
+            return UUID(uuidString: raw) == nil
+        }
+    }
+
+    /// Returns a `not_found` error when a request names a target through a
+    /// handle ref this coordinator cannot resolve, or `nil` when every
+    /// explicit target resolves.
     ///
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The error result to return instead of running the command.
     func unresolvedTargetError(_ request: ControlRequest) -> ControlCallResult? {
+        if let malformed = malformedTargetError(request) { return malformed }
         if resolvesTargetOutsideTheHandleRegistry(method: request.method) { return nil }
         for (key, noun) in handleTargetParamNouns {
             guard let raw = string(request.params, key) else { continue }
@@ -68,5 +107,25 @@ extension ControlCommandCoordinator {
             )
         }
         return nil
+    }
+
+    /// The worker lane's twin of ``unresolvedTargetError(_:)``: the pure
+    /// checks run on the calling socket-worker thread, and the registry lookup
+    /// takes the same `controlResolveOnMain` hop (and known-ref refresh) the
+    /// worker-lane bodies use — only when a target actually needs it.
+    ///
+    /// - Parameters:
+    ///   - request: The decoded request envelope.
+    ///   - context: The live app seam.
+    /// - Returns: The error result to return instead of running the command.
+    nonisolated func unresolvedTargetErrorOnWorkerLane(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        if let malformed = malformedTargetError(request) { return malformed }
+        guard targetsNeedHandleRegistry(request), let context else { return nil }
+        return context.controlResolveOnMain { _ in
+            self.unresolvedTargetError(request)
+        }
     }
 }

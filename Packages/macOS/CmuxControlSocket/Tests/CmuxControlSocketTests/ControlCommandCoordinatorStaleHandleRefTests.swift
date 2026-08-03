@@ -36,8 +36,16 @@ struct ControlCommandCoordinatorStaleHandleRefTests {
         #expect(context.closeCalls.isEmpty)
     }
 
-    @Test(arguments: ["surface:not-a-number", "surafce:12", "surface-3", "", "  "])
-    func closeSurfaceWithMalformedSurfaceTargetClosesNothing(target: String) {
+    @Test(arguments: [
+        JSONValue.string("surface:not-a-number"),
+        .string("surafce:12"),
+        .string("surface-3"),
+        .string(""),
+        .string("   "),
+        .int(1),
+        .bool(false),
+    ])
+    func closeSurfaceWithMalformedSurfaceTargetClosesNothing(target: JSONValue) {
         let context = RecordingDestructiveSurfaceContext()
         let coordinator = ControlCommandCoordinator(context: context)
         coordinator.ensureRef(kind: .surface, uuid: UUID())
@@ -50,21 +58,17 @@ struct ControlCommandCoordinatorStaleHandleRefTests {
         let result = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.close",
-            params: ["surface_id": .string(target)]
+            params: ["surface_id": target]
         ))
 
-        // A whitespace-only value reads as absent (legacy `v2String`), so the
-        // focused-surface close stays legal there; anything else names a
-        // target that cannot be resolved and must not close a bystander.
-        if target.trimmingCharacters(in: .whitespaces).isEmpty {
-            #expect(context.closeCalls == [nil])
-            return
-        }
+        // Present-but-unusable is never "no target": an empty string, a
+        // whitespace-only string, a non-string JSON value, and a mistyped ref
+        // must all fail closed rather than close the focused surface.
         guard case .err(let code, _, _) = result else {
-            Issue.record("expected an error for target '\(target)', got \(String(describing: result))")
+            Issue.record("expected an error for target \(target), got \(String(describing: result))")
             return
         }
-        #expect(code == "not_found")
+        #expect(code == "not_found" || code == "invalid_params")
         #expect(context.closeCalls.isEmpty)
     }
 
@@ -148,6 +152,30 @@ struct ControlCommandCoordinatorStaleHandleRefTests {
         }
         #expect(code == "not_found")
         #expect(context.closeCalls == [requested])
+    }
+
+    @Test func workerLaneSendTextWithUnknownSurfaceRefFailsClosed() {
+        let context = RecordingDestructiveSurfaceContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        coordinator.ensureRef(kind: .surface, uuid: UUID())
+
+        let result = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(1),
+                method: "surface.send_text",
+                params: [
+                    "surface_id": .string("surface:77777"),
+                    "text": .string("rm -rf /"),
+                ]
+            ),
+            context: context
+        )
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected an error for an unknown surface ref, got \(String(describing: result))")
+            return
+        }
+        #expect(code == "not_found")
     }
 
     @Test func closeSurfaceWithNoTargetStillUsesFocusedSurface() {

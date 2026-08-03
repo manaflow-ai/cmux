@@ -354,7 +354,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             method: "workspace.current",
             params: ["window_id": "window:999"]
         )
-        XCTAssertEqual(error["code"] as? String, "unavailable")
+        // The dispatch preflight now names the stale ref explicitly instead of
+        // letting routing report a missing window (issue #9410).
+        XCTAssertEqual(error["code"] as? String, "not_found")
     }
 
     func testWorkspaceListRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
