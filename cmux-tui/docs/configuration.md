@@ -217,7 +217,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.super_shortcuts` | boolean | `true` | Enables default modeless Command/Super bindings when true |
 | `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
-| `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
+| `keys.new-browser-tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
@@ -271,7 +271,7 @@ Kitty keyboard reports the same empty-text character sequence for a real termina
 
 `Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Both bindings accept independent overrides.
 
-Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
+Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases, as is `new_browser_tab` for `new-browser-tab`. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
@@ -349,7 +349,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "alt_shortcuts": false,
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t"],
-    "new_browser_tab": "B",
+    "new-browser-tab": "B",
     "new-pane-smart": "alt+n",
     "next-tab": "tab",
     "prev-tab": "backtab",

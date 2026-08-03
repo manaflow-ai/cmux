@@ -148,7 +148,7 @@ Supported action keys are:
 ```text
 send-prefix
 new-tab
-new_browser_tab
+new-browser-tab
 new-pane-smart
 next-tab
 prev-tab
@@ -214,7 +214,7 @@ show-shortcuts
 detach
 ```
 
-`rename-pane` is still accepted as an alias for `rename-tab`.
+`rename-pane` is still accepted as an alias for `rename-tab`, and `new_browser_tab` for `new-browser-tab`.
 
 ## Chord Format
 
