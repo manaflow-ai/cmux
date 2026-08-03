@@ -1081,6 +1081,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::c_void;
     use std::sync::atomic::AtomicU64;
 
     use async_trait::async_trait;
@@ -1093,6 +1094,33 @@ mod tests {
 
     fn test_terminal_id() -> TerminalPublicId {
         TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap()
+    }
+
+    unsafe extern "C" fn count_update(context: *mut c_void) {
+        // SAFETY: the test registers a live AtomicU64 for the callback lifetime.
+        let count = unsafe { &*(context.cast::<AtomicU64>()) };
+        count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn update_callback_registration_is_signal_driven_and_synchronously_cleared() {
+        let updates = ClientUpdates::default();
+        let count = AtomicU64::new(0);
+        let context = (&count as *const AtomicU64).cast_mut().cast::<c_void>();
+
+        updates.set_callback(Some(count_update), context);
+        assert_eq!(count.load(Ordering::Relaxed), 1, "registration omitted initial state");
+
+        updates.notify();
+        assert_eq!(count.load(Ordering::Relaxed), 2, "state change omitted its callback");
+
+        updates.set_callback(None, std::ptr::null_mut());
+        updates.notify();
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            2,
+            "callback fired after synchronous unregistration"
+        );
     }
 
     struct TestEndpoint {

@@ -87,6 +87,27 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func selectionClampsToAValidInsertionPointWhenTheFrameShrinks() {
+        let surviving = NSValue(range: NSRange(location: 2, length: 1))
+        let removed = NSValue(range: NSRange(location: 12, length: 4))
+
+        let selections = terminalSelections(
+            preserving: [surviving, removed],
+            utf16Length: 4
+        )
+
+        #expect(selections.map(\.rangeValue) == [NSRange(location: 2, length: 1)])
+        #expect(
+            terminalSelections(preserving: [removed], utf16Length: 4).map(\.rangeValue)
+                == [NSRange(location: 4, length: 0)]
+        )
+        #expect(
+            terminalSelections(preserving: [], utf16Length: 0).map(\.rangeValue)
+                == [NSRange(location: 0, length: 0)]
+        )
+    }
+
+    @Test
     func cStringCopyRetriesWhenValueGrowsBetweenPasses() {
         var calls = 0
         let value = copyGrowingCString { buffer, capacity in
