@@ -10204,8 +10204,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Context Menu Shortcuts
 
-    static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
-        var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
+    static func buildContextMenuShortcuts() -> [TabContextAction: BonsplitKeyboardShortcut] {
+        var shortcuts: [TabContextAction: BonsplitKeyboardShortcut] = [:]
         let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
             (.rename, .renameTab),
             (.toggleZoom, .toggleSplitZoom),
@@ -10213,8 +10213,11 @@ final class Workspace: Identifiable, ObservableObject {
         ]
         for (contextAction, settingsAction) in mappings {
             let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
-            if let key = stored.keyEquivalent {
-                shortcuts[contextAction] = KeyboardShortcut(key, modifiers: stored.eventModifiers)
+            if let key = stored.menuItemKeyEquivalent {
+                shortcuts[contextAction] = BonsplitKeyboardShortcut(
+                    keyEquivalent: key,
+                    modifierFlags: stored.modifierFlags
+                )
             }
         }
         return shortcuts

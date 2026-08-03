@@ -2,7 +2,9 @@ import AppKit
 import CmuxSimulatorUI
 import SwiftUI
 
-struct SimulatorPanelView: View {
+/// Transitional host for the native AppKit Simulator pane while the parent
+/// panel tree is being moved to AppKit.
+struct SimulatorPanelView: NSViewControllerRepresentable {
     let panel: SimulatorPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -10,39 +12,68 @@ struct SimulatorPanelView: View {
     let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
-    @State private var visibilityHostID = UUID()
 
-    var body: some View {
-        SimulatorPaneView(
+    @MainActor
+    final class Coordinator {
+        let visibilityHostID = UUID()
+        let focusOwnershipView = SimulatorFocusOwnershipView()
+        weak var panel: SimulatorPanel?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSViewController(context: Context) -> SimulatorPaneView {
+        let controller = SimulatorPaneView(
             coordinator: panel.coordinator,
-            backgroundColor: Color(nsColor: appearance.contentBackgroundColor),
+            backgroundColor: appearance.contentBackgroundColor,
             allowsPointerInput: allowsPointerInput,
             pointerEntryEventFilter: pointerEntryEventFilter,
             onRequestPanelFocus: onRequestPanelFocus
         )
-            .background {
-                SimulatorFocusOwnershipBridge(panel: panel)
-            }
-            .environment(
-                \.colorScheme,
-                cmuxReadableColorScheme(for: appearance.backgroundColor)
-            )
-            .onAppear {
-                panel.coordinator.setActive(isFocused)
-                panel.setVisibleInUI(isVisibleInUI, hostID: visibilityHostID)
-            }
-            .onChange(of: isFocused) { _, focused in
-                panel.coordinator.setActive(focused)
-            }
-            .onChange(of: isVisibleInUI) { _, visible in
-                if !visible {
-                    panel.coordinator.releaseInputs()
-                }
-                panel.setVisibleInUI(visible, hostID: visibilityHostID)
-            }
-            .onDisappear {
-                panel.coordinator.releaseInputs()
-                panel.setVisibleInUI(false, hostID: visibilityHostID)
-            }
+        _ = controller.view
+        let focusView = context.coordinator.focusOwnershipView
+        focusView.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(focusView)
+        NSLayoutConstraint.activate([
+            focusView.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            focusView.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            focusView.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            focusView.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+        ])
+        focusView.update(panel: panel)
+        context.coordinator.panel = panel
+        updateLifecycle(context.coordinator)
+        return controller
+    }
+
+    func updateNSViewController(_ controller: SimulatorPaneView, context: Context) {
+        controller.update(
+            backgroundColor: appearance.contentBackgroundColor,
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: pointerEntryEventFilter,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+        context.coordinator.focusOwnershipView.update(panel: panel)
+        context.coordinator.panel = panel
+        updateLifecycle(context.coordinator)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SimulatorPaneView,
+        coordinator: Coordinator
+    ) {
+        controller.teardown()
+        coordinator.panel?.coordinator.releaseInputs()
+        coordinator.panel?.setVisibleInUI(false, hostID: coordinator.visibilityHostID)
+        coordinator.focusOwnershipView.teardown()
+        coordinator.panel = nil
+    }
+
+    private func updateLifecycle(_ context: Coordinator) {
+        panel.coordinator.setActive(isFocused)
+        if !isVisibleInUI { panel.coordinator.releaseInputs() }
+        panel.setVisibleInUI(isVisibleInUI, hostID: context.visibilityHostID)
     }
 }

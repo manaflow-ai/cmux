@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxAppKitSupportUI
 @_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
@@ -6,6 +7,150 @@ import SwiftUI
 
 /// Transitional mounts for native support views while their parent surfaces
 /// are still being moved to AppKit controllers.
+
+@MainActor
+private final class BonsplitSwiftUIProviderBox<Content: View, EmptyContent: View> {
+    var content: (Bonsplit.Tab, PaneID) -> Content
+    var emptyPane: (PaneID) -> EmptyContent
+
+    init(
+        content: @escaping (Bonsplit.Tab, PaneID) -> Content,
+        emptyPane: @escaping (PaneID) -> EmptyContent
+    ) {
+        self.content = content
+        self.emptyPane = emptyPane
+    }
+}
+
+@MainActor
+private final class BonsplitSwiftUIContentController: NSHostingController<AnyView>,
+    BonsplitContentUpdating,
+    BonsplitPaneDropZoneReceiving
+{
+    private var tab: Bonsplit.Tab?
+    private var pane: PaneID?
+    private var dropZone: DropZone?
+    private let render: @MainActor (Bonsplit.Tab, PaneID, DropZone?) -> AnyView
+
+    init(
+        tab: Bonsplit.Tab,
+        pane: PaneID,
+        render: @escaping @MainActor (Bonsplit.Tab, PaneID, DropZone?) -> AnyView
+    ) {
+        self.tab = tab
+        self.pane = pane
+        self.render = render
+        super.init(rootView: render(tab, pane, nil))
+        sizingOptions = []
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
+        self.tab = tab
+        self.pane = pane
+        rootView = render(tab, pane, dropZone)
+    }
+
+    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
+        dropZone = zone
+        guard let tab, let pane else { return }
+        rootView = render(tab, pane, zone)
+    }
+}
+
+@MainActor
+private final class BonsplitSwiftUIEmptyController: NSHostingController<AnyView> {
+    init(rootView: AnyView) {
+        super.init(rootView: rootView)
+        sizingOptions = []
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+/// Temporary SwiftUI mount for Bonsplit's AppKit controller. The split and tab
+/// hierarchy is native; only host-supplied cmux content remains hosted here.
+struct BonsplitView<Content: View, EmptyContent: View>: NSViewControllerRepresentable {
+    let controller: BonsplitController
+    let content: (Bonsplit.Tab, PaneID) -> Content
+    let emptyPane: (PaneID) -> EmptyContent
+
+    init(
+        controller: BonsplitController,
+        @ViewBuilder content: @escaping (Bonsplit.Tab, PaneID) -> Content,
+        @ViewBuilder emptyPane: @escaping (PaneID) -> EmptyContent
+    ) {
+        self.controller = controller
+        self.content = content
+        self.emptyPane = emptyPane
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(content: content, emptyPane: emptyPane)
+    }
+
+    func makeNSViewController(context: Context) -> BonsplitViewController {
+        context.coordinator.makeViewController(controller: controller)
+    }
+
+    func updateNSViewController(_ viewController: BonsplitViewController, context: Context) {
+        context.coordinator.providers.content = content
+        context.coordinator.providers.emptyPane = emptyPane
+        context.coordinator.update(viewController)
+    }
+
+    @MainActor
+    final class Coordinator {
+        let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
+
+        init(
+            content: @escaping (Bonsplit.Tab, PaneID) -> Content,
+            emptyPane: @escaping (PaneID) -> EmptyContent
+        ) {
+            providers = BonsplitSwiftUIProviderBox(content: content, emptyPane: emptyPane)
+        }
+
+        func makeViewController(controller: BonsplitController) -> BonsplitViewController {
+            BonsplitViewController(
+                controller: controller,
+                content: contentProvider(),
+                emptyPane: emptyProvider()
+            )
+        }
+
+        func update(_ viewController: BonsplitViewController) {
+            viewController.updateProviders(
+                content: contentProvider(),
+                emptyPane: emptyProvider()
+            )
+        }
+
+        private func contentProvider() -> BonsplitViewController.ContentProvider {
+            { [weak providers] tab, pane in
+                BonsplitSwiftUIContentController(tab: tab, pane: pane) { [weak providers] tab, pane, zone in
+                    guard let providers else { return AnyView(EmptyView()) }
+                    return AnyView(providers.content(tab, pane).environment(\.paneDropZone, zone))
+                }
+            }
+        }
+
+        private func emptyProvider() -> BonsplitViewController.EmptyPaneProvider {
+            { [weak providers] pane in
+                guard let providers else {
+                    return BonsplitSwiftUIEmptyController(rootView: AnyView(EmptyView()))
+                }
+                return BonsplitSwiftUIEmptyController(rootView: AnyView(providers.emptyPane(pane)))
+            }
+        }
+    }
+}
 
 extension WindowChromeColorScheme {
     var transitionalColorScheme: ColorScheme {
