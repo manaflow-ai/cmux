@@ -245,6 +245,79 @@ struct ChatNativeTranscriptRowTests {
         #expect(selected.first?.0 == "message-12")
         #expect(selected.first?.1 == 1)
     }
+
+    @Test("native composer sends the trimmed draft and resets its field")
+    func nativeComposerSend() throws {
+        var storedDraft = "  explain this  \n"
+        var submissions: [(String, Int)] = []
+        let view = ChatComposerNativeView(
+            configuration: ChatComposerNativeConfiguration(
+                agentState: .idle,
+                agentKind: .codex,
+                isTerminal: false,
+                isConnected: true,
+                accessoryLeadingShortcuts: [],
+                accessoryShortcuts: [],
+                draft: storedDraft,
+                setDraft: { storedDraft = $0 },
+                onSend: { text, attachments in
+                    submissions.append((text, attachments.count))
+                },
+                onInterrupt: { _ in },
+                onOpenTerminal: {}
+            )
+        )
+        let field = try #require(
+            view.descendants.compactMap { $0 as? UITextView }.first {
+                $0.accessibilityIdentifier == "ChatComposerField"
+            }
+        )
+        let send = try #require(
+            view.descendants.compactMap { $0 as? UIButton }.first {
+                $0.accessibilityIdentifier == "ChatComposerSend"
+            }
+        )
+
+        #expect(field.text == "  explain this  \n")
+        #expect(send.isEnabled)
+        send.sendActions(for: .primaryActionTriggered)
+
+        #expect(submissions.count == 1)
+        #expect(submissions.first?.0 == "explain this")
+        #expect(submissions.first?.1 == 0)
+        #expect(storedDraft.isEmpty)
+        #expect(field.text.isEmpty)
+        #expect(!send.isEnabled)
+    }
+
+    @Test("native composer exposes stop while the agent is working")
+    func nativeComposerStop() throws {
+        var interrupts: [Bool] = []
+        let view = ChatComposerNativeView(
+            configuration: ChatComposerNativeConfiguration(
+                agentState: .working(since: .now),
+                agentKind: .codex,
+                isTerminal: false,
+                isConnected: true,
+                accessoryLeadingShortcuts: [],
+                accessoryShortcuts: [],
+                draft: "",
+                setDraft: { _ in },
+                onSend: { _, _ in },
+                onInterrupt: { interrupts.append($0) },
+                onOpenTerminal: {}
+            )
+        )
+        let stop = try #require(
+            view.descendants.compactMap { $0 as? UIButton }.first {
+                $0.accessibilityIdentifier == "ChatComposerSend"
+            }
+        )
+
+        #expect(stop.isEnabled)
+        stop.sendActions(for: .primaryActionTriggered)
+        #expect(interrupts == [false])
+    }
 }
 
 private extension UIView {

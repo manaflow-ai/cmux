@@ -1,57 +1,41 @@
 #if os(iOS)
 import SwiftUI
 
-struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewControllerRepresentable {
-    let transcript: Transcript
-    let composer: Composer
+/// Transitional bridge from the remaining screen shell into the native chat controller tree.
+struct ChatKeyboardTrackingContainer: UIViewControllerRepresentable {
+    let transcriptConfiguration: ChatTranscriptTableConfiguration
+    let composerConfiguration: ChatComposerNativeConfiguration
     let showsComposer: Bool
 
-    func makeCoordinator() -> ChatKeyboardTrackingCoordinator {
-        ChatKeyboardTrackingCoordinator()
-    }
-
-    func makeUIViewController(
-        context: Context
-    ) -> ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>> {
+    func makeUIViewController(context: Context) -> ChatKeyboardTrackingViewController {
+        let transcript = ChatTranscriptNativeView()
+        transcript.update(configuration: transcriptConfiguration)
+        let composer = ChatComposerNativeView(configuration: composerConfiguration)
         let controller = ChatKeyboardTrackingViewController(
-            transcriptView: ChatKeyboardTrackedRoot(
-                content: transcript,
-                ignoredContainerEdges: [.top, .bottom],
-                overlayGeometry: context.coordinator.overlayGeometry
-            ),
-            composerView: ChatKeyboardTrackedRoot(content: composer),
+            transcriptView: transcript,
+            composerView: composer,
             showsComposer: showsComposer
         )
-        controller.transcriptOverlayGeometry = context.coordinator.overlayGeometry
-        controller.transcriptView = trackedTranscriptRoot(for: controller)
+        transcript.onScrollButtonFrameChanged = { [weak controller] frame in
+            controller?.excludedKeyboardDismissFrame = frame
+        }
+        composer.onIntrinsicHeightChanged = { [weak controller] in
+            controller?.view.setNeedsLayout()
+        }
         return controller
     }
 
     func updateUIViewController(
-        _ uiViewController: ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>>,
+        _ controller: ChatKeyboardTrackingViewController,
         context: Context
     ) {
-        uiViewController.transcriptOverlayGeometry = context.coordinator.overlayGeometry
-        uiViewController.transcriptView = trackedTranscriptRoot(for: uiViewController)
-        uiViewController.composerView = ChatKeyboardTrackedRoot(content: composer)
-        uiViewController.showsComposer = showsComposer
-    }
-
-    private func trackedTranscriptRoot(
-        for controller: ChatKeyboardTrackingViewController<
-            ChatKeyboardTrackedRoot<Transcript>,
-            ChatKeyboardTrackedRoot<Composer>
-        >
-    ) -> ChatKeyboardTrackedRoot<Transcript> {
-        ChatKeyboardTrackedRoot(
-            content: transcript,
-            ignoredContainerEdges: [.top, .bottom],
-            overlayGeometry: controller.transcriptOverlayGeometry,
-            onScrollButtonFrameChange: { [weak controller] frame in
-                controller?.excludedKeyboardDismissFrame = frame
-            }
+        (controller.transcriptView as? ChatTranscriptNativeView)?.update(
+            configuration: transcriptConfiguration
         )
+        (controller.composerView as? ChatComposerNativeView)?.update(
+            configuration: composerConfiguration
+        )
+        controller.showsComposer = showsComposer
     }
-
 }
 #endif

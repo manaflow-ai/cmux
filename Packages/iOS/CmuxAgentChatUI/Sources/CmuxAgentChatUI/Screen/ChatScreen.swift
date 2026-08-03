@@ -32,6 +32,8 @@ import UIKit
 /// (drafts, attachments).
 public struct ChatScreen: View {
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.chatArtifactLoader) private var artifactLoader
+    @Environment(\.chatTheme) private var theme
     @State private var store: ChatConversationStore
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
@@ -100,7 +102,7 @@ public struct ChatScreen: View {
         .modifier(ChatScreenChrome(
             store: store,
             providesOwnChrome: providesOwnChrome,
-            onOpenTerminal: onOpenTerminal
+            onOpenTerminal: { onOpenTerminal() }
         ))
         .sheet(item: $selectedBlockSelection) { selection in
             if let detail = blockDetail(for: selection) {
@@ -186,8 +188,8 @@ public struct ChatScreen: View {
     private var chatLayout: some View {
         #if os(iOS)
         ChatKeyboardTrackingContainer(
-            transcript: transcriptContent,
-            composer: composerContent,
+            transcriptConfiguration: nativeTranscriptConfiguration,
+            composerConfiguration: nativeComposerConfiguration,
             showsComposer: store.agentState != .ended
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -200,6 +202,46 @@ public struct ChatScreen: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    private var nativeTranscriptConfiguration: ChatTranscriptTableConfiguration {
+        ChatTranscriptTableConfiguration(
+            rows: store.rows,
+            agentState: store.agentState,
+            hasMoreHistory: store.hasMoreHistory,
+            hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+            initialLoadFailed: store.initialLoadFailed,
+            historyTruncatedAtHead: store.historyTruncatedAtHead,
+            actions: rowActions,
+            onReachTop: { Task { await store.loadOlder() } },
+            onRetryInitialLoad: { Task { await store.retryInitialLoad() } },
+            theme: theme,
+            markdownRenderer: renderer,
+            contentCache: contentCache,
+            artifactLoader: artifactLoader
+        )
+    }
+
+    private var nativeComposerConfiguration: ChatComposerNativeConfiguration {
+        ChatComposerNativeConfiguration(
+            agentState: store.agentState,
+            agentKind: store.descriptor.agentKind,
+            isTerminal: store.descriptor.kind == .terminal,
+            isConnected: store.isConnected,
+            accessoryLeadingShortcuts: accessoryLeadingShortcuts,
+            accessoryShortcuts: accessoryShortcuts,
+            draft: draft,
+            setDraft: { draft = $0 },
+            onSend: { text, attachments in
+                Task { await store.send(text: text, attachments: attachments) }
+            },
+            onInterrupt: { hard in
+                Task { await store.interrupt(hard: hard) }
+            },
+            onOpenTerminal: { onOpenTerminal() }
+        )
+    }
+    #endif
 
     private var transcriptContent: some View {
         ChatTranscriptListView(

@@ -5,23 +5,23 @@ extension ChatKeyboardTrackingViewController {
     func updateKeyboardDebugValues(overlap: CGFloat) {
         let visibleOverlap = currentVisibleKeyboardOverlap()
         let guideOverlap = keyboardLayoutGuideOverlap()
-        let composerFrame = frameInWindow(for: composerHostingController.view)
-        let composerPresentationFrame = presentationAdjustedFrameInWindow(for: composerHostingController.view)
+        let composerFrame = frameInWindow(for: composerView)
+        let composerPresentationFrame = presentationAdjustedFrameInWindow(for: composerView)
             ?? composerFrame
         let animationProgress = clampedKeyboardAnimationProgress(overlap: overlap)
-        for tableView in trackedTranscriptTables(in: transcriptHostingController.view) {
+        for tableView in trackedTranscriptTables(in: transcriptView) {
             let tableFrame = frameInWindow(for: tableView)
             tableView.keyboardDebugPresentationFrameMaxYProvider = { [weak self, weak tableView] in
                 guard let self,
                       tableView != nil
                 else { return nil }
                 return self.presentationAdjustedFrameInWindow(
-                    for: self.transcriptHostingController.view.superview
+                    for: self.transcriptView.superview
                 )?.maxY
             }
             tableView.keyboardDebugComposerPresentationMinYProvider = { [weak self] in
                 guard let self else { return nil }
-                return self.presentationAdjustedFrameInWindow(for: self.composerHostingController.view)?.minY
+                return self.presentationAdjustedFrameInWindow(for: self.composerView)?.minY
             }
             tableView.keyboardDebugEventCount = keyboardDebugEventCount
             tableView.keyboardDebugOverlap = visibleOverlap

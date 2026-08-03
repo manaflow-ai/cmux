@@ -27,7 +27,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     @Environment(\.chatArtifactLoader) private var artifactLoader
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isAtBottom: $isAtBottom)
+        let binding = $isAtBottom
+        return Coordinator(onAtBottomChanged: { binding.wrappedValue = $0 })
     }
 
     func makeUIView(context: Context) -> ChatTranscriptUITableView {
@@ -84,13 +85,14 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isApplyingDataUpdate = false
         private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
         private weak var tableView: ChatTranscriptUITableView?
-        private var isAtBottom: Binding<Bool>
+        private var isAtBottom = true
+        private let onAtBottomChanged: @MainActor (Bool) -> Void
         #if DEBUG
         private var didApplyDebugInitialScroll = false
         #endif
 
-        init(isAtBottom: Binding<Bool>) {
-            self.isAtBottom = isAtBottom
+        init(onAtBottomChanged: @escaping @MainActor (Bool) -> Void) {
+            self.onAtBottomChanged = onAtBottomChanged
             super.init()
         }
 
@@ -112,7 +114,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             }
         }
 
-        fileprivate func update(
+        func update(
             configuration: ChatTranscriptTableConfiguration,
             in tableView: ChatTranscriptUITableView,
             scrollToBottomRequest: Int
@@ -285,8 +287,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func setAtBottom(_ value: Bool) {
-            if isAtBottom.wrappedValue != value {
-                isAtBottom.wrappedValue = value
+            if isAtBottom != value {
+                isAtBottom = value
+                onAtBottomChanged(value)
             }
         }
 
@@ -355,7 +358,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 }
 
 @MainActor
-private final class ChatTranscriptCell: UITableViewCell {
+final class ChatTranscriptCell: UITableViewCell {
     static let reuseIdentifier = "ChatTranscriptCell"
 
     private weak var nativeView: UIView?
@@ -387,7 +390,7 @@ private final class ChatTranscriptCell: UITableViewCell {
 }
 
 @MainActor
-private struct ChatTranscriptTableConfiguration {
+struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
@@ -638,7 +641,7 @@ private struct ChatTranscriptTableConfiguration {
 
 }
 
-private enum ChatTranscriptTableItem: Equatable {
+enum ChatTranscriptTableItem: Equatable {
     case loadingMore
     case historyTruncated
     case loadFailed
