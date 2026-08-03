@@ -623,7 +623,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return store.rootNodes.count
             }
             guard let node = item as? FileExplorerNode else { return 0 }
-            return node.sortedChildren?.count ?? 0
+            return node.children?.count ?? 0
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
@@ -631,7 +631,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return store.rootNodes[index]
             }
             guard let node = item as? FileExplorerNode,
-                  let children = node.sortedChildren else {
+                  let children = node.children else {
                 return FileExplorerNode(name: "", path: "", isDirectory: false)
             }
             return children[index]

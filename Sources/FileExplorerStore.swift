@@ -174,6 +174,7 @@ final class FileExplorerNode: Identifiable {
     let name: String
     let path: String
     let isDirectory: Bool
+    /// Children are sorted once, immediately before the store publishes them.
     var children: [FileExplorerNode]?
     var isLoading: Bool = false
     var error: String?
@@ -186,13 +187,6 @@ final class FileExplorerNode: Identifiable {
     }
 
     var isExpandable: Bool { isDirectory }
-
-    var sortedChildren: [FileExplorerNode]? {
-        children?.sorted { a, b in
-            if a.isDirectory != b.isDirectory { return a.isDirectory }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
-    }
 }
 
 // MARK: - Root Resolver
