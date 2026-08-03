@@ -12,6 +12,5 @@ struct NativeMuxDemoApp: App {
                 .onDisappear { model.shutdown() }
         }
         .defaultSize(width: 1280, height: 780)
-        .windowStyle(.hiddenTitleBar)
     }
 }
