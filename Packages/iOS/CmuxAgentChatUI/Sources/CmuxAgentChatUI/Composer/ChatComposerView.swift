@@ -497,3 +497,13 @@ public struct ChatComposerView: View {
     }
     #endif
 }
+
+#if DEBUG && os(iOS)
+private struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
+    func makeUIView(context: Context) -> ChatComposerDebugAutofocusView {
+        ChatComposerDebugAutofocusView(frame: .zero)
+    }
+
+    func updateUIView(_ view: ChatComposerDebugAutofocusView, context: Context) {}
+}
+#endif
