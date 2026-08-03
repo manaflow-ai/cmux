@@ -542,6 +542,43 @@ struct SocketControlServerStartupRecoveryTests {
         if client >= 0 { close(client) }
     }
 
+    @Test func postBindIdentityRetryRejectsAReplacementSocket() async throws {
+        let clock = TestSocketRecoveryClock()
+        let faults = TestSocketTransportFaultInjector(
+            failuresByStage: ["stat_bound_path": [EIO]]
+        )
+        let harness = try ServerHarness(
+            recoveryClock: clock,
+            transport: SocketTransport(faultInjector: faults)
+        )
+        defer { harness.shutdown() }
+
+        #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(await waitForAsyncCondition { clock.pendingSleepCount == 1 })
+        #expect(unlink(harness.socketPath) == 0)
+
+        let replacement = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        defer { close(replacement) }
+        #expect(chmod(harness.socketPath, 0o640) == 0)
+        let replacementIdentity = try #require(
+            harness.server.transport.pathIdentity(at: harness.socketPath)
+        )
+
+        clock.advance()
+
+        #expect(await waitForAsyncCondition { harness.recorder.failures.count == 1 })
+        #expect(!harness.server.isRunning)
+        #expect(harness.recorder.started.isEmpty)
+        #expect(harness.server.currentSocketPathForRemoteRestore() == nil)
+        #expect(harness.server.transport.pathIdentity(at: harness.socketPath) == replacementIdentity)
+        let attributes = try FileManager.default.attributesOfItem(atPath: harness.socketPath)
+        let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        #expect(permissions.uint16Value == 0o640)
+        let client = connect(to: harness.socketPath)
+        #expect(client >= 0)
+        if client >= 0 { close(client) }
+    }
+
     @Test func transientChmodFailureUsesStartupRecoveryPolicy() async throws {
         let clock = TestSocketRecoveryClock()
         let faults = TestSocketTransportFaultInjector(
