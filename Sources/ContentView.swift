@@ -1942,14 +1942,13 @@ struct ContentView: View {
     }
 
     private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        return RightSidebarPanelView(
+        return NativeRightSidebarPanelView(
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
-            workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },

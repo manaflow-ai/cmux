@@ -1968,6 +1968,59 @@ struct NativeFeedPanelView: NSViewControllerRepresentable {
     }
 }
 
+struct NativeRightSidebarPanelView: NSViewControllerRepresentable {
+    @ObservedObject var tabManager: TabManager
+    @ObservedObject var fileExplorerStore: FileExplorerStore
+    @ObservedObject var fileExplorerState: FileExplorerState
+    let sessionIndexStore: SessionIndexStore
+    let titlebarHeight: CGFloat
+    let windowAppearance: WindowAppearanceSnapshot
+    let onResumeSession: ((SessionEntry) -> Void)?
+    let onOpenFilePreview: (String) -> Void
+    let onOpenAsPane: (RightSidebarMode) -> Void
+    let onClose: () -> Void
+
+    func makeNSViewController(context: Context) -> RightSidebarNativeViewController {
+        RightSidebarNativeViewController(
+            tabManager: tabManager,
+            fileExplorerStore: fileExplorerStore,
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: sessionIndexStore,
+            titlebarHeight: titlebarHeight,
+            windowAppearance: windowAppearance,
+            onResumeSession: onResumeSession,
+            onOpenFilePreview: onOpenFilePreview,
+            onOpenAsPane: onOpenAsPane,
+            onClose: onClose
+        )
+    }
+
+    func updateNSViewController(
+        _ controller: RightSidebarNativeViewController,
+        context: Context
+    ) {
+        controller.update(
+            tabManager: tabManager,
+            fileExplorerStore: fileExplorerStore,
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: sessionIndexStore,
+            titlebarHeight: titlebarHeight,
+            windowAppearance: windowAppearance,
+            onResumeSession: onResumeSession,
+            onOpenFilePreview: onOpenFilePreview,
+            onOpenAsPane: onOpenAsPane,
+            onClose: onClose
+        )
+    }
+
+    static func dismantleNSViewController(
+        _ controller: RightSidebarNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+}
+
 struct NativeFeedbackComposerBridge: NSViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
 
