@@ -253,6 +253,8 @@ private final class RemoteTmuxTerminalContentController: NSViewController,
         containerView.layer?.backgroundColor = context.appearance.backgroundColor.cgColor
         let currentTabID = tab.id
         let currentPaneID = paneID
+        let mirror = context.mirror
+        let onOuterFocus = context.onOuterFocus
         let configuration = PanelContentConfiguration(
             panel: panel,
             workspaceID: panel.workspaceId,
@@ -272,16 +274,16 @@ private final class RemoteTmuxTerminalContentController: NSViewController,
             terminalAgentContext: "",
             paneOwnershipOverride: nil,
             terminalPaneOwnershipResolver: {
-                context.mirror.bonsplitController.selectedTab(inPane: currentPaneID)?.id == currentTabID
+                mirror.bonsplitController.selectedTab(inPane: currentPaneID)?.id == currentTabID
             },
             paneDropZone: dropZone,
             onFocus: {
-                context.onOuterFocus()
-                context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
+                onOuterFocus()
+                mirror.setActivePane(tmuxPaneID, fromTmux: false)
             },
             onRequestPanelFocus: {
-                context.onOuterFocus()
-                context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
+                onOuterFocus()
+                mirror.setActivePane(tmuxPaneID, fromTmux: false)
             },
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
