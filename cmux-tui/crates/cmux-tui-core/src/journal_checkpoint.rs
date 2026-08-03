@@ -410,4 +410,30 @@ mod tests {
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_capture_resolves_public_terminal_ids() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-checkpoint-terminal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("checkpoint-terminal", crate::SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        mux.seed_running_terminal_for_test(
+            "00000000000040008000000000000071",
+            "10000000000040008000000000000071",
+            &workspace.key,
+        )
+        .unwrap();
+
+        let captured = capture(&mux).unwrap();
+        assert_eq!(captured.blobs.len(), 1);
+        assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
