@@ -126,32 +126,47 @@ final class cmuxUITests: XCTestCase {
         func assertPageContentFitsWithoutScrolling(
             title: XCUIElement,
             visual: XCUIElement,
+            additionalContent: [XCUIElement] = [],
+            includeFooter: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
             XCTAssertTrue(title.exists, file: file, line: line)
             XCTAssertTrue(visual.exists, file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(element.exists, file: file, line: line)
+            }
 
             let viewportFrame = pageViewport.frame.insetBy(dx: -0.5, dy: -0.5)
             XCTAssertTrue(viewportFrame.contains(title.frame), file: file, line: line)
             XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(viewportFrame.contains(element.frame), file: file, line: line)
+            }
 
             let initialTitleFrame = title.frame
             let initialVisualFrame = visual.frame
+            let initialAdditionalFrames = additionalContent.map(\.frame)
             visual.swipeUp()
 
             XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
-            assertStableChrome(file: file, line: line)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                XCTAssertEqual(element.frame.minY, initialFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(element.frame.maxY, initialFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+            assertStableChrome(includeFooter: includeFooter, file: file, line: line)
         }
 
         capture("onboarding-01-agents")
         let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let agentsBody = app.staticTexts["Track every workspace from your phone."]
         let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
         assertPageContentFitsWithoutScrolling(
             title: agentsTitle,
-            visual: agentsScreenshot
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
         )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -175,7 +190,8 @@ final class cmuxUITests: XCTestCase {
         assertStableChrome()
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Every agent alert, in one place"],
-            visual: notificationsScreenshot
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
         )
         capture("onboarding-02-notifications")
 
@@ -208,6 +224,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [app.staticTexts[
+                "Use the same cmux account on both devices. Your Mac connects automatically."
+            ]],
+            includeFooter: false
+        )
         capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
@@ -222,6 +246,17 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ],
+            includeFooter: false
+        )
         capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]

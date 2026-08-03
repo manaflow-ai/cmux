@@ -25,7 +25,7 @@ struct OnboardingScreenshot: View {
     @State private var screenshot: UIImage?
 
     var body: some View {
-        OnboardingIPhoneScreenshotFrame {
+        OnboardingIPhoneScreenshotFrame(preferredHeight: preferredFrameHeight) {
             ZStack {
                 Color(.systemBackground)
                 if let screenshot {
@@ -35,8 +35,7 @@ struct OnboardingScreenshot: View {
                 }
             }
         }
-        .frame(height: frameHeight)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: preferredFrameHeight)
         .accessibilityElement()
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(content.accessibilityIdentifier)
@@ -52,11 +51,11 @@ struct OnboardingScreenshot: View {
         }
     }
 
-    private var frameHeight: CGFloat {
+    private var preferredFrameHeight: CGFloat {
         if dynamicTypeSize.isAccessibilitySize {
-            return 420
+            return 360
         }
-        return horizontalSizeClass == .regular ? 660 : 560
+        return horizontalSizeClass == .regular ? 620 : 480
     }
 
     private var language: OnboardingScreenshotLanguage {
@@ -142,187 +141,207 @@ struct OnboardingScreenshot: View {
 }
 
 private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
+    let preferredHeight: CGFloat
     let screen: Screen
+    private let metrics = OnboardingIPhoneScreenshotFrameMetrics()
 
-    init(@ViewBuilder screen: () -> Screen) {
+    init(preferredHeight: CGFloat, @ViewBuilder screen: () -> Screen) {
+        self.preferredHeight = preferredHeight
         self.screen = screen()
     }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(
-                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
-                style: .continuous
-            )
-            .fill(titaniumRim)
-
-            RoundedRectangle(
-                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.glassCornerRadius,
-                style: .continuous
-            )
-            .fill(Color.black)
-            .padding(OnboardingIPhoneScreenshotFrameMetrics.rimWidth)
-
+        OnboardingIPhoneFrameLayout(
+            preferredHeight: preferredHeight,
+            metrics: metrics
+        ) {
             ZStack {
                 Color(.systemBackground)
                 screen
-                    .aspectRatio(
-                        OnboardingIPhoneScreenshotFrameMetrics.screenAspectRatio,
-                        contentMode: .fit
-                    )
             }
             .clipShape(screenShape)
-            .padding(OnboardingIPhoneScreenshotFrameMetrics.screenInset)
-
-            screenShape
-                .stroke(
+            .overlay {
+                screenShape.stroke(
                     Color.white.opacity(0.16),
                     lineWidth: 1
                 )
-                .padding(OnboardingIPhoneScreenshotFrameMetrics.screenInset)
-
-            RoundedRectangle(
-                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
-                style: .continuous
-            )
-            .stroke(outerHighlight, lineWidth: 1)
-
-            RoundedRectangle(
-                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
-                style: .continuous
-            )
-            .stroke(Color.black.opacity(0.42), lineWidth: 1)
-            .padding(1)
+            }
         }
-        .overlay(alignment: .top) {
-            OnboardingDynamicIsland()
-                .padding(.top, OnboardingIPhoneScreenshotFrameMetrics.dynamicIslandTopInset)
+        .background {
+            OnboardingIPhoneShell(metrics: metrics)
         }
-        .overlay(alignment: .leading) {
-            OnboardingIPhoneSideButton(height: 48, edge: .leading)
-                .offset(x: -4, y: -104)
-        }
-        .overlay(alignment: .leading) {
-            OnboardingIPhoneSideButton(height: 66, edge: .leading)
-                .offset(x: -4, y: -24)
-        }
-        .overlay(alignment: .trailing) {
-            OnboardingIPhoneSideButton(height: 96, edge: .trailing)
-                .offset(x: 4, y: 48)
-        }
-        .aspectRatio(
-            OnboardingIPhoneScreenshotFrameMetrics.outerAspectRatio,
-            contentMode: .fit
-        )
     }
 
-    private var titaniumRim: LinearGradient {
+    private var screenShape: OnboardingProportionalRoundedRectangle {
+        OnboardingProportionalRoundedRectangle(
+            cornerRadiusFraction: metrics.screenCornerRadiusFraction
+        )
+    }
+}
+
+private struct OnboardingIPhoneShell: View {
+    let metrics: OnboardingIPhoneScreenshotFrameMetrics
+
+    var body: some View {
+        ZStack {
+            OnboardingProportionalRoundedRectangle(
+                cornerRadiusFraction: metrics.outerCornerRadiusFraction
+            )
+            .fill(aluminumRim)
+
+            OnboardingInsetRoundedRectangle(
+                insetFraction: metrics.glassInsetFraction,
+                cornerRadiusFraction: metrics.glassCornerRadiusFraction
+            )
+            .fill(Color.black)
+
+            OnboardingProportionalRoundedRectangle(
+                cornerRadiusFraction: metrics.outerCornerRadiusFraction
+            )
+            .stroke(Color.white.opacity(0.34), lineWidth: 1)
+
+            OnboardingInsetRoundedRectangle(
+                insetFraction: metrics.glassInsetFraction,
+                cornerRadiusFraction: metrics.glassCornerRadiusFraction
+            )
+            .stroke(Color.black.opacity(0.7), lineWidth: 1)
+        }
+    }
+
+    private var aluminumRim: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: Color(white: 0.70), location: 0.00),
-                .init(color: Color(white: 0.16), location: 0.06),
-                .init(color: Color(white: 0.04), location: 0.48),
-                .init(color: Color(white: 0.30), location: 0.94),
-                .init(color: Color(white: 0.68), location: 1.00),
+                .init(color: Color(white: 0.72), location: 0),
+                .init(color: Color(white: 0.28), location: 0.18),
+                .init(color: Color(white: 0.12), location: 0.5),
+                .init(color: Color(white: 0.42), location: 0.82),
+                .init(color: Color(white: 0.68), location: 1),
             ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+}
+
+private struct OnboardingIPhoneFrameLayout: Layout {
+    let preferredHeight: CGFloat
+    let metrics: OnboardingIPhoneScreenshotFrameMetrics
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let width = finite(proposal.width)
+        let height = finite(proposal.height)
+
+        if let width, let height {
+            let fittedHeight = min(height, preferredHeight)
+            let fittedWidth = min(
+                width,
+                fittedHeight * metrics.outerAspectRatio
+            )
+            return CGSize(
+                width: fittedWidth,
+                height: fittedWidth / metrics.outerAspectRatio
+            )
+        }
+        if let width {
+            let fittedHeight = min(
+                preferredHeight,
+                width / metrics.outerAspectRatio
+            )
+            return CGSize(
+                width: fittedHeight * metrics.outerAspectRatio,
+                height: fittedHeight
+            )
+        }
+        let fittedHeight = min(height ?? preferredHeight, preferredHeight)
+        return CGSize(
+            width: fittedHeight * metrics.outerAspectRatio,
+            height: fittedHeight
         )
     }
 
-    private var outerHighlight: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(0.54),
-                Color.white.opacity(0.06),
-                Color.black.opacity(0.26),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard let screen = subviews.first else { return }
+        let horizontalInset = bounds.width
+            * metrics.screenInsetFraction
+        let screenWidth = max(0, bounds.width - horizontalInset * 2)
+        let screenHeight = min(
+            bounds.height,
+            screenWidth / metrics.screenAspectRatio
+        )
+        screen.place(
+            at: CGPoint(x: bounds.midX, y: bounds.midY),
+            anchor: .center,
+            proposal: ProposedViewSize(width: screenWidth, height: screenHeight)
         )
     }
 
-    private var screenShape: RoundedRectangle {
+    private func finite(_ dimension: CGFloat?) -> CGFloat? {
+        guard let dimension, dimension.isFinite else { return nil }
+        return max(0, dimension)
+    }
+}
+
+private struct OnboardingProportionalRoundedRectangle: Shape {
+    let cornerRadiusFraction: CGFloat
+
+    func path(in rect: CGRect) -> Path {
         RoundedRectangle(
-            cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.screenCornerRadius,
+            cornerRadius: rect.width * cornerRadiusFraction,
             style: .continuous
         )
+        .path(in: rect)
     }
 }
 
-private enum OnboardingIPhoneScreenshotFrameMetrics {
-    static let outerAspectRatio: CGFloat = 78.0 / 163.4
-    static let screenAspectRatio: CGFloat = 1206 / 2622
-    static let outerCornerRadius: CGFloat = 62
-    static let glassCornerRadius: CGFloat = 58
-    static let screenCornerRadius: CGFloat = 51
-    static let rimWidth: CGFloat = 4
-    static let screenInset: CGFloat = 9
-    static let dynamicIslandTopInset: CGFloat = 15
-}
+private struct OnboardingInsetRoundedRectangle: Shape {
+    let insetFraction: CGFloat
+    let cornerRadiusFraction: CGFloat
 
-private struct OnboardingDynamicIsland: View {
-    var body: some View {
-        Capsule()
-            .fill(Color.black)
-            .frame(width: 76, height: 22)
-            .overlay(alignment: .trailing) {
-                Circle()
-                    .fill(cameraLensGradient)
-                    .frame(width: 8, height: 8)
-                    .padding(.trailing, 12)
-            }
-            .overlay {
-                Capsule()
-                    .stroke(Color.white.opacity(0.05), lineWidth: 1)
-            }
-    }
-
-    private var cameraLensGradient: RadialGradient {
-        RadialGradient(
-            colors: [
-                Color(red: 0.05, green: 0.12, blue: 0.20),
-                Color(red: 0.00, green: 0.03, blue: 0.07),
-                Color.black,
-            ],
-            center: .center,
-            startRadius: 1,
-            endRadius: 5
+    func path(in rect: CGRect) -> Path {
+        let inset = rect.width * insetFraction
+        let insetRect = rect.insetBy(dx: inset, dy: inset)
+        return RoundedRectangle(
+            cornerRadius: insetRect.width * cornerRadiusFraction,
+            style: .continuous
         )
+        .path(in: insetRect)
     }
 }
 
-private struct OnboardingIPhoneSideButton: View {
-    enum Edge {
-        case leading
-        case trailing
+private struct OnboardingIPhoneScreenshotFrameMetrics {
+    // iPhone 17 Pro body, display, and outer-radius dimensions. Keeping the
+    // shell styling proportional preserves the same curves at every size.
+    let bodyWidth: CGFloat = 71.9
+    let bodyHeight: CGFloat = 150
+    let displayWidth: CGFloat = 1206
+    let displayHeight: CGFloat = 2622
+    let outerCornerRadius: CGFloat = 12
+    let glassInset: CGFloat = 0.18
+
+    var outerAspectRatio: CGFloat { bodyWidth / bodyHeight }
+    var screenAspectRatio: CGFloat { displayWidth / displayHeight }
+    var outerCornerRadiusFraction: CGFloat { outerCornerRadius / bodyWidth }
+    var glassInsetFraction: CGFloat { glassInset / bodyWidth }
+    var screenInsetFraction: CGFloat {
+        (1 - screenAspectRatio / outerAspectRatio)
+            / (2 * (1 - screenAspectRatio))
     }
-
-    let height: CGFloat
-    let edge: Edge
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(buttonGradient)
-            .frame(width: 4, height: height)
-            .overlay(alignment: edge == .leading ? .leading : .trailing) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.24))
-                    .frame(width: 1)
-                    .padding(.vertical, 3)
-            }
+    var glassCornerRadiusFraction: CGFloat {
+        (outerCornerRadiusFraction - glassInsetFraction)
+            / (1 - 2 * glassInsetFraction)
     }
-
-    private var buttonGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(white: 0.38),
-                Color(white: 0.05),
-                Color(white: 0.22),
-            ],
-            startPoint: edge == .leading ? .leading : .trailing,
-            endPoint: edge == .leading ? .trailing : .leading
-        )
+    var screenCornerRadiusFraction: CGFloat {
+        (outerCornerRadiusFraction - screenInsetFraction)
+            / (1 - 2 * screenInsetFraction)
     }
 }
 

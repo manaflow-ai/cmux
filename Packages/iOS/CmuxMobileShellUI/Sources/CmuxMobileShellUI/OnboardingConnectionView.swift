@@ -31,15 +31,24 @@ struct OnboardingConnectionView: View {
     }
 
     private var visual: some View {
-        VStack(spacing: 14) {
-            OnboardingConnectionPreview(phase: phase)
+        ViewThatFits(in: .vertical) {
+            connectionVisual(density: .regular)
+            connectionVisual(density: .compact)
+        }
+    }
+
+    private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
+        VStack(spacing: density.sectionSpacing) {
+            OnboardingConnectionPreview(phase: phase, density: density)
             if showsMethodPicker {
                 OnboardingConnectionMethodPicker(
                     method: connectionMethod,
+                    density: density,
                     onSelect: onSelectConnectionMethod
                 )
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var title: String {
@@ -78,6 +87,18 @@ struct OnboardingConnectionView: View {
             "mobile.onboarding.connect.body",
             defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
+    }
+}
+
+enum OnboardingConnectionVisualDensity {
+    case regular
+    case compact
+
+    var sectionSpacing: CGFloat {
+        switch self {
+        case .regular: 14
+        case .compact: 8
+        }
     }
 }
 #endif
