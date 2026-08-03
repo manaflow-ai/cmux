@@ -1070,6 +1070,7 @@ jobs:
       - validate-release
       - cut-tags
       - verify-go-tag
+      - typescript-preflight
     permissions:
       actions: read
       contents: read
@@ -1115,7 +1116,7 @@ jobs:
       - name: Download the validated npm artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-npm-dist
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
           path: dist
 
       - name: Set up Node.js
@@ -1130,13 +1131,35 @@ jobs:
       - name: Publish package to npm
         env:
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.typescript-preflight.outputs.artifact_sha256 }}
         run: |
+          set -euo pipefail
           shopt -s nullglob
           packages=(dist/*.tgz)
           [[ "${#packages[@]}" == 1 ]] || {
             echo "expected one validated npm artifact, found ${#packages[@]}" >&2
             exit 1
           }
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded npm artifact digest mismatch" >&2
+            exit 1
+          }
+          python3 - "${packages[0]}" <<'PY'
+          import json
+          import os
+          import sys
+          import tarfile
+
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              package = json.load(archive.extractfile("package/package.json"))
+          if not (
+              package["name"] == "cmux-sdk"
+              and package["version"] == os.environ["CMUX_SDK_VERSION"]
+          ):
+              raise SystemExit("npm artifact identity does not match the release")
+          PY
           python3 cmux-tui/bindings/reconcile_registry_artifact.py publish \
             --registry npm \
             --package cmux-sdk \
@@ -1151,6 +1174,7 @@ jobs:
       - validate-release
       - cut-tags
       - verify-go-tag
+      - python-preflight
     permissions:
       actions: read
       contents: read
@@ -1197,20 +1221,32 @@ jobs:
       - name: Download distributions
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-dist
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: dist
 
       - name: Select the validated wheel
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.python-preflight.outputs.artifact_sha256 }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(dist/*.whl)
-          [[ "${#files[@]}" == 1 ]] || {
-            echo "expected one validated wheel, found ${#files[@]}" >&2
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ "${#wheels[@]}" == 1 && "${#sdists[@]}" == 1 ]] || {
+            echo "expected one validated wheel and source distribution" >&2
+            exit 1
+          }
+          [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
+          [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python artifact digest mismatch" >&2
             exit 1
           }
           mkdir upload
-          cp "${files[0]}" upload/
+          cp "${wheels[0]}" upload/
 
       - name: Check the PyPI wheel state
         id: wheel_state
@@ -1257,6 +1293,7 @@ jobs:
       - validate-release
       - cut-tags
       - verify-go-tag
+      - python-preflight
     permissions:
       actions: read
       contents: read
@@ -1303,20 +1340,32 @@ jobs:
       - name: Download distributions
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-dist
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: dist
 
       - name: Select the validated source distribution
+        env:
+          CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.python-preflight.outputs.artifact_sha256 }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(dist/*.tar.gz)
-          [[ "${#files[@]}" == 1 ]] || {
-            echo "expected one validated source distribution, found ${#files[@]}" >&2
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ "${#wheels[@]}" == 1 && "${#sdists[@]}" == 1 ]] || {
+            echo "expected one validated wheel and source distribution" >&2
+            exit 1
+          }
+          [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
+          [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python artifact digest mismatch" >&2
             exit 1
           }
           mkdir upload
-          cp "${files[0]}" upload/
+          cp "${sdists[0]}" upload/
 
       - name: Check the PyPI source distribution state
         id: sdist_state

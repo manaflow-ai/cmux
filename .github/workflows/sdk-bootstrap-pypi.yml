@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
     steps:
       - name: Require explicit bootstrap confirmation
         if: github.event.client_payload.confirm_bootstrap != true
@@ -105,7 +108,8 @@ jobs:
           cd "$RUNNER_TEMP/cmux-python-bootstrap"
           PYTHONPATH=. python3 -m unittest tests.test_package_consumer -v
 
-      - name: Require one wheel and one source distribution
+      - name: Fingerprint the bootstrap distributions
+        id: package
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -115,13 +119,19 @@ jobs:
             echo "expected one bootstrap wheel and one source distribution" >&2
             exit 1
           }
+          artifact_sha256="$(
+            cd bootstrap-dist
+            sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-python-bootstrap-dist
           path: bootstrap-dist/*
           if-no-files-found: error
-          overwrite: true
 
   preflight:
     needs: build
@@ -262,7 +272,9 @@ jobs:
             "${filenames[@]}"
 
   publish:
-    needs: preflight
+    needs:
+      - build
+      - preflight
     if: needs.preflight.outputs.need_publish == 'true'
     runs-on: ubuntu-24.04
     permissions:
@@ -275,8 +287,23 @@ jobs:
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-bootstrap-dist
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: bootstrap-dist
+
+      - name: Verify the immutable bootstrap distributions
+        env:
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.build.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          actual_sha256="$(
+            cd bootstrap-dist
+            sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
+          )"
+          [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
+            echo "downloaded Python bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
 
       - name: Revalidate protected source before bootstrap publication
         run: |

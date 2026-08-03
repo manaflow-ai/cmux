@@ -921,14 +921,14 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
         assert release.count(f"name: {artifact}") >= 1
 
     assert npm.count("name: cmux-npm-dist") == 1
-    assert release.count("name: cmux-npm-dist") == 4
+    assert release.count("name: cmux-npm-dist") == 3
     assert "npm pack --pack-destination" in npm
     npm_publish = workflow_job(release, "publish-npm")
     assert "Download the validated npm artifact" in npm_publish
     assert "npm test" not in npm_publish
 
     assert python.count("name: cmux-python-dist") == 1
-    assert release.count("name: cmux-python-dist") == 5
+    assert release.count("name: cmux-python-dist") == 3
     for job in ("publish-python-wheel", "publish-python-sdist"):
         python_publish = workflow_job(release, job)
         assert "Download distributions" in python_publish
@@ -942,7 +942,7 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
     release = workflow("sdk-release-cut.yml")
 
     for preflight in (npm, python, bootstrap_python):
-        assert "artifact-id:" in preflight
+        assert "steps.upload.outputs.artifact-id" in preflight
         assert "artifact_sha256:" in preflight
         assert "overwrite: true" not in preflight
 

@@ -7,6 +7,13 @@ on:
         description: "SDK version to validate"
         required: true
         type: string
+    outputs:
+      artifact_id:
+        description: "Immutable ID of the validated Python distributions"
+        value: ${{ jobs.build.outputs.artifact_id }}
+      artifact_sha256:
+        description: "SHA-256 of the validated distribution digest manifest"
+        value: ${{ jobs.build.outputs.artifact_sha256 }}
   workflow_dispatch:
     inputs:
       version:
@@ -147,6 +154,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -181,10 +191,25 @@ jobs:
           CMUX_PYTHON_DIST_DIR: ${{ github.workspace }}/cmux-tui/bindings/python/dist
         run: PYTHONPATH=. python3 -m unittest tests.test_package_consumer -v
 
+      - name: Fingerprint the validated Python distributions
+        id: package
+        run: |
+          set -euo pipefail
+          cd cmux-tui/bindings/python/dist
+          shopt -s nullglob
+          files=(*.whl *.tar.gz)
+          [[ "${#files[@]}" == 2 ]] || {
+            echo "expected one wheel and one source distribution" >&2
+            exit 1
+          }
+          artifact_sha256="$(sha256sum "${files[@]}" | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+
       - name: Upload distributions
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-python-dist
           path: cmux-tui/bindings/python/dist/*
           if-no-files-found: error
-          overwrite: true

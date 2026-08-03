@@ -7,6 +7,13 @@ on:
         description: "SDK version to validate"
         required: true
         type: string
+    outputs:
+      artifact_id:
+        description: "Immutable ID of the validated npm artifact"
+        value: ${{ jobs.bindings-e2e-typescript.outputs.artifact_id }}
+      artifact_sha256:
+        description: "SHA-256 of the validated npm tarball"
+        value: ${{ jobs.bindings-e2e-typescript.outputs.artifact_sha256 }}
   workflow_dispatch:
     inputs:
       version:
@@ -92,6 +99,9 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -144,15 +154,26 @@ jobs:
           grep -Eq '^PASS +typescript +live-creation-exit-restart-websocket$' "$report"
 
       - name: Pack the validated npm artifact
+        id: package
         working-directory: cmux-tui/bindings/typescript
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/cmux-npm-dist"
           npm pack --pack-destination "$RUNNER_TEMP/cmux-npm-dist"
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP"/cmux-npm-dist/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact" >&2
+            exit 1
+          }
+          artifact_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Upload the validated npm artifact
+        id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-npm-dist
           path: ${{ runner.temp }}/cmux-npm-dist/*.tgz
           if-no-files-found: error
-          overwrite: true
