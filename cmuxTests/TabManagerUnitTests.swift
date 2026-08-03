@@ -4072,12 +4072,50 @@ final class SidebarCreationContextTests: XCTestCase {
         XCTAssertEqual(manager.sidebarCreationContextSessionSnapshots().count, 1)
     }
 
+    func testMachineRowsReorderIndependentlyFromAutomaticAndRestoreTheirOrder() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.tabs.first)
+        firstWorkspace.remoteConfiguration = makeRemoteConfiguration(
+            destination: "first@example.test",
+            ownerWorkspaceID: firstWorkspace.id
+        )
+        let secondWorkspace = manager.addWorkspace(select: false)
+        secondWorkspace.remoteConfiguration = makeRemoteConfiguration(
+            destination: "second@example.test",
+            ownerWorkspaceID: secondWorkspace.id
+        )
+
+        let initialMachines = manager.sidebarCreationContextSnapshots().filter { $0.kind != .automatic }
+        let movedID = try XCTUnwrap(initialMachines.last?.id)
+        XCTAssertTrue(manager.reorderSidebarMachineCreationContext(id: movedID, toIndex: 0))
+
+        let reordered = manager.sidebarCreationContextSnapshots()
+        XCTAssertEqual(reordered.first?.kind, .automatic)
+        XCTAssertEqual(reordered.dropFirst().first?.id, movedID)
+        XCTAssertEqual(
+            reordered.dropFirst().map(\.id),
+            manager.sidebarMachineCreationContextOrderIDs()
+        )
+
+        let restored = TabManager()
+        restored.restoreSidebarCreationContexts(
+            manager.sidebarCreationContextSessionSnapshots(),
+            selectedContextID: nil,
+            machineOrder: manager.sidebarMachineCreationContextOrderIDs()
+        )
+        XCTAssertEqual(
+            restored.sidebarCreationContextSnapshots().dropFirst().map(\.id),
+            manager.sidebarMachineCreationContextOrderIDs()
+        )
+    }
+
     private func makeRemoteConfiguration(
+        destination: String = "builder@example.test",
         ownerWorkspaceID: UUID? = nil,
         relayToken: String = String(repeating: "c", count: 64)
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            destination: "builder@example.test",
+            destination: destination,
             port: 2222,
             identityFile: "/tmp/test-identity",
             sshOptions: [],
@@ -4087,7 +4125,7 @@ final class SidebarCreationContextTests: XCTestCase {
             relayToken: relayToken,
             localSocketPath: "/tmp/runtime.sock",
             ownerWorkspaceID: ownerWorkspaceID,
-            terminalStartupCommand: "ssh -p 2222 builder@example.test"
+            terminalStartupCommand: "ssh -p 2222 \(destination)"
         )
     }
 }

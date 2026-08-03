@@ -111,9 +111,9 @@ extension TabManager {
         }
 
         rememberLiveSidebarRemoteCreationContexts()
-        let order = sidebarRemoteCreationContextOrder
+        let remoteOrder = sidebarRemoteCreationContextOrder
         var remotes: [SidebarRemoteCreationContextKey: RemoteAggregate] = Dictionary(
-            uniqueKeysWithValues: order.compactMap { key in
+            uniqueKeysWithValues: remoteOrder.compactMap { key in
                 guard let registered = sidebarRemoteCreationContexts[key] else { return nil }
                 return (
                     key,
@@ -158,36 +158,35 @@ extension TabManager {
         }
 
         let effectiveSelection = effectiveSidebarCreationContextSelection(
-            availableRemoteKeys: Set(order)
+            availableRemoteKeys: Set(remoteOrder)
         )
-        var snapshots: [SidebarCreationContextSnapshot] = [
-            SidebarCreationContextSnapshot(
-                id: SidebarCreationContextSelection.automaticID,
-                title: String(localized: "sidebar.context.automatic.title", defaultValue: "Automatic"),
-                subtitle: String(
-                    localized: "sidebar.context.automatic.subtitle",
-                    defaultValue: "Keep each action's current behavior"
-                ),
-                systemImageName: "wand.and.stars",
-                isSelected: effectiveSelection == .automatic,
-                kind: .automatic,
-                workspaceCount: 0,
-                connectionState: nil
+        let automatic = SidebarCreationContextSnapshot(
+            id: SidebarCreationContextSelection.automaticID,
+            title: String(localized: "sidebar.context.automatic.title", defaultValue: "Automatic"),
+            subtitle: String(
+                localized: "sidebar.context.automatic.subtitle",
+                defaultValue: "Keep each action's current behavior"
             ),
-            SidebarCreationContextSnapshot(
-                id: SidebarCreationContextSelection.localID,
-                title: String(localized: "sidebar.context.local.title", defaultValue: "This Mac"),
-                subtitle: String(localized: "sidebar.context.local.subtitle", defaultValue: "Create local terminals"),
-                systemImageName: "desktopcomputer",
-                isSelected: effectiveSelection == .local,
-                kind: .local,
-                workspaceCount: tabs.filter { $0.remoteConfiguration == nil }.count,
-                connectionState: nil
-            ),
-        ]
-        snapshots.append(contentsOf: order.compactMap { key in
-            guard let aggregate = remotes[key] else { return nil }
-            return SidebarCreationContextSnapshot(
+            systemImageName: "wand.and.stars",
+            isSelected: effectiveSelection == .automatic,
+            kind: .automatic,
+            workspaceCount: 0,
+            connectionState: nil
+        )
+        let local = SidebarCreationContextSnapshot(
+            id: SidebarCreationContextSelection.localID,
+            title: String(localized: "sidebar.context.local.title", defaultValue: "This Mac"),
+            subtitle: String(localized: "sidebar.context.local.subtitle", defaultValue: "Create local terminals"),
+            systemImageName: "desktopcomputer",
+            isSelected: effectiveSelection == .local,
+            kind: .local,
+            workspaceCount: tabs.filter { $0.remoteConfiguration == nil }.count,
+            connectionState: nil
+        )
+        var machinesByID = [SidebarCreationContextSelection.localID: local]
+        for key in remoteOrder {
+            guard let aggregate = remotes[key] else { continue }
+            machinesByID[key.id] = SidebarCreationContextSnapshot(
                 id: key.id,
                 title: aggregate.title,
                 subtitle: Self.sidebarRemoteContextSubtitle(
@@ -202,8 +201,9 @@ extension TabManager {
                 workspaceCount: aggregate.workspaceCount,
                 connectionState: aggregate.connectionState
             )
-        })
-        return snapshots
+        }
+        let machineOrder = reconciledSidebarMachineCreationContextOrder()
+        return [automatic] + machineOrder.compactMap { machinesByID[$0] }
     }
 
     var selectedSidebarCreationContextID: String {
@@ -254,6 +254,7 @@ extension TabManager {
         let key = SidebarRemoteCreationContextKey(configuration: configuration)
         if sidebarRemoteCreationContexts[key] == nil {
             sidebarRemoteCreationContextOrder.append(key)
+            sidebarMachineCreationContextOrder.append(key.id)
         }
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         sidebarRemoteCreationContexts[key] = SidebarRegisteredRemoteCreationContext(
@@ -278,9 +279,39 @@ extension TabManager {
         }
     }
 
+    func sidebarMachineCreationContextOrderIDs() -> [String] {
+        rememberLiveSidebarRemoteCreationContexts()
+        return reconciledSidebarMachineCreationContextOrder()
+    }
+
+    /// Moves one machine row to a final index in the machine-only collection.
+    /// `Automatic` remains fixed above the collection because it is a mode.
+    @discardableResult
+    func reorderSidebarMachineCreationContext(id: String, toIndex requestedIndex: Int) -> Bool {
+        rememberLiveSidebarRemoteCreationContexts()
+        var order = reconciledSidebarMachineCreationContextOrder()
+        guard let sourceIndex = order.firstIndex(of: id) else { return false }
+        let destinationIndex = min(max(requestedIndex, 0), order.count - 1)
+        guard sourceIndex != destinationIndex else { return true }
+
+        let movedID = order.remove(at: sourceIndex)
+        order.insert(movedID, at: min(destinationIndex, order.count))
+        objectWillChange.send()
+        sidebarMachineCreationContextOrder = order
+        return true
+    }
+
+    @discardableResult
+    func moveSidebarMachineCreationContext(id: String, by offset: Int) -> Bool {
+        let order = sidebarMachineCreationContextOrderIDs()
+        guard let sourceIndex = order.firstIndex(of: id) else { return false }
+        return reorderSidebarMachineCreationContext(id: id, toIndex: sourceIndex + offset)
+    }
+
     func restoreSidebarCreationContexts(
         _ snapshots: [SessionSidebarCreationContextSnapshot],
-        selectedContextID: String?
+        selectedContextID: String?,
+        machineOrder: [String]? = nil
     ) {
         for snapshot in snapshots {
             guard let configuration = snapshot.remote.workspaceConfiguration(
@@ -291,6 +322,11 @@ extension TabManager {
             rememberSidebarRemoteCreationContext(
                 configuration: configuration,
                 title: snapshot.title
+            )
+        }
+        if let machineOrder {
+            sidebarMachineCreationContextOrder = reconciledSidebarMachineCreationContextOrder(
+                preferredOrder: machineOrder
             )
         }
         if let selectedContextID {
@@ -405,6 +441,20 @@ extension TabManager {
                 title: title
             )
         }
+    }
+
+    private func reconciledSidebarMachineCreationContextOrder(
+        preferredOrder: [String]? = nil
+    ) -> [String] {
+        let availableIDs = [SidebarCreationContextSelection.localID]
+            + sidebarRemoteCreationContextOrder.map(\.id)
+        let availableSet = Set(availableIDs)
+        var seen: Set<String> = []
+        var result = (preferredOrder ?? sidebarMachineCreationContextOrder).filter { id in
+            availableSet.contains(id) && seen.insert(id).inserted
+        }
+        result.append(contentsOf: availableIDs.filter { seen.insert($0).inserted })
+        return result
     }
 
     private func reusableSidebarRemoteConfiguration(

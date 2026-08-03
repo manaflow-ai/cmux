@@ -395,6 +395,10 @@ struct CMUXExtensionKitTests {
             CmuxSidebarAction.selectCreationContext("local").requiredScopes
                 == [.selectCreationContext]
         )
+        #expect(
+            CmuxSidebarAction.reorderCreationContext(id: "local", toIndex: 0).requiredScopes
+                == [.reorderCreationContexts]
+        )
     }
 
     @Test

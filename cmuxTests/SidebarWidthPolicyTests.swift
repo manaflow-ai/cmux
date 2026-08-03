@@ -73,6 +73,11 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testLeadingColumnWidthSanitizationUsesIndependentBounds() {
         XCTAssertEqual(
+            SessionPersistencePolicy.minimumSidebarLeadingColumnWidth,
+            SessionPersistencePolicy.defaultSidebarLeadingColumnWidth,
+            "The leading column minimum must keep its shared footer chrome readable"
+        )
+        XCTAssertEqual(
             SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(nil),
             SessionPersistencePolicy.defaultSidebarLeadingColumnWidth,
             accuracy: 0.001

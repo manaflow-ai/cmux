@@ -145,19 +145,17 @@ final class SidebarLazyLayoutScaleTests {
         let counter = RowBodyCounter()
 
         let root = VerticalTabsSidebar(
-            updateViewModel: UpdateStateModel(),
-            fileExplorerState: FileExplorerState(),
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
-            onSendFeedback: {},
             onToggleSidebar: {},
             onNewTab: {},
             observedWindowReference: WeakWindowReference(),
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
-            sidebarRenderWorkerClient: .constant(nil)
+            sidebarRenderWorkerClient: .constant(nil),
+            modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
         )
         .frame(width: 280)
         .environmentObject(tabManager)

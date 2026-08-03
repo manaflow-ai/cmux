@@ -984,6 +984,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 localized: "sidebar.extensions.permission.selectCreationContext.detail",
                 defaultValue: "Change the defaults used by new workspace and terminal actions"
             )
+        case .reorderCreationContexts:
+            return String(
+                localized: "sidebar.extensions.permission.reorderCreationContexts.detail",
+                defaultValue: "Reorder machines in the creation-context sidebar"
+            )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
         case .selectWorkspace:
@@ -1118,6 +1123,11 @@ private extension CmuxExtensionActionScope {
             return String(
                 localized: "sidebar.extensions.actionScope.selectCreationContext",
                 defaultValue: "Select creation contexts"
+            )
+        case .reorderCreationContexts:
+            return String(
+                localized: "sidebar.extensions.actionScope.reorderCreationContexts",
+                defaultValue: "Reorder creation contexts"
             )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.actionScope.createWorkspace", defaultValue: "Create workspaces")

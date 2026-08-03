@@ -215215,6 +215215,23 @@
         }
       }
     },
+    "sidebar.extensions.actionScope.reorderCreationContexts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder creation contexts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成コンテキストを並べ替え"
+          }
+        }
+      }
+    },
     "sidebar.extensions.actionScope.selectCreationContext": {
       "extractionState": "manual",
       "localizations": {
@@ -216573,6 +216590,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースに関連するプルリクエストリンクを読み取ります"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.permission.reorderCreationContexts.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder machines in the creation-context sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成コンテキストのサイドバーでマシンを並べ替えます"
           }
         }
       }
@@ -262397,6 +262431,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Reconnect required" } },
         "ja": { "stringUnit": { "state": "translated", "value": "再接続が必要" } }
+      }
+    },
+    "socket.sidebar.context.invalidIndex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "index must be a non-negative integer." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "index は 0 以上の整数である必要があります。" } }
       }
     },
     "socket.sidebar.context.missingId": {

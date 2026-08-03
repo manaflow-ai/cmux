@@ -236,6 +236,65 @@ extension TerminalController {
         }
     }
 
+    nonisolated func v2SidebarCreationContextReorder(params: [String: Any]) -> V2CallResult {
+        guard let rawID = params["context_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        let contextID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !contextID.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        guard let index = v2Int(params, "index"), index >= 0 else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.invalidIndex",
+                    defaultValue: "index must be a non-negative integer."
+                ),
+                data: nil
+            )
+        }
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params) else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            guard contextID != SidebarCreationContextSelection.automaticID,
+                  tabManager.reorderSidebarMachineCreationContext(id: contextID, toIndex: index)
+            else {
+                return .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.sidebar.context.notFound",
+                        defaultValue: "Creation context not found."
+                    ),
+                    data: ["context_id": contextID]
+                )
+            }
+            return .ok(v2SidebarCreationContextPayload(tabManager: tabManager))
+        }
+    }
+
     private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
         guard let raw = params["name"] as? String else { return nil }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)

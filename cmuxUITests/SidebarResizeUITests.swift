@@ -72,14 +72,18 @@ final class SidebarResizeUITests: XCTestCase {
         let elements = app.descendants(matching: .any)
         let outerResizer = elements["SidebarResizer"]
         let columnResizer = elements["SidebarColumnResizer"]
+        let leadingColumn = elements["SidebarLeadingColumn"]
         let contextColumn = elements["SidebarContextColumn"]
         let automaticContext = elements["SidebarContextRow.automatic"]
         let workspaceColumn = elements["Sidebar"]
+        let footer = elements["SidebarFooter"]
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
+        XCTAssertTrue(leadingColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(contextColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(automaticContext.waitForExistence(timeout: 5.0))
         XCTAssertTrue(workspaceColumn.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
         XCTAssertLessThan(
             automaticContext.frame.minY - contextColumn.frame.minY,
             48,
@@ -87,6 +91,17 @@ final class SidebarResizeUITests: XCTestCase {
         )
         XCTAssertFalse(app.staticTexts["Machines"].exists)
         XCTAssertFalse(app.staticTexts["Sets defaults for ⌘N and ⌘T"].exists)
+        XCTAssertGreaterThanOrEqual(
+            columnResizer.frame.midX - leadingColumn.frame.minX,
+            166,
+            "The leading column should keep enough width for shared footer chrome"
+        )
+        XCTAssertGreaterThanOrEqual(footer.frame.minX, leadingColumn.frame.minX - 2)
+        XCTAssertLessThanOrEqual(
+            footer.frame.maxX,
+            leadingColumn.frame.maxX + 2,
+            "The shared footer should stay inside the left-most column"
+        )
 
         let initialInnerX = columnResizer.frame.midX
         let initialOuterX = outerResizer.frame.midX
@@ -129,14 +144,18 @@ final class SidebarResizeUITests: XCTestCase {
         app.typeKey("b", modifierFlags: .command)
         XCTAssertTrue(waitForElementUnavailable(columnResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementUnavailable(outerResizer, timeout: 5.0))
+        XCTAssertTrue(waitForElementUnavailable(leadingColumn, timeout: 5.0))
         XCTAssertTrue(waitForElementUnavailable(contextColumn, timeout: 5.0))
         XCTAssertTrue(waitForElementUnavailable(workspaceColumn, timeout: 5.0))
+        XCTAssertTrue(waitForElementUnavailable(footer, timeout: 5.0))
 
         app.typeKey("b", modifierFlags: .command)
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
+        XCTAssertTrue(leadingColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(contextColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(workspaceColumn.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
     }
 
     func testSidebarResizerHasMaximumWidthCap() {

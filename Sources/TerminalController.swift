@@ -2339,6 +2339,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SidebarCreationContextList(params: params))
         case "sidebar.creation_context.select":
             return v2Result(id: id, self.v2SidebarCreationContextSelect(params: params))
+        case "sidebar.creation_context.reorder":
+            return v2Result(id: id, self.v2SidebarCreationContextReorder(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2470,6 +2472,7 @@ class TerminalController {
             "sidebar.custom.open",
             "sidebar.creation_context.list",
             "sidebar.creation_context.select",
+            "sidebar.creation_context.reorder",
             "system.top",
             "system.memory",
             "mobile.host.status",

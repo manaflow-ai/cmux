@@ -13,6 +13,7 @@ public enum CmuxExtensionScope: String, Codable, CaseIterable, Equatable, Sendab
 
 public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, Sendable {
     case selectCreationContext
+    case reorderCreationContexts
     case createWorkspace
     case selectWorkspace
     case closeWorkspace

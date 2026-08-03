@@ -3699,7 +3699,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         context.tabManager.restoreSidebarCreationContexts(
             snapshot.sidebar.creationContexts ?? [],
-            selectedContextID: snapshot.sidebar.selectedCreationContextID
+            selectedContextID: snapshot.sidebar.selectedCreationContextID,
+            machineOrder: snapshot.sidebar.creationContextOrder
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
 
@@ -4691,7 +4692,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     Double(context.sidebarState.persistedLeadingColumnWidth)
                 ),
                 selectedCreationContextID: context.tabManager.selectedSidebarCreationContextID,
-                creationContexts: context.tabManager.sidebarCreationContextSessionSnapshots()
+                creationContexts: context.tabManager.sidebarCreationContextSessionSnapshots(),
+                creationContextOrder: context.tabManager.sidebarMachineCreationContextOrderIDs()
             ),
             configFrames: windowConfigFrames[context.windowId]?.entries,
             dock: context.windowDockSessionSnapshot(includeScrollback: includeScrollback, restorableAgentIndex: restorableAgentIndex, surfaceResumeBindingIndex: surfaceResumeBindingIndex)
@@ -9031,7 +9033,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             tabManager.restoreSidebarCreationContexts(
                 sessionWindowSnapshot.sidebar.creationContexts ?? [],
-                selectedContextID: sessionWindowSnapshot.sidebar.selectedCreationContextID
+                selectedContextID: sessionWindowSnapshot.sidebar.selectedCreationContextID,
+                machineOrder: sessionWindowSnapshot.sidebar.creationContextOrder
             )
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }

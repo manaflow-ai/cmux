@@ -8,6 +8,8 @@ import SwiftUI
 /// Contexts use the same list metrics, palette, and row surface as workspaces.
 /// The column contributes data and selection behavior, not machine-only chrome.
 struct SidebarCreationContextColumn: View {
+    private static let machineDragPayloadPrefix = "cmux.sidebar.machine:"
+
     @EnvironmentObject private var tabManager: TabManager
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
@@ -19,12 +21,22 @@ struct SidebarCreationContextColumn: View {
     var body: some View {
         let _ = observationRevision
         let contexts = tabManager.sidebarCreationContextSnapshots()
+        let machines = contexts.filter { $0.kind != .automatic }
         let settings = rowSettingsStore.snapshot
 
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(contexts) { context in
-                    contextRow(context, settings: settings)
+                    if context.kind == .automatic {
+                        contextRow(context, settings: settings)
+                    } else if let machineIndex = machines.firstIndex(where: { $0.id == context.id }) {
+                        machineRow(
+                            context,
+                            index: machineIndex,
+                            count: machines.count,
+                            settings: settings
+                        )
+                    }
                 }
             }
             .padding(.vertical, SidebarListMetrics.rowVerticalPadding)
@@ -125,6 +137,57 @@ struct SidebarCreationContextColumn: View {
         .accessibilityIdentifier("SidebarContextRow.\(context.id)")
         .accessibilityLabel(context.title)
         .help(context.subtitle)
+    }
+
+    private func machineRow(
+        _ context: SidebarCreationContextSnapshot,
+        index: Int,
+        count: Int,
+        settings: SidebarTabItemSettingsSnapshot
+    ) -> some View {
+        let moveUpLabel = String(localized: "contextMenu.moveUp", defaultValue: "Move Up")
+        let moveDownLabel = String(localized: "contextMenu.moveDown", defaultValue: "Move Down")
+
+        return contextRow(context, settings: settings)
+            .draggable(Self.machineDragPayload(for: context.id))
+            .dropDestination(for: String.self) { payloads, _ in
+                guard let payload = payloads.first,
+                      let draggedID = Self.machineContextID(from: payload)
+                else {
+                    return false
+                }
+                return tabManager.reorderSidebarMachineCreationContext(
+                    id: draggedID,
+                    toIndex: index
+                )
+            }
+            .contextMenu {
+                Button(moveUpLabel) {
+                    _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: -1)
+                }
+                .disabled(index == 0)
+
+                Button(moveDownLabel) {
+                    _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: 1)
+                }
+                .disabled(index >= count - 1)
+            }
+            .accessibilityAction(named: Text(moveUpLabel)) {
+                _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: -1)
+            }
+            .accessibilityAction(named: Text(moveDownLabel)) {
+                _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: 1)
+            }
+    }
+
+    private static func machineDragPayload(for contextID: String) -> String {
+        machineDragPayloadPrefix + contextID
+    }
+
+    private static func machineContextID(from payload: String) -> String? {
+        guard payload.hasPrefix(machineDragPayloadPrefix) else { return nil }
+        let id = String(payload.dropFirst(machineDragPayloadPrefix.count))
+        return id.isEmpty ? nil : id
     }
 
     private func rowFont(

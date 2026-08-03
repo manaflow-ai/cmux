@@ -234,6 +234,9 @@ class TabManager: ObservableObject {
     /// Contexts never filter or own the workspace collection.
     @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .automatic
     var sidebarRemoteCreationContextOrder: [SidebarRemoteCreationContextKey] = []
+    /// User-defined order for machine rows. `Automatic` is a creation mode,
+    /// not a machine, so it remains fixed above this ordered collection.
+    var sidebarMachineCreationContextOrder: [String] = [SidebarCreationContextSelection.localID]
     var sidebarRemoteCreationContexts: [
         SidebarRemoteCreationContextKey: SidebarRegisteredRemoteCreationContext
     ] = [:]

@@ -15,6 +15,8 @@ public enum CmuxSidebarCreationContextKind: String, Codable, Equatable, Sendable
 ///
 /// Creation contexts are independent from workspaces. Selecting one changes
 /// creation defaults; it does not filter, group, or own the workspace list.
+/// The host supplies contexts in the user's saved order, with `Automatic`
+/// fixed before the reorderable machine contexts.
 public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String

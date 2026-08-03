@@ -42,6 +42,12 @@ public struct CmuxSidebarHost {
         try await send(.selectCreationContext(id))
     }
 
+    /// Moves a machine creation context to a machine-only index. The host's
+    /// fixed `Automatic` mode is not part of this ordered collection.
+    public func reorderCreationContext(_ id: String, to index: Int) async throws {
+        try await send(.reorderCreationContext(id: id, toIndex: index))
+    }
+
     /// Requests that CMUX create a workspace.
     public func createWorkspace(
         title: String? = nil,

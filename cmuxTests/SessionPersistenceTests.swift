@@ -475,7 +475,8 @@ final class SessionPersistenceTests: XCTestCase {
                         port: 2222
                     )
                 ),
-            ]
+            ],
+            creationContextOrder: ["remote-fixture", "local"]
         )
         let decoded = try JSONDecoder().decode(
             SessionSidebarSnapshot.self,
@@ -486,6 +487,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.selectedCreationContextID, "remote-fixture")
         XCTAssertEqual(decoded.creationContexts?.first?.title, "Fixture Mac")
         XCTAssertEqual(decoded.creationContexts?.first?.remote.destination, "fixture.example")
+        XCTAssertEqual(decoded.creationContextOrder, ["remote-fixture", "local"])
 
         let legacy = Data(
             #"{"isVisible":true,"selection":"tabs","width":260}"#.utf8
@@ -494,6 +496,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(legacyDecoded.leadingColumnWidth)
         XCTAssertNil(legacyDecoded.selectedCreationContextID)
         XCTAssertNil(legacyDecoded.creationContexts)
+        XCTAssertNil(legacyDecoded.creationContextOrder)
     }
 
     func testSessionRectSnapshotEncodesXYWidthHeightKeys() throws {

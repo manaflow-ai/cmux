@@ -17,7 +17,9 @@ enum SessionSnapshotSchema {
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     static let defaultSidebarLeadingColumnWidth: Double = 168
-    static let minimumSidebarLeadingColumnWidth: Double = 120
+    /// Keeps the shared footer chrome and two-line machine rows readable at
+    /// the narrowest size. This intentionally matches the default width.
+    static let minimumSidebarLeadingColumnWidth: Double = 168
     static let maximumSidebarLeadingColumnWidth: Double = 320
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
     // The titlebar title tracks the sidebar's actual width only when it is wider than the
@@ -242,6 +244,7 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var leadingColumnWidth: Double?
     var selectedCreationContextID: String?
     var creationContexts: [SessionSidebarCreationContextSnapshot]?
+    var creationContextOrder: [String]?
 
     init(
         isVisible: Bool,
@@ -249,7 +252,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         width: Double?,
         leadingColumnWidth: Double? = nil,
         selectedCreationContextID: String? = nil,
-        creationContexts: [SessionSidebarCreationContextSnapshot]? = nil
+        creationContexts: [SessionSidebarCreationContextSnapshot]? = nil,
+        creationContextOrder: [String]? = nil
     ) {
         self.isVisible = isVisible
         self.selection = selection
@@ -257,6 +261,7 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         self.leadingColumnWidth = leadingColumnWidth
         self.selectedCreationContextID = selectedCreationContextID
         self.creationContexts = creationContexts
+        self.creationContextOrder = creationContextOrder
     }
 }
 

@@ -897,6 +897,9 @@ struct ContentView: View {
         width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     )
     @State private var sidebarFocusBoundary = SidebarFocusBoundaryReference()
+    @State private var sidebarModifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(
+        activation: .commandOnly
+    )
     private var sidebarWidth: CGFloat {
         get { sidebarLayout.width }
         nonmutating set { sidebarLayout.width = newValue }
@@ -1807,14 +1810,11 @@ struct ContentView: View {
 
     private var sidebarView: some View {
         let sidebar = VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
-            onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
                 AppDelegate.shared?.performNewWorkspaceAction(
@@ -1824,7 +1824,10 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            sidebarRenderWorkerClient: $sidebarRenderWorkerClient,
+            modifierKeyMonitor: sidebarModifierKeyMonitor
         )
         return Group {
             if featureFlags.isAppKitSidebarListEnabled {
@@ -1861,7 +1864,20 @@ struct ContentView: View {
                 onResizeBegan: beginSidebarColumnResize,
                 onResizeEnded: endSidebarColumnResize
             ) {
-                SidebarCreationContextColumn()
+                ZStack(alignment: .bottomLeading) {
+                    SidebarCreationContextColumn()
+                    if sidebarState.isVisible {
+                        SidebarFooter(
+                            updateViewModel: updateViewModel,
+                            fileExplorerState: fileExplorerState,
+                            modifierKeyMonitor: sidebarModifierKeyMonitor,
+                            onSendFeedback: presentFeedbackComposer
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .accessibilityIdentifier("SidebarLeadingColumn")
             } trailing: {
                 sidebarView
             }
@@ -10657,22 +10673,18 @@ struct VerticalTabsSidebar: View, Equatable {
     static func == (lhs: VerticalTabsSidebar, rhs: VerticalTabsSidebar) -> Bool {
         lhs.windowId == rhs.windowId
             && lhs.observedWindowReference.window === rhs.observedWindowReference.window
-            && lhs.updateViewModel === rhs.updateViewModel
-            && lhs.fileExplorerState === rhs.fileExplorerState
             && lhs.featureFlags === rhs.featureFlags
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
+            && lhs.modifierKeyMonitor === rhs.modifierKeyMonitor
             && lhs.isPresented == rhs.isPresented
     }
 
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
-    let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindowReference: WeakWindowReference
@@ -10686,7 +10698,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
-    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
@@ -11196,15 +11208,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
-            }
-            if isPresented {
-                SidebarFooter(
-                    updateViewModel: updateViewModel,
-                    fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .accessibilityIdentifier("Sidebar")
@@ -12531,6 +12534,20 @@ struct VerticalTabsSidebar: View, Equatable {
         switch action {
         case .selectCreationContext(let contextID):
             guard tabManager.selectSidebarCreationContext(id: contextID) else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.creationContextNotFound",
+                        defaultValue: "Creation context not found"
+                    )
+                )
+            }
+            return .accepted
+
+        case .reorderCreationContext(let contextID, let index):
+            guard index >= 0,
+                  contextID != SidebarCreationContextSelection.automaticID,
+                  tabManager.reorderSidebarMachineCreationContext(id: contextID, toIndex: index)
+            else {
                 return .rejected(
                     String(
                         localized: "sidebar.extensions.action.creationContextNotFound",
@@ -14797,14 +14814,17 @@ private struct SidebarFooter: View {
     let onSendFeedback: () -> Void
 
     var body: some View {
+        Group {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+            SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+                .padding(.bottom, 6)
 #endif
+        }
+        .accessibilityIdentifier("SidebarFooter")
     }
 }
 

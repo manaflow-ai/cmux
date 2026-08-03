@@ -247,8 +247,10 @@ it runs that cmux command through the same dispatcher as the `cmux` CLI:
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`
 (`workspace_id` + `index`), and `sidebar.creation_context.select`
-(`context_id` + `workspace_id`). Run `cmux docs api` to discover the full
-command surface.
+(`context_id` + `workspace_id`). Machine order is changed with
+`sidebar.creation_context.reorder` (`context_id` + machine-only `index`).
+`Automatic` is a fixed creation mode and is not a machine-order member. Run
+`cmux docs api` to discover the full command surface.
 
 ## Drag-and-drop reordering (persisted)
 
@@ -261,6 +263,22 @@ workspace order):
     Reorderable(workspaces, move: "workspace.reorder") { w in
         Button(action: { cmux("workspace.select", workspace_id: w.id) }) {
             HStack { Text(w.title); Spacer() }.padding(6)
+        }
+    }
+
+Creation contexts arrive in the user's saved order. Keep `Automatic` fixed and
+make the machine subset reorderable with the same primitive:
+
+    let machines = creationContexts.filter { $0.kind != "automatic" }
+    Reorderable(
+        machines,
+        move: "sidebar.creation_context.reorder",
+        idParam: "context_id"
+    ) { machine in
+        Button(action: {
+            cmux("sidebar.creation_context.select", context_id: machine.id)
+        }) {
+            Text(machine.title)
         }
     }
 
