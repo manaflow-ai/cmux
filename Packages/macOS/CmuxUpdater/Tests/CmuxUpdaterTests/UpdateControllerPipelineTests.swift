@@ -395,6 +395,29 @@ import Testing
         #expect(didAcknowledgeNotFound)
     }
 
+    /// Regression (issue #9262): "Attempt Update" while already on the latest version must show
+    /// the normal up-to-date result, not a red "check your internet connection" error.
+    @Test func upToDateAttemptShowsNoUpdateAvailableInsteadOfError() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(.notFound(.init(acknowledgement: {})))
+
+        // Give any erroneous reaction a chance to replace the state.
+        for _ in 0..<2_000 { await Task.yield() }
+
+        guard case .notFound = harness.model.state else {
+            Issue.record("up-to-date attempt replaced notFound with: \(harness.model.state)")
+            return
+        }
+    }
+
     /// If the live prompt is still visible but already answered before the queued confirm
     /// hand-off runs, the controller must not log a fake install attempt or leave the watchdog
     /// armed for a prompt Sparkle will never accept again.
