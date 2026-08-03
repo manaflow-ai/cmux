@@ -198,6 +198,9 @@ describe("hosted Subrouter account routes", () => {
       provider: "codex",
       auth_mode: "oauth",
       email: "alice@example.com",
+      label: "Alice work",
+      created_at: "2026-08-03T00:00:00Z",
+      health: { ok: false, message: "upstream detail must not leak" },
       refreshToken: "must-not-leak",
       nested: { accessToken: "must-not-leak" },
     }];
@@ -211,10 +214,13 @@ describe("hosted Subrouter account routes", () => {
       accounts: [{
         id: "alice@example.com",
         kind: "codex",
-        label: "alice@example.com",
+        label: "Alice work",
+        createdAt: "2026-08-03T00:00:00Z",
+        health: { ok: false },
       }],
     });
     expect(text).not.toContain("must-not-leak");
+    expect(text).not.toContain("upstream detail must not leak");
     expect(text).not.toContain(tenantKey);
   });
 
