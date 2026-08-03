@@ -1855,6 +1855,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */; };
+		920300000000000000000001 /* SidebarBackgroundWindowDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 920300000000000000000002 /* SidebarBackgroundWindowDragUITests.swift */; };
 		D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
 		D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */; };
@@ -4445,6 +4446,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivitySummary.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAppKitRowCellTests.swift; sourceTree = "<group>"; };
+		920300000000000000000002 /* SidebarBackgroundWindowDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBackgroundWindowDragUITests.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabDropDelegate.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitWorkspaceRowDropModifier.swift; sourceTree = "<group>"; };
@@ -5390,6 +5392,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */,
 				04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
+				920300000000000000000002 /* SidebarBackgroundWindowDragUITests.swift */,
 				C0DE34020000000000000006 /* HelpMenuUITests.swift */,
 				B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
 				C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
@@ -10265,6 +10268,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D10000000000000000A00014 /* SettingsTerminalBehaviorUITests.swift in Sources */,
 				D10000000000000000A00010 /* SettingsUITestSupport.swift in Sources */,
 				D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */,
+				920300000000000000000001 /* SidebarBackgroundWindowDragUITests.swift in Sources */,
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
