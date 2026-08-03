@@ -80,6 +80,11 @@ const updateStackUser = mock(async () => {
   routeEvents.push("metadata-update");
 });
 const getUser = mock(async () => stackUser(stackUserIds.shift()));
+let authoritativeAccessToken = "access-token";
+const getAuthJson = mock(async () => ({
+  accessToken: authoritativeAccessToken,
+  refreshToken: "refresh-token",
+}));
 const transaction = mock(async (...args: unknown[]) => {
   const [callback] = args as [(tx: MockTransaction) => Promise<void>];
   routeEvents.push("transaction");
@@ -492,7 +497,7 @@ const mockDb = {
 
 mock.module("../app/lib/stack", () => ({
   ...stackModule,
-  getStackServerApp: () => useAccountRouteStubs ? { getUser } : realGetStackServerApp(),
+  getStackServerApp: () => useAccountRouteStubs ? { getUser, getAuthJson } : realGetStackServerApp(),
   isStackConfigured: () => useAccountRouteStubs ? true : realIsStackConfigured(),
 }));
 
@@ -633,6 +638,10 @@ beforeEach(() => {
   accountLifecycleEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
+  authoritativeAccessToken = "access-token";
+  getAuthJson.mockClear();
+  process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
+    "0123456789abcdef0123456789abcdef-test";
   selectResults = [[], [], [], [], [], []];
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
@@ -882,6 +891,31 @@ describe("account deletion route", () => {
     expect(accountLifecycleEvents).toEqual([
       "subrouter-delete:account-user-1",
     ]);
+  });
+
+  test("uses the refreshed Stack token for hosted tenant deletion", async () => {
+    authoritativeAccessToken = "refreshed-access";
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(new Headers(hostedTenantDeleteRequests[0]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer refreshed-access",
+    );
+  });
+
+  test("fails before mutation when hosted tenant deletion is not configured", async () => {
+    delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(postHogDeleteRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("blocks Stack deletion when PostHog reports partial deletion errors", async () => {

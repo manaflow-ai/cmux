@@ -22,9 +22,11 @@ let authJson = {
 };
 const getUser = mock(async () => currentUser);
 const getAuthJson = mock(async () => authJson);
+const signOut = mock(async () => {});
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser, getAuthJson }),
+  getNonRedirectingStackServerApp: () => ({ getUser, signOut }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
@@ -36,6 +38,12 @@ const accountRoute = await import(
 const repairRoute = await import(
   "../app/api/subrouter/accounts/[accountId]/repair/route"
 );
+const leasesRoute = await import("../app/api/subrouter/leases/route");
+const leaseEventsRoute = await import(
+  "../app/api/subrouter/leases/[leaseId]/events/route"
+);
+const logoutRoute = await import("../app/api/subrouter/logout/route");
+const teamsRoute = await import("../app/api/subrouter/teams/route");
 
 const originalFetch = globalThis.fetch;
 const tenantKey = "srt_0123456789abcdef0123456789abcdef";
@@ -69,6 +77,7 @@ beforeEach(() => {
   listedAccounts = [];
   getUser.mockClear();
   getAuthJson.mockClear();
+  signOut.mockClear();
   globalThis.fetch = hostedFetch as typeof fetch;
 });
 
@@ -158,6 +167,28 @@ describe("hosted Subrouter account routes", () => {
       provider: "openai-apikey",
       label: "work",
       apiKey: "sk-test",
+    });
+  });
+
+  test("forwards the authoritative refreshed native Stack token", async () => {
+    authJson = {
+      accessToken: "refreshed-access",
+      refreshToken: "refreshed-refresh",
+    };
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls[0]?.headers.get("authorization")).toBe(
+      "Bearer refreshed-access",
+    );
+    expect(getAuthJson).toHaveBeenCalledWith({
+      tokenStore: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      },
     });
   });
 
@@ -281,6 +312,93 @@ describe("hosted Subrouter account routes", () => {
       targetAccountID: "apikey:openai-apikey:work",
     });
   });
+
+  test("keeps shipped lease, team, and logout routes working", async () => {
+    const leaseResponse = await leasesRoute.POST(
+      request("/api/subrouter/leases", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          sessionId: "session-1",
+          agentType: "codex",
+        }),
+      }),
+    );
+    expect(leaseResponse.status).toBe(200);
+    expect(await leaseResponse.json()).toEqual({
+      teamId: "team-a",
+      lease: {
+        leaseId: "lease-1",
+        accountId: "alice@example.com",
+        provider: "codex",
+        authMode: "oauth",
+        token: "leased-token",
+        label: "Alice",
+        credentialGeneration: 1,
+        issuedAt: "2026-08-03T00:00:00Z",
+        expiresAt: "2026-08-03T00:05:00Z",
+      },
+    });
+    expect(calls.map((call) => call.url.pathname)).toEqual([
+      "/_subrouter/auth/stack",
+      "/_subrouter/leases",
+    ]);
+
+    calls = [];
+    const eventResponse = await leaseEventsRoute.POST(
+      request("/api/subrouter/leases/lease-1/events", {
+        method: "POST",
+        body: JSON.stringify({ outcome: "success", statusCode: 200 }),
+      }),
+      { params: Promise.resolve({ leaseId: "lease-1" }) },
+    );
+    expect(eventResponse.status).toBe(200);
+    expect(await eventResponse.json()).toEqual({ ok: true });
+    expect(calls.map((call) => call.url.pathname)).toEqual([
+      "/_subrouter/auth/stack",
+      "/_subrouter/leases/lease-1/events",
+    ]);
+
+    const teamsResponse = await teamsRoute.GET(
+      request("/api/subrouter/teams"),
+    );
+    expect(teamsResponse.status).toBe(200);
+    expect(await teamsResponse.json()).toEqual({
+      selectedTeamId: "team-a",
+      teams: [
+        {
+          id: "team-a",
+          name: "Team A",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "team-b",
+          name: "Team B",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "user-1",
+          name: "User One",
+          personal: true,
+          permissions: { use: true, manageAccounts: true },
+        },
+      ],
+    });
+
+    const logoutResponse = await logoutRoute.POST(
+      request("/api/subrouter/logout", { method: "POST" }),
+    );
+    expect(logoutResponse.status).toBe(200);
+    expect(await logoutResponse.json()).toEqual({ ok: true });
+    expect(signOut).toHaveBeenCalledWith({
+      tokenStore: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      },
+    });
+  });
 });
 
 type TestRequestInit = RequestInit & {
@@ -360,6 +478,33 @@ async function hostedFetch(
         refreshToken: "must-not-leak",
       },
     });
+  }
+  if (
+    url.pathname === "/_subrouter/leases" &&
+    headers.get("authorization") === `Bearer ${tenantKey}` &&
+    method === "POST"
+  ) {
+    return Response.json({
+      teamId: "team-a",
+      lease: {
+        leaseId: "lease-1",
+        accountId: "alice@example.com",
+        provider: "codex",
+        authMode: "oauth",
+        token: "leased-token",
+        label: "Alice",
+        credentialGeneration: 1,
+        issuedAt: "2026-08-03T00:00:00Z",
+        expiresAt: "2026-08-03T00:05:00Z",
+      },
+    });
+  }
+  if (
+    url.pathname === "/_subrouter/leases/lease-1/events" &&
+    headers.get("authorization") === `Bearer ${tenantKey}` &&
+    method === "POST"
+  ) {
+    return new Response(null, { status: 204 });
   }
   if (
     url.pathname.startsWith("/_subrouter/accounts/") &&
