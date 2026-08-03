@@ -126,19 +126,19 @@ jobs:
           CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          cargo test -p cmux-client -p cmux-sidebar --locked
-          cargo package -p cmux-client --locked
+          cargo test -p cmux-sdk -p cmux-sidebar --locked
+          cargo package -p cmux-sdk --locked
           cargo package \
             -p cmux-sidebar \
             --locked \
             --no-verify \
             --config \
-              "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+              "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
 
           verify_root="$RUNNER_TEMP/cmux-rust-package-verify"
           mkdir -p "$verify_root"
           tar -xzf \
-            "target/package/cmux-client-$CMUX_SDK_VERSION.crate" \
+            "target/package/cmux-sdk-$CMUX_SDK_VERSION.crate" \
             -C "$verify_root"
           tar -xzf \
             "target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate" \
@@ -147,14 +147,14 @@ jobs:
             --manifest-path \
               "$verify_root/cmux-sidebar-$CMUX_SDK_VERSION/Cargo.toml" \
             --config \
-              "patch.crates-io.cmux-client.path='$verify_root/cmux-client-$CMUX_SDK_VERSION'" \
+              "patch.crates-io.cmux-sdk.path='$verify_root/cmux-sdk-$CMUX_SDK_VERSION'" \
             --all-targets
 
-      - name: Upload validated cmux-client crate
+      - name: Upload validated cmux-sdk crate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-rust-client-crate
-          path: cmux-tui/target/package/cmux-client-${{ needs.version.outputs.version }}.crate
+          name: cmux-rust-sdk-crate
+          path: cmux-tui/target/package/cmux-sdk-${{ needs.version.outputs.version }}.crate
           if-no-files-found: error
           overwrite: true
 
