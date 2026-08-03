@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 
 ALLOWED_IGNORED_PREFIXES = (
@@ -105,15 +106,24 @@ def tracked_package_manifests_at_ref(
     return manifests
 
 
+class PackageNode(NamedTuple):
+    has_url_dependency: bool
+    path_dependencies: list[str]
+    url_dependency_calls: list[str]
+
+
+EMPTY_PACKAGE_NODE = PackageNode(False, [], [])
+
+
 def package_graph(
     manifests: dict[str, Path],
     *,
     ref: str | None = None,
-) -> dict[str, tuple[bool, list[str]]]:
+) -> dict[str, PackageNode]:
     root_by_resolved_path = {
         manifest.parent.resolve(): root for root, manifest in manifests.items()
     }
-    graph: dict[str, tuple[bool, list[str]]] = {}
+    graph: dict[str, PackageNode] = {}
 
     for root, manifest in manifests.items():
         text = (
@@ -124,17 +134,21 @@ def package_graph(
         if not text:
             continue
         path_dependencies: list[str] = []
-        has_url_dependency = False
+        url_dependency_calls: list[str] = []
         for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
             if PACKAGE_URL_ARGUMENT_RE.search(dependency):
-                has_url_dependency = True
+                url_dependency_calls.append(" ".join(dependency.split()))
             path_match = PACKAGE_PATH_ARGUMENT_RE.search(dependency)
             if path_match is None:
                 continue
             dependency_root = (manifest.parent / path_match.group(1)).resolve()
             if dependency_root in root_by_resolved_path:
                 path_dependencies.append(root_by_resolved_path[dependency_root])
-        graph[root] = (has_url_dependency, path_dependencies)
+        graph[root] = PackageNode(
+            bool(url_dependency_calls),
+            path_dependencies,
+            url_dependency_calls,
+        )
 
     return graph
 
@@ -143,13 +157,9 @@ def package_dependency_calls(text: str) -> list[str]:
     return [" ".join(dependency.split()) for dependency in PACKAGE_DEPENDENCY_RE.findall(text)]
 
 
-def dependency_calls_include_url(calls: list[str]) -> bool:
-    return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
-
-
 def has_remote_dependency(
     root: str,
-    graph: dict[str, tuple[bool, list[str]]],
+    graph: dict[str, PackageNode],
     memo: dict[str, bool],
     visiting: set[str],
 ) -> bool:
@@ -157,7 +167,7 @@ def has_remote_dependency(
         return memo[root]
     if root in visiting:
         return False
-    has_url_dependency, path_dependencies = graph.get(root, (False, []))
+    has_url_dependency, path_dependencies, _ = graph.get(root, EMPTY_PACKAGE_NODE)
     visiting.add(root)
     needs_lockfile = has_url_dependency or any(
         has_remote_dependency(dependency, graph, memo, visiting)
@@ -170,7 +180,7 @@ def has_remote_dependency(
 
 def package_dependency_closure(
     root: str,
-    graph: dict[str, tuple[bool, list[str]]],
+    graph: dict[str, PackageNode],
 ) -> set[str]:
     closure: set[str] = set()
 
@@ -178,12 +188,29 @@ def package_dependency_closure(
         if current in closure:
             return
         closure.add(current)
-        _has_url_dependency, path_dependencies = graph.get(current, (False, []))
+        path_dependencies = graph.get(current, EMPTY_PACKAGE_NODE).path_dependencies
         for dependency in path_dependencies:
             visit(dependency)
 
     visit(root)
     return closure
+
+
+def reachable_remote_dependency_calls(
+    root: str,
+    graph: dict[str, PackageNode],
+) -> frozenset[str]:
+    """The remote dependency declarations reachable from a package's closure.
+
+    These declarations are the resolve input that produces the external pins:
+    when the set is identical between two revisions, `swift package resolve`
+    is a no-op for the root and no Package.resolved diff can exist.
+    """
+    return frozenset(
+        call
+        for closure_root in package_dependency_closure(root, graph)
+        for call in graph.get(closure_root, EMPTY_PACKAGE_NODE).url_dependency_calls
+    )
 
 
 def workspace_package_roots(
@@ -211,7 +238,7 @@ def workspace_package_roots(
 
 def package_roots_requiring_lockfiles(
     cmux_manifests: dict[str, Path] | None = None,
-    graph: dict[str, tuple[bool, list[str]]] | None = None,
+    graph: dict[str, PackageNode] | None = None,
 ) -> set[str]:
     if cmux_manifests is None or graph is None:
         all_manifests = tracked_package_manifests(include_allowed_vendor=True)
@@ -327,16 +354,14 @@ def main() -> int:
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
     previous_manifests: dict[str, Path] = {}
-    previous_graph: dict[str, tuple[bool, list[str]]] = {}
+    previous_graph: dict[str, PackageNode] = {}
 
     if merge_base is not None:
-        current_remote_memo: dict[str, bool] = {}
         previous_manifests = tracked_package_manifests_at_ref(
             merge_base,
             include_allowed_vendor=True,
         )
         previous_graph = package_graph(previous_manifests, ref=merge_base)
-        previous_remote_memo: dict[str, bool] = {}
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
                 continue
@@ -350,18 +375,13 @@ def main() -> int:
                 continue
             # Local path-only dependency edits do not always change the resolved
             # external pins. Require a matching Package.resolved diff only when
-            # the edited manifest's graph currently has, previously had, or
-            # directly changes a remote dependency.
-            if (
-                dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, current_remote_memo, set())
-                or has_remote_dependency(
-                    root,
-                    previous_graph,
-                    previous_remote_memo,
-                    set(),
-                )
-            ):
+            # the edit changes which remote dependency declarations are reachable
+            # from the manifest's closure; adding or removing a leaf local-path
+            # package with a remote-free closure leaves the resolve input
+            # untouched, so the demanded diff could never exist (issue #8871).
+            if reachable_remote_dependency_calls(
+                root, graph
+            ) != reachable_remote_dependency_calls(root, previous_graph):
                 changed_dependency_roots.add(root)
 
     if (
