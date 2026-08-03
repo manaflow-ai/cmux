@@ -53,7 +53,7 @@ describe("CLI config route", () => {
       const response = GET(new Request("https://cmux.com/api/cli/config"));
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
-        version: 1,
+        version: 2,
         auth: {
           apiUrl: testEnvironment.NEXT_PUBLIC_STACK_API_URL,
           projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
@@ -63,6 +63,7 @@ describe("CLI config route", () => {
         },
         subrouter: {
           url: testEnvironment.SUBROUTER_HOSTED_URL,
+          exchangeUrl: "https://cmux.com/api/subrouter/exchange",
         },
       });
     });
@@ -75,8 +76,12 @@ describe("CLI config route", () => {
       );
 
       expect(response.status).toBe(200);
-      expect((await response.json()).auth.confirmUrl).toBe(
+      const body = await response.json();
+      expect(body.auth.confirmUrl).toBe(
         "http://127.0.0.1:4152/handler/cli-auth-confirm",
+      );
+      expect(body.subrouter.exchangeUrl).toBe(
+        "http://127.0.0.1:4152/api/subrouter/exchange",
       );
     });
   });
