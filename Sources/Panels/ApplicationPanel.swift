@@ -48,7 +48,7 @@ final class ApplicationPanel: Panel {
     @ObservationIgnored
     private var hostFocusRequestHandler: (() -> Void)?
     @ObservationIgnored
-    private let searchIndexPurge: (UUID) -> Void
+    private let searchIndexPurge: @MainActor (UUID) -> Void
 
     var captureTarget: ApplicationCaptureTarget? {
         guard let windowID, let processID else { return nil }
@@ -112,9 +112,7 @@ final class ApplicationPanel: Panel {
         targetFrameRate: Int,
         runtime: any ApplicationSurfaceRuntime,
         runtimeLease: ApplicationSurfaceRuntimeLease? = nil,
-        searchIndexPurge: @escaping (UUID) -> Void = {
-            GlobalSearchCoordinator.shared.purgePanel(id: $0)
-        }
+        searchIndexPurge: (@MainActor (UUID) -> Void)? = nil
     ) {
         guard (1...120).contains(targetFrameRate) else { return nil }
         guard (windowID == nil) == (processID == nil) else { return nil }
@@ -136,7 +134,9 @@ final class ApplicationPanel: Panel {
         self.targetFrameRate = min(max(targetFrameRate, 1), 120)
         self.runtime = runtime
         self.runtimeLease = runtimeLease
-        self.searchIndexPurge = searchIndexPurge
+        self.searchIndexPurge = searchIndexPurge ?? { panelID in
+            GlobalSearchCoordinator.shared.purgePanel(id: panelID)
+        }
     }
 
     func beginWindowSelectionIfNeeded() {
