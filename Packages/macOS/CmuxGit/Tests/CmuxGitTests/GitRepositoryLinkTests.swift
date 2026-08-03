@@ -9,6 +9,8 @@ import Testing
         ("origin\tgit@gitlab.example.com:group/subgroup/repo.git (fetch)\n", "group/subgroup/repo", "https://gitlab.example.com/group/subgroup/repo"),
         ("origin\tssh://deploy@git.example.com/group/repo.git?token=secret#fragment (fetch)\n", "group/repo", "https://git.example.com/group/repo"),
         ("origin\tgit://bitbucket.example.com/team/repo.git (fetch)\n", "team/repo", "https://bitbucket.example.com/team/repo"),
+        ("origin\tssh://git@example.com:2222/group/repo.git (fetch)\n", "group/repo", "https://example.com/group/repo"),
+        ("origin\tgit://example.com:9418/group/repo.git (fetch)\n", "group/repo", "https://example.com/group/repo"),
     ])
     func normalizesBrowsableRemote(output: String, displayName: String, url: String) {
         let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
@@ -20,7 +22,9 @@ import Testing
         "/local/repo.git",
         "../repo",
         "file:///tmp/repo.git",
+        "file:/tmp/repo.git",
         "ftp://host/repo.git",
+        "ftp:host/repo.git",
         "https:///group/repo.git",
         "ssh://git@/group/repo.git",
     ])

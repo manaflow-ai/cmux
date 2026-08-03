@@ -80,6 +80,9 @@ extension GitMetadataService {
         case "ssh", "git": "https"
         default: scheme
         }
+        if scheme == "ssh" || scheme == "git" {
+            components.port = nil
+        }
         components.user = nil
         components.password = nil
         components.query = nil
@@ -94,6 +97,7 @@ extension GitMetadataService {
         guard parts.count == 2,
               !parts[0].isEmpty,
               !parts[1].isEmpty,
+              !repositoryLinkSCPAddressUsesScheme(String(parts[0])),
               !remoteURL.contains("?"),
               !remoteURL.contains("#") else {
             return nil
@@ -113,6 +117,11 @@ extension GitMetadataService {
         components.host = host
         components.path = "/\(displayName)"
         return components.url
+    }
+
+    /// Whether an SCP address prefix is a URL scheme rather than an SSH host.
+    private nonisolated static func repositoryLinkSCPAddressUsesScheme(_ address: String) -> Bool {
+        ["file", "ftp", "git", "http", "https", "ssh"].contains(address.lowercased())
     }
 
     /// Removes separators and a trailing `.git` from a non-empty repository path.
