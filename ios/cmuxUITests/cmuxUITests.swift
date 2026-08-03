@@ -1240,9 +1240,14 @@ final class cmuxUITests: XCTestCase {
         )
 
         let agentPill = app.buttons["MobileTaskComposerAgentPill"]
-        let modelPill = app.buttons["MobileTaskComposerModelPill"]
         XCTAssertTrue(agentPill.waitForExistence(timeout: 3))
+        tap(agentPill, in: app)
+        tapMenuItem(app.buttons["OpenCode"], in: app)
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
         XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        tap(modelPill, in: app)
+        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
         let modelXBeforeScroll = modelPill.frame.midX
 
         scroller.swipeLeft(velocity: .slow)
