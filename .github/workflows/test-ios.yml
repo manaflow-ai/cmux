@@ -401,6 +401,9 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              ./scripts/ci/require_selected_test_execution.sh \
+                "$LOG_PATH" \
+                "${TEST_FILTER:-}"
               exit 0
             fi
             status="${PIPESTATUS[0]}"
