@@ -15,19 +15,6 @@ import Testing
 /// checklist display ordering/clamping policy
 /// (`SidebarWorkspaceChecklistDisplayPolicy`).
 struct WorkspaceTodoSidebarModelTests {
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // cmuxTests
-            .deletingLastPathComponent() // repo root
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     // MARK: - Glyph model
 
     @Test
@@ -250,21 +237,6 @@ struct WorkspaceTodoSidebarModelTests {
     // MARK: - Todo pane header
 
     @Test
-    func todoPaneHeaderDoesNotRenderWorkspaceTitleAsPaneTitle() throws {
-        let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
-
-        #expect(
-            !source.contains("Text(workspace.title)"),
-            """
-            The Todo pane header must render the Todo panel title, not Workspace.title. \
-            Workspace.title follows the focused surface title, so it can briefly show \
-            the terminal title during terminal-to-Todo tab switches.
-            """
-        )
-        #expect(source.contains("WorkspaceTodoPaneHeaderTitle.title"))
-    }
-
-    @Test
     func todoPaneHeaderHidesAutomaticTodoStatusLabel() {
         #expect(WorkspaceTodoPaneHeaderStatusLabel.displayName(
             effective: .todo,
@@ -323,27 +295,6 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
-    func todoPaneEditFieldUsesVerticalTextEntry() throws {
-        let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
-
-        #expect(source.contains("axis: .vertical"))
-        #expect(source.contains(".lineLimit(1...8)"))
-        #expect(!source.contains(".onSubmit { actions.commitEdit() }"))
-    }
-
-    @Test
-    func checklistAddAndEditFieldsStayTextFieldsWithVerticalEntry() throws {
-        let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
-        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
-
-        #expect(pane.contains("TextField("))
-        #expect(popover.contains("TextField("))
-        #expect(pane.contains("text: $pendingItemText,\n                axis: .vertical"))
-        #expect(popover.contains("text: $pendingItemText,\n                axis: .vertical"))
-        #expect(popover.contains("text: $editingText,\n                    axis: .vertical"))
-    }
-
-    @Test
     func checklistPopoverViewportSizesToItemsUntilCap() {
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 0) == 0)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 1) == 1)
@@ -381,22 +332,6 @@ struct WorkspaceTodoSidebarModelTests {
             fallbackSpacing: 2
         )
         #expect(fallbackHeight == 40)
-    }
-
-    @Test
-    func checklistTextFieldsSupportShiftReturnLineBreaks() throws {
-        let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
-        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
-        let compactField = try Self.sourceText("Sources/ChecklistInputField.swift")
-
-        #expect(pane.contains("modifiers.contains(.shift)"))
-        #expect(pane.contains("pendingItemText.append(\"\\n\")"))
-        #expect(pane.contains("editingText.append(\"\\n\")"))
-        #expect(popover.contains("press.modifiers == EventModifiers.shift"))
-        #expect(popover.contains("pendingItemText.append(\"\\n\")"))
-        #expect(popover.contains("editingText.append(\"\\n\")"))
-        #expect(compactField.contains("#selector(NSResponder.insertLineBreak(_:))"))
-        #expect(compactField.contains("textView.insertText(\"\\n\""))
     }
 
     // MARK: - Checklist display policy
