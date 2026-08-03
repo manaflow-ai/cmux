@@ -6,14 +6,19 @@ enum WorkspaceFloatingDockParkingDragPhase {
     case began
     case changed
     case ended
+    case cancelled
 }
 
-/// Owns the compact glass name and drag accessory shown above a parked
+enum WorkspaceFloatingDockParkingGesture {
+    static let dragThreshold: CGFloat = 4
+}
+
+/// Owns the compact glass name and drag accessory shown beside a parked
 /// workspace floating window.
 @MainActor
 final class WorkspaceFloatingDockParkingAccessoryController {
-    static let height: CGFloat = 44
-    static let gap: CGFloat = 10
+    static let height: CGFloat = 32
+    static let gap: CGFloat = 6
 
     private let panel: WorkspaceFloatingDockParkingAccessoryPanel
     private let accessoryView: WorkspaceFloatingDockParkingAccessoryView
@@ -161,6 +166,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func beginRenaming() {
         guard panel.isVisible, let anchorFrame else { return }
         presentationGeneration &+= 1
+        accessoryView.cancelPendingActivation()
         accessoryView.beginRenaming()
         let targetFrame = frame(
             anchorFrame: anchorFrame,
@@ -183,6 +189,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func hide(animated: Bool) {
         presentationGeneration &+= 1
         let generation = presentationGeneration
+        accessoryView.cancelPendingActivation()
         accessoryView.cancelRenaming(notify: false)
         isEditing = false
         guard panel.isVisible else {
@@ -215,6 +222,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     func teardown() {
         presentationGeneration &+= 1
+        accessoryView.cancelPendingActivation()
         accessoryView.cancelRenaming(notify: false)
         glassEffect.remove(from: panel)
         panel.orderOut(nil)
@@ -236,7 +244,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             .compactMap { $0 }
             .forEach { view in
                 view.wantsLayer = true
-                view.layer?.cornerRadius = 14
+                view.layer?.cornerRadius = 10
                 view.layer?.cornerCurve = .continuous
                 view.layer?.masksToBounds = true
             }
@@ -263,18 +271,16 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     ) -> CGRect {
         var minX: CGFloat = switch parkingEdge {
         case .leading:
-            anchorFrame.maxX - width
+            anchorFrame.maxX + Self.gap
         case .trailing:
-            anchorFrame.minX
+            anchorFrame.minX - Self.gap - width
         }
-        var minY = anchorFrame.maxY + Self.gap
+        var minY = anchorFrame.midY - (Self.height / 2)
         if let visibleFrame = NSScreen.screens.first(where: {
             !$0.frame.intersection(anchorFrame).isNull
         })?.visibleFrame ?? NSScreen.main?.visibleFrame {
             minX = min(max(minX, visibleFrame.minX), visibleFrame.maxX - width)
-            if minY + Self.height > visibleFrame.maxY {
-                minY = max(visibleFrame.minY, anchorFrame.maxY - Self.height)
-            }
+            minY = min(max(minY, visibleFrame.minY), visibleFrame.maxY - Self.height)
         }
         return CGRect(
             x: minX,
@@ -323,13 +329,13 @@ private final class WorkspaceFloatingDockParkingAccessoryPanel: NSPanel {
 
 @MainActor
 private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
-    private static let horizontalPadding: CGFloat = 8
-    private static let gripWidth: CGFloat = 26
-    private static let buttonWidth: CGFloat = 28
-    private static let interitemSpacing: CGFloat = 4
-    private static let minimumWidth: CGFloat = 170
-    private static let maximumWidth: CGFloat = 320
-    private static let editingWidth: CGFloat = 320
+    private static let horizontalPadding: CGFloat = 5
+    private static let gripWidth: CGFloat = 18
+    private static let buttonWidth: CGFloat = 22
+    private static let interitemSpacing: CGFloat = 3
+    private static let minimumWidth: CGFloat = 132
+    private static let maximumWidth: CGFloat = 240
+    private static let editingWidth: CGFloat = 240
 
     fileprivate let renameField = NSTextField()
     private let dragHandle: WorkspaceFloatingDockParkingDragHandle
@@ -386,7 +392,10 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         ))
 
         autoresizingMask = [.width, .height]
-        renameField.font = .systemFont(ofSize: 13, weight: .medium)
+        dragHandle.onBeginRename = { [weak self] in
+            self?.onBeginRename?()
+        }
+        renameField.font = .systemFont(ofSize: 11, weight: .medium)
         renameField.isBezeled = false
         renameField.isBordered = false
         renameField.drawsBackground = false
@@ -456,12 +465,12 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         )
         let titleFrame = CGRect(
             x: Self.horizontalPadding + Self.gripWidth + Self.interitemSpacing,
-            y: floor((height - 22) / 2),
+            y: floor((height - 18) / 2),
             width: max(
                 0,
                 handleMaxX - Self.horizontalPadding - Self.gripWidth - Self.interitemSpacing
             ),
-            height: 22
+            height: 18
         )
         renameField.frame = titleFrame
     }
@@ -478,6 +487,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
 
     func beginRenaming() {
         guard !isRenaming else { return }
+        cancelPendingActivation()
         isRenaming = true
         renameField.stringValue = title
         dragHandle.isHidden = true
@@ -514,6 +524,10 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         renameCoordinator = nil
         renameField.delegate = nil
         finishRenaming(notify: notify)
+    }
+
+    func cancelPendingActivation() {
+        dragHandle.cancelPendingActivation()
     }
 
     private func commitRenaming(_ draft: String) {
@@ -557,6 +571,10 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
             accessibilityDescription: label
         )
         button.image?.isTemplate = true
+        button.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 11,
+            weight: .medium
+        )
         button.contentTintColor = .secondaryLabelColor
         button.imagePosition = .imageOnly
         button.focusRingType = .none
@@ -586,7 +604,7 @@ private final class WorkspaceFloatingDockParkingAccessoryButton: NSButton {
 
 @MainActor
 private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
-    static let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    static let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
     private let onDrag: (
         WorkspaceFloatingDockParkingDragPhase,
@@ -595,8 +613,12 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
     private let onActivate: () -> Void
     private var title = ""
     private(set) var isDragging = false
+    var onBeginRename: (() -> Void)?
     private var isHovering = false
     private var trackingArea: NSTrackingArea?
+    private var dragStartScreenPoint: NSPoint?
+    private var crossedDragThreshold = false
+    private var pendingActivationTask: Task<Void, Never>?
 
     init(
         dockID: UUID,
@@ -638,7 +660,7 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
         ))
         setAccessibilityHelp(String(
             localized: "floatingDock.parking.move.help",
-            defaultValue: "Drag to restore and move this floating window."
+            defaultValue: "Drag to restore and move. Double-click to rename."
         ))
         needsDisplay = true
     }
@@ -672,23 +694,50 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
+        cancelPendingActivation()
+        if event.clickCount >= 2 {
+            cancelDrag()
+            onBeginRename?()
+            return
+        }
         isDragging = true
+        dragStartScreenPoint = screenPoint(for: event)
+        crossedDragThreshold = false
         window?.invalidateCursorRects(for: self)
-        onDrag(.began, screenPoint(for: event))
+        onDrag(.began, dragStartScreenPoint ?? screenPoint(for: event))
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard isDragging else { return }
-        onDrag(.changed, screenPoint(for: event))
+        guard isDragging, let dragStartScreenPoint else { return }
+        let screenPoint = screenPoint(for: event)
+        if !crossedDragThreshold {
+            crossedDragThreshold = hypot(
+                screenPoint.x - dragStartScreenPoint.x,
+                screenPoint.y - dragStartScreenPoint.y
+            ) >= WorkspaceFloatingDockParkingGesture.dragThreshold
+        }
+        onDrag(.changed, screenPoint)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
         isDragging = false
+        dragStartScreenPoint = nil
         window?.invalidateCursorRects(for: self)
-        onDrag(.ended, screenPoint(for: event))
+        if crossedDragThreshold {
+            onDrag(.ended, screenPoint(for: event))
+        } else {
+            onDrag(.cancelled, screenPoint(for: event))
+            scheduleActivation()
+        }
+        crossedDragThreshold = false
         needsDisplay = true
+    }
+
+    func cancelPendingActivation() {
+        pendingActivationTask?.cancel()
+        pendingActivationTask = nil
     }
 
     override func keyDown(with event: NSEvent) {
@@ -711,21 +760,21 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
             background.setFill()
             NSBezierPath(
                 roundedRect: bounds,
-                xRadius: 8,
-                yRadius: 8
+                xRadius: 7,
+                yRadius: 7
             ).fill()
         }
         let color = isDragging
             ? NSColor.labelColor
             : NSColor.secondaryLabelColor.withAlphaComponent(isHovering ? 0.95 : 0.7)
         color.setFill()
-        let dotSize: CGFloat = 2.5
-        let horizontalGap: CGFloat = 5
-        let verticalGap: CGFloat = 5
+        let dotSize: CGFloat = 2
+        let horizontalGap: CGFloat = 3.5
+        let verticalGap: CGFloat = 3.5
         let totalWidth = (dotSize * 2) + horizontalGap
         let totalHeight = (dotSize * 3) + (verticalGap * 2)
         let origin = CGPoint(
-            x: 9,
+            x: 6,
             y: floor(bounds.midY - (totalHeight / 2))
         )
         for column in 0..<2 {
@@ -743,10 +792,10 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byTruncatingTail
         let textRect = CGRect(
-            x: origin.x + totalWidth + 9,
-            y: floor(bounds.midY - 9),
-            width: max(0, bounds.maxX - origin.x - totalWidth - 17),
-            height: 18
+            x: origin.x + totalWidth + 6,
+            y: floor(bounds.midY - 8),
+            width: max(0, bounds.maxX - origin.x - totalWidth - 12),
+            height: 16
         )
         (title as NSString).draw(
             in: textRect,
@@ -760,5 +809,26 @@ private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
 
     private func screenPoint(for event: NSEvent) -> NSPoint {
         event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+    }
+
+    private func cancelDrag() {
+        guard isDragging else { return }
+        isDragging = false
+        dragStartScreenPoint = nil
+        crossedDragThreshold = false
+        window?.invalidateCursorRects(for: self)
+        onDrag(.cancelled, NSEvent.mouseLocation)
+        needsDisplay = true
+    }
+
+    private func scheduleActivation() {
+        cancelPendingActivation()
+        let delay = UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
+        pendingActivationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingActivationTask = nil
+            self.onActivate()
+        }
     }
 }

@@ -103039,8 +103039,8 @@
     "floatingDock.parking.move.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Drag to restore and move this floating window." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ドラッグしてフローティングウインドウを復元し、移動します。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Drag to restore and move. Double-click to rename." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドラッグして復元・移動します。ダブルクリックして名前を変更します。" } }
       }
     },
     "floatingDock.parking.restore": {

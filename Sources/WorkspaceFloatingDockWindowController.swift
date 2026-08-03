@@ -62,8 +62,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         case moving(startScreenPoint: NSPoint, initialPanelFrame: CGRect)
     }
 
-    private static let parkingDragThreshold: CGFloat = 4
-
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
@@ -607,7 +605,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             case .armed(let startScreenPoint, let initialPanelFrame):
                 let deltaX = screenPoint.x - startScreenPoint.x
                 let deltaY = screenPoint.y - startScreenPoint.y
-                guard hypot(deltaX, deltaY) >= Self.parkingDragThreshold else { return }
+                guard hypot(deltaX, deltaY) >= WorkspaceFloatingDockParkingGesture.dragThreshold else {
+                    return
+                }
                 parkingDragState = .moving(
                     startScreenPoint: startScreenPoint,
                     initialPanelFrame: initialPanelFrame
@@ -637,6 +637,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             case .moving:
                 finishMovingParkedPanel(panel)
             }
+        case .cancelled:
+            parkingDragState = .inactive
         }
     }
 
