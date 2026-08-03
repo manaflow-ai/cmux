@@ -231,20 +231,32 @@ pub(super) fn ensure_journal_event_index_schema(
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<Result<HashSet<_>, _>>()?
     };
-    if !columns.contains("causation_id") {
+    let added_causation_id = !columns.contains("causation_id");
+    let added_causal_hook_id = !columns.contains("causal_hook_id");
+    if added_causation_id {
         transaction.execute("ALTER TABLE journal_event_index ADD COLUMN causation_id TEXT", [])?;
     }
-    if !columns.contains("causal_hook_id") {
+    if added_causal_hook_id {
         transaction
             .execute("ALTER TABLE journal_event_index ADD COLUMN causal_hook_id TEXT", [])?;
     }
-    transaction.execute_batch(
-        "UPDATE journal_event_index
+    let backfilled = transaction
+        .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_causation_v1'", [], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some();
+    if added_causation_id || added_causal_hook_id || !backfilled {
+        transaction.execute_batch(
+            "UPDATE journal_event_index
            SET causation_id = (
              SELECT causation_id FROM session_journal
              WHERE session_journal.event_id = journal_event_index.event_id
            )
-         WHERE causation_id IS NULL;
+         WHERE causation_id IS NULL
+           AND event_id IN (
+             SELECT event_id FROM session_journal WHERE causation_id IS NOT NULL
+           );
          WITH RECURSIVE hook_descendants(event_id, hook_id) AS (
            SELECT event_id, json_extract(producer_json, '$.id')
            FROM session_journal
@@ -260,7 +272,13 @@ pub(super) fn ensure_journal_event_index_schema(
            WHERE hook_descendants.event_id = journal_event_index.event_id
          )
          WHERE event_id IN (SELECT event_id FROM hook_descendants);
-         CREATE INDEX IF NOT EXISTS journal_event_index_by_causal_hook
+         INSERT INTO meta(key, value)
+           VALUES('journal_event_index_causation_v1', '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+        )?;
+    }
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS journal_event_index_by_causal_hook
            ON journal_event_index(causal_hook_id, sequence)
            WHERE causal_hook_id IS NOT NULL;",
     )?;
@@ -639,6 +657,19 @@ pub(super) fn query_session_journal_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     records.extend(active);
+    let mut expected_sequence = sequence.saturating_add(1);
+    for record in &records {
+        anyhow::ensure!(
+            record.sequence == expected_sequence,
+            "session journal contains a gap before sequence {}",
+            record.sequence
+        );
+        expected_sequence = expected_sequence.saturating_add(1);
+    }
+    anyhow::ensure!(
+        sequence == head_sequence || !records.is_empty(),
+        "session journal contains a gap after sequence {sequence}"
+    );
     Ok(SessionJournalPage { head_sequence, records })
 }
 
@@ -648,23 +679,59 @@ fn archived_records_after(
     limit: usize,
 ) -> anyhow::Result<Vec<SessionJournalRecord>> {
     let mut statement = connection.prepare(
-        "SELECT segment_id, content, uncompressed_bytes, sha256
+        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                content, uncompressed_bytes, sha256
          FROM journal_segments
          WHERE end_sequence > ?1
-         ORDER BY start_sequence ASC",
+         ORDER BY start_sequence ASC
+         LIMIT ?2",
     )?;
-    let segments = statement
-        .query_map([i64::try_from(sequence)?], |row| {
+    let mut segments =
+        statement.query_map(params![i64::try_from(sequence)?, i64::try_from(limit)?], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(1)?,
                 row.get::<_, i64>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Vec<u8>>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, Vec<u8>>(7)?,
             ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        })?;
     let mut records = Vec::new();
-    for (segment_id, compressed, expected_bytes, expected_digest) in segments {
+    let mut previous_end = None;
+    for segment in &mut segments {
+        let (
+            segment_id,
+            start_sequence,
+            end_sequence,
+            record_count,
+            codec,
+            compressed,
+            expected_bytes,
+            expected_digest,
+        ) = segment?;
+        let start_sequence = u64::try_from(start_sequence)?;
+        let end_sequence = u64::try_from(end_sequence)?;
+        let record_count = usize::try_from(record_count)?;
+        anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
+        anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
+        anyhow::ensure!(
+            start_sequence <= end_sequence,
+            "journal segment {segment_id} sequence range is invalid"
+        );
+        if let Some(previous_end) = previous_end {
+            anyhow::ensure!(
+                start_sequence == previous_end + 1,
+                "journal segments contain a gap before sequence {start_sequence}"
+            );
+        } else {
+            anyhow::ensure!(
+                start_sequence <= sequence.saturating_add(1),
+                "journal segments contain a gap before sequence {start_sequence}"
+            );
+        }
         let expected_bytes = usize::try_from(expected_bytes)?;
         anyhow::ensure!(
             expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
@@ -686,6 +753,22 @@ fn archived_records_after(
         );
         let archived: Vec<SessionJournalRecord> = serde_json::from_slice(&uncompressed)
             .with_context(|| format!("decode journal segment {segment_id}"))?;
+        anyhow::ensure!(
+            archived.len() == record_count,
+            "journal segment {segment_id} record count is invalid"
+        );
+        anyhow::ensure!(
+            archived.first().map(|record| record.sequence) == Some(start_sequence)
+                && archived.last().map(|record| record.sequence) == Some(end_sequence),
+            "journal segment {segment_id} sequence range is invalid"
+        );
+        for pair in archived.windows(2) {
+            anyhow::ensure!(
+                pair[1].sequence == pair[0].sequence.saturating_add(1),
+                "journal segment {segment_id} contains a sequence gap"
+            );
+        }
+        previous_end = Some(end_sequence);
         for record in archived.into_iter().filter(|record| record.sequence > sequence) {
             records.push(record);
             if records.len() == limit {

@@ -321,8 +321,8 @@ versioned manifest contains:
 
 ```json
 {
-  "id": "notify-agent-question",
-  "version": 1,
+  "hook_id": "notify-agent-question",
+  "manifest_version": 1,
   "filter": {
     "kinds": ["agent.question.requested"],
     "subject_kinds": ["workspace", "pane"],

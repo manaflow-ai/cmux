@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 #[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak, mpsc};
 use std::time::Duration;
 
@@ -389,10 +392,11 @@ fn execute_delivery(
         },
         "event":JournalDocument::new(delivery.event.clone()).wire_value(),
     });
-    let input = match serde_json::to_vec(&envelope) {
+    let mut input = match serde_json::to_vec(&envelope) {
         Ok(input) => input,
         Err(error) => return (None, Some(format!("encode hook envelope: {error}"))),
     };
+    input.push(b'\n');
     let mut command = Command::new(&argv[0]);
     command
         .args(&argv[1..])
@@ -428,9 +432,11 @@ fn execute_delivery(
         terminate_hook_child(&mut child);
         return (None, Some("hook stdin pipe is unavailable".into()));
     };
+    let cancel_stdin = Arc::new(AtomicBool::new(false));
+    let writer_cancel = cancel_stdin.clone();
     let stdin_writer = match std::thread::Builder::new()
         .name("journal-hook-stdin".into())
-        .spawn(move || stdin.write_all(&input).and_then(|_| stdin.write_all(b"\n")))
+        .spawn(move || write_hook_input(&mut stdin, &input, &writer_cancel))
     {
         Ok(writer) => writer,
         Err(error) => {
@@ -441,15 +447,12 @@ fn execute_delivery(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     match child.wait_timeout(timeout) {
         Ok(Some(status)) => {
+            terminate_hook_process_group(&child);
+            cancel_stdin.store(true, Ordering::Release);
             let code = status.code();
-            let stdin_error = match stdin_writer.join() {
-                Ok(Ok(())) => None,
-                Ok(Err(error)) if error.kind() == std::io::ErrorKind::BrokenPipe => None,
-                Ok(Err(error)) => Some(format!("write hook envelope: {error}")),
-                Err(_) => Some("hook stdin writer panicked".into()),
-            };
+            let _ = stdin_writer.join();
             let error = if status.success() {
-                stdin_error
+                None
             } else {
                 Some(match code {
                     Some(code) => format!("hook exited with status {code}"),
@@ -459,11 +462,13 @@ fn execute_delivery(
             (code, error)
         }
         Ok(None) => {
+            cancel_stdin.store(true, Ordering::Release);
             terminate_hook_child(&mut child);
             let _ = stdin_writer.join();
             (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
         }
         Err(error) => {
+            cancel_stdin.store(true, Ordering::Release);
             terminate_hook_child(&mut child);
             let _ = stdin_writer.join();
             (None, Some(format!("wait for hook executable: {error}")))
@@ -471,7 +476,70 @@ fn execute_delivery(
     }
 }
 
-fn terminate_hook_child(child: &mut std::process::Child) {
+#[cfg(unix)]
+fn write_hook_input(
+    stdin: &mut std::process::ChildStdin,
+    input: &[u8],
+    cancelled: &AtomicBool,
+) -> std::io::Result<()> {
+    let fd = stdin.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut offset = 0;
+    while offset < input.len() {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "hook stdin write cancelled",
+            ));
+        }
+        match stdin.write(&input[offset..]) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                wait_hook_stdin_writable(fd, cancelled)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn wait_hook_stdin_writable(fd: std::os::fd::RawFd, cancelled: &AtomicBool) -> std::io::Result<()> {
+    while !cancelled.load(Ordering::Acquire) {
+        let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let result = unsafe { libc::poll(&mut descriptor, 1, 50) };
+        if result > 0 {
+            return Ok(());
+        }
+        if result == 0 {
+            continue;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "hook stdin write cancelled"))
+}
+
+#[cfg(not(unix))]
+fn write_hook_input(
+    stdin: &mut std::process::ChildStdin,
+    input: &[u8],
+    _cancelled: &AtomicBool,
+) -> std::io::Result<()> {
+    stdin.write_all(input)
+}
+
+fn terminate_hook_process_group(child: &std::process::Child) {
     #[cfg(unix)]
     if let Ok(process_group) = i32::try_from(child.id()) {
         // The command starts in a fresh process group, so a negative PID
@@ -480,6 +548,10 @@ fn terminate_hook_child(child: &mut std::process::Child) {
             libc::kill(-process_group, libc::SIGKILL);
         }
     }
+}
+
+fn terminate_hook_child(child: &mut std::process::Child) {
+    terminate_hook_process_group(child);
     let _ = child.kill();
     let _ = child.wait();
 }

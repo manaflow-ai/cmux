@@ -717,6 +717,7 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT manifest_json, enabled, cursor_sequence
              FROM journal_hooks
+             WHERE enabled = 1
              ORDER BY hook_id ASC, manifest_version ASC",
         )?;
         statement
@@ -1414,6 +1415,11 @@ impl WorkspaceRegistry {
                     .take_while(|record| record.sequence <= through_sequence)
                     .take(JOURNAL_SEGMENT_RECORD_LIMIT - records.len())
                 {
+                    anyhow::ensure!(
+                        record.sequence == cursor.saturating_add(1),
+                        "journal segment range contains a gap before sequence {}",
+                        record.sequence
+                    );
                     let record_bytes = serde_json::to_vec(&record)?.len();
                     let separator = usize::from(!records.is_empty());
                     anyhow::ensure!(
@@ -1566,13 +1572,33 @@ fn query_journal_checkpoint(
         return Ok(None);
     };
     anyhow::ensure!(digest.len() == 32, "checkpoint digest is invalid");
+    let source_sequence = u64::try_from(source_sequence)?;
+    let reducer_version = u32::try_from(reducer_version)?;
+    let state = serde_json::from_str::<Value>(&state)?;
+    let content_refs = serde_json::from_str::<Vec<JournalContentRef>>(&refs)?;
+    let digest_input = json!({
+        "source_sequence":source_sequence.to_string(),
+        "reducer_version":reducer_version,
+        "state":state,
+        "content_refs":content_refs,
+    });
+    let computed_digest = Sha256::digest(canonical_json(&digest_input)?.as_bytes());
+    anyhow::ensure!(
+        computed_digest.as_slice() == digest.as_slice(),
+        "checkpoint digest does not match its state"
+    );
+    let digest_hex = encode_hex(&digest);
+    anyhow::ensure!(
+        checkpoint_id == format!("checkpoint_{digest_hex}"),
+        "checkpoint id does not match its digest"
+    );
     Ok(Some(JournalCheckpoint {
         checkpoint_id: checkpoint_id.into(),
-        source_sequence: u64::try_from(source_sequence)?,
-        reducer_version: u32::try_from(reducer_version)?,
-        state: serde_json::from_str(&state)?,
-        content_refs: serde_json::from_str(&refs)?,
-        sha256: encode_hex(&digest),
+        source_sequence,
+        reducer_version,
+        state,
+        content_refs,
+        sha256: digest_hex,
         created_at_ms: u64::try_from(created_at_ms)?,
     }))
 }
