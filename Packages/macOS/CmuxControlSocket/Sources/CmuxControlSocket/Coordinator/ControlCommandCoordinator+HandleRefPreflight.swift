@@ -1,10 +1,39 @@
 internal import Foundation
 
-/// Dispatch preflight that rejects stale `kind:N` handle refs (issue #9410).
+/// The id params that select an object to act on, with the noun used in the
+/// error message.
+private let handleTargetParamNouns: [(key: String, noun: String)] = [
+    ("window_id", "Window"),
+    ("group_id", "Workspace group"),
+    ("workspace_id", "Workspace"),
+    ("surface_id", "Surface"),
+    ("terminal_id", "Surface"),
+    ("tab_id", "Surface"),
+    ("pane_id", "Pane"),
+]
+
+/// Whether a method resolves its own target instead of going through the
+/// handle registry, so the preflight must leave its params alone.
+///
+/// `debug.*` verbs take the legacy v1 `<id|idx>` argument form
+/// (`debug.terminal.read_text 0`) and hand the raw string to the app-side v1
+/// resolver. The mobile-host verbs (`mobile.*` / `terminal.*` /
+/// `chat.sessions.dump`) are pass-throughs whose seam runs the legacy body
+/// app-side; none of them mint or read `kind:N` refs.
+private func resolvesTargetOutsideTheHandleRegistry(method: String) -> Bool {
+    method.hasPrefix("debug.")
+        || method.hasPrefix("mobile.")
+        || method.hasPrefix("terminal.")
+        || method.hasPrefix("chat.")
+}
+
+/// Dispatch preflight that rejects explicit targets that resolve to nothing
+/// (issue #9410).
 ///
 /// Every routing/target param (`window_id`, `workspace_id`, `surface_id`, …)
 /// accepts either a UUID or a `kind:N` ref minted by ``ControlHandleRegistry``.
-/// A ref that the registry does not know used to resolve to `nil`, which is
+/// Anything else — a stale ref, a mistyped kind (`surafce:12`), a malformed
+/// ordinal (`surface:not-a-number`) — used to parse to `nil`, which is
 /// indistinguishable from "the caller passed no target": commands then fell
 /// back to the focused/selected object. For a destructive op such as
 /// `surface.close` or `surface.respawn` that turned a stale or typo'd ref into
@@ -12,49 +41,25 @@ internal import Foundation
 ///
 /// An explicit target that cannot be found means the caller's model of the
 /// world is wrong, which is exactly when acting on some other object is most
-/// dangerous, so the request fails with `not_found` and no side effect.
+/// dangerous, so the request fails closed with `not_found` and no side effect.
 ///
 /// The preflight runs after the dispatch preamble's known-ref refresh, so the
 /// registry already holds a ref for every live window, workspace, pane, and
-/// surface: an unresolvable ref is definitively stale. It only inspects
-/// strings shaped like a ref (`<known kind>:<digits>`, plus the `tab:N` alias
-/// for `surface:N`); UUID targets keep their existing per-command not-found
-/// handling, and non-ref strings are left to their command.
+/// surface: a ref it cannot resolve is definitively stale. A UUID target is
+/// accepted here and keeps its existing per-command not-found handling, which
+/// reports the id the caller passed.
 extension ControlCommandCoordinator {
-    /// The id params that select an object to act on, with the noun used in
-    /// the error message.
-    private static let handleRefParamNouns: [(key: String, noun: String)] = [
-        ("window_id", "Window"),
-        ("group_id", "Workspace group"),
-        ("workspace_id", "Workspace"),
-        ("surface_id", "Surface"),
-        ("terminal_id", "Surface"),
-        ("tab_id", "Surface"),
-        ("pane_id", "Pane"),
-    ]
-
-    /// Whether a string is shaped like a handle ref this registry mints.
-    private static func isHandleRefShaped(_ raw: String) -> Bool {
-        let lowered = raw.lowercased()
-        guard let separator = lowered.lastIndex(of: ":") else { return false }
-        let kind = String(lowered[lowered.startIndex..<separator])
-        let ordinal = lowered[lowered.index(after: separator)...]
-        guard !ordinal.isEmpty, ordinal.allSatisfy({ $0.isNumber }) else { return false }
-        if kind == "tab" { return true }
-        return ControlHandleKind(rawValue: kind) != nil
-    }
-
-    /// Returns a `not_found` error when a request names a target through a
-    /// handle ref that no longer exists, or `nil` when every ref-shaped target
+    /// Returns a `not_found` error when a request names a target this
+    /// coordinator cannot resolve, or `nil` when every explicit target
     /// resolves.
     ///
-    /// - Parameter params: The decoded request params.
+    /// - Parameter request: The decoded request envelope.
     /// - Returns: The error result to return instead of running the command.
-    func staleHandleRefError(_ params: [String: JSONValue]) -> ControlCallResult? {
-        for (key, noun) in Self.handleRefParamNouns {
-            guard let raw = string(params, key) else { continue }
+    func unresolvedTargetError(_ request: ControlRequest) -> ControlCallResult? {
+        if resolvesTargetOutsideTheHandleRegistry(method: request.method) { return nil }
+        for (key, noun) in handleTargetParamNouns {
+            guard let raw = string(request.params, key) else { continue }
             guard UUID(uuidString: raw) == nil else { continue }
-            guard Self.isHandleRefShaped(raw) else { continue }
             guard handles.uuid(forRef: raw) == nil else { continue }
             return .err(
                 code: "not_found",
