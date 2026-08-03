@@ -34,6 +34,7 @@ describe("hosted Subrouter client", () => {
     };
     const client = createHostedSubrouterClient({
       baseUrl: "https://sr.example",
+      tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
       fetch: fetchImpl as typeof fetch,
     });
     const tenant = await client.exchangeTeam("stack-access", {
@@ -69,6 +70,8 @@ describe("hosted Subrouter client", () => {
     expect(calls[2]?.init.headers).toEqual({
       authorization: "Bearer stack-access",
       "content-type": "application/json",
+      "x-subrouter-tenant-delete-token":
+        "0123456789abcdef0123456789abcdef-test",
     });
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ teamId: "team-1" });
   });

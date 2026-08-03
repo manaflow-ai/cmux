@@ -29,6 +29,8 @@ process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
 process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
+process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??=
+  "0123456789abcdef0123456789abcdef-test";
 
 const ACCOUNT_USER_ID = "account-user-1";
 const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
@@ -770,6 +772,11 @@ describe("account deletion route", () => {
     expect(new Headers(tenantDeleteInit?.headers).get("authorization")).toBe(
       "Bearer access-token",
     );
+    expect(
+      new Headers(tenantDeleteInit?.headers).get(
+        "x-subrouter-tenant-delete-token",
+      ),
+    ).toBe("0123456789abcdef0123456789abcdef-test");
     expect(JSON.parse(String(tenantDeleteInit?.body))).toEqual({
       teamId: "account-user-1",
     });
