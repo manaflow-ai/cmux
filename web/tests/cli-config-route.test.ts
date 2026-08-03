@@ -1,57 +1,96 @@
 import { describe, expect, test } from "bun:test";
 import { GET } from "../app/api/cli/config/route";
 
+type CliConfigEnvKey =
+  | "NEXT_PUBLIC_STACK_PROJECT_ID"
+  | "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"
+  | "SUBROUTER_HOSTED_URL";
+
+const testEnvironment = {
+  NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
+  SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
+} satisfies Record<CliConfigEnvKey, string>;
+
+async function withCliConfigEnvironment(
+  overrides: Partial<Record<CliConfigEnvKey, string | undefined>>,
+  run: () => Promise<void>,
+): Promise<void> {
+  const entries = Object.entries(overrides) as Array<
+    [CliConfigEnvKey, string | undefined]
+  >;
+  const originalValues = new Map(
+    entries.map(([key]) => [key, process.env[key]]),
+  );
+
+  try {
+    for (const [key, value] of entries) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await run();
+  } finally {
+    for (const [key, value] of originalValues) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 describe("CLI config route", () => {
   test("publishes native Stack Auth and hosted Subrouter configuration", async () => {
-    const response = GET(new Request("https://cmux.com/api/cli/config"));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      version: 1,
-      auth: {
-        apiUrl: "https://api.stack-auth.com/api/v1",
-        projectId: process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
-        publishableClientKey: process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
-        confirmUrl: "https://cmux.com/handler/cli-auth-confirm",
-      },
-      subrouter: {
-        url: "https://sr.cmux.com",
-      },
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(new Request("https://cmux.com/api/cli/config"));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        version: 1,
+        auth: {
+          apiUrl: "https://api.stack-auth.com/api/v1",
+          projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
+          publishableClientKey:
+            testEnvironment.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
+          confirmUrl: "https://cmux.com/handler/cli-auth-confirm",
+        },
+        subrouter: {
+          url: testEnvironment.SUBROUTER_HOSTED_URL,
+        },
+      });
     });
   });
 
   test("keeps CLI approval on the origin that issued the Stack login code", async () => {
-    const response = GET(
-      new Request("http://127.0.0.1:4152/api/cli/config"),
-    );
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(
+        new Request("http://127.0.0.1:4152/api/cli/config"),
+      );
 
-    expect(response.status).toBe(200);
-    expect((await response.json()).auth.confirmUrl).toBe(
-      "http://127.0.0.1:4152/handler/cli-auth-confirm",
-    );
+      expect(response.status).toBe(200);
+      expect((await response.json()).auth.confirmUrl).toBe(
+        "http://127.0.0.1:4152/handler/cli-auth-confirm",
+      );
+    });
   });
 
   test("returns 503 instead of advertising incomplete Stack configuration", async () => {
-    const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-    const publishableKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
-    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-    delete process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
-    try {
-      const response = GET(new Request("https://cmux.com/api/cli/config"));
-      expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({
-        error: "cli_auth_unavailable",
-      });
-    } finally {
-      if (projectId === undefined) {
-        delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-      } else {
-        process.env.NEXT_PUBLIC_STACK_PROJECT_ID = projectId;
-      }
-      if (publishableKey === undefined) {
-        delete process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
-      } else {
-        process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = publishableKey;
-      }
-    }
+    await withCliConfigEnvironment(
+      {
+        ...testEnvironment,
+        NEXT_PUBLIC_STACK_PROJECT_ID: undefined,
+        NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: undefined,
+      },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "cli_auth_unavailable",
+        });
+      },
+    );
   });
 });
