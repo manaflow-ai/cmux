@@ -173,7 +173,7 @@ public struct TransportIncidentPolicy: Sendable {
         let failure = failureKind(of: event)
         guard isReportable(event: event, failure: failure) else { return nil }
 
-        let transport = DiagnosticEventPresentation.transportKind(of: event)
+        let transport = DiagnosticEventPresentation().transportKind(of: event)
         let signature = Self.signature(code: event.code, failure: failure, transport: transport)
 
         streakCount += 1
@@ -199,18 +199,18 @@ public struct TransportIncidentPolicy: Sendable {
         failure: DiagnosticFailureKind?,
         transport: DiagnosticTransportKind?
     ) -> String {
-        var parts = [DiagnosticEventPresentation.name(code)]
+        var parts = [DiagnosticEventPresentation().name(code)]
         if let failure {
-            parts.append(DiagnosticEventPresentation.name(failure))
+            parts.append(DiagnosticEventPresentation().name(failure))
         }
         if let transport {
-            parts.append(DiagnosticEventPresentation.name(transport))
+            parts.append(DiagnosticEventPresentation().name(transport))
         }
         return parts.joined(separator: "/")
     }
 
     private func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
-        if let kind = DiagnosticEventPresentation.failureKind(of: event) {
+        if let kind = DiagnosticEventPresentation().failureKind(of: event) {
             return kind
         }
         if event.code == .pairUnreachable {
@@ -263,7 +263,7 @@ public struct TransportIncidentPolicy: Sendable {
         let durationUnit = duration == 1 ? "second" : "seconds"
         let title = "Transport outage: \(streakCount) consecutive failures "
             + "over \(duration) \(durationUnit). Latest: "
-            + DiagnosticEventPresentation.summary(event)
+            + DiagnosticEventPresentation().summary(event)
         return Incident(
             signature: "transport-outage",
             title: title,
@@ -323,7 +323,7 @@ public struct TransportIncidentPolicy: Sendable {
         let dropped = droppedByBudget
         droppedByBudget = 0
 
-        var title = DiagnosticEventPresentation.summary(event)
+        var title = DiagnosticEventPresentation().summary(event)
         if coalescedCount > 1 {
             title += " (\(coalescedCount) occurrences)"
         }

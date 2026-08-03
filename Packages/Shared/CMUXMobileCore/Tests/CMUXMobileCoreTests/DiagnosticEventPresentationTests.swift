@@ -6,22 +6,22 @@ import Testing
     /// Case names are shipped telemetry vocabulary (Sentry grouping keys), so a
     /// rename is a breaking change this test makes visible.
     @Test func pinsEventCodeNames() {
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.transportDialFailed) == "transportDialFailed")
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.endpointFailed) == "endpointFailed")
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.pairFail) == "pairFail")
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.sessionClosed) == "sessionClosed")
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.retryScheduled) == "retryScheduled")
-        #expect(DiagnosticEventPresentation.name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.transportDialFailed) == "transportDialFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.endpointFailed) == "endpointFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.pairFail) == "pairFail")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.sessionClosed) == "sessionClosed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.retryScheduled) == "retryScheduled")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
     }
 
     @Test func pinsTaxonomyNames() {
-        #expect(DiagnosticEventPresentation.name(DiagnosticFailureKind.policyUnavailable) == "policyUnavailable")
-        #expect(DiagnosticEventPresentation.name(DiagnosticFailureKind.identityMismatch) == "identityMismatch")
-        #expect(DiagnosticEventPresentation.name(DiagnosticFailureKind.authorizationFailed) == "authorizationFailed")
-        #expect(DiagnosticEventPresentation.name(DiagnosticTransportKind.iroh) == "iroh")
-        #expect(DiagnosticEventPresentation.name(DiagnosticPathKind.relay) == "relay")
-        #expect(DiagnosticEventPresentation.name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
-        #expect(DiagnosticEventPresentation.name(DiagnosticAppLifecyclePhase.background) == "background")
+        #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.policyUnavailable) == "policyUnavailable")
+        #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.identityMismatch) == "identityMismatch")
+        #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.authorizationFailed) == "authorizationFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticTransportKind.iroh) == "iroh")
+        #expect(DiagnosticEventPresentation().name(DiagnosticPathKind.relay) == "relay")
+        #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
+        #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
     }
 
     @Test func describesDialFailure() {
@@ -32,7 +32,7 @@ import Testing
             b: DiagnosticFailureKind.policyUnavailable.rawValue,
             c: 42
         )
-        let described = DiagnosticEventPresentation.describe(event)
+        let described = DiagnosticEventPresentation().describe(event)
         #expect(described.name == "Transport dial failed")
         #expect(described.fields == [
             .init(key: "transport", value: "Iroh"),
@@ -42,12 +42,12 @@ import Testing
     }
 
     @Test func describesRetryDelayAndCloseAttribution() {
-        let retry = DiagnosticEventPresentation.describe(
+        let retry = DiagnosticEventPresentation().describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 32_331)
         )
         #expect(retry.fields == [.init(key: "retry_delay", value: "32.331 seconds")])
 
-        let close = DiagnosticEventPresentation.describe(
+        let close = DiagnosticEventPresentation().describe(
             DiagnosticEvent(
                 code: .transportCloseAttribution,
                 tNanos: 1,
@@ -66,19 +66,19 @@ import Testing
     }
 
     @Test func describesLifecycleAndReachability() {
-        let phase = DiagnosticEventPresentation.describe(
+        let phase = DiagnosticEventPresentation().describe(
             DiagnosticEvent(code: .appLifecycleChanged, tNanos: 1, a: DiagnosticAppLifecyclePhase.background.rawValue)
         )
         #expect(phase.fields == [.init(key: "phase", value: "Background")])
 
-        let reachability = DiagnosticEventPresentation.describe(
+        let reachability = DiagnosticEventPresentation().describe(
             DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0)
         )
         #expect(reachability.fields == [.init(key: "network", value: "Offline")])
     }
 
     @Test func unknownRawValuesFallBackToIntegers() {
-        let described = DiagnosticEventPresentation.describe(
+        let described = DiagnosticEventPresentation().describe(
             DiagnosticEvent(code: .transportDialFailed, tNanos: 1, a: 999, b: 998)
         )
         #expect(described.fields == [
@@ -142,7 +142,7 @@ import Testing
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
         for code in DiagnosticEventCode.allCases {
             #expect(
-                DiagnosticEventPresentation.describe(
+                DiagnosticEventPresentation().describe(
                     DiagnosticEvent(code: code, tNanos: 1)
                 ).name == expected[code]
             )
@@ -150,7 +150,7 @@ import Testing
     }
 
     @Test func decodesEveryStructuredPayloadIntoSemanticFields() {
-        let recovery = DiagnosticEventPresentation.describe(DiagnosticEvent(
+        let recovery = DiagnosticEventPresentation().describe(DiagnosticEvent(
             code: .recoveryStarted,
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
@@ -161,7 +161,7 @@ import Testing
             .init(key: "trigger", value: "Network changed"),
         ])
 
-        let endpoint = DiagnosticEventPresentation.describe(DiagnosticEvent(
+        let endpoint = DiagnosticEventPresentation().describe(DiagnosticEvent(
             code: .endpointFailed,
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
@@ -172,7 +172,7 @@ import Testing
             .init(key: "failure", value: "Iroh endpoint unavailable"),
         ])
 
-        let session = DiagnosticEventPresentation.describe(DiagnosticEvent(
+        let session = DiagnosticEventPresentation().describe(DiagnosticEvent(
             code: .transportSessionLifecycle,
             tNanos: 1,
             a: DiagnosticSessionLifecycleKind.established.rawValue,
@@ -185,7 +185,7 @@ import Testing
             .init(key: "session", value: "12"),
         ])
 
-        let composer = DiagnosticEventPresentation.describe(DiagnosticEvent(
+        let composer = DiagnosticEventPresentation().describe(DiagnosticEvent(
             code: .composerActiveTransition,
             tNanos: 1,
             ms: 300,
@@ -200,7 +200,7 @@ import Testing
             .init(key: "terminal_input_focused", value: "No"),
         ])
 
-        let input = DiagnosticEventPresentation.describe(DiagnosticEvent(
+        let input = DiagnosticEventPresentation().describe(DiagnosticEvent(
             code: .inputSeqBehind,
             tNanos: 1,
             surface: 7,
@@ -224,10 +224,10 @@ import Testing
             tNanos: 1,
             b: DiagnosticFailureKind.identityMismatch.rawValue
         )
-        #expect(DiagnosticEventPresentation.failureKind(of: event) == .identityMismatch)
-        #expect(DiagnosticEventPresentation.transportKind(of: event) == nil)
+        #expect(DiagnosticEventPresentation().failureKind(of: event) == .identityMismatch)
+        #expect(DiagnosticEventPresentation().transportKind(of: event) == nil)
 
         let success = DiagnosticEvent(code: .rpcReady, tNanos: 1, b: 3)
-        #expect(DiagnosticEventPresentation.failureKind(of: success) == nil)
+        #expect(DiagnosticEventPresentation().failureKind(of: success) == nil)
     }
 }

@@ -192,7 +192,7 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         var out = "cmux Iroh and transport report\n"
         out += "Report format: \(Self.currentHumanReadableFormatVersion)\n"
         out += "Generated: \(formatter.string(from: generatedAt))\n"
-        out += "Source: \(DiagnosticEventPresentation.displayName(role))\n"
+        out += "Source: \(DiagnosticEventPresentation().displayName(role))\n"
         if !buildStamp.isEmpty {
             out += "Build: \(buildStamp)\n"
         }
@@ -216,7 +216,7 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
                     elapsed
                 )
             }
-            out += "\(timestamp) | \(DiagnosticEventPresentation.summary(event))\n"
+            out += "\(timestamp) | \(DiagnosticEventPresentation().summary(event))\n"
         }
         return Data(out.utf8)
     }

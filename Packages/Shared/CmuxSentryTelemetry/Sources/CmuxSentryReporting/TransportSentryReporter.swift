@@ -113,8 +113,8 @@ public final class TransportSentryReporter: Sendable {
         logsPerHour: Int = 300,
         delivery: Delivery = .sentry()
     ) {
-        self.roleCode = DiagnosticEventPresentation.name(role)
-        self.roleDisplayName = DiagnosticEventPresentation.displayName(role)
+        self.roleCode = DiagnosticEventPresentation().name(role)
+        self.roleDisplayName = DiagnosticEventPresentation().displayName(role)
         self.exportRing = exportRing
         self.delivery = delivery
         self.state = OSAllocatedUnfairLock(initialState: MutableState(
@@ -128,7 +128,7 @@ public final class TransportSentryReporter: Sendable {
     public func ingest(_ event: DiagnosticEvent) {
         guard delivery.isEnabled() else { return }
 
-        let described = DiagnosticEventPresentation.describe(event)
+        let described = DiagnosticEventPresentation().describe(event)
         let isFailure = TransportIncidentPolicy.failureCodes.contains(event.code)
 
         let (incident, logDropCount) = state.withLock { state in
@@ -156,9 +156,9 @@ public final class TransportSentryReporter: Sendable {
     ) {
         let crumb = Breadcrumb(level: isFailure ? .warning : .info, category: "transport")
         crumb.type = isFailure ? "error" : "default"
-        crumb.message = DiagnosticEventPresentation.summary(described)
+        crumb.message = DiagnosticEventPresentation().summary(described)
         var data: [String: Any] = [
-            "event_code": DiagnosticEventPresentation.name(event.code),
+            "event_code": DiagnosticEventPresentation().name(event.code),
             "role": roleDisplayName,
         ]
         for field in described.fields {
@@ -175,7 +175,7 @@ public final class TransportSentryReporter: Sendable {
         droppedBeforeThis: Int
     ) {
         var attributes: [String: Any] = [
-            "transport.event_code": DiagnosticEventPresentation.name(event.code),
+            "transport.event_code": DiagnosticEventPresentation().name(event.code),
             "transport.role": roleDisplayName,
             "transport.role_code": roleCode,
         ]
@@ -187,7 +187,7 @@ public final class TransportSentryReporter: Sendable {
         }
         delivery.log(
             isFailure ? .warning : .info,
-            DiagnosticEventPresentation.summary(described),
+            DiagnosticEventPresentation().summary(described),
             attributes
         )
     }
@@ -214,16 +214,16 @@ public final class TransportSentryReporter: Sendable {
         event.fingerprint = ["cmux-transport", roleCode, incident.signature]
 
         var tags: [String: String] = [
-            "transport.event": DiagnosticEventPresentation.name(incident.event.code),
+            "transport.event": DiagnosticEventPresentation().name(incident.event.code),
             "transport.signature": incident.signature,
             "transport.role": roleCode,
             "transport.incident": incident.kind == .outage ? "outage" : "failure",
         ]
         if let failure = incident.failure {
-            tags["transport.failure"] = DiagnosticEventPresentation.name(failure)
+            tags["transport.failure"] = DiagnosticEventPresentation().name(failure)
         }
         if let transport = incident.transport {
-            tags["transport.kind"] = DiagnosticEventPresentation.name(transport)
+            tags["transport.kind"] = DiagnosticEventPresentation().name(transport)
         }
         event.tags = tags
 
@@ -242,10 +242,10 @@ public final class TransportSentryReporter: Sendable {
             context["reachable"] = reachable
         }
         if let phase = incident.appPhase {
-            context["app_phase"] = DiagnosticEventPresentation.displayName(phase)
-            context["app_phase_code"] = DiagnosticEventPresentation.name(phase)
+            context["app_phase"] = DiagnosticEventPresentation().displayName(phase)
+            context["app_phase_code"] = DiagnosticEventPresentation().name(phase)
         }
-        let described = DiagnosticEventPresentation.describe(incident.event)
+        let described = DiagnosticEventPresentation().describe(incident.event)
         for field in described.fields {
             context["event_\(field.key)"] = field.value
         }

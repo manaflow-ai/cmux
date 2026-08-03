@@ -8,7 +8,9 @@ import Foundation
 /// while every exported title and payload explains itself without a decoder.
 /// Stable machine names remain available through the `name(_:)` overloads for
 /// Sentry fingerprints, tags, and search attributes.
-public enum DiagnosticEventPresentation {
+public struct DiagnosticEventPresentation: Sendable {
+    public init() {}
+
     /// One decoded key/value pair of a described event.
     public struct Field: Sendable, Equatable {
         /// Stable semantic key suitable for structured telemetry.
@@ -36,42 +38,42 @@ public enum DiagnosticEventPresentation {
     }
 
     /// The stable machine name of an event code.
-    public static func name(_ code: DiagnosticEventCode) -> String {
+    public func name(_ code: DiagnosticEventCode) -> String {
         String(describing: code)
     }
 
     /// The stable machine name of a failure kind.
-    public static func name(_ kind: DiagnosticFailureKind) -> String {
+    public func name(_ kind: DiagnosticFailureKind) -> String {
         String(describing: kind)
     }
 
     /// The stable machine name of a transport kind.
-    public static func name(_ kind: DiagnosticTransportKind) -> String {
+    public func name(_ kind: DiagnosticTransportKind) -> String {
         String(describing: kind)
     }
 
     /// The stable machine name of a path kind.
-    public static func name(_ kind: DiagnosticPathKind) -> String {
+    public func name(_ kind: DiagnosticPathKind) -> String {
         String(describing: kind)
     }
 
     /// The stable machine name of a session lifecycle kind.
-    public static func name(_ kind: DiagnosticSessionLifecycleKind) -> String {
+    public func name(_ kind: DiagnosticSessionLifecycleKind) -> String {
         String(describing: kind)
     }
 
     /// The stable machine name of an app lifecycle phase.
-    public static func name(_ phase: DiagnosticAppLifecyclePhase) -> String {
+    public func name(_ phase: DiagnosticAppLifecyclePhase) -> String {
         String(describing: phase)
     }
 
     /// The stable machine name of a runtime role.
-    public static func name(_ role: DiagnosticRuntimeRole) -> String {
+    public func name(_ role: DiagnosticRuntimeRole) -> String {
         String(describing: role)
     }
 
     /// Human-readable name of a diagnostic failure category.
-    public static func displayName(_ kind: DiagnosticFailureKind) -> String {
+    public func displayName(_ kind: DiagnosticFailureKind) -> String {
         switch kind {
         case .none: "No failure"
         case .offline: "Offline"
@@ -104,7 +106,7 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Human-readable name of a transport category.
-    public static func displayName(_ kind: DiagnosticTransportKind) -> String {
+    public func displayName(_ kind: DiagnosticTransportKind) -> String {
         switch kind {
         case .unknown: "Unknown transport"
         case .iroh: "Iroh"
@@ -115,7 +117,7 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Human-readable name of a selected network path.
-    public static func displayName(_ kind: DiagnosticPathKind) -> String {
+    public func displayName(_ kind: DiagnosticPathKind) -> String {
         switch kind {
         case .unknown: "Unknown path"
         case .direct: "Direct"
@@ -126,7 +128,7 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Human-readable name of a transport-session lifecycle state.
-    public static func displayName(_ kind: DiagnosticSessionLifecycleKind) -> String {
+    public func displayName(_ kind: DiagnosticSessionLifecycleKind) -> String {
         switch kind {
         case .established: "Established"
         case .controlOwnerReleased: "Control owner released"
@@ -143,7 +145,7 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Human-readable name of an app lifecycle phase.
-    public static func displayName(_ phase: DiagnosticAppLifecyclePhase) -> String {
+    public func displayName(_ phase: DiagnosticAppLifecyclePhase) -> String {
         switch phase {
         case .background: "Background"
         case .active: "Active"
@@ -152,7 +154,7 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Human-readable name of a report's producing runtime.
-    public static func displayName(_ role: DiagnosticRuntimeRole) -> String {
+    public func displayName(_ role: DiagnosticRuntimeRole) -> String {
         switch role {
         case .unspecified: "Unspecified runtime"
         case .mobileClient: "iOS client"
@@ -165,7 +167,7 @@ public enum DiagnosticEventPresentation {
     /// Decodes an event's payload slots according to its documented schema.
     /// Unknown enum values retain their integer inside an explanatory label so
     /// a newer writer still produces useful text on an older reader.
-    public static func describe(_ event: DiagnosticEvent) -> DescribedEvent {
+    public func describe(_ event: DiagnosticEvent) -> DescribedEvent {
         var fields: [Field] = []
         if let surface = event.surface {
             fields.append(Field(key: "surface", value: String(surface)))
@@ -186,12 +188,12 @@ public enum DiagnosticEventPresentation {
     }
 
     /// Renders one event as a standalone human-readable sentence fragment.
-    public static func summary(_ event: DiagnosticEvent) -> String {
+    public func summary(_ event: DiagnosticEvent) -> String {
         summary(describe(event))
     }
 
     /// Renders an already-described event as a title followed by labeled fields.
-    public static func summary(_ described: DescribedEvent) -> String {
+    public func summary(_ described: DescribedEvent) -> String {
         guard !described.fields.isEmpty else { return described.name }
         let details = described.fields.map { field in
             "\(label(for: field.key)): \(field.value)"
@@ -200,19 +202,19 @@ public enum DiagnosticEventPresentation {
     }
 
     /// The failure kind carried in an event's `b` slot, when applicable.
-    public static func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
-        guard codesWithFailureB.contains(event.code), let b = event.b else { return nil }
+    public func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
+        guard Self.codesWithFailureB.contains(event.code), let b = event.b else { return nil }
         return DiagnosticFailureKind(rawValue: b)
     }
 
     /// The transport kind carried in an event's `a` slot, when applicable.
-    public static func transportKind(of event: DiagnosticEvent) -> DiagnosticTransportKind? {
-        guard codesWithTransportA.contains(event.code), let a = event.a else { return nil }
+    public func transportKind(of event: DiagnosticEvent) -> DiagnosticTransportKind? {
+        guard Self.codesWithTransportA.contains(event.code), let a = event.a else { return nil }
         return DiagnosticTransportKind(rawValue: a)
     }
 
     /// Event codes whose `b` slot carries a ``DiagnosticFailureKind``.
-    static let codesWithFailureB: Set<DiagnosticEventCode> = [
+    private static let codesWithFailureB: Set<DiagnosticEventCode> = [
         .pairFail, .transportDialFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
@@ -220,7 +222,7 @@ public enum DiagnosticEventPresentation {
     ]
 
     /// Event codes whose `a` slot carries a ``DiagnosticTransportKind``.
-    static let codesWithTransportA: Set<DiagnosticEventCode> = [
+    private static let codesWithTransportA: Set<DiagnosticEventCode> = [
         .pairFail,
         .transportDialStarted, .transportDialConnected, .transportDialFailed,
         .hostAuthenticated, .rpcReady,
@@ -232,7 +234,7 @@ public enum DiagnosticEventPresentation {
         .hostAuthenticationFailed, .rpcFailed,
     ]
 
-    private static func title(for code: DiagnosticEventCode) -> String {
+    private func title(for code: DiagnosticEventCode) -> String {
         switch code {
         case .connect: "Connection attempt started"
         case .pairOk: "Pairing succeeded"
@@ -286,8 +288,8 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func decodeA(_ raw: Int, code: DiagnosticEventCode) -> Field {
-        if codesWithTransportA.contains(code) {
+    private func decodeA(_ raw: Int, code: DiagnosticEventCode) -> Field {
+        if Self.codesWithTransportA.contains(code) {
             return Field(key: "transport", value: transportName(raw))
         }
         switch code {
@@ -322,8 +324,8 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func decodeB(_ raw: Int, code: DiagnosticEventCode) -> Field {
-        if codesWithFailureB.contains(code) {
+    private func decodeB(_ raw: Int, code: DiagnosticEventCode) -> Field {
+        if Self.codesWithFailureB.contains(code) {
             return Field(key: "failure", value: failureName(raw))
         }
         switch code {
@@ -346,7 +348,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func decodeMilliseconds(
+    private func decodeMilliseconds(
         _ raw: UInt32,
         code: DiagnosticEventCode
     ) -> Field {
@@ -366,7 +368,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func decodeC(_ raw: Int, code: DiagnosticEventCode) -> Field {
+    private func decodeC(_ raw: Int, code: DiagnosticEventCode) -> Field {
         switch code {
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
@@ -380,42 +382,42 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func failureName(_ raw: Int) -> String {
+    private func failureName(_ raw: Int) -> String {
         guard let value = DiagnosticFailureKind(rawValue: raw) else {
             return "Unknown failure (\(raw))"
         }
         return displayName(value)
     }
 
-    private static func transportName(_ raw: Int) -> String {
+    private func transportName(_ raw: Int) -> String {
         guard let value = DiagnosticTransportKind(rawValue: raw) else {
             return "Unknown transport (\(raw))"
         }
         return displayName(value)
     }
 
-    private static func pathName(_ raw: Int) -> String {
+    private func pathName(_ raw: Int) -> String {
         guard let value = DiagnosticPathKind(rawValue: raw) else {
             return "Unknown path (\(raw))"
         }
         return displayName(value)
     }
 
-    private static func sessionLifecycleName(_ raw: Int) -> String {
+    private func sessionLifecycleName(_ raw: Int) -> String {
         guard let value = DiagnosticSessionLifecycleKind(rawValue: raw) else {
             return "Unknown session state (\(raw))"
         }
         return displayName(value)
     }
 
-    private static func appLifecycleName(_ raw: Int) -> String {
+    private func appLifecycleName(_ raw: Int) -> String {
         guard let value = DiagnosticAppLifecyclePhase(rawValue: raw) else {
             return "Unknown app phase (\(raw))"
         }
         return displayName(value)
     }
 
-    private static func sessionPurposeName(_ raw: Int) -> String {
+    private func sessionPurposeName(_ raw: Int) -> String {
         guard let byte = UInt8(exactly: raw),
               let purpose = CmxTransportSessionPurpose(rawValue: byte)
         else {
@@ -429,7 +431,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func responderName(_ raw: Int) -> String {
+    private func responderName(_ raw: Int) -> String {
         guard let identity = InputResponderIdentity(rawValue: raw) else {
             return "Unknown responder (\(raw))"
         }
@@ -443,7 +445,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func booleanName(_ raw: Int) -> String {
+    private func booleanName(_ raw: Int) -> String {
         switch raw {
         case 0: "No"
         case 1: "Yes"
@@ -451,7 +453,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func reachabilityName(_ raw: Int) -> String {
+    private func reachabilityName(_ raw: Int) -> String {
         switch raw {
         case 0: "Offline"
         case 1: "Online"
@@ -459,7 +461,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func recoveryTriggerName(_ raw: Int) -> String {
+    private func recoveryTriggerName(_ raw: Int) -> String {
         switch raw {
         case 1: "Network changed"
         case 2: "Manual retry"
@@ -474,7 +476,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func closeInitiatorName(_ raw: Int) -> String {
+    private func closeInitiatorName(_ raw: Int) -> String {
         switch raw {
         case 0: "Unknown initiator"
         case 1: "Local app"
@@ -484,7 +486,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func pathEventName(_ raw: Int) -> String {
+    private func pathEventName(_ raw: Int) -> String {
         switch raw {
         case 1: "Opened"
         case 2: "Closed"
@@ -494,7 +496,7 @@ public enum DiagnosticEventPresentation {
         }
     }
 
-    private static func duration(_ milliseconds: UInt32) -> String {
+    private func duration(_ milliseconds: UInt32) -> String {
         guard milliseconds >= 1_000 else { return "\(milliseconds) ms" }
         let seconds = Double(milliseconds) / 1_000
         if milliseconds.isMultiple(of: 1_000) {
@@ -508,11 +510,11 @@ public enum DiagnosticEventPresentation {
         )
     }
 
-    private static func count(_ value: Int, singular: String) -> String {
+    private func count(_ value: Int, singular: String) -> String {
         "\(value) \(value == 1 ? singular : singular + "s")"
     }
 
-    private static func label(for key: String) -> String {
+    private func label(for key: String) -> String {
         switch key {
         case "surface": "Surface"
         case "transport": "Transport"
