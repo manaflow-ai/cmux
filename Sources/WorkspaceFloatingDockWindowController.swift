@@ -364,26 +364,26 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock.store.setVisibleInUI(true)
         panel.ignoresMouseEvents = false
         panel.orderFront(nil)
+        let showsAccessory: Bool
         if case .revealed = presentation {
-            showParkingAccessory(
-                panel: panel,
-                snapshot: snapshot,
-                animated: animated
-            )
+            showsAccessory = true
         } else {
-            hideParkingAccessory(animated: false)
+            showsAccessory = false
         }
-
-        guard animated,
-              panel.frame != targetFrame,
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            setPanelFrame(targetFrame, display: panel.isVisible)
-            if wasKeyWindow {
-                parentWindow?.makeKeyAndOrderFront(nil)
-            }
-            return
+        let restoresKeyImmediately = !animated
+            || panel.frame == targetFrame
+            || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        transitionParkedPanel(
+            panel,
+            to: targetFrame,
+            snapshot: snapshot,
+            showsAccessory: showsAccessory,
+            animated: animated,
+            duration: 0.22
+        )
+        if wasKeyWindow, restoresKeyImmediately {
+            parentWindow?.makeKeyAndOrderFront(nil)
         }
-        animatePanel(panel, to: targetFrame, duration: 0.22)
     }
 
     func stash(
@@ -487,7 +487,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentation = .visible
         presentationTargetFrame = destinationFrame
         accessoryIsTransientForVisibleRename = false
-        hideParkingAccessory(animated: true)
+        parkingAccessoryController.prepareForOwnerTransitionHiding()
         stashOverlay.isHidden = true
         if let panel = panel as? WorkspaceFloatingDockPanel {
             panel.presentsStashedWindow = false
@@ -498,6 +498,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               panel.frame != destinationFrame else {
             setPanelFrame(destinationFrame, display: true)
+            parkingAccessoryController.completeOwnerTransition(isVisible: false)
             finishShowing(panel, focus: focus)
             return
         }
@@ -513,16 +514,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 1.0
             )
             panel.animator().setFrame(destinationFrame, display: true)
+            parkingAccessoryController.animateVisibilityAlongsideOwner(false)
         } completionHandler: { [weak self, weak panel] in
             guard let self, let panel else { return }
-            guard self.presentationGeneration == generation else {
-                self.settleLatestPresentationTarget(on: panel)
-                return
-            }
+            guard self.presentationGeneration == generation else { return }
             guard !self.dock.isStashed else { return }
             self.isAnimatingPresentation = false
             panel.ignoresMouseEvents = false
             self.setPanelFrame(destinationFrame, display: true)
+            self.parkingAccessoryController.completeOwnerTransition(isVisible: false)
             self.finishShowing(panel, focus: focus)
         }
     }
@@ -545,21 +545,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let targetFrame = isRevealed
             ? parkingSnapshot.revealedFrame
             : parkingSnapshot.parkedFrame
-        presentationTargetFrame = targetFrame
-        if isRevealed {
-            showParkingAccessory(
-                panel: panel,
-                snapshot: parkingSnapshot,
-                animated: animated
-            )
-        } else {
-            hideParkingAccessory(animated: animated)
-        }
-        if animated {
-            animatePanel(panel, to: targetFrame, duration: 0.16)
-        } else {
-            setPanelFrame(targetFrame, display: panel.isVisible)
-        }
+        transitionParkedPanel(
+            panel,
+            to: targetFrame,
+            snapshot: parkingSnapshot,
+            showsAccessory: isRevealed,
+            animated: animated,
+            duration: 0.16
+        )
     }
 
     func containsParkingRestingPoint(_ screenPoint: NSPoint) -> Bool {
@@ -702,6 +695,66 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         persistRestorableFrame(targetFrame)
         hideParkingAccessory(animated: false)
         finishShowing(panel, focus: true)
+    }
+
+    private func transitionParkedPanel(
+        _ panel: NSWindow,
+        to frame: CGRect,
+        snapshot: WorkspaceFloatingDockParkingSnapshot,
+        showsAccessory: Bool,
+        animated: Bool,
+        duration: TimeInterval
+    ) {
+        presentationTargetFrame = frame
+        if showsAccessory {
+            parkingAccessoryController.prepareForOwnerTransitionShowing(
+                attachedTo: panel,
+                title: dock.title,
+                parkingEdge: snapshot.edge,
+                appearance: resolvedBackdropAppearance()
+            )
+        } else {
+            parkingAccessoryController.prepareForOwnerTransitionHiding()
+        }
+
+        let targetAlpha: CGFloat = showsAccessory ? 1 : 0
+        let needsAnimation = panel.frame != frame
+            || (parkingAccessoryController.isVisible
+                && parkingAccessoryController.window.alphaValue != targetAlpha)
+        guard animated,
+              needsAnimation,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            setPanelFrame(frame, display: panel.isVisible)
+            parkingAccessoryController.completeOwnerTransition(isVisible: showsAccessory)
+            return
+        }
+
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        isAnimatingPresentation = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.0,
+                0.0,
+                0.2,
+                1.0
+            )
+            panel.animator().setFrame(frame, display: true)
+            parkingAccessoryController.animateVisibilityAlongsideOwner(showsAccessory)
+        } completionHandler: { [weak self, weak panel] in
+            guard let self, let panel,
+                  self.presentationGeneration == generation else { return }
+            guard self.dock.isStashed else {
+                self.parkingAccessoryController.completeOwnerTransition(isVisible: false)
+                return
+            }
+            self.isAnimatingPresentation = false
+            self.setPanelFrame(frame, display: true)
+            self.parkingAccessoryController.completeOwnerTransition(
+                isVisible: showsAccessory
+            )
+        }
     }
 
     private func animatePanel(_ panel: NSWindow, to frame: CGRect, duration: TimeInterval) {
@@ -900,12 +953,21 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if let parkingSnapshot {
             presentation = .revealed(parkingSnapshot)
             accessoryIsTransientForVisibleRename = false
-            showParkingAccessory(
-                panel: panel,
-                snapshot: parkingSnapshot,
-                animated: true
+            parkingAccessoryController.prepareForOwnerTransitionShowing(
+                attachedTo: panel,
+                title: dock.title,
+                parkingEdge: parkingSnapshot.edge,
+                appearance: resolvedBackdropAppearance()
             )
-            animatePanel(panel, to: parkingSnapshot.revealedFrame, duration: 0.16)
+            parkingAccessoryController.beginRenaming(animatedFrame: false)
+            transitionParkedPanel(
+                panel,
+                to: parkingSnapshot.revealedFrame,
+                snapshot: parkingSnapshot,
+                showsAccessory: true,
+                animated: true,
+                duration: 0.16
+            )
         } else {
             accessoryIsTransientForVisibleRename = true
             parkingAccessoryController.show(
@@ -915,8 +977,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 appearance: resolvedBackdropAppearance(),
                 animated: true
             )
+            parkingAccessoryController.beginRenaming()
         }
-        parkingAccessoryController.beginRenaming()
     }
 
     private func parkingAccessoryEditingEnded() {

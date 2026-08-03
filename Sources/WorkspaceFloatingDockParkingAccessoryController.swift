@@ -27,6 +27,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private var ownerWindowObserverTokens: [any NSObjectProtocol] = []
     private weak var observedOwnerWindow: NSWindow?
     private var parkingEdge: WorkspaceFloatingDockParkingEdge = .trailing
+    private var isOwnerTransitionInProgress = false
     private(set) var isEditing = false
 
     var window: NSWindow { panel }
@@ -96,6 +97,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         animated: Bool
     ) {
         presentationGeneration &+= 1
+        isOwnerTransitionInProgress = false
         self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
@@ -114,11 +116,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         }
 
         panel.alphaValue = animated ? 0 : 1
-        var initialFrame = targetFrame
-        if animated {
-            initialFrame.origin.x += inwardHorizontalOffset(for: parkingEdge, distance: 10)
-        }
-        panel.setFrame(initialFrame, display: false)
+        panel.setFrame(targetFrame, display: false)
         panel.orderFront(nil)
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.setFrame(targetFrame, display: true)
@@ -133,7 +131,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
                 0.2,
                 1.0
             )
-            panel.animator().setFrame(targetFrame, display: true)
             panel.animator().alphaValue = 1
         }
     }
@@ -160,17 +157,29 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         )
     }
 
-    func beginRenaming() {
+    func beginRenaming(animatedFrame: Bool = true) {
         guard panel.isVisible, let ownerWindow = panel.parent else { return }
         presentationGeneration &+= 1
         accessoryView.cancelPendingActivation()
         accessoryView.beginRenaming()
-        let targetFrame = frame(
-            relativeTo: ownerWindow,
-            width: accessoryView.preferredWidth,
-            parkingEdge: parkingEdge
+        let targetFrame: CGRect
+        if isOwnerTransitionInProgress {
+            targetFrame = framePreservingAttachment(
+                panel.frame,
+                width: accessoryView.preferredWidth,
+                parkingEdge: parkingEdge
+            )
+        } else {
+            targetFrame = frame(
+                relativeTo: ownerWindow,
+                width: accessoryView.preferredWidth,
+                parkingEdge: parkingEdge
+            )
+        }
+        setFrame(
+            targetFrame,
+            animated: animatedFrame && !isOwnerTransitionInProgress
         )
-        setFrame(targetFrame, animated: true)
         panel.makeKeyAndOrderFront(nil)
         let focused = accessoryView.focusRenameField()
 #if DEBUG
@@ -184,7 +193,9 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     }
 
     private func synchronizeWithOwner() {
-        guard panel.isVisible, let ownerWindow = panel.parent else { return }
+        guard !isOwnerTransitionInProgress,
+              panel.isVisible,
+              let ownerWindow = panel.parent else { return }
         setFrame(
             frame(
                 relativeTo: ownerWindow,
@@ -197,6 +208,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     func hide(animated: Bool) {
         presentationGeneration &+= 1
+        isOwnerTransitionInProgress = false
         let generation = presentationGeneration
         accessoryView.cancelPendingActivation()
         accessoryView.cancelRenaming(notify: false)
@@ -211,12 +223,9 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             detach()
             return
         }
-        var targetFrame = panel.frame
-        targetFrame.origin.x += inwardHorizontalOffset(for: parkingEdge, distance: 8)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.1
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().setFrame(targetFrame, display: true)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             guard let self, self.presentationGeneration == generation else { return }
@@ -231,11 +240,69 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     func teardown() {
         presentationGeneration &+= 1
+        isOwnerTransitionInProgress = false
         accessoryView.cancelPendingActivation()
         accessoryView.cancelRenaming(notify: false)
         glassEffect.remove(from: panel)
         panel.orderOut(nil)
         detach()
+    }
+
+    func prepareForOwnerTransitionShowing(
+        attachedTo ownerWindow: NSWindow,
+        title: String,
+        parkingEdge: WorkspaceFloatingDockParkingEdge,
+        appearance: WorkspaceFloatingDockBackdropAppearance
+    ) {
+        let continuesExistingTransition = isOwnerTransitionInProgress
+            && panel.isVisible
+            && panel.parent === ownerWindow
+        presentationGeneration &+= 1
+        isOwnerTransitionInProgress = true
+        self.parkingEdge = parkingEdge
+        accessoryView.updateTitle(title)
+        applyAppearance(appearance)
+        attach(to: ownerWindow)
+        if !continuesExistingTransition {
+            panel.setFrame(
+                frame(
+                    relativeTo: ownerWindow,
+                    width: accessoryView.preferredWidth,
+                    parkingEdge: parkingEdge
+                ),
+                display: false
+            )
+        }
+        if !panel.isVisible {
+            panel.alphaValue = 0
+        }
+        panel.orderFront(nil)
+    }
+
+    func prepareForOwnerTransitionHiding() {
+        presentationGeneration &+= 1
+        isOwnerTransitionInProgress = true
+        accessoryView.cancelPendingActivation()
+        accessoryView.cancelRenaming(notify: false)
+        isEditing = false
+    }
+
+    func animateVisibilityAlongsideOwner(_ isVisible: Bool) {
+        guard panel.isVisible else { return }
+        panel.animator().alphaValue = isVisible ? 1 : 0
+    }
+
+    func completeOwnerTransition(isVisible: Bool) {
+        isOwnerTransitionInProgress = false
+        if isVisible {
+            panel.alphaValue = 1
+            synchronizeWithOwner()
+            panel.orderFront(nil)
+        } else {
+            panel.alphaValue = 0
+            panel.orderOut(nil)
+            detach()
+        }
     }
 
     private func applyAppearance(_ appearance: WorkspaceFloatingDockBackdropAppearance) {
@@ -303,6 +370,22 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         )
     }
 
+    private func framePreservingAttachment(
+        _ currentFrame: CGRect,
+        width: CGFloat,
+        parkingEdge: WorkspaceFloatingDockParkingEdge
+    ) -> CGRect {
+        var targetFrame = currentFrame
+        targetFrame.size.width = width
+        switch parkingEdge {
+        case .leading:
+            break
+        case .trailing:
+            targetFrame.origin.x = currentFrame.maxX - width
+        }
+        return targetFrame
+    }
+
     private func installOwnerWindowObservers(for ownerWindow: NSWindow) {
         guard observedOwnerWindow !== ownerWindow || ownerWindowObserverTokens.isEmpty else { return }
         removeOwnerWindowObservers()
@@ -341,18 +424,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         }
         ownerWindowObserverTokens.removeAll()
         observedOwnerWindow = nil
-    }
-
-    private func inwardHorizontalOffset(
-        for parkingEdge: WorkspaceFloatingDockParkingEdge,
-        distance: CGFloat
-    ) -> CGFloat {
-        switch parkingEdge {
-        case .leading:
-            -distance
-        case .trailing:
-            distance
-        }
     }
 
     private func setFrame(_ frame: CGRect, animated: Bool) {
