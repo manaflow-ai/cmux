@@ -2944,6 +2944,58 @@ enum RenderAction {
     Draw,
 }
 
+const TERMINAL_PAINT_CADENCE: Duration = Duration::from_millis(16);
+
+/// Keep terminal parsing lossless while collapsing presentation-only wakes to
+/// the host's frame cadence. Structural draws remain immediate.
+struct TerminalPaintPacer {
+    next_paint_at: Instant,
+    pending: bool,
+}
+
+impl TerminalPaintPacer {
+    fn after_paint(now: Instant) -> Self {
+        Self { next_paint_at: now + TERMINAL_PAINT_CADENCE, pending: false }
+    }
+
+    fn wait_timeout(&self, timeout: Duration, now: Instant) -> Duration {
+        if self.pending {
+            timeout.min(self.next_paint_at.saturating_duration_since(now))
+        } else {
+            timeout
+        }
+    }
+
+    fn schedule(&mut self, action: RenderAction, now: Instant) -> RenderAction {
+        let action = if self.pending && now >= self.next_paint_at {
+            action.merge(RenderAction::Paint)
+        } else {
+            action
+        };
+        match action {
+            RenderAction::Paint if now < self.next_paint_at => {
+                self.pending = true;
+                RenderAction::None
+            }
+            RenderAction::Paint | RenderAction::Draw => {
+                self.pending = false;
+                self.next_paint_at = now + TERMINAL_PAINT_CADENCE;
+                action
+            }
+            RenderAction::None | RenderAction::Graphics => action,
+        }
+    }
+
+    fn render_immediately(&mut self, action: RenderAction, now: Instant) -> RenderAction {
+        let action = if self.pending { action.merge(RenderAction::Paint) } else { action };
+        if matches!(action, RenderAction::Paint | RenderAction::Draw) {
+            self.pending = false;
+            self.next_paint_at = now + TERMINAL_PAINT_CADENCE;
+        }
+        action
+    }
+}
+
 impl RenderAction {
     fn rebuilds_pointer_route(self) -> bool {
         matches!(self, Self::Paint | Self::Draw)
@@ -7178,6 +7230,7 @@ impl App {
         } else {
             PointerRoutePhase::Fresh
         };
+        let mut terminal_paints = TerminalPaintPacer::after_paint(Instant::now());
 
         let mut replay_ready =
             !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
@@ -7187,7 +7240,8 @@ impl App {
         {
             if replay_ready {
                 let replay = self.replay_deferred_input_batch()?;
-                self.render_action(terminal, replay.action)?;
+                let action = terminal_paints.render_immediately(replay.action, Instant::now());
+                self.render_action(terminal, action)?;
                 self.retry_pending_surface_attach();
                 replay_ready = self.replay_can_continue_immediately(replay.disposition);
                 continue;
@@ -7204,6 +7258,7 @@ impl App {
             } else {
                 Duration::from_millis(250)
             };
+            let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
             let mut action = RenderAction::None;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
@@ -7222,7 +7277,12 @@ impl App {
                     }
                     None
                 }
-                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    let action =
+                        terminal_paints.render_immediately(RenderAction::None, Instant::now());
+                    self.render_action(terminal, action)?;
+                    break;
+                }
             };
             // Timeout work can mutate hit-tested state without entering
             // `handle`. Publish its pending render boundary before draining
@@ -7292,11 +7352,20 @@ impl App {
             if self.session.surface_overflow_retry_due() {
                 action = action.merge(RenderAction::Draw);
             }
+            let now = Instant::now();
+            let action = terminal_paints.schedule(action, now);
+            let action = if !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some()
+            {
+                terminal_paints.render_immediately(action, now)
+            } else {
+                action
+            };
             self.render_action(terminal, action)?;
             self.retry_pending_surface_attach();
             if !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some() {
                 let replay = self.replay_deferred_input_batch()?;
-                self.render_action(terminal, replay.action)?;
+                let action = terminal_paints.render_immediately(replay.action, Instant::now());
+                self.render_action(terminal, action)?;
                 self.retry_pending_surface_attach();
                 replay_ready = self.replay_can_continue_immediately(replay.disposition);
             }
@@ -17341,19 +17410,19 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
         SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TerminalInput, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
-        keyboard_protocol_accepts, layout_undo_error_completion,
-        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
-        record_surface_resize_dispatch_result, report_after_unwind,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
+        forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
+        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
@@ -17416,6 +17485,35 @@ mod tests {
     fn renderer_panics_become_frontend_errors() {
         let error = catch_renderer_panic(|| -> () { panic!("invalid render cell") }).unwrap_err();
         assert_eq!(error.to_string(), "terminal renderer panicked: invalid render cell");
+    }
+
+    #[test]
+    fn terminal_paint_pacer_collapses_output_bursts_without_delaying_structural_draws() {
+        let started = Instant::now();
+        let mut pacer = TerminalPaintPacer::after_paint(started);
+
+        assert_eq!(pacer.schedule(RenderAction::Paint, started), RenderAction::None);
+        assert_eq!(pacer.wait_timeout(Duration::from_secs(1), started), TERMINAL_PAINT_CADENCE);
+        assert_eq!(
+            pacer.schedule(RenderAction::Paint, started + TERMINAL_PAINT_CADENCE / 2),
+            RenderAction::None
+        );
+        assert_eq!(
+            pacer.schedule(RenderAction::None, started + TERMINAL_PAINT_CADENCE),
+            RenderAction::Paint
+        );
+
+        let structural = started + TERMINAL_PAINT_CADENCE + Duration::from_millis(1);
+        assert_eq!(pacer.schedule(RenderAction::Paint, structural), RenderAction::None);
+        assert_eq!(pacer.schedule(RenderAction::Draw, structural), RenderAction::Draw);
+
+        let mut urgent = TerminalPaintPacer::after_paint(started);
+        assert_eq!(urgent.schedule(RenderAction::Paint, started), RenderAction::None);
+        assert_eq!(
+            urgent.render_immediately(RenderAction::None, started),
+            RenderAction::Paint,
+            "deferred input must flush the pointer route before replay"
+        );
     }
 
     #[test]

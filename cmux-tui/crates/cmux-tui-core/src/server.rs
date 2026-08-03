@@ -1285,6 +1285,9 @@ const _: () = assert!(
         < RENDER_ATTACH_MAX_BYTES
 );
 const OUTBOUND_CAPACITY: usize = 256;
+// Browser projection updates are an ordered frame/state pair. Keep one pair
+// writable without allowing a slow socket to accumulate an unbounded trail.
+const OUTBOUND_BACKPRESSURED_STREAM_CAPACITY: usize = 2;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 // The synchronous `vt-state` command returns the same bounded replay as an
@@ -1962,6 +1965,13 @@ trait MessageSink: Send + Sync {
     fn send_initial(&self, text: Arc<BudgetedText>, stream: &OutboundStream)
     -> std::io::Result<()>;
     fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_stream_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.send_stream(text, stream)
+    }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
     fn send_terminal(
         &self,
@@ -2020,6 +2030,7 @@ impl MessageWriter {
         Ok(())
     }
 
+    #[cfg(test)]
     fn send_stream<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -2032,6 +2043,27 @@ impl MessageWriter {
             .render_service
             .serialize(value)
             .and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// Send an ordered state stream without mistaking a healthy slow client
+    /// for a disconnected one. Its source must retain or coalesce updates
+    /// while this call waits for the socket writer to accept the prior item.
+    fn send_stream_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize(value)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -2074,7 +2106,7 @@ impl MessageWriter {
         result
     }
 
-    fn send_attach_frame(
+    fn send_attach_frame_backpressured(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
@@ -2086,7 +2118,7 @@ impl MessageWriter {
         let result = self
             .render_service
             .serialize_attach_frame(surface, frame)
-            .and_then(|text| self.sink.send_stream(text, stream));
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -2555,6 +2587,47 @@ impl BoundedOutbound {
         initial: bool,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
+        let result = Self::push_regular_locked(&mut state, text, stream, initial);
+        drop(state);
+        self.changed.notify_all();
+        result
+    }
+
+    fn push_regular_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.closed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "connection closed",
+                ));
+            }
+            if !stream.is_open() {
+                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+            }
+            let pending =
+                state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
+            if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
+                let result = Self::push_regular_locked(&mut state, text, stream, false);
+                drop(state);
+                self.changed.notify_all();
+                return result;
+            }
+            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            state = next;
+        }
+    }
+
+    fn push_regular_locked(
+        state: &mut BoundedOutboundState,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        initial: bool,
+    ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -2563,8 +2636,7 @@ impl BoundedOutbound {
         }
         let bytes = text.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
-            Self::terminate_stream_locked(&mut state, stream)?;
-            self.changed.notify_one();
+            Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "outbound queue overflowed",
@@ -2578,8 +2650,7 @@ impl BoundedOutbound {
         if stream_messages >= OUTBOUND_CAPACITY
             || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes)
         {
-            Self::terminate_stream_locked(&mut state, stream)?;
-            self.changed.notify_one();
+            Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "outbound stream queue overflowed",
@@ -2593,18 +2664,16 @@ impl BoundedOutbound {
             if !byte_full && !count_full {
                 break;
             }
-            let Some(victim) = Self::largest_stream(&state, byte_full) else {
-                Self::terminate_stream_locked(&mut state, stream)?;
-                self.changed.notify_one();
+            let Some(victim) = Self::largest_stream(state, byte_full) else {
+                Self::terminate_stream_locked(state, stream)?;
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "outbound queue overflowed",
                 ));
             };
             let incoming_terminated = victim.id == stream.id;
-            Self::terminate_stream_locked(&mut state, &victim)?;
+            Self::terminate_stream_locked(state, &victim)?;
             if incoming_terminated {
-                self.changed.notify_one();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "outbound queue overflowed",
@@ -2625,7 +2694,6 @@ impl BoundedOutbound {
         } else {
             state.regular.push_back(message);
         }
-        self.changed.notify_one();
         Ok(())
     }
 
@@ -2712,13 +2780,20 @@ impl BoundedOutbound {
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        Self::pop_locked(&mut state).map(|text| text.to_string())
+        let text = Self::pop_locked(&mut state).map(|text| text.to_string());
+        drop(state);
+        if text.is_some() {
+            self.changed.notify_all();
+        }
+        text
     }
 
     fn recv(&self) -> Option<Arc<BudgetedText>> {
         let mut state = self.state.lock().unwrap();
         loop {
             if let Some(text) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
                 return Some(text);
             }
             if state.closed {
@@ -2887,6 +2962,14 @@ impl MessageSink for QueuedSink {
 
     fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
+    }
+
+    fn send_stream_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_regular_backpressured(text, stream)
     }
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
@@ -5565,7 +5648,7 @@ fn send_resource_uncursored_stream_item(
     item: Value,
 ) -> bool {
     writer
-        .send_stream(
+        .send_stream_backpressured(
             &json!({
                 "protocol":"cmux.protocol/1",
                 "type":"stream_item",
@@ -6405,7 +6488,7 @@ fn send_resource_stream_item(
     item: Value,
 ) -> bool {
     writer
-        .send_stream(
+        .send_stream_backpressured(
             &json!({
                 "protocol":"cmux.protocol/1",
                 "type":"stream_item",
@@ -7869,10 +7952,13 @@ fn send_browser_attach_update(
     outbound_stream: &OutboundStream,
 ) -> std::io::Result<()> {
     if let Some(frame) = update.frame {
-        writer.send_stream(&browser_frame_json(surface, &frame), outbound_stream)?;
+        writer.send_stream_backpressured(&browser_frame_json(surface, &frame), outbound_stream)?;
     }
     if let Some(state) = update.state {
-        writer.send_stream(&browser_state_message(surface, &state, false), outbound_stream)?;
+        writer.send_stream_backpressured(
+            &browser_state_message(surface, &state, false),
+            outbound_stream,
+        )?;
     }
     Ok(())
 }
@@ -7930,7 +8016,7 @@ fn spawn_attach_notification_stream(
                     }
                     _ => continue,
                 };
-                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                     handle_attach_send_error(&lifecycle, &error);
                     break;
                 }
@@ -9409,7 +9495,7 @@ fn handle_command_with_cancellation(
                         "peer": challenge.peer,
                         "expires_in": challenge.expires_in,
                     });
-                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
@@ -9447,7 +9533,7 @@ fn handle_command_with_cancellation(
                         MuxEvent::TreeSelectionChanged => continue,
                         _ => subscribed_event_json(&event),
                     };
-                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                    if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
@@ -9548,10 +9634,10 @@ fn handle_command_with_cancellation(
                                 match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                                     Ok(RenderAttachFrame::Frame(frame)) => {
                                         let message = state.delta_message(surface_id, &frame);
-                                        writer.send_stream(&message, &outbound_stream)
+                                        writer.send_stream_backpressured(&message, &outbound_stream)
                                     }
                                     Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                        writer.send_stream(
+                                        writer.send_stream_backpressured(
                                             &json!({
                                                 "event": "scroll-changed",
                                                 "surface": surface_id,
@@ -9570,7 +9656,7 @@ fn handle_command_with_cancellation(
                             }
                         }
                         if writer.is_open() && !lifecycle.overflowed() {
-                            let _ = writer.send_stream(
+                            let _ = writer.send_stream_backpressured(
                                 &json!({"event": "detached", "surface": surface_id}),
                                 &outbound_stream,
                             );
@@ -9704,7 +9790,7 @@ fn handle_command_with_cancellation(
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                     lifecycle.cancel();
                                     if writer.is_open() {
-                                        let _ = writer.send_stream(
+                                        let _ = writer.send_stream_backpressured(
                                             &json!({"event": "detached", "surface": surface_id}),
                                             &outbound_stream,
                                         );
@@ -9822,7 +9908,7 @@ fn handle_command_with_cancellation(
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                 attach.lifecycle.cancel();
                                 if writer.is_open() {
-                                    let _ = writer.send_stream(
+                                    let _ = writer.send_stream_backpressured(
                                         &json!({"event": "detached", "surface": surface_id}),
                                         &outbound_stream,
                                     );
@@ -9830,9 +9916,11 @@ fn handle_command_with_cancellation(
                                 break;
                             }
                         };
-                        if let Err(error) =
-                            writer.send_attach_frame(surface_id, &frame, &outbound_stream)
-                        {
+                        if let Err(error) = writer.send_attach_frame_backpressured(
+                            surface_id,
+                            &frame,
+                            &outbound_stream,
+                        ) {
                             handle_attach_send_error(&attach.lifecycle, &error);
                             break;
                         }
@@ -13054,7 +13142,7 @@ mod tests {
             kitty_state: KittyReplayState::disabled(),
         };
 
-        let error = writer.send_attach_frame(7, &frame, &stream).unwrap_err();
+        let error = writer.send_attach_frame_backpressured(7, &frame, &stream).unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(outbound.try_pop().is_none());
@@ -13692,6 +13780,67 @@ mod tests {
         );
         assert!(quiet.is_open());
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn backpressured_stream_waits_for_its_prior_item_without_overflow() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_stream(&json!({"event": "first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting_writer = writer.clone();
+        let waiting_stream = stream.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx
+                .send(
+                    waiting_writer
+                        .send_stream_backpressured(&json!({"event": "third"}), &waiting_stream),
+                )
+                .unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        assert!(stream.is_open(), "backpressure terminated a healthy stream");
+        assert_eq!(pop_json(&outbound)["event"], "first");
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert_eq!(pop_json(&outbound)["event"], "second");
+        assert_eq!(pop_json(&outbound)["event"], "third");
+        assert!(stream.is_open());
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn backpressured_stream_unblocks_when_the_connection_closes() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_stream(&json!({"event": "first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting_writer = writer.clone();
+        let waiting_stream = stream.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx
+                .send(
+                    waiting_writer
+                        .send_stream_backpressured(&json!({"event": "third"}), &waiting_stream),
+                )
+                .unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        outbound.close();
+        let error = done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        worker.join().unwrap();
     }
 
     #[test]

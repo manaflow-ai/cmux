@@ -6,12 +6,14 @@
 //! VT operations.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
@@ -462,42 +464,112 @@ const _: () = assert!(
 const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
 
 pub struct AttachFrameReceiver {
-    receiver: Receiver<AttachFrame>,
-    queued_bytes: Arc<AtomicUsize>,
+    state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
 }
 
 impl AttachFrameReceiver {
-    fn account_received(&self, frame: &AttachFrame) {
-        self.queued_bytes.fetch_sub(frame.retained_bytes(), Ordering::AcqRel);
+    fn pop(queue: &mut AttachTapQueue) -> Option<AttachFrame> {
+        let frame = queue.frames.pop_front()?;
+        queue.retained_bytes = queue.retained_bytes.saturating_sub(frame.retained_bytes());
+        Some(frame)
     }
 
     pub fn recv(&self) -> Result<AttachFrame, RecvError> {
-        let frame = self.receiver.recv()?;
-        self.account_received(&frame);
-        Ok(frame)
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvError);
+            }
+            queue = self.state.ready.wait(queue).unwrap();
+        }
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
-        let frame = self.receiver.recv_timeout(timeout)?;
-        self.account_received(&frame);
-        Ok(frame)
+        let started = Instant::now();
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(frame) = Self::pop(&mut queue) {
+                return Ok(frame);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                return Err(RecvTimeoutError::Timeout);
+            };
+            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
+            queue = next;
+            if result.timed_out() && queue.frames.is_empty() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+        }
     }
 
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
-        let frame = self.receiver.try_recv()?;
-        self.account_received(&frame);
-        Ok(frame)
+        let mut queue = self.state.queue.lock().unwrap();
+        if let Some(frame) = Self::pop(&mut queue) {
+            Ok(frame)
+        } else if queue.sender_alive {
+            Err(TryRecvError::Empty)
+        } else {
+            Err(TryRecvError::Disconnected)
+        }
     }
 }
 
 impl Drop for AttachFrameReceiver {
     fn drop(&mut self) {
+        let mut queue = self.state.queue.lock().unwrap();
+        queue.receiver_alive = false;
+        queue.frames.clear();
+        queue.retained_bytes = 0;
+        drop(queue);
         self.lifecycle.cancel();
+        self.state.ready.notify_all();
     }
 }
 
 impl AttachFrame {
+    fn merge_adjacent_output(
+        &mut self,
+        next: AttachFrame,
+        max_retained_bytes: usize,
+    ) -> AttachFrameMerge {
+        let mut next = match next {
+            AttachFrame::Output(next) => next,
+            other => return AttachFrameMerge::Unmerged(other),
+        };
+        let AttachFrame::Output(pending) = self else {
+            return AttachFrameMerge::Unmerged(AttachFrame::Output(next));
+        };
+        let Some(max_capacity) = max_retained_bytes.checked_sub(size_of::<Self>()) else {
+            return AttachFrameMerge::Overflow;
+        };
+        let Some(required) = pending.len().checked_add(next.len()) else {
+            return AttachFrameMerge::Overflow;
+        };
+        if required > max_capacity {
+            return AttachFrameMerge::Overflow;
+        }
+        if required > pending.capacity() {
+            let desired = pending.capacity().saturating_mul(2).max(required).min(max_capacity);
+            let mut merged = Vec::new();
+            if merged.try_reserve_exact(desired).is_err() || merged.capacity() > max_capacity {
+                return AttachFrameMerge::Overflow;
+            }
+            merged.extend_from_slice(pending);
+            merged.append(&mut next);
+            *pending = merged;
+        } else {
+            pending.append(&mut next);
+        }
+        AttachFrameMerge::Merged
+    }
+
     fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
@@ -517,6 +589,12 @@ impl AttachFrame {
                 Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
+}
+
+enum AttachFrameMerge {
+    Merged,
+    Unmerged(AttachFrame),
+    Overflow,
 }
 
 #[derive(Clone, Default)]
@@ -560,41 +638,104 @@ impl AttachLifecycle {
 }
 
 struct AttachTap {
-    sender: SyncSender<AttachFrame>,
+    state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
-    queued_bytes: Arc<AtomicUsize>,
-    max_queued_bytes: usize,
+}
+
+struct AttachTapState {
+    queue: Mutex<AttachTapQueue>,
+    ready: Condvar,
+}
+
+struct AttachTapQueue {
+    frames: VecDeque<AttachFrame>,
+    retained_bytes: usize,
+    max_frames: usize,
+    max_retained_bytes: usize,
+    sender_alive: bool,
+    receiver_alive: bool,
 }
 
 impl AttachTap {
-    fn try_send(&self, frame: AttachFrame) -> bool {
+    fn pair(
+        lifecycle: AttachLifecycle,
+        max_frames: usize,
+        max_retained_bytes: usize,
+    ) -> (Self, AttachFrameReceiver) {
+        let state = Arc::new(AttachTapState {
+            queue: Mutex::new(AttachTapQueue {
+                frames: VecDeque::new(),
+                retained_bytes: 0,
+                max_frames,
+                max_retained_bytes,
+                sender_alive: true,
+                receiver_alive: true,
+            }),
+            ready: Condvar::new(),
+        });
+        (
+            Self { state: state.clone(), lifecycle: lifecycle.clone() },
+            AttachFrameReceiver { state, lifecycle },
+        )
+    }
+
+    fn try_send(&self, mut frame: AttachFrame) -> bool {
         if self.lifecycle.is_canceled() {
             return false;
         }
+        let mut queue = self.state.queue.lock().unwrap();
+        if !queue.receiver_alive {
+            self.lifecycle.cancel();
+            return false;
+        }
+        let queue_retained_bytes = queue.retained_bytes;
+        let queue_max_retained_bytes = queue.max_retained_bytes;
+        if let Some(pending) = queue.frames.back_mut() {
+            let previous_bytes = pending.retained_bytes();
+            let max_frame_bytes = queue_max_retained_bytes
+                .saturating_sub(queue_retained_bytes.saturating_sub(previous_bytes));
+            match pending.merge_adjacent_output(frame, max_frame_bytes) {
+                AttachFrameMerge::Merged => {
+                    let merged_bytes = pending.retained_bytes();
+                    queue.retained_bytes = queue
+                        .retained_bytes
+                        .saturating_sub(previous_bytes)
+                        .saturating_add(merged_bytes);
+                    drop(queue);
+                    self.state.ready.notify_one();
+                    return true;
+                }
+                AttachFrameMerge::Unmerged(unmerged) => frame = unmerged,
+                AttachFrameMerge::Overflow => {
+                    drop(queue);
+                    self.lifecycle.mark_overflow();
+                    return false;
+                }
+            }
+        }
         let frame_bytes = frame.retained_bytes();
-        if self
-            .queued_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
-                queued.checked_add(frame_bytes).filter(|next| *next <= self.max_queued_bytes)
-            })
-            .is_err()
-        {
+        if frame_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes) {
+            drop(queue);
             self.lifecycle.mark_overflow();
             return false;
         }
-        match self.sender.try_send(frame) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) => {
-                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
-                self.lifecycle.mark_overflow();
-                false
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
-                self.lifecycle.cancel();
-                false
-            }
+        if queue.frames.len() >= queue.max_frames {
+            drop(queue);
+            self.lifecycle.mark_overflow();
+            return false;
         }
+        queue.retained_bytes = queue.retained_bytes.saturating_add(frame_bytes);
+        queue.frames.push_back(frame);
+        drop(queue);
+        self.state.ready.notify_one();
+        true
+    }
+}
+
+impl Drop for AttachTap {
+    fn drop(&mut self) {
+        self.state.queue.lock().unwrap().sender_alive = false;
+        self.state.ready.notify_all();
     }
 }
 
@@ -4518,8 +4659,8 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = sync_channel(ATTACH_STREAM_CAPACITY);
-        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let (tap, stream) =
+            AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
@@ -4534,12 +4675,7 @@ impl Surface {
                 *pty.last_attach_colors.lock().unwrap() =
                     Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
             }
-            taps.push(AttachTap {
-                sender: tx,
-                lifecycle: lifecycle.clone(),
-                queued_bytes: queued_bytes.clone(),
-                max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
-            });
+            taps.push(tap);
         }
         Ok(AttachStream {
             cols,
@@ -4548,11 +4684,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
-            stream: AttachFrameReceiver {
-                receiver: rx,
-                queued_bytes,
-                lifecycle: lifecycle.clone(),
-            },
+            stream,
             lifecycle,
         })
     }
@@ -6441,16 +6573,10 @@ mod tests {
     #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = sync_channel(1);
-        let tap = AttachTap {
-            sender,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            max_queued_bytes: usize::MAX,
-        };
+        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 1, usize::MAX);
 
-        assert!(tap.try_send(AttachFrame::Output(vec![1])));
-        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
+        assert!(!tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
         assert!(lifecycle.is_canceled());
         assert!(lifecycle.overflowed());
         assert!(lifecycle.claim_overflow_report());
@@ -6460,18 +6586,36 @@ mod tests {
     #[test]
     fn attach_tap_overflow_is_bounded_by_retained_bytes() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = sync_channel(4);
         let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
-        let tap = AttachTap {
-            sender,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            max_queued_bytes: frame_bytes,
-        };
+        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 4, frame_bytes);
 
         assert!(tap.try_send(AttachFrame::Output(vec![1])));
         assert!(!tap.try_send(AttachFrame::Output(vec![2])));
         assert!(lifecycle.overflowed());
+    }
+
+    #[test]
+    fn adjacent_output_merge_respects_the_exact_retained_budget() {
+        let mut bytes = Vec::with_capacity(1_024);
+        bytes.resize(1_024, 1);
+        let mut frame = AttachFrame::Output(bytes);
+        let max_retained_bytes = size_of::<AttachFrame>() + 1_025;
+
+        assert!(matches!(
+            frame.merge_adjacent_output(AttachFrame::Output(vec![2]), max_retained_bytes),
+            AttachFrameMerge::Merged
+        ));
+        let AttachFrame::Output(merged) = frame else { unreachable!() };
+        assert_eq!(merged.len(), 1_025);
+        assert!(merged.capacity() <= 1_025);
+
+        let mut full = AttachFrame::Output(merged);
+        assert!(matches!(
+            full.merge_adjacent_output(AttachFrame::Output(vec![3]), max_retained_bytes),
+            AttachFrameMerge::Overflow
+        ));
+        let AttachFrame::Output(full) = full else { unreachable!() };
+        assert_eq!(full.len(), 1_025, "overflow must not append rejected bytes");
     }
 
     #[test]
@@ -6481,9 +6625,8 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attach = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
-        let expected = (0..ATTACH_STREAM_CAPACITY * 4)
-            .map(|index| (index % 251) as u8)
-            .collect::<Vec<_>>();
+        let expected =
+            (0..ATTACH_STREAM_CAPACITY * 4).map(|index| (index % 251) as u8).collect::<Vec<_>>();
 
         for (index, byte) in expected.iter().copied().enumerate() {
             assert!(
