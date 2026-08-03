@@ -9,17 +9,22 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func truncatedEmbeddedDiscoveryFallsBackToAuthoritativeDiscovery() async throws {
         let fixture = try HostRuntimeFixture()
+        let authoritative = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 7
+        )
         let truncated = CmxIrohDiscoveryResponse(
-            routeContractVersion: fixture.discovery.routeContractVersion,
-            revision: fixture.discovery.revision,
+            routeContractVersion: authoritative.routeContractVersion,
+            revision: authoritative.revision,
             bindings: [],
-            relayFleet: fixture.discovery.relayFleet,
-            lanRendezvous: fixture.discovery.lanRendezvous,
-            grantVerificationKeys: fixture.discovery.grantVerificationKeys
+            relayFleet: authoritative.relayFleet,
+            lanRendezvous: authoritative.lanRendezvous,
+            grantVerificationKeys: authoritative.grantVerificationKeys
         )
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
-            discovery: fixture.discovery,
+            discovery: authoritative,
             embedDiscoveryInRegistration: true,
             embeddedRegistrationDiscovery: truncated
         )
