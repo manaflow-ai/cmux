@@ -8235,7 +8235,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
-    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var searchOverlayHostingView: SurfaceSearchOverlay?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
@@ -9498,6 +9498,7 @@ final class GhosttySurfaceScrollView: NSView {
                 terminalSurface?.setFocus(false)
             },
             onClose: { [weak self, weak terminalSurface] in
+                self?.beginFindEscapeSuppression()
                 terminalSurface?.closeSearchFromExplicitInput()
                 self?.moveFocus()
             }
@@ -9663,13 +9664,27 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("find.setSearchOverlay MOUNT surface=\(terminalSurface.id.uuidString.prefix(5)) existingOverlay=\(hadOverlay ? "yes(update)" : "no(create)")")
 #endif
 
-        let rootView = makeSearchOverlayRootView(
-            terminalSurface: terminalSurface,
-            searchState: searchState
-        )
-
         if let overlay = searchOverlayHostingView {
-            overlay.rootView = rootView
+            overlay.update(
+                surfaceId: terminalSurface.id,
+                searchState: searchState,
+                canApplyFocusRequest: { [weak self] in
+                    self?.canApplyMountedSearchFieldFocusRequest() ?? false
+                },
+                onNavigateSearch: { [weak terminalSurface] direction in
+                    _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
+                },
+                onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
+                onFieldDidFocus: { [weak self, weak terminalSurface] in
+                    self?.searchFocusTarget = .searchField
+                    terminalSurface?.setFocus(false)
+                },
+                onClose: { [weak self, weak terminalSurface] in
+                    self?.beginFindEscapeSuppression()
+                    terminalSurface?.closeSearchFromExplicitInput()
+                    self?.moveFocus()
+                }
+            )
             lastSearchOverlayStateID = searchStateID
             if overlay.superview !== self {
                 scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
@@ -9693,7 +9708,11 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         searchFocusTarget = .searchField
-        let overlay = TerminalSearchOverlayHostingView(rootView: rootView, surfaceView: surfaceView)
+        let overlay = makeSearchOverlayRootView(
+            terminalSurface: terminalSurface,
+            searchState: searchState
+        )
+        overlay.attachSurfaceView(surfaceView)
         overlay.frame = sessionContentFrame
         overlay.autoresizingMask = []
         searchOverlayHostingView = overlay
@@ -11147,7 +11166,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
         var current: NSView? = view
         while let v = current {
-            if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            if v is SurfaceSearchOverlay { return true }
             let typeName = String(describing: type(of: v))
             if typeName.contains("BrowserSearchOverlay") { return true }
             current = v.superview

@@ -1172,7 +1172,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
-    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private var searchOverlayHostingView: BrowserSearchOverlay?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
@@ -1347,20 +1347,18 @@ final class WindowBrowserSlotView: NSView {
         }
 
         logSearchOverlayEvent("set", panelId: configuration.panelId)
-        let rootView = BrowserSearchOverlay(
-            panelId: configuration.panelId,
-            searchState: configuration.searchState,
-            focusRequestGeneration: configuration.focusRequestGeneration,
-            canApplyFocusRequest: configuration.canApplyFocusRequest,
-            onNext: configuration.onNext,
-            onPrevious: configuration.onPrevious,
-            onClose: configuration.onClose,
-            onFieldDidFocus: configuration.onFieldDidFocus
-        )
-
         if let overlay = searchOverlayHostingView {
             logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
-            overlay.rootView = rootView
+            overlay.update(
+                panelId: configuration.panelId,
+                searchState: configuration.searchState,
+                focusRequestGeneration: configuration.focusRequestGeneration,
+                canApplyFocusRequest: configuration.canApplyFocusRequest,
+                onNext: configuration.onNext,
+                onPrevious: configuration.onPrevious,
+                onClose: configuration.onClose,
+                onFieldDidFocus: configuration.onFieldDidFocus
+            )
             objc_setAssociatedObject(
                 overlay,
                 &cmuxBrowserSearchOverlayPanelIdAssociationKey,
@@ -1381,7 +1379,16 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let overlay = NSHostingView(rootView: rootView)
+        let overlay = BrowserSearchOverlay(
+            panelId: configuration.panelId,
+            searchState: configuration.searchState,
+            focusRequestGeneration: configuration.focusRequestGeneration,
+            canApplyFocusRequest: configuration.canApplyFocusRequest,
+            onNext: configuration.onNext,
+            onPrevious: configuration.onPrevious,
+            onClose: configuration.onClose,
+            onFieldDidFocus: configuration.onFieldDidFocus
+        )
         overlay.translatesAutoresizingMaskIntoConstraints = false
         objc_setAssociatedObject(
             overlay,

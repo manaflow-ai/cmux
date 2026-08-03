@@ -942,7 +942,7 @@ struct BrowserPanelView: View {
         // state (no WKWebView mounted yet). WebView-backed cases are hosted
         // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
         if !panel.shouldRenderWebView, let searchState = panel.searchState {
-            BrowserSearchOverlay(
+            NativeBrowserSearchOverlayBridge(
                 panelId: panel.id,
                 searchState: searchState,
                 focusRequestGeneration: panel.searchFocusRequestGeneration,

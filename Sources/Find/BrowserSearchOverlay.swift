@@ -1,188 +1,499 @@
-import CmuxFoundation
 import AppKit
 import Bonsplit
-import SwiftUI
+import CmuxFoundation
+import Combine
 
-struct BrowserSearchOverlay: View {
-    let panelId: UUID
-    @ObservedObject var searchState: BrowserSearchState
-    let focusRequestGeneration: UInt64
-    let canApplyFocusRequest: (UInt64) -> Bool
+@MainActor
+struct NativeSearchOverlayConfiguration {
+    let identity: UUID
+    let debugScope: String
+    let fieldAccessibilityIdentifier: String
+    let selectionOwner: AnyObject
+    let stateChanges: AnyPublisher<Void, Never>
+    let needle: () -> String
+    let setNeedle: (String) -> Void
+    let selected: () -> UInt?
+    let total: () -> UInt?
+    let focusNotificationName: Notification.Name
+    let matchesFocusNotification: (Notification) -> Bool
+    let canApplyFocusRequest: () -> Bool
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
+    let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
-    @State private var corner: Corner = .topRight
-    @State private var dragOffset: CGSize = .zero
-    @State private var barSize: CGSize = .zero
-    @State private var isSearchFieldFocused: Bool = true
+}
 
-    private let padding: CGFloat = 8
-
-    var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 4) {
-                BrowserSearchTextFieldRepresentable(
-                    text: $searchState.needle,
-                    isFocused: $isSearchFieldFocused,
-                    panelId: panelId,
-                    focusRequestGeneration: focusRequestGeneration,
-                    selectionOwner: searchState,
-                    canApplyFocusRequest: canApplyFocusRequest,
-                    onFieldDidFocus: onFieldDidFocus,
-                    onEscape: onClose,
-                    onReturn: { isShift in
-                        if isShift {
-                            onPrevious()
-                        } else {
-                            onNext()
-                        }
-                    }
-                )
-                    .frame(width: 180)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 50)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(alignment: .trailing) {
-                    if let selected = searchState.selected {
-                        let totalText = searchState.total.map { String($0) } ?? "?"
-                        Text("\(selected + 1)/\(totalText)")
-                            .cmuxFont(.caption)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                            .padding(.trailing, 8)
-                    } else if let total = searchState.total {
-                        Text(total == 0 ? "0/0" : "-/\(total)")
-                            .cmuxFont(.caption)
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                            .padding(.trailing, 8)
-                    }
-                }
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("browser.findbar.next panel=\(panelId.uuidString.prefix(5))")
-                    #endif
-                    onNext()
-                }) {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(SearchButtonStyle())
-                .safeHelp("Next match (Return)")
-
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("browser.findbar.prev panel=\(panelId.uuidString.prefix(5))")
-                    #endif
-                    onPrevious()
-                }) {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(SearchButtonStyle())
-                .safeHelp("Previous match (Shift+Return)")
-
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("browser.findbar.close panel=\(panelId.uuidString.prefix(5))")
-                    #endif
-                    onClose()
-                }) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(SearchButtonStyle())
-                .safeHelp("Close (Esc)")
-            }
-            .padding(8)
-            .background(.background)
-            .clipShape(clipShape)
-            .shadow(radius: 4)
-            .onAppear {
-#if DEBUG
-                cmuxDebugLog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
-#endif
-                isSearchFieldFocused = true
-            }
-            .background(
-                GeometryReader { barGeo in
-                    Color.clear.onAppear {
-                        barSize = barGeo.size
-                    }
-                }
-            )
-            .padding(padding)
-            .offset(dragOffset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        dragOffset = value.translation
-                    }
-                    .onEnded { value in
-                        let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
-                        let newCenter = CGPoint(
-                            x: centerPos.x + value.translation.width,
-                            y: centerPos.y + value.translation.height
-                        )
-                        let newCorner = closestCorner(to: newCenter, in: geo.size)
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            corner = newCorner
-                            dragOffset = .zero
-                        }
-                    }
-            )
-        }
-    }
-
-    private var clipShape: some Shape {
-        RoundedRectangle(cornerRadius: 8)
-    }
-
-    enum Corner {
+/// Shared AppKit find bar used by terminal and browser surfaces.
+@MainActor
+class NativeSearchOverlayView: NSView, NSTextFieldDelegate {
+    private enum Corner {
         case topLeft
         case topRight
         case bottomLeft
         case bottomRight
+    }
 
-        var alignment: Alignment {
-            switch self {
-            case .topLeft: return .topLeading
-            case .topRight: return .topTrailing
-            case .bottomLeft: return .bottomLeading
-            case .bottomRight: return .bottomTrailing
+    private let bar = NSView()
+    private let field = NativeSearchTextField(frame: .zero)
+    private let countLabel = NSTextField(labelWithString: "")
+    private var configuration: NativeSearchOverlayConfiguration
+    private var cancellables: Set<AnyCancellable> = []
+    private var searchFocusObserver: NSObjectProtocol?
+    private var lastSelectedRange: NSRange?
+    private var isProgrammaticMutation = false
+    private var corner: Corner = .topRight
+    private var dragStartFrame = NSRect.zero
+
+    override var isFlipped: Bool { true }
+
+    init(configuration: NativeSearchOverlayConfiguration) {
+        self.configuration = configuration
+        super.init(frame: .zero)
+        setupView()
+        bindSearchState()
+        installFocusObserver()
+#if DEBUG
+        cmuxDebugLog("\(configuration.debugScope).findbar.appear id=\(configuration.identity.uuidString.prefix(5))")
+#endif
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let searchFocusObserver {
+            NotificationCenter.default.removeObserver(searchFocusObserver)
+        }
+    }
+
+    func update(configuration: NativeSearchOverlayConfiguration) {
+        let stateChanged = self.configuration.selectionOwner !== configuration.selectionOwner
+        let focusRoutingChanged = self.configuration.identity != configuration.identity
+            || self.configuration.focusNotificationName != configuration.focusNotificationName
+        self.configuration = configuration
+        field.setAccessibilityIdentifier(configuration.fieldAccessibilityIdentifier)
+        field.cmuxSelectionOwner = configuration.selectionOwner
+        if stateChanged { bindSearchState() }
+        if focusRoutingChanged { installFocusObserver() }
+        synchronizeFromModel()
+        requestFocus(selectAll: false)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.requestFocus(selectAll: false)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        positionBar(animated: false)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0 else { return nil }
+        let barPoint = convert(point, to: bar)
+        guard bar.bounds.contains(barPoint) else { return nil }
+        return super.hitTest(point)
+    }
+
+    private func setupView() {
+        bar.wantsLayer = true
+        bar.layer?.cornerRadius = 8
+        bar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        bar.shadow = NSShadow()
+        bar.shadow?.shadowBlurRadius = 4
+        bar.shadow?.shadowOffset = NSSize(width: 0, height: -1)
+        bar.shadow?.shadowColor = NSColor.black.withAlphaComponent(0.25)
+        addSubview(bar)
+
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
+        field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
+        field.setAccessibilityIdentifier(configuration.fieldAccessibilityIdentifier)
+        field.delegate = self
+        field.cmuxSelectionOwner = configuration.selectionOwner
+        field.cmuxOnEscape = { [weak self] textView in self?.handleEscape(from: textView) ?? false }
+
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        countLabel.textColor = .secondaryLabelColor
+        countLabel.alignment = .right
+
+        let fieldContainer = NSView()
+        fieldContainer.wantsLayer = true
+        fieldContainer.layer?.cornerRadius = 6
+        fieldContainer.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.10).cgColor
+        field.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        fieldContainer.addSubview(field)
+        fieldContainer.addSubview(countLabel)
+        NSLayoutConstraint.activate([
+            fieldContainer.widthAnchor.constraint(equalToConstant: 238),
+            fieldContainer.heightAnchor.constraint(equalToConstant: 30),
+            field.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 8),
+            field.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -4),
+            field.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
+            countLabel.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -8),
+            countLabel.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
+            countLabel.widthAnchor.constraint(equalToConstant: 46),
+        ])
+
+        let controls = NSStackView(views: [
+            fieldContainer,
+            searchButton(
+                symbol: "chevron.up",
+                help: String(localized: "search.nextMatch.help", defaultValue: "Next match (Return)"),
+                selector: #selector(next)
+            ),
+            searchButton(
+                symbol: "chevron.down",
+                help: String(localized: "search.previousMatch.help", defaultValue: "Previous match (Shift+Return)"),
+                selector: #selector(previous)
+            ),
+            searchButton(
+                symbol: "xmark",
+                help: String(localized: "search.close.help", defaultValue: "Close (Esc)"),
+                selector: #selector(close)
+            ),
+        ])
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 4
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(controls)
+        NSLayoutConstraint.activate([
+            controls.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 8),
+            controls.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -8),
+            controls.topAnchor.constraint(equalTo: bar.topAnchor, constant: 8),
+            controls.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -8),
+        ])
+
+        bar.addGestureRecognizer(NSPanGestureRecognizer(target: self, action: #selector(dragBar(_:))))
+        synchronizeFromModel()
+    }
+
+    private func searchButton(symbol: String, help: String, selector: Selector) -> NSButton {
+        let button = NSButton(
+            image: NSImage(systemSymbolName: symbol, accessibilityDescription: help) ?? NSImage(),
+            target: self,
+            action: selector
+        )
+        button.title = ""
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = help
+        button.setAccessibilityLabel(help)
+        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        return button
+    }
+
+    private func bindSearchState() {
+        cancellables.removeAll()
+        configuration.stateChanges
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.synchronizeFromModel()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func synchronizeFromModel() {
+        let needle = configuration.needle()
+        if let editor = field.currentEditor() as? NSTextView {
+            if editor.string != needle, !editor.hasMarkedText() {
+                let selection = field.cmuxRememberSelection(editor.selectedRange(), in: needle)
+                isProgrammaticMutation = true
+                editor.string = needle
+                field.stringValue = needle
+                editor.setSelectedRange(selection)
+                lastSelectedRange = selection
+                cmuxStoreFindSelection(selection, for: configuration.selectionOwner)
+                isProgrammaticMutation = false
+            }
+        } else if field.stringValue != needle {
+            field.stringValue = needle
+        }
+        if let selected = configuration.selected() {
+            countLabel.stringValue = "\(selected + 1)/\(configuration.total().map(String.init) ?? "?")"
+        } else if let total = configuration.total() {
+            countLabel.stringValue = total == 0 ? "0/0" : "-/\(total)"
+        } else {
+            countLabel.stringValue = ""
+        }
+    }
+
+    private func installFocusObserver() {
+        if let searchFocusObserver {
+            NotificationCenter.default.removeObserver(searchFocusObserver)
+        }
+        searchFocusObserver = NotificationCenter.default.addObserver(
+            forName: configuration.focusNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self, self.configuration.matchesFocusNotification(notification) else { return }
+                let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
+                self.requestFocus(selectAll: selectAll)
             }
         }
     }
 
-    private func centerPosition(for corner: Corner, in containerSize: CGSize, barSize: CGSize) -> CGPoint {
-        let halfWidth = barSize.width / 2 + padding
-        let halfHeight = barSize.height / 2 + padding
-
-        switch corner {
-        case .topLeft:
-            return CGPoint(x: halfWidth, y: halfHeight)
-        case .topRight:
-            return CGPoint(x: containerSize.width - halfWidth, y: halfHeight)
-        case .bottomLeft:
-            return CGPoint(x: halfWidth, y: containerSize.height - halfHeight)
-        case .bottomRight:
-            return CGPoint(x: containerSize.width - halfWidth, y: containerSize.height - halfHeight)
+    private func requestFocus(selectAll: Bool) {
+        guard configuration.canApplyFocusRequest(), let window else { return }
+        let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+        guard alreadyFocused || window.makeFirstResponder(field) else { return }
+        let remembered = field.cmuxLastSelectedRange
+            ?? cmuxStoredFindSelection(for: configuration.selectionOwner)
+            ?? lastSelectedRange
+        if let selection = cmuxApplyFindFocusSelection(
+            field: field,
+            selectAll: selectAll,
+            alreadyFocused: alreadyFocused,
+            rememberedRange: remembered
+        ) {
+            lastSelectedRange = selection
+            return
+        }
+        Task { @MainActor [weak self, weak field] in
+            await Task.yield()
+            guard let self, let field,
+                  let selection = cmuxApplyFindFocusSelection(
+                    field: field,
+                    selectAll: selectAll,
+                    alreadyFocused: alreadyFocused,
+                    rememberedRange: remembered
+                  ) else { return }
+            self.lastSelectedRange = selection
         }
     }
 
-    private func closestCorner(to point: CGPoint, in containerSize: CGSize) -> Corner {
-        let midX = containerSize.width / 2
-        let midY = containerSize.height / 2
+    func controlTextDidChange(_ notification: Notification) {
+        guard !isProgrammaticMutation, let field = notification.object as? NSTextField else { return }
+        configuration.onTextChanged()
+        configuration.setNeedle(field.stringValue)
+        rememberSelection(from: field)
+    }
 
-        if point.x < midX {
-            return point.y < midY ? .topLeft : .bottomLeft
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        configuration.onFieldDidFocus()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        if let field = notification.object as? NSTextField { rememberSelection(from: field) }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.cancelOperation(_:)):
+            return handleEscape(from: textView)
+        case #selector(NSResponder.insertNewline(_:)):
+            guard !textView.hasMarkedText() else { return false }
+            rememberSelection(from: textView)
+            NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+                ? configuration.onPrevious()
+                : configuration.onNext()
+            return true
+        default:
+            if cmuxFindCommandMayChangeSelection(commandSelector) {
+                Task { @MainActor [weak self, weak textView] in
+                    await Task.yield()
+                    guard let textView else { return }
+                    self?.rememberSelection(from: textView)
+                }
+            }
+            return false
         }
-        return point.y < midY ? .topRight : .bottomRight
+    }
+
+    private func handleEscape(from textView: NSTextView) -> Bool {
+        guard !textView.hasMarkedText() else { return false }
+        rememberSelection(from: textView)
+        configuration.onClose()
+        return true
+    }
+
+    private func rememberSelection(from field: NSTextField) {
+        if let field = field as? NativeSearchTextField,
+           let selection = field.cmuxRememberSelectionFromCurrentEditor() {
+            lastSelectedRange = selection
+            return
+        }
+        guard let editor = field.currentEditor() as? NSTextView else { return }
+        rememberSelection(from: editor)
+    }
+
+    private func rememberSelection(from textView: NSTextView) {
+        let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+        lastSelectedRange = selection
+        field.cmuxLastSelectedRange = selection
+        cmuxStoreFindSelection(selection, for: configuration.selectionOwner)
+    }
+
+    private func positionBar(animated: Bool) {
+        let padding: CGFloat = 8
+        let size = NSSize(width: 344, height: 46)
+        let origin: NSPoint
+        switch corner {
+        case .topLeft: origin = NSPoint(x: padding, y: padding)
+        case .topRight: origin = NSPoint(x: max(padding, bounds.width - size.width - padding), y: padding)
+        case .bottomLeft: origin = NSPoint(x: padding, y: max(padding, bounds.height - size.height - padding))
+        case .bottomRight:
+            origin = NSPoint(x: max(padding, bounds.width - size.width - padding), y: max(padding, bounds.height - size.height - padding))
+        }
+        let frame = NSRect(origin: origin, size: size)
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                bar.animator().frame = frame
+            }
+        } else {
+            bar.frame = frame
+        }
+    }
+
+    @objc private func dragBar(_ gesture: NSPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            dragStartFrame = bar.frame
+        case .changed:
+            let translation = gesture.translation(in: self)
+            bar.frame.origin = NSPoint(x: dragStartFrame.minX + translation.x, y: dragStartFrame.minY + translation.y)
+        case .ended, .cancelled:
+            corner = closestCorner(to: NSPoint(x: bar.frame.midX, y: bar.frame.midY))
+            positionBar(animated: true)
+        default:
+            break
+        }
+    }
+
+    private func closestCorner(to point: NSPoint) -> Corner {
+        if point.x < bounds.midX {
+            return point.y < bounds.midY ? .topLeft : .bottomLeft
+        }
+        return point.y < bounds.midY ? .topRight : .bottomRight
+    }
+
+    @objc private func next() {
+#if DEBUG
+        cmuxDebugLog("\(configuration.debugScope).findbar.next id=\(configuration.identity.uuidString.prefix(5))")
+#endif
+        configuration.onNext()
+    }
+
+    @objc private func previous() {
+#if DEBUG
+        cmuxDebugLog("\(configuration.debugScope).findbar.previous id=\(configuration.identity.uuidString.prefix(5))")
+#endif
+        configuration.onPrevious()
+    }
+
+    @objc private func close() {
+#if DEBUG
+        cmuxDebugLog("\(configuration.debugScope).findbar.close id=\(configuration.identity.uuidString.prefix(5))")
+#endif
+        configuration.onClose()
     }
 }
 
-private final class BrowserSearchNativeTextField: FindSelectionTrackingTextField {
+@MainActor
+final class BrowserSearchOverlay: NativeSearchOverlayView {
+    init(
+        panelId: UUID,
+        searchState: BrowserSearchState,
+        focusRequestGeneration: UInt64,
+        canApplyFocusRequest: @escaping (UInt64) -> Bool,
+        onNext: @escaping () -> Void,
+        onPrevious: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onFieldDidFocus: @escaping () -> Void
+    ) {
+        super.init(configuration: Self.configuration(
+            panelId: panelId,
+            searchState: searchState,
+            focusRequestGeneration: focusRequestGeneration,
+            canApplyFocusRequest: canApplyFocusRequest,
+            onNext: onNext,
+            onPrevious: onPrevious,
+            onClose: onClose,
+            onFieldDidFocus: onFieldDidFocus
+        ))
+        setAccessibilityIdentifier("BrowserFindSearchOverlay")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        panelId: UUID,
+        searchState: BrowserSearchState,
+        focusRequestGeneration: UInt64,
+        canApplyFocusRequest: @escaping (UInt64) -> Bool,
+        onNext: @escaping () -> Void,
+        onPrevious: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onFieldDidFocus: @escaping () -> Void
+    ) {
+        update(configuration: Self.configuration(
+            panelId: panelId,
+            searchState: searchState,
+            focusRequestGeneration: focusRequestGeneration,
+            canApplyFocusRequest: canApplyFocusRequest,
+            onNext: onNext,
+            onPrevious: onPrevious,
+            onClose: onClose,
+            onFieldDidFocus: onFieldDidFocus
+        ))
+    }
+
+    private static func configuration(
+        panelId: UUID,
+        searchState: BrowserSearchState,
+        focusRequestGeneration: UInt64,
+        canApplyFocusRequest: @escaping (UInt64) -> Bool,
+        onNext: @escaping () -> Void,
+        onPrevious: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onFieldDidFocus: @escaping () -> Void
+    ) -> NativeSearchOverlayConfiguration {
+        NativeSearchOverlayConfiguration(
+            identity: panelId,
+            debugScope: "browser",
+            fieldAccessibilityIdentifier: "BrowserFindSearchTextField",
+            selectionOwner: searchState,
+            stateChanges: Publishers.CombineLatest3(searchState.$needle, searchState.$selected, searchState.$total)
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            needle: { searchState.needle },
+            setNeedle: { searchState.needle = $0 },
+            selected: { searchState.selected },
+            total: { searchState.total },
+            focusNotificationName: .browserSearchFocus,
+            matchesFocusNotification: { $0.object as? UUID == panelId },
+            canApplyFocusRequest: { canApplyFocusRequest(focusRequestGeneration) },
+            onNext: onNext,
+            onPrevious: onPrevious,
+            onClose: onClose,
+            onTextChanged: {},
+            onFieldDidFocus: onFieldDidFocus
+        )
+    }
+}
+
+@MainActor
+private final class NativeSearchTextField: FindSelectionTrackingTextField {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -192,216 +503,8 @@ private final class BrowserSearchNativeTextField: FindSelectionTrackingTextField
         usesSingleLineMode = true
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-}
-
-private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-    let panelId: UUID
-    let focusRequestGeneration: UInt64
-    let selectionOwner: AnyObject
-    let canApplyFocusRequest: (UInt64) -> Bool
-    let onFieldDidFocus: () -> Void
-    let onEscape: () -> Void
-    let onReturn: (_ isShift: Bool) -> Void
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: BrowserSearchTextFieldRepresentable
-        var isProgrammaticMutation = false
-        weak var parentField: BrowserSearchNativeTextField?
-        var pendingFocusRequest: Bool?
-        var searchFocusObserver: NSObjectProtocol?
-        var lastSelectedRange: NSRange?
-
-        init(parent: BrowserSearchTextFieldRepresentable) {
-            self.parent = parent
-        }
-
-        deinit {
-            if let searchFocusObserver {
-                NotificationCenter.default.removeObserver(searchFocusObserver)
-            }
-        }
-
-        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow, selectAll: Bool) {
-            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
-            guard alreadyFocused || window.makeFirstResponder(field) else { return }
-            let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange
-            if let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) { self.lastSelectedRange = selection; return }
-            DispatchQueue.main.async { [weak field, weak self] in
-                guard let field, let self,
-                      let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) else { return }
-                self.lastSelectedRange = selection
-            }
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard !isProgrammaticMutation else { return }
-            guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
-            rememberSelection(from: field)
-        }
-
-        func controlTextDidBeginEditing(_ obj: Notification) {
-            parent.onFieldDidFocus()
-            if !parent.isFocused {
-                DispatchQueue.main.async {
-                    self.parent.isFocused = true
-                }
-            }
-        }
-
-        func controlTextDidEndEditing(_ obj: Notification) {
-            if let field = obj.object as? NSTextField {
-                rememberSelection(from: field)
-            }
-            if parent.isFocused {
-                DispatchQueue.main.async {
-                    self.parent.isFocused = false
-                }
-            }
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            switch commandSelector {
-            case #selector(NSResponder.cancelOperation(_:)):
-                return handleEscape(from: textView)
-            case #selector(NSResponder.insertNewline(_:)):
-                if textView.hasMarkedText() { return false }
-                rememberSelection(from: textView)
-                let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
-                parent.onReturn(isShift)
-                return true
-            default:
-                if cmuxFindCommandMayChangeSelection(commandSelector) {
-                    DispatchQueue.main.async { [weak self, weak textView] in
-                        guard let textView else { return }
-                        self?.rememberSelection(from: textView)
-                    }
-                }
-                return false
-            }
-        }
-
-        func handleEscape(from textView: NSTextView) -> Bool {
-            if textView.hasMarkedText() { return false }
-            rememberSelection(from: textView)
-            parent.onEscape()
-            return true
-        }
-
-        private func rememberSelection(from field: NSTextField) {
-            if let field = field as? BrowserSearchNativeTextField,
-               let selection = field.cmuxRememberSelectionFromCurrentEditor() {
-                lastSelectedRange = selection
-                return
-            }
-            guard let editor = field.currentEditor() as? NSTextView else { return }
-            rememberSelection(from: editor)
-        }
-
-        private func rememberSelection(from textView: NSTextView) {
-            let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
-            lastSelectedRange = selection
-            parentField?.cmuxLastSelectedRange = selection
-            cmuxStoreFindSelection(selection, for: parent.selectionOwner)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeNSView(context: Context) -> BrowserSearchNativeTextField {
-        let field = BrowserSearchNativeTextField(frame: .zero)
-        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
-        field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
-        field.setAccessibilityIdentifier("BrowserFindSearchTextField")
-        field.delegate = context.coordinator
-        field.cmuxSelectionOwner = selectionOwner
-        field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
-        field.target = nil
-        field.action = nil
-        field.isEditable = true
-        field.isSelectable = true
-        field.isEnabled = true
-        field.stringValue = text
-        context.coordinator.parentField = field
-        context.coordinator.searchFocusObserver = NotificationCenter.default.addObserver(
-            forName: .browserSearchFocus,
-            object: nil,
-            queue: .main
-        ) { [weak field, weak coordinator = context.coordinator] notification in
-            guard let field, let coordinator else { return }
-            guard let notifiedPanelId = notification.object as? UUID,
-                  notifiedPanelId == coordinator.parent.panelId else { return }
-            guard coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
-            guard let window = field.window else { return }
-            let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
-            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
-            guard !alreadyFocused else { return }
-            coordinator.focusField(field, in: window, selectAll: selectAll)
-        }
-        return field
-    }
-
-    func updateNSView(_ nsView: BrowserSearchNativeTextField, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.parentField = nsView
-        nsView.delegate = context.coordinator
-        nsView.cmuxSelectionOwner = selectionOwner
-        nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
-        nsView.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
-
-        if let editor = nsView.currentEditor() as? NSTextView {
-            if editor.string != text, !editor.hasMarkedText() {
-                let selectedRange = nsView.cmuxRememberSelection(editor.selectedRange(), in: text)
-                context.coordinator.isProgrammaticMutation = true
-                editor.string = text
-                nsView.stringValue = text
-                editor.setSelectedRange(selectedRange)
-                context.coordinator.lastSelectedRange = selectedRange
-                cmuxStoreFindSelection(selectedRange, for: selectionOwner)
-                context.coordinator.isProgrammaticMutation = false
-            }
-        } else if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-
-        if let window = nsView.window {
-            let isFirstResponder = cmuxTextFieldIsFirstResponder(nsView, in: window)
-
-            if isFocused,
-               canApplyFocusRequest(focusRequestGeneration),
-               !isFirstResponder,
-               context.coordinator.pendingFocusRequest != true {
-                context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                    coordinator?.pendingFocusRequest = nil
-                    guard let coordinator,
-                          coordinator.parent.isFocused,
-                          coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
-                    guard let nsView, let window = nsView.window else { return }
-                    let alreadyFocused = cmuxTextFieldIsFirstResponder(nsView, in: window)
-                    guard !alreadyFocused else { return }
-                    coordinator.focusField(nsView, in: window, selectAll: false)
-                }
-            }
-        }
-    }
-
-    static func dismantleNSView(_ nsView: BrowserSearchNativeTextField, coordinator: Coordinator) {
-        if let observer = coordinator.searchFocusObserver {
-            NotificationCenter.default.removeObserver(observer)
-            coordinator.searchFocusObserver = nil
-        }
-        nsView.delegate = nil
-        nsView.cmuxSelectionOwner = nil
-        nsView.cmuxOnEscape = nil
-        coordinator.parentField = nil
     }
 }

@@ -252,6 +252,43 @@ struct NativeScrollBackgroundClearer: NSViewRepresentable {
     func updateNSView(_ view: ScrollBackgroundClearer, context: Context) {}
 }
 
+struct NativeBrowserSearchOverlayBridge: NSViewRepresentable {
+    let panelId: UUID
+    let searchState: BrowserSearchState
+    let focusRequestGeneration: UInt64
+    let canApplyFocusRequest: (UInt64) -> Bool
+    let onNext: () -> Void
+    let onPrevious: () -> Void
+    let onClose: () -> Void
+    let onFieldDidFocus: () -> Void
+
+    func makeNSView(context: Context) -> BrowserSearchOverlay {
+        BrowserSearchOverlay(
+            panelId: panelId,
+            searchState: searchState,
+            focusRequestGeneration: focusRequestGeneration,
+            canApplyFocusRequest: canApplyFocusRequest,
+            onNext: onNext,
+            onPrevious: onPrevious,
+            onClose: onClose,
+            onFieldDidFocus: onFieldDidFocus
+        )
+    }
+
+    func updateNSView(_ view: BrowserSearchOverlay, context: Context) {
+        view.update(
+            panelId: panelId,
+            searchState: searchState,
+            focusRequestGeneration: focusRequestGeneration,
+            canApplyFocusRequest: canApplyFocusRequest,
+            onNext: onNext,
+            onPrevious: onPrevious,
+            onClose: onClose,
+            onFieldDidFocus: onFieldDidFocus
+        )
+    }
+}
+
 @available(macOS 14.0, *)
 struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
     let identity: AppExtensionIdentity
