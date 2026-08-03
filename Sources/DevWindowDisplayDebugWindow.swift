@@ -1,6 +1,5 @@
 import CmuxFoundation
 import AppKit
-import SwiftUI
 
 /// Debug-menu window for the shared, cross-tag default display that new DEBUG
 /// cmux windows open on.
@@ -29,7 +28,7 @@ final class DevWindowDisplayDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.devWindowDisplay")
         window.center()
-        window.contentView = NSHostingView(rootView: DevWindowDisplayDebugView())
+        window.contentView = DevWindowDisplayDebugView(frame: window.contentRect(forFrameRect: window.frame))
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -45,66 +44,120 @@ final class DevWindowDisplayDebugWindowController: ReleasingWindowController {
     }
 }
 
-private struct DevWindowDisplayDebugView: View {
-    @State private var current: String? =
-        AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
-    @State private var displays: [String] = NSScreen.screens.map(\.localizedName)
+@MainActor
+private final class DevWindowDisplayDebugView: NSView {
+    private let displayStack = NSStackView()
+    private let currentLabelView = NSTextField(labelWithString: "")
+    private var current = AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
+    private var displays = NSScreen.screens.map(\.localizedName)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(String(localized: "debug.devWindowDisplay.title", defaultValue: "Dev Window Display"))
-                .cmuxFont(.headline)
-            Text(String(
-                localized: "debug.devWindowDisplay.description",
-                defaultValue: "New DEBUG cmux windows open on the selected display. Shared across all tagged dev builds; applied at window creation."
-            ))
-            .cmuxFont(.subheadline)
-            .foregroundStyle(.secondary)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let title = NSTextField(labelWithString: String(
+            localized: "debug.devWindowDisplay.title",
+            defaultValue: "Dev Window Display"
+        ))
+        title.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
+        let description = NSTextField(wrappingLabelWithString: String(
+            localized: "debug.devWindowDisplay.description",
+            defaultValue: "New DEBUG cmux windows open on the selected display. Shared across all tagged dev builds; applied at window creation."
+        ))
+        description.font = GlobalFontMagnification.systemFont(ofSize: 12)
+        description.textColor = .secondaryLabelColor
 
-            GroupBox {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(displays, id: \.self) { name in
-                        Button {
-                            write(name)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: current == name ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(current == name ? Color.accentColor : Color.secondary)
-                                Text(name)
-                                Spacer()
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(6)
-            }
+        displayStack.orientation = .vertical
+        displayStack.alignment = .leading
+        displayStack.spacing = 6
+        let displayBox = NSBox()
+        displayBox.boxType = .custom
+        displayBox.titlePosition = .noTitle
+        displayBox.contentViewMargins = NSSize(width: 8, height: 8)
+        displayBox.contentView = displayStack
 
-            HStack {
-                Button(String(localized: "debug.devWindowDisplay.refresh", defaultValue: "Refresh displays")) {
-                    displays = NSScreen.screens.map(\.localizedName)
-                    current = AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
-                }
-                Spacer()
-                Button(String(localized: "debug.devWindowDisplay.clear", defaultValue: "Clear (system default)")) {
-                    write(nil)
-                }
-            }
+        let refresh = NSButton(
+            title: String(localized: "debug.devWindowDisplay.refresh", defaultValue: "Refresh displays"),
+            target: self,
+            action: #selector(refreshDisplays)
+        )
+        let clear = NSButton(
+            title: String(localized: "debug.devWindowDisplay.clear", defaultValue: "Clear (system default)"),
+            target: self,
+            action: #selector(clearSelection)
+        )
+        let actionRow = NSStackView(views: [refresh, NSView(), clear])
+        actionRow.orientation = .horizontal
+        actionRow.alignment = .centerY
+        actionRow.distribution = .fill
+        actionRow.spacing = 8
 
-            Text(currentLabel)
-                .cmuxFont(.footnote)
-                .foregroundStyle(.secondary)
-            Spacer()
+        currentLabelView.font = GlobalFontMagnification.systemFont(ofSize: 11)
+        currentLabelView.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [title, description, displayBox, actionRow, currentLabelView, NSView()])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            description.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            displayBox.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            actionRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            currentLabelView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+        rebuildDisplayButtons()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func refreshDisplays() {
+        displays = NSScreen.screens.map(\.localizedName)
+        current = AppDelegate.shared?.settingsRuntime.flatMap(DevWindowDisplayDefault.current)
+        rebuildDisplayButtons()
+    }
+
+    @objc private func clearSelection() {
+        write(nil)
+    }
+
+    @objc private func chooseDisplay(_ sender: NSButton) {
+        guard displays.indices.contains(sender.tag) else { return }
+        write(displays[sender.tag])
+    }
+
+    private func rebuildDisplayButtons() {
+        for view in displayStack.arrangedSubviews {
+            displayStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
-        .padding(16)
-        .frame(minWidth: 380, minHeight: 300)
+        for (index, name) in displays.enumerated() {
+            let button = NSButton(
+                title: name,
+                target: self,
+                action: #selector(chooseDisplay(_:))
+            )
+            button.tag = index
+            button.setButtonType(.radio)
+            button.state = current == name ? .on : .off
+            button.bezelStyle = .inline
+            button.isBordered = false
+            displayStack.addArrangedSubview(button)
+        }
+        currentLabelView.stringValue = currentLabel
     }
 
     /// Optimistically reflect the selection, then persist it through the shared
     /// settings store. `nil` clears the value (system-default placement).
     private func write(_ name: String?) {
         current = name
+        rebuildDisplayButtons()
         guard let runtime = AppDelegate.shared?.settingsRuntime else { return }
         Task { await DevWindowDisplayDefault.set(name, runtime: runtime) }
     }
