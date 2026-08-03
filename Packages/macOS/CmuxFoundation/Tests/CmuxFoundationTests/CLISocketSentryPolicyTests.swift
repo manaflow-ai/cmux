@@ -122,6 +122,21 @@ import Testing
         #expect(!firstNSError.domain.contains("unknown context"))
         #expect(!firstNSError.domain.contains("$"))
     }
+
+    @Test func socketConnectErrorRejectsMalformedSystemErrorText() {
+        let valid = CLISocketConnectError.decodeSystemErrorMessage(
+            bytes: Array("Permission denied".utf8),
+            errnoCode: 1
+        )
+        let malformed = CLISocketConnectError.decodeSystemErrorMessage(
+            bytes: [0xFF, 0xFE],
+            errnoCode: 1
+        )
+
+        #expect(valid == "Permission denied")
+        #expect(malformed.contains("1"))
+        #expect(!malformed.contains("\u{FFFD}"))
+    }
 }
 
 private extension CLISocketPolicyDenialContext {
