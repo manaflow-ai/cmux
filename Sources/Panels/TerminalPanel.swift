@@ -469,13 +469,12 @@ final class TerminalPanel: Panel, ObservableObject {
             return
         }
 
-        let boundedDraft = TextBoxInputTextView.boundedSessionDraft(draft)
-        restoredTextBoxDraft = boundedDraft
+        restoredTextBoxDraft = draft
         preservedTextBoxAttributedContent = nil
-        textBoxContent = TextBoxInputTextView.plainText(from: boundedDraft)
-        textBoxAttachments = TextBoxInputTextView.attachments(from: boundedDraft)
-        isTextBoxActive = boundedDraft.isActive
-        textBoxInputFocusIntent = boundedDraft.isActive ? .textBox : .hidden
+        textBoxContent = TextBoxInputTextView.plainText(from: draft)
+        textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
+        isTextBoxActive = draft.isActive
+        textBoxInputFocusIntent = draft.isActive ? .textBox : .hidden
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false

@@ -1,19 +1,19 @@
 import AppKit
 
 final class TextBoxInlineTextAttachment: NSTextAttachment {
-    let textBoxAttachment: TextBoxAttachment
+    let attachmentGroup: TextBoxAttachmentGroup
     private(set) var isFocused = false
 
     @MainActor
     init(
-        attachment: TextBoxAttachment,
+        attachmentGroup: TextBoxAttachmentGroup,
         font: NSFont,
         foregroundColor: NSColor,
         renderer: TextBoxInlineAttachmentRenderer,
         appearance: NSAppearance,
         backingScale: CGFloat
     ) {
-        self.textBoxAttachment = attachment
+        self.attachmentGroup = attachmentGroup
         super.init(data: nil, ofType: nil)
         refreshCell(
             font: font,
@@ -41,7 +41,7 @@ final class TextBoxInlineTextAttachment: NSTextAttachment {
     ) {
         self.isFocused = isFocused
         let image = renderer.image(
-            for: textBoxAttachment,
+            for: attachmentGroup,
             font: font,
             foregroundColor: foregroundColor,
             isFocused: isFocused,
@@ -53,7 +53,7 @@ final class TextBoxInlineTextAttachment: NSTextAttachment {
             return
         }
         attachmentCell = TextBoxInlineAttachmentCell(
-            attachment: textBoxAttachment,
+            attachmentGroup: attachmentGroup,
             image: image
         )
     }

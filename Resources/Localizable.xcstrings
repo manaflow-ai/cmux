@@ -238119,252 +238119,127 @@
         }
       }
     },
-    "textbox.attachmentLimit.message": {
+    "textbox.attachmentGroup.many": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حددت %1$lld ملفًا. يدعم TextBox ما يصل إلى %2$lld مرفقًا إجمالاً. لم تتم إضافة أي ملفات."
+            "value": "%lld ملفًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odabrali ste %1$lld datoteka. TextBox podržava ukupno najviše %2$lld priloga. Nijedna datoteka nije dodana."
+            "value": "%lld datoteka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du valgte %1$lld arkiver. TextBox understøtter højst %2$lld vedhæftede filer i alt. Ingen filer blev tilføjet."
+            "value": "%lld arkiver"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du hast %1$lld Dateien ausgewählt. TextBox unterstützt insgesamt bis zu %2$lld Anhänge. Es wurden keine Dateien hinzugefügt."
+            "value": "%lld Dateien"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You selected %1$lld files. TextBox supports up to %2$lld total attachments. No files were added."
+            "value": "%lld files"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seleccionaste %1$lld archivos. TextBox admite hasta %2$lld archivos adjuntos en total. No se añadió ningún archivo."
+            "value": "%lld archivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous avez sélectionné %1$lld fichiers. TextBox prend en charge jusqu’à %2$lld pièces jointes au total. Aucun fichier n’a été ajouté."
+            "value": "%lld fichiers"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hai selezionato %1$lld file. TextBox supporta fino a %2$lld allegati totali. Nessun file è stato aggiunto."
+            "value": "%lld file"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld個のファイルを選択しました。TextBoxは合計%2$lld個までの添付ファイルに対応しています。ファイルは追加されませんでした。"
+            "value": "%lld個のファイル"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្នកបានជ្រើសរើសឯកសារ %1$lld។ TextBox គាំទ្រឯកសារភ្ជាប់សរុបរហូតដល់ %2$lld។ មិនបានបន្ថែមឯកសារណាមួយទេ។"
+            "value": "ឯកសារ %lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld개의 파일을 선택했습니다. TextBox는 총 %2$lld개의 첨부 파일을 지원합니다. 파일이 추가되지 않았습니다."
+            "value": "파일 %lld개"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du valgte %1$lld filer. TextBox støtter opptil %2$lld vedlegg totalt. Ingen filer ble lagt til."
+            "value": "%lld filer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wybrano %1$lld plików. TextBox obsługuje łącznie maksymalnie %2$lld załączników. Nie dodano żadnych plików."
+            "value": "%lld plików"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Você selecionou %1$lld arquivos. O TextBox aceita até %2$lld anexos no total. Nenhum arquivo foi adicionado."
+            "value": "%lld arquivos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы выбрали %1$lld файлов. TextBox поддерживает не более %2$lld вложений. Файлы не были добавлены."
+            "value": "%lld файлов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คุณเลือกไฟล์ %1$lld ไฟล์ TextBox รองรับไฟล์แนบรวมสูงสุด %2$lld ไฟล์ ไม่มีการเพิ่มไฟล์"
+            "value": "%lld ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld dosya seçtiniz. TextBox toplam en fazla %2$lld eki destekler. Hiçbir dosya eklenmedi."
+            "value": "%lld dosya"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вибрано файлів: %1$lld. TextBox підтримує загалом до %2$lld вкладень. Жодного файлу не додано."
+            "value": "%lld файлів"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你选择了 %1$lld 个文件。TextBox 最多支持总计 %2$lld 个附件。未添加任何文件。"
+            "value": "%lld 个文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你選取了 %1$lld 個檔案。TextBox 最多支援總計 %2$lld 個附件。未加入任何檔案。"
-          }
-        }
-      }
-    },
-    "textbox.attachmentLimit.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ملفات كثيرة جدًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previše datoteka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For mange filer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zu viele Dateien"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Too Many Files"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demasiados archivos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trop de fichiers"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Troppi file"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルが多すぎます"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឯកសារច្រើនពេក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일이 너무 많습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For mange filer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Za dużo plików"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arquivos demais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Слишком много файлов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไฟล์มากเกินไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çok Fazla Dosya"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Забагато файлів"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文件过多"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檔案過多"
+            "value": "%lld 個檔案"
           }
         }
       }
