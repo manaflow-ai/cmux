@@ -76,15 +76,44 @@ describe("hosted Subrouter client", () => {
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ teamId: "team-1" });
   });
 
-  test("treats an already-absent tenant as successfully deleted", async () => {
+  test("treats a structured already-absent tenant result as successfully deleted", async () => {
     const client = createHostedSubrouterClient({
       baseUrl: "https://sr.example",
       tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
       fetch: (async () =>
-        Response.json({ error: "tenant not found" }, { status: 404 })) as typeof fetch,
+        Response.json({ ok: true, deleted: false })) as typeof fetch,
     });
 
     await expect(client.deleteTenant("stack-access", "team-1")).resolves.toBeUndefined();
+  });
+
+  test("rejects an unexpected tenant deletion route 404", async () => {
+    const client = createHostedSubrouterClient({
+      baseUrl: "https://sr.example",
+      tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+      fetch: (async () =>
+        Response.json({ error: "not found" }, { status: 404 })) as typeof fetch,
+    });
+
+    await expect(
+      client.deleteTenant("stack-access", "team-1"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  test("preserves a hosted credential refresh result", async () => {
+    const client = createHostedSubrouterClient({
+      baseUrl: "https://sr.example",
+      fetch: (async () =>
+        Response.json({ ok: true, refreshState: "refreshed" })) as typeof fetch,
+    });
+
+    await expect(
+      client.reportCredentialLease(
+        "srt_0123456789abcdef0123456789abcdef",
+        "lease-1",
+        { outcome: "unauthorized", statusCode: 401 },
+      ),
+    ).resolves.toEqual({ ok: true, refreshState: "refreshed" });
   });
 
   test("rejects unsupported hosted account provider and auth-mode pairs", async () => {
