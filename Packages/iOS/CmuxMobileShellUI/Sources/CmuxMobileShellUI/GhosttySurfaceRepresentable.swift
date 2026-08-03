@@ -9,7 +9,7 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// Mounts a `GhosttySurfaceView`, routes terminal output, and bridges the SwiftUI
+/// Mounts a `GhosttySurfaceView`, routes terminal output, and installs the native
 /// composer into the surface-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
@@ -23,7 +23,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// software keyboard.
     var autoFocusOnWindowAttach: Bool = true
     /// Whether the iMessage-style composer is open. When it flips on, the
-    /// coordinator mounts the SwiftUI compose field into the surface's composer
+    /// coordinator mounts the native compose field into the surface's composer
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
@@ -120,7 +120,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
         // suppression and the composer's open/closed state. `setComposerActive`
         // handles the first-responder handover that keeps the keyboard up; the
-        // coordinator mounts/unmounts the hosted compose field into the surface's
+        // coordinator mounts/unmounts the native compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
@@ -195,10 +195,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// Same-path taps intentionally classify independently so the newest coordinates
         /// win; human tap rate and the two-second deadline bound concurrent stats.
         var tapGeneration: UInt64 = 0
-        /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
-        /// surface's composer band. Built lazily on first open and torn down on
-        /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
-        private var composerController: UIHostingController<TerminalComposerView>?
+        /// Owns the native terminal composer installed in the surface's composer
+        /// band. Built lazily on first open and torn down on dismantle.
+        private var composerController: TerminalComposerViewController?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
         /// Pending debounced chip unmount; cancelled whenever a positive count
@@ -682,7 +681,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         // MARK: - Composer band hosting
 
-        /// Mount or unmount the SwiftUI compose field into the surface's composer
+        /// Mount or unmount the native compose field into the surface's composer
         /// band so the surface owns its position and grid reservation. Idempotent.
         @MainActor
         func setComposerMounted(_ mounted: Bool) {
@@ -717,13 +716,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        /// Build the hosting controller for the compose field. The field asks for a
+        /// Build the native controller for the compose field. The field asks for a
         /// re-measure (via ``reportComposerHeight(animated:)``) whenever its content
         /// changes; the coordinator measures the ideal height with `sizeThatFits` and
         /// sizes the surface band.
         @MainActor
-        private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(
+        private func makeComposerController(store: CMUXMobileShellStore) -> TerminalComposerViewController {
+            let controller = TerminalComposerViewController(
                 store: store,
                 terminalID: surfaceID,
                 requestHeightRemeasure: { [weak self] in
@@ -739,58 +738,31 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     self?.surfaceView?.resignCurrentInput()
                 }
             )
-            let controller = UIHostingController(rootView: view)
-            // The field is pinned edge-to-edge in the band, so the band frame (not an
-            // intrinsic size) drives the hosting view's height; the measured ideal
-            // height flows separately through `sizeThatFits`. Clear background so the
-            // terminal/glass shows through.
             controller.view.backgroundColor = .clear
-            // Keyboard geometry is owned explicitly by the surface's frame math;
-            // opting out here prevents the hosted field from avoiding it a second time.
-            controller.safeAreaRegions = .container
             return controller
         }
 
-        /// Measure the hosted compose field's ideal height and size the surface band.
-        /// `sizeThatFits` returns the height the content wants independent of the band's
+        /// Measure the native compose field's ideal height and size the surface band.
+        /// Auto Layout returns the height the content wants independent of the band's
         /// current (pinned) frame, so it is not circular: the band height is set FROM
         /// this measurement, and the measurement does not depend on the band height.
         /// The proposed width is the surface width and the proposed height is unbounded
-        /// so a multi-line field measures its full desired height (capped to 14 lines by
-        /// the field's own `lineLimit`).
+        /// so a multi-line field measures its full desired height, capped at 14 lines.
         ///
-        /// `requestHeightRemeasure` fires the instant the field's content changes — a
-        /// `.onChange(of:)` action, or the post-send clear — which is BEFORE SwiftUI has
-        /// committed that change into the hosted controller's view graph. Measuring a
-        /// `UIHostingController` synchronously at that point captures the PRE-change
-        /// (tall) ideal height, so after a send the band stays reserved tall and the
-        /// empty field renders as a tall box that never collapses. It is worst for an
-        /// image-only send: clearing the text fires no `.onChange(of: terminalInputText)`
-        /// (it was already empty), so the stale measurement is never corrected by a
-        /// follow-up. Flush the host's pending SwiftUI update into a concrete layout pass
-        /// BEFORE calling `sizeThatFits` — mirroring the `setNeedsLayout()`/
-        /// `layoutIfNeeded()` the GUI chat composer relies on to keep its hosted-field
-        /// measurement current — so the measurement reflects the new (e.g. collapsed
-        /// one-line) content. `sizeThatFits` re-proposes the surface width itself, so the
-        /// flush only needs to apply the pending content change, not fix the width.
+        /// UIKit applies the text-height constraint before this callback, so the
+        /// fitting measurement always reflects the current draft and attachment row.
         @MainActor
         private func reportComposerHeight(animated: Bool) {
             guard let controller = composerController, let surfaceView else { return }
-            // The hosting controller is mounted before any remeasure, so its view is
-            // loaded; annotate to force-unwrap the `UIView!` rather than infer `UIView?`.
-            let hostView: UIView = controller.view
-            hostView.setNeedsLayout()
-            hostView.layoutIfNeeded()
             let width = max(1, surfaceView.bounds.width)
-            let target = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let fitting = controller.sizeThatFits(in: target)
+            let fittingHeight = controller.fittingHeight(for: width)
             let clampedHeight = min(
-                fitting.height,
+                fittingHeight,
                 floor(surfaceView.bounds.height * 0.45)
             )
-            if clampedHeight < fitting.height {
+            if clampedHeight < fittingHeight {
                 MobileDebugLog.anchormux(
-                    "composer.bandHeightClamped measured=\(fitting.height) clamped=\(clampedHeight)"
+                    "composer.bandHeightClamped measured=\(fittingHeight) clamped=\(clampedHeight)"
                 )
             }
             surfaceView.setComposerBandHeight(clampedHeight, animated: animated)
@@ -805,10 +777,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             reportComposerHeight(animated: true)
         }
 
-        /// Tear the hosting controller down on dismantle so a removed surface does not
-        /// leave a detached SwiftUI host alive.
+        /// Tear the controller down on dismantle so its tasks and input ownership end.
         @MainActor
         func tearDownComposer() {
+            composerController?.prepareForDismantle()
             surfaceView?.mountComposerView(nil)
             composerController = nil
             composerMounted = false

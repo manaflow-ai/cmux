@@ -52,7 +52,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] Modernize its concurrency and prove the fork branch is reachable on
     `manaflow-ai/bonsplit` before updating cmux's pointer.
 - [ ] macOS packages
-  - [ ] `CmuxSettingsUI` (58 import files)
+  - [ ] `CmuxSettingsUI` (3 temporary bridge import files remain; native
+    settings root, navigation, editors, account, and Sleepy controls complete)
   - [x] `CmuxSimulator` (0)
   - [x] `CmuxSwiftRenderUI` (0)
   - [x] `CmuxLiveEval` (0)
@@ -68,11 +69,13 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 248 importing files under `Sources`, including 125 root
-    files, 48 sidebar files, 37 panel files, and every auxiliary window.
+  - [ ] Replace the 33 importing files remaining under `Sources`, including the
+    application root, workspace content, terminal, browser, feed, and sidebar.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
-  - [ ] `CmuxMobileShellUI` (191 import files)
+  - [ ] `CmuxMobileShellUI` (176 import files; notification feed and terminal
+    composer are UIKit)
+  - [ ] `CmuxMobileSupport` (2 shared presentation helper import files)
   - [x] `CmuxAgentChatUI` (0)
   - [x] `CmuxMobileChanges` (0)
   - [x] `CmuxMobileTerminal` (0)
