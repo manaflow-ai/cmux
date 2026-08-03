@@ -297,6 +297,7 @@ struct NotificationsPage: NSViewControllerRepresentable {
 }
 
 struct PanelContentView: NSViewControllerRepresentable {
+    @Environment(\.paneDropZone) private var paneDropZone
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
@@ -403,6 +404,7 @@ struct PanelContentView: NSViewControllerRepresentable {
             terminalAgentContext: terminalAgentContext,
             paneOwnershipOverride: paneOwnershipOverride,
             terminalPaneOwnershipResolver: terminalPaneOwnershipResolver,
+            paneDropZone: paneDropZone,
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
@@ -456,7 +458,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 onResumeAgentHibernation: configuration.onResumeAgentHibernation,
                 onAutoResumeAgentHibernation: configuration.onAutoResumeAgentHibernation,
                 onTriggerFlash: configuration.onTriggerFlash
-            ))
+            ).environment(\.paneDropZone, configuration.paneDropZone))
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return setEmpty() }
             rootView = AnyView(BrowserPanelView(
@@ -467,7 +469,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 portalPriority: configuration.portalPriority,
                 paneOwnershipOverride: configuration.paneOwnershipOverride,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
-            ).id(browserPanel.id))
+            ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return setEmpty() }
             rootView = AnyView(MarkdownPanelView(
@@ -499,7 +501,8 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
             ))
         case .customSidebar:
             guard let sidebarPanel = panel as? CustomSidebarPanel,
-                  let tabManager = configuration.customSidebarTabManager
+                  let tabManager = configuration.customSidebarTabManager,
+                  let windowAppearance = configuration.windowAppearance
             else { return setEmpty() }
             rootView = AnyView(CustomSidebarPanelView(
                 panel: sidebarPanel,
@@ -508,7 +511,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 isFocused: configuration.isFocused,
                 isVisibleInUI: configuration.isVisibleInUI,
                 appearance: configuration.appearance,
-                windowAppearance: configuration.windowAppearance,
+                windowAppearance: windowAppearance,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ))
         case .project:
@@ -1644,141 +1647,6 @@ private final class BonsplitSwiftUIEmptyController: NSHostingController<AnyView>
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-}
-
-@MainActor
-final class DockSplitPanelContentHostingController: NSHostingController<AnyView>,
-    BonsplitContentUpdating,
-    BonsplitPaneDropZoneReceiving
-{
-    private let context: DockSplitPresentationContext
-    private var tab: Bonsplit.Tab
-    private var paneID: PaneID
-    private var dropZone: DropZone?
-
-    init(context: DockSplitPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
-        self.context = context
-        self.tab = tab
-        self.paneID = paneID
-        super.init(rootView: AnyView(EmptyView()))
-        sizingOptions = []
-        render()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
-        self.tab = tab
-        self.paneID = pane
-        render()
-    }
-
-    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
-        dropZone = zone
-        render()
-    }
-
-    private func render() {
-        guard let panel = context.store.panel(for: tab.id) else {
-            rootView = AnyView(EmptyView())
-            return
-        }
-        rootView = AnyView(
-            DockSplitPanelContentView(
-                store: context.store,
-                panel: panel,
-                tabID: tab.id,
-                paneID: paneID,
-                appearance: context.appearance,
-                appearanceRevision: context.appearanceRevision,
-                windowAppearance: context.windowAppearance,
-                rightSidebarOwnsInputFocus: context.rightSidebarOwnsInputFocus,
-                hasUnreadNotification: context.unreadPanelIDs.contains(panel.id)
-            )
-            .equatable()
-            .environment(\.paneDropZone, dropZone)
-            .onTapGesture {
-                context.store.bonsplitController.focusPane(paneID)
-            }
-        )
-    }
-}
-
-@MainActor
-final class RemoteTmuxTerminalHostingController: NSHostingController<AnyView>,
-    BonsplitContentUpdating,
-    BonsplitPaneDropZoneReceiving
-{
-    private let context: RemoteTmuxMirrorPresentationContext
-    private var tab: Bonsplit.Tab
-    private var paneID: PaneID
-    private var dropZone: DropZone?
-
-    init(context: RemoteTmuxMirrorPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
-        self.context = context
-        self.tab = tab
-        self.paneID = paneID
-        super.init(rootView: AnyView(EmptyView()))
-        sizingOptions = []
-        render()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
-        self.tab = tab
-        self.paneID = pane
-        render()
-    }
-
-    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
-        dropZone = zone
-        render()
-    }
-
-    private func render() {
-        guard let tmuxPaneID = context.mirror.tmuxPaneId(forTab: tab.id),
-              let panel = context.mirror.panel(forPane: tmuxPaneID)
-        else {
-            rootView = AnyView(Color(nsColor: context.appearance.backgroundColor))
-            return
-        }
-        rootView = AnyView(
-            TerminalPanelView(
-                panel: panel,
-                paneId: paneID,
-                isFocused: context.isOuterFocused && context.mirror.isFocused(tabId: tab.id),
-                isVisibleInUI: context.isVisibleInUI,
-                portalPaneOwnershipResolver: {
-                    context.mirror.bonsplitController.selectedTab(inPane: paneID)?.id == tab.id
-                },
-                portalPriority: context.portalPriority,
-                isSplit: true,
-                appearance: context.appearance,
-                hasUnreadNotification: context.unreadSurfaceIDs.contains(panel.id),
-                terminalAgentContext: "",
-                onFocus: {
-                    context.onOuterFocus()
-                    context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
-                },
-                onResumeAgentHibernation: {},
-                onAutoResumeAgentHibernation: {},
-                onTriggerFlash: {}
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .environment(\.paneDropZone, dropZone)
-            .onTapGesture {
-                context.onOuterFocus()
-                context.mirror.bonsplitController.focusPane(paneID)
-            }
-        )
     }
 }
 

@@ -18,13 +18,14 @@ struct PanelContentConfiguration {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
-    let windowAppearance: WindowAppearanceSnapshot
+    let windowAppearance: WindowAppearanceSnapshot?
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
     let paneOwnershipOverride: Bool?
     let terminalPaneOwnershipResolver: (@MainActor () -> Bool)?
+    let paneDropZone: DropZone?
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void

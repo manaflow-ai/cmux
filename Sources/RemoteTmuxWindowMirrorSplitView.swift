@@ -66,7 +66,7 @@ final class RemoteTmuxWindowMirrorSplitViewController: NSViewController {
         self.bonsplitViewController = BonsplitViewController(
             controller: mirror.bonsplitController,
             content: { tab, paneID in
-                RemoteTmuxTerminalHostingController(context: context, tab: tab, paneID: paneID)
+                RemoteTmuxTerminalContentController(context: context, tab: tab, paneID: paneID)
             },
             emptyPane: { _ in
                 RemoteTmuxEmptyPaneViewController()
@@ -194,6 +194,128 @@ final class RemoteTmuxWindowMirrorSplitViewController: NSViewController {
             ?? 1
         pushClientSize(pointSize: containerView.bounds.size, scale: scale)
         context.mirror.setNeedsSizingPassIgnoringInputs()
+    }
+}
+
+@MainActor
+private final class RemoteTmuxTerminalContentController: NSViewController,
+    BonsplitContentUpdating,
+    BonsplitPaneDropZoneReceiving
+{
+    private let context: RemoteTmuxMirrorPresentationContext
+    private let containerView = NSView()
+    private var tab: Bonsplit.Tab
+    private var paneID: PaneID
+    private var dropZone: DropZone?
+    private var panelController: PanelContentViewController?
+
+    init(context: RemoteTmuxMirrorPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
+        self.context = context
+        self.tab = tab
+        self.paneID = paneID
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        containerView.wantsLayer = true
+        let click = NSClickGestureRecognizer(target: self, action: #selector(focusPane(_:)))
+        click.delaysPrimaryMouseButtonEvents = false
+        containerView.addGestureRecognizer(click)
+        view = containerView
+        render()
+    }
+
+    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
+        self.tab = tab
+        self.paneID = pane
+        render()
+    }
+
+    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
+        dropZone = zone
+        render()
+    }
+
+    private func render() {
+        guard isViewLoaded,
+              let tmuxPaneID = context.mirror.tmuxPaneId(forTab: tab.id),
+              let panel = context.mirror.panel(forPane: tmuxPaneID)
+        else {
+            removePanelController()
+            containerView.layer?.backgroundColor = context.appearance.backgroundColor.cgColor
+            return
+        }
+        containerView.layer?.backgroundColor = context.appearance.backgroundColor.cgColor
+        let currentTabID = tab.id
+        let currentPaneID = paneID
+        let configuration = PanelContentConfiguration(
+            panel: panel,
+            workspaceID: panel.workspaceId,
+            paneID: currentPaneID,
+            isFocused: context.isOuterFocused && context.mirror.isFocused(tabId: currentTabID),
+            isSelectedInPane: context.mirror.bonsplitController.selectedTab(inPane: currentPaneID)?.id == currentTabID,
+            isVisibleInUI: context.isVisibleInUI,
+            allowsPointerInput: context.isVisibleInUI,
+            pointerEntryEventFilter: nil,
+            portalPriority: context.portalPriority,
+            isSplit: true,
+            appearance: context.appearance,
+            windowAppearance: nil,
+            customSidebarTabManager: nil,
+            customSidebarUnread: TerminalNotificationStore.shared.sidebarUnread,
+            hasUnreadNotification: context.unreadSurfaceIDs.contains(panel.id),
+            terminalAgentContext: "",
+            paneOwnershipOverride: nil,
+            terminalPaneOwnershipResolver: {
+                context.mirror.bonsplitController.selectedTab(inPane: currentPaneID)?.id == currentTabID
+            },
+            paneDropZone: dropZone,
+            onFocus: {
+                context.onOuterFocus()
+                context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
+            },
+            onRequestPanelFocus: {
+                context.onOuterFocus()
+                context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
+            },
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
+        )
+        if let panelController {
+            panelController.update(configuration: configuration)
+            return
+        }
+        let controller = PanelContentViewController(configuration: configuration)
+        panelController = controller
+        addChild(controller)
+        let child = controller.view
+        child.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(child)
+        NSLayoutConstraint.activate([
+            child.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            child.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            child.topAnchor.constraint(equalTo: containerView.topAnchor),
+            child.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ])
+    }
+
+    private func removePanelController() {
+        guard let panelController else { return }
+        panelController.teardown()
+        panelController.view.removeFromSuperview()
+        panelController.removeFromParent()
+        self.panelController = nil
+    }
+
+    @objc private func focusPane(_ sender: NSClickGestureRecognizer) {
+        context.onOuterFocus()
+        context.mirror.bonsplitController.focusPane(paneID)
     }
 }
 

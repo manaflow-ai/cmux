@@ -1,101 +1,110 @@
 import AppKit
 import Bonsplit
-import CmuxAppKitSupportUI
-import SwiftUI
 
-/// Isolates one Dock panel behind an immutable render snapshot so unread
-/// changes for another keep-alive tab do not update this panel's AppKit host.
-struct DockSplitPanelContentView: View, Equatable {
-    private struct RenderSnapshot: Equatable {
-        let storeID: ObjectIdentifier
-        let workspaceID: UUID
-        let panelID: UUID
-        let panelType: PanelType
-        let tabID: TabID
-        let paneID: PaneID
-        let rightSidebarOwnsInputFocus: Bool
-        let hasUnreadNotification: Bool
-        let appearanceRevision: UInt
-    }
+/// Native Bonsplit content controller for one Dock tab. It preserves the
+/// ``PanelContentViewController`` across appearance and unread refreshes.
+@MainActor
+final class DockSplitPanelContentHostingController: NSViewController,
+    BonsplitContentUpdating,
+    BonsplitPaneDropZoneReceiving
+{
+    private let context: DockSplitPresentationContext
+    private let containerView = NSView()
+    private var tab: Bonsplit.Tab
+    private var paneID: PaneID
+    private var dropZone: DropZone?
+    private var panelController: PanelContentViewController?
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.renderSnapshot == rhs.renderSnapshot
-    }
-
-    let store: DockSplitStore
-    let panel: any Panel
-    let tabID: TabID
-    let paneID: PaneID
-    let appearance: PanelAppearance
-    let windowAppearance: WindowAppearanceSnapshot
-    let rightSidebarOwnsInputFocus: Bool
-    let hasUnreadNotification: Bool
-
-    private let renderSnapshot: RenderSnapshot
-
-    init(
-        store: DockSplitStore,
-        panel: any Panel,
-        tabID: TabID,
-        paneID: PaneID,
-        appearance: PanelAppearance,
-        appearanceRevision: UInt,
-        windowAppearance: WindowAppearanceSnapshot,
-        rightSidebarOwnsInputFocus: Bool,
-        hasUnreadNotification: Bool
-    ) {
-        self.store = store
-        self.panel = panel
-        self.tabID = tabID
+    init(context: DockSplitPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
+        self.context = context
+        self.tab = tab
         self.paneID = paneID
-        self.appearance = appearance
-        self.windowAppearance = windowAppearance
-        self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
-        self.hasUnreadNotification = hasUnreadNotification
-        // Dock stores admit only terminal/browser panels; neither shared branch
-        // consumes `windowAppearance`, so it is intentionally outside this key.
-        renderSnapshot = RenderSnapshot(
-            storeID: ObjectIdentifier(store),
-            workspaceID: store.workspaceId,
-            panelID: panel.id,
-            panelType: panel.panelType,
-            tabID: tabID,
-            paneID: paneID,
-            rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
-            hasUnreadNotification: hasUnreadNotification,
-            appearanceRevision: appearanceRevision
-        )
+        super.init(nibName: nil, bundle: nil)
     }
 
-    var body: some View {
-        panelContentView()
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    func panelContentView() -> PanelContentView {
-        let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
-        let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneID)?.id == tabID
+    override func loadView() {
+        containerView.wantsLayer = true
+        let click = NSClickGestureRecognizer(target: self, action: #selector(focusPane(_:)))
+        click.delaysPrimaryMouseButtonEvents = false
+        containerView.addGestureRecognizer(click)
+        view = containerView
+        render()
+    }
+
+    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
+        self.tab = tab
+        self.paneID = pane
+        render()
+    }
+
+    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
+        dropZone = zone
+        render()
+    }
+
+    private func render() {
+        guard isViewLoaded,
+              let panel = context.store.panel(for: tab.id)
+        else {
+            removePanelController()
+            containerView.layer?.backgroundColor = context.appearance.backgroundColor.cgColor
+            return
+        }
+        containerView.layer?.backgroundColor = context.appearance.backgroundColor.cgColor
+        let configuration = makeConfiguration(panel: panel)
+        if let panelController {
+            panelController.update(configuration: configuration)
+            return
+        }
+        let controller = PanelContentViewController(configuration: configuration)
+        panelController = controller
+        addChild(controller)
+        let child = controller.view
+        child.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(child)
+        NSLayoutConstraint.activate([
+            child.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            child.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            child.topAnchor.constraint(equalTo: containerView.topAnchor),
+            child.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ])
+    }
+
+    private func makeConfiguration(panel: any Panel) -> PanelContentConfiguration {
+        let store = context.store
+        let isFocused = store.panelIsActiveInVisibleDockPane(panel.id)
+            && context.rightSidebarOwnsInputFocus
+        let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneID)?.id == tab.id
         let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
-        let isSplit = store.bonsplitController.allPaneIds.count > 1
-        return PanelContentView(
+        let currentPaneID = paneID
+        return PanelContentConfiguration(
             panel: panel,
-            workspaceId: store.workspaceId,
-            paneId: paneID,
+            workspaceID: store.workspaceId,
+            paneID: paneID,
             isFocused: isFocused,
             isSelectedInPane: isSelectedInPane,
             isVisibleInUI: isVisibleInUI,
             allowsPointerInput: isVisibleInUI,
+            pointerEntryEventFilter: nil,
             portalPriority: 1,
-            isSplit: isSplit,
-            appearance: appearance,
-            windowAppearance: windowAppearance,
+            isSplit: store.bonsplitController.allPaneIds.count > 1,
+            appearance: context.appearance,
+            windowAppearance: context.windowAppearance,
             customSidebarTabManager: nil,
-            hasUnreadNotification: hasUnreadNotification,
+            customSidebarUnread: TerminalNotificationStore.shared.sidebarUnread,
+            hasUnreadNotification: context.unreadPanelIDs.contains(panel.id),
             terminalAgentContext: "",
             paneOwnershipOverride: isVisibleInUI,
             terminalPaneOwnershipResolver: {
-                guard store.paneId(forPanelId: panel.id)?.id == paneID.id else { return false }
+                guard store.paneId(forPanelId: panel.id)?.id == currentPaneID.id else { return false }
                 return store.panelIsSelectedInVisibleDockPane(panel.id)
             },
+            paneDropZone: dropZone,
             onFocus: {
                 store.focusPanelFromDockInteraction(
                     panel.id,
@@ -116,5 +125,17 @@ struct DockSplitPanelContentView: View, Equatable {
             },
             onTriggerFlash: {}
         )
+    }
+
+    private func removePanelController() {
+        guard let panelController else { return }
+        panelController.teardown()
+        panelController.view.removeFromSuperview()
+        panelController.removeFromParent()
+        self.panelController = nil
+    }
+
+    @objc private func focusPane(_ sender: NSClickGestureRecognizer) {
+        context.store.bonsplitController.focusPane(paneID)
     }
 }
