@@ -1030,15 +1030,16 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
     ):
         block = workflow_job(release, job)
         state_check = block.index(f"- name: Check the PyPI {artifact} state")
-        install = block.index("- name: Install the pinned PyPI provenance verifier")
         revalidate = block.index(
             f"- name: Revalidate PyPI ownership immediately before {artifact} upload"
         )
         publish = block.index(f"- name: Publish {artifact} to PyPI")
         authority = block[revalidate:publish]
-        assert state_check < install < revalidate < publish
+        assert state_check < revalidate < publish
         assert f"if: steps.{state}.outputs.status == 'missing'" in authority
         assert "verify_release_registry_authority.sh pypi" in authority
+        assert "pypi-attestations" not in block
+        assert "actions/setup-python@" not in block
 
     assert "verify_crates_ownership.py" in authority_helper
     assert "--package cmux-client" in authority_helper
@@ -1050,6 +1051,7 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
     assert "--publisher owner" in authority_helper
     assert "--workflow-ref refs/heads/main" in authority_helper
     assert "verify_pypi_provenance.py" in authority_helper
+    assert "--authority-only" in authority_helper
     assert "--version 0.0.0a0" in authority_helper
     assert "--workflow sdk-bootstrap-pypi.yml" in authority_helper
     assert "--environment pypi-bootstrap" in authority_helper

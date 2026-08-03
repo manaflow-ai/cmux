@@ -136,6 +136,32 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
             self.assertTrue(command[-1].endswith(filename))
             self.assertEqual(call.kwargs["timeout"], 60)
 
+    def test_authority_only_uses_registry_metadata_without_external_code(self) -> None:
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(self.filenames),
+        ), mock.patch.object(
+            provenance.subprocess,
+            "run",
+        ) as run, mock.patch.object(
+            provenance,
+            "_certificate_claim_sets",
+        ) as certificate_claim_sets:
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                self.owners,
+                self.workflow,
+                self.environment,
+                authority_only=True,
+            )
+
+        run.assert_not_called()
+        certificate_claim_sets.assert_not_called()
+
     def test_rejects_missing_or_unexpected_files_before_verification(self) -> None:
         with mock.patch.object(
             provenance,
@@ -325,6 +351,21 @@ class VerifyPyPIProvenanceTests(unittest.TestCase):
                 self.environment,
                 self.expected_commit,
                 None,
+            )
+
+    def test_authority_only_rejects_cryptographic_claim_inputs(self) -> None:
+        with self.assertRaisesRegex(provenance.ProvenanceError, "authority-only"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.filenames,
+                self.repository,
+                self.owners,
+                self.workflow,
+                self.environment,
+                self.expected_commit,
+                self.expected_ref,
+                authority_only=True,
             )
 
 
