@@ -811,6 +811,21 @@ struct SidebarWorkspaceLoadingSpinner: View {
     }
 }
 
+struct WorkspaceAttentionFlashRingView: NSViewRepresentable {
+    let opacity: Double
+    var reason: WorkspaceAttentionFlashReason = .navigation
+
+    func makeNSView(context: Context) -> WorkspaceAttentionFlashRingNativeView {
+        let view = WorkspaceAttentionFlashRingNativeView(frame: .zero)
+        view.update(opacity: opacity, reason: reason)
+        return view
+    }
+
+    func updateNSView(_ view: WorkspaceAttentionFlashRingNativeView, context: Context) {
+        view.update(opacity: opacity, reason: reason)
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 

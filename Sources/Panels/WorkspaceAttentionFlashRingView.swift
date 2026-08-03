@@ -1,20 +1,48 @@
-import SwiftUI
+import AppKit
 
-struct WorkspaceAttentionFlashRingView: View {
-    let opacity: Double
-    var reason: WorkspaceAttentionFlashReason = .navigation
+@MainActor
+final class WorkspaceAttentionFlashRingNativeView: NSView {
+    private let shapeLayer = CAShapeLayer()
+    private var ringOpacity = 0.0
+    private var reason: WorkspaceAttentionFlashReason = .navigation
 
-    var body: some View {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.addSublayer(shapeLayer)
+        shapeLayer.fillColor = NSColor.clear.cgColor
+        shapeLayer.lineWidth = PanelOverlayRingMetrics.lineWidth
+        update(opacity: 0, reason: .navigation)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        shapeLayer.frame = bounds
+        shapeLayer.path = CGPath(
+            roundedRect: PanelOverlayRingMetrics.pathRect(in: bounds),
+            cornerWidth: PanelOverlayRingMetrics.cornerRadius,
+            cornerHeight: PanelOverlayRingMetrics.cornerRadius,
+            transform: nil
+        )
+    }
+
+    func update(opacity: Double, reason: WorkspaceAttentionFlashReason) {
+        ringOpacity = opacity
+        self.reason = reason
         let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let color = Color(nsColor: presentation.accent.strokeColor)
-
-        RoundedRectangle(cornerRadius: CGFloat(FocusFlashPattern.ringCornerRadius))
-            .stroke(color.opacity(opacity), lineWidth: PanelOverlayRingMetrics.lineWidth)
-            .shadow(
-                color: color.opacity(opacity * presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-            .padding(CGFloat(FocusFlashPattern.ringInset))
-            .allowsHitTesting(false)
+        let color = presentation.accent.strokeColor
+        shapeLayer.strokeColor = color.withAlphaComponent(CGFloat(opacity)).cgColor
+        shapeLayer.shadowColor = color.cgColor
+        shapeLayer.shadowOpacity = Float(opacity * presentation.glowOpacity)
+        shapeLayer.shadowRadius = presentation.glowRadius
+        shapeLayer.shadowOffset = .zero
+        needsLayout = true
     }
 }
