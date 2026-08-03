@@ -245,7 +245,8 @@ final class WorkspaceContentViewVisibilityTests {
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
-            windowId: UUID()
+            windowId: UUID(),
+            appStorageDefaults: defaults
         )
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
@@ -302,6 +303,27 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func contentViewDefaultsStorePublishesRelevantChanges() async throws {
+        let suiteName = "ContentViewDefaultsStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = ContentViewDefaultsStore(defaults: defaults)
+        #expect(!store.snapshot.sidebarMatchTerminalBackground)
+        #expect(store.snapshot.activePaneBorderColorHex == PaneChromeSettings.defaultColorHex)
+
+        store.toggleSidebarMatchTerminalBackground()
+        defaults.set("#123456", forKey: PaneChromeSettings.activePaneBorderColorKey)
+        await Self.drainMainRunLoop()
+
+        #expect(defaults.bool(forKey: "sidebarMatchTerminalBackground"))
+        #expect(store.snapshot.sidebarMatchTerminalBackground)
+        #expect(store.snapshot.activePaneBorderColorHex == "#123456")
+    }
+
+    @Test
+    @MainActor
     func workspaceInsertionInvalidatesSidebarWithoutRebuildingContentRoot() async throws {
         _ = NSApplication.shared
 
@@ -321,7 +343,8 @@ final class WorkspaceContentViewVisibilityTests {
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
-            windowId: UUID()
+            windowId: UUID(),
+            appStorageDefaults: defaults
         )
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
@@ -404,7 +427,8 @@ final class WorkspaceContentViewVisibilityTests {
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
             windowId: UUID(),
-            sidebarUnread: unread
+            sidebarUnread: unread,
+            appStorageDefaults: defaults
         )
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
@@ -625,6 +649,14 @@ final class WorkspaceContentViewVisibilityTests {
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
             window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(iterations: Int = 20) async {
+        for _ in 0..<iterations {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }

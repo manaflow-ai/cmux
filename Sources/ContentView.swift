@@ -863,7 +863,8 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        appStorageDefaults: UserDefaults = .standard
     ) {
         self.updateViewModel = updateViewModel
         self.tabManager = tabManager
@@ -872,6 +873,9 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
+        _defaultsStore = State(
+            initialValue: ContentViewDefaultsStore(defaults: appStorageDefaults)
+        )
     }
 
     // Unread state is read imperatively by actions and passed to leaf observers.
@@ -886,16 +890,16 @@ struct ContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
-    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
-    @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
-    @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
-    @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
-    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
-    private var selectedLeftSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @State private var defaultsStore: ContentViewDefaultsStore
+    private var titlebarControlsStyleRawValue: Int { defaultsStore.snapshot.titlebarControlsStyleRawValue }
+    private var rightSidebarMaxWidthSetting: Double { defaultsStore.snapshot.rightSidebarMaxWidthSetting }
+    private var sidebarMinimumWidthSetting: Double { defaultsStore.snapshot.sidebarMinimumWidthSetting }
+    private var titlebarLeftControlsLeadingInset: Double { defaultsStore.snapshot.titlebarLeftControlsLeadingInset }
+    private var titlebarLeftControlsTopInset: Double { defaultsStore.snapshot.titlebarLeftControlsTopInset }
+    private var titlebarTrafficLightTabBarInset: Double { defaultsStore.snapshot.titlebarTrafficLightTabBarInset }
+    private var titlebarTrafficLightTitlebarLeadingInset: Double { defaultsStore.snapshot.titlebarTrafficLightTitlebarLeadingInset }
+    private var activePaneBorderColorHex: String { defaultsStore.snapshot.activePaneBorderColorHex }
+    private var selectedLeftSidebarProviderId: String { defaultsStore.snapshot.selectedSidebarProviderId }
     @LiveSetting(\.betaFeatures.extensions) private var leftSidebarExtensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var leftSidebarCustomSidebarsExperimentalEnabled
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
@@ -999,11 +1003,13 @@ struct ContentView: View {
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
-    @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
-    private var commandPaletteRenameSelectAllOnFocus = AppCatalogSection().renameSelectsExistingName.defaultValue
-    @AppStorage(AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey)
-    private var commandPaletteSearchAllSurfaces = AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue
-    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    private var commandPaletteRenameSelectAllOnFocus: Bool {
+        defaultsStore.snapshot.commandPaletteRenameSelectAllOnFocus
+    }
+    private var commandPaletteSearchAllSurfaces: Bool {
+        defaultsStore.snapshot.commandPaletteSearchAllSurfaces
+    }
+    private var appearanceMode: String { defaultsStore.snapshot.appearanceMode }
     @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
@@ -1759,6 +1765,10 @@ struct ContentView: View {
                 )
             },
             observedWindowReference: observedWindowReference,
+            selectedExtensionSidebarProviderId: selectedLeftSidebarProviderId,
+            sidebarMatchTerminalBackground: sidebarMatchTerminalBackground,
+            titlebarLeftControlsLeadingInset: titlebarLeftControlsLeadingInset,
+            titlebarLeftControlsTopInset: titlebarLeftControlsTopInset,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -2048,21 +2058,21 @@ struct ContentView: View {
         }
     }
 
-    @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
-    @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
-    @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
-    @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
-    @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
-    @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
-    @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
+    private var sidebarBlendMode: String { defaultsStore.snapshot.sidebarBlendMode }
+    private var sidebarMatchTerminalBackground: Bool { defaultsStore.snapshot.sidebarMatchTerminalBackground }
+    private var sidebarTintOpacity: Double { defaultsStore.snapshot.sidebarTintOpacity }
+    private var sidebarTintHex: String { defaultsStore.snapshot.sidebarTintHex }
+    private var sidebarTintHexLight: String? { defaultsStore.snapshot.sidebarTintHexLight }
+    private var sidebarTintHexDark: String? { defaultsStore.snapshot.sidebarTintHexDark }
+    private var sidebarMaterial: String { defaultsStore.snapshot.sidebarMaterial }
+    private var sidebarStateSetting: String { defaultsStore.snapshot.sidebarStateSetting }
+    private var sidebarCornerRadius: Double { defaultsStore.snapshot.sidebarCornerRadius }
+    private var sidebarBlurOpacity: Double { defaultsStore.snapshot.sidebarBlurOpacity }
 
     // Background glass settings
-    @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
-    @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    private var bgGlassTintHex: String { defaultsStore.snapshot.bgGlassTintHex }
+    private var bgGlassTintOpacity: Double { defaultsStore.snapshot.bgGlassTintOpacity }
+    private var bgGlassEnabled: Bool { defaultsStore.snapshot.bgGlassEnabled }
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
@@ -8359,7 +8369,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
-            sidebarMatchTerminalBackground.toggle()
+            defaultsStore.toggleSidebarMatchTerminalBackground()
         }
         registry.register(commandId: "palette.enableMinimalMode") {
             UserDefaults.standard.set(
@@ -10541,6 +10551,10 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
+            && lhs.selectedExtensionSidebarProviderId == rhs.selectedExtensionSidebarProviderId
+            && lhs.sidebarMatchTerminalBackground == rhs.sidebarMatchTerminalBackground
+            && lhs.titlebarLeftControlsLeadingInset == rhs.titlebarLeftControlsLeadingInset
+            && lhs.titlebarLeftControlsTopInset == rhs.titlebarLeftControlsTopInset
     }
 
     var updateViewModel: UpdateStateModel
@@ -10557,6 +10571,10 @@ struct VerticalTabsSidebar: View, Equatable {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindowReference: WeakWindowReference
+    let selectedExtensionSidebarProviderId: String
+    let sidebarMatchTerminalBackground: Bool
+    let titlebarLeftControlsLeadingInset: Double
+    let titlebarLeftControlsTopInset: Double
     var observedWindow: NSWindow? { observedWindowReference.window }
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
@@ -10585,8 +10603,6 @@ struct VerticalTabsSidebar: View, Equatable {
         Empty<Void, Never>().eraseToAnyPublisher()
     @State private var extensionSidebarDebouncedObservationPublisher: AnyPublisher<Void, Never> =
         Empty<Void, Never>().eraseToAnyPublisher()
-    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
-    private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -10649,13 +10665,6 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
-
-    @AppStorage("sidebarMatchTerminalBackground")
-    private var sidebarMatchTerminalBackground = false
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-    private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
-    private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
     let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(40)

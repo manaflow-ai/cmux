@@ -212,7 +212,8 @@ struct SidebarHiddenPresentationTests {
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
             windowId: UUID(),
-            featureFlags: featureFlags
+            featureFlags: featureFlags,
+            appStorageDefaults: defaults
         )
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
