@@ -995,6 +995,56 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
     assert "sha256sum" in bootstrap_publish
 
 
+def test_publishers_revalidate_registry_authority_after_environment_approval() -> None:
+    release = workflow("sdk-release-cut.yml")
+
+    for job in ("publish-crate-client", "publish-crate-sidebar"):
+        block = workflow_job(release, job)
+        revalidate = block.index(
+            "- name: Revalidate crates.io ownership immediately before authentication"
+        )
+        authenticate = block.index("- name: Authenticate")
+        authority = block[revalidate:authenticate]
+        assert revalidate < authenticate
+        assert "verify_crates_ownership.py" in authority
+        assert "--package cmux-client" in authority
+        assert "--package cmux-sidebar" in authority
+        assert "--owner-id 431397" in authority
+        assert "--owner-login lawrencecchen" in authority
+
+    npm = workflow_job(release, "publish-npm")
+    npm_setup = npm.index("- name: Install npm with OIDC trusted publishing support")
+    npm_revalidate = npm.index(
+        "- name: Revalidate npm ownership immediately before publishing"
+    )
+    npm_publish = npm.index("- name: Publish package to npm")
+    npm_authority = npm[npm_revalidate:npm_publish]
+    assert npm_setup < npm_revalidate < npm_publish
+    assert "verify_npm_provenance.py" in npm_authority
+    assert "--version 0.0.0-bootstrap.0" in npm_authority
+    assert "--publisher owner" in npm_authority
+    assert "--workflow-ref refs/heads/main" in npm_authority
+
+    for job, state, artifact in (
+        ("publish-python-wheel", "wheel_state", "wheel"),
+        ("publish-python-sdist", "sdist_state", "source distribution"),
+    ):
+        block = workflow_job(release, job)
+        state_check = block.index(f"- name: Check the PyPI {artifact} state")
+        install = block.index("- name: Install the pinned PyPI provenance verifier")
+        revalidate = block.index(
+            f"- name: Revalidate PyPI ownership immediately before {artifact} upload"
+        )
+        publish = block.index(f"- name: Publish {artifact} to PyPI")
+        authority = block[revalidate:publish]
+        assert state_check < install < revalidate < publish
+        assert f"if: steps.{state}.outputs.status == 'missing'" in authority
+        assert "verify_pypi_provenance.py" in authority
+        assert "--version 0.0.0a0" in authority
+        assert "--workflow sdk-bootstrap-pypi.yml" in authority
+        assert "--environment pypi-bootstrap" in authority
+
+
 def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
     release = workflow("sdk-release-cut.yml")
 
