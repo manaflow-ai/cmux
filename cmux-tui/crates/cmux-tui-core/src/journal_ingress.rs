@@ -482,6 +482,10 @@ mod tests {
                 panic!("expected terminal output")
             };
             assert_eq!(bytes.len(), expected_len);
+            assert!(
+                bytes.capacity() <= TERMINAL_OUTPUT_INGRESS_BYTES,
+                "one small queued chunk retained the complete ingress allocation"
+            );
             assert_eq!(occurred_at_ms, 42);
             rebuilt.extend_from_slice(&bytes);
         }
