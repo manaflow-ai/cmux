@@ -5,7 +5,7 @@ import Testing
 @testable import cmux_DEV
 
 #if DEBUG
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarWorkspaceTableSuspensionTests {
     @Test
