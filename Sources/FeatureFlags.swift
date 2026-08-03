@@ -59,7 +59,6 @@ final class CmuxFeatureFlags {
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
-    private static let appKitSidebarListDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -68,24 +67,6 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
-
-    // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-    // Renders the workspace sidebar with the AppKit NSTableView list
-    // (virtualized rows, measured-once heights) instead of the SwiftUI
-    // LazyVStack. On by default after the remote rollout reached 100%.
-    static let appKitSidebarListFlag = CmuxFeatureFlagDefinition(
-        key: "sidebar-appkit-list-experiment",
-        title: String(
-            localized: "featureFlags.appKitSidebarList.title",
-            defaultValue: "Lawrence Sidebar"
-        ),
-        flagDescription: String(
-            localized: "featureFlags.appKitSidebarList.description",
-            defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
-        ),
-        defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
-    )
 
     // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -243,8 +224,6 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
             ),
 
-            CmuxFeatureFlags.appKitSidebarListFlag,
-
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
         ]
     }()
@@ -279,10 +258,6 @@ final class CmuxFeatureFlags {
 
     var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[7])
-    }
-
-    var isAppKitSidebarListEnabled: Bool {
-        effectiveValue(for: Self.appKitSidebarListFlag)
     }
 
     var isMobileWorkspaceChangesEnabled: Bool {

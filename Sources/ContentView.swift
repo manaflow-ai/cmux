@@ -1579,69 +1579,34 @@ struct ContentView: View {
         availableWidth: CGFloat,
         accessibilityIdentifier: String? = nil
     ) -> some View {
-        let base = sidebarResizerHandleBase(handle, width: width)
-        if featureFlags.isAppKitSidebarListEnabled {
-            base
-                .overlay(
-                    // Native divider tracking (NSSplitView's technique): a
-                    // synchronous event loop that commits and presents each
-                    // width change inside the mouse event.
-                    SidebarDividerTracker(
-                        onBegan: {
-                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-                                owner: tabManager,
-                                in: observedWindow
-                            )
-                            isResizerDragging = true
-                            config.captureStart()
-                            activateSidebarResizerCursor()
-                        },
-                        onChanged: { translation in
-                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            config.updateWidth(translation)
-                        },
-                        onEnded: {
-                            TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
-                            isResizerDragging = false
-                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            config.finishDrag()
-                            activateSidebarResizerCursor()
-                            scheduleSidebarResizerCursorRelease()
-                        }
-                    )
+        sidebarResizerHandleBase(handle, width: width)
+            .overlay(
+                SidebarDividerTracker(
+                    onBegan: {
+                        let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+                            owner: tabManager,
+                            in: observedWindow
+                        )
+                        isResizerDragging = true
+                        config.captureStart()
+                        activateSidebarResizerCursor()
+                    },
+                    onChanged: { translation in
+                        let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                        config.updateWidth(translation)
+                    },
+                    onEnded: {
+                        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
+                        isResizerDragging = false
+                        let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                        config.finishDrag()
+                        activateSidebarResizerCursor()
+                        scheduleSidebarResizerCursorRelease()
+                    }
                 )
-                .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
-        } else {
-            base
-                .gesture(
-                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                        .onChanged { value in
-                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            if !isResizerDragging {
-                                TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-                                    owner: tabManager,
-                                    in: observedWindow
-                                )
-                                isResizerDragging = true
-                                config.captureStart()
-                            }
-                            activateSidebarResizerCursor()
-                            config.updateWidth(value.translation.width)
-                        }
-                        .onEnded { _ in
-                            if isResizerDragging {
-                                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
-                                isResizerDragging = false
-                                let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                                config.finishDrag()
-                            }
-                            activateSidebarResizerCursor()
-                            scheduleSidebarResizerCursorRelease()
-                        }
-                )
-                .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
-        }
+            )
+            .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
     }
 
     private func sidebarResizerHandleBase(
@@ -1757,17 +1722,7 @@ struct ContentView: View {
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClientStore: sidebarRenderWorkerClientStore
         )
-        return Group {
-            if featureFlags.isAppKitSidebarListEnabled {
-                // FLAG(sidebar-appkit-list-experiment): parent-driven
-                // re-evaluations (divider width ticks, unrelated ContentView
-                // state churn) skip the sidebar subtree; all sidebar content
-                // flows through tracked dependencies that bypass the gate.
-                sidebar.equatable()
-            } else {
-                sidebar
-            }
-        }
+        return sidebar.equatable()
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(SidebarPointerEventHost(
@@ -2559,19 +2514,16 @@ struct ContentView: View {
 
     private var retainsDefaultAppKitSidebarWhenHidden: Bool {
         Self.retainsDefaultAppKitSidebar(
-            appKitListEnabled: featureFlags.isAppKitSidebarListEnabled,
             effectiveProviderId: effectiveLeftSidebarProviderId
         )
     }
 
     static func retainsDefaultAppKitSidebar(
-        appKitListEnabled: Bool,
         effectiveProviderId: String
     ) -> Bool {
-        appKitListEnabled
-            && CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
-                effectiveProviderId: effectiveProviderId
-            )
+        CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+            effectiveProviderId: effectiveProviderId
+        )
     }
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
@@ -11147,28 +11099,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
-        // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
-        Group {
-            if featureFlags.isAppKitSidebarListEnabled {
-                AnyView(
-                    appKitWorkspaceScrollArea(renderContext: renderContext)
-                        // Push the flag value into the portal from its single
-                        // evaluation site (feature-flag lint one-file rule).
-                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
-                )
-            } else {
-                AnyView(
-                    SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                        legacyWorkspaceScrollArea(
-                            renderContext: renderContext,
-                            unreadSnapshot: unreadSnapshot
-                        )
-                    }
-                    .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
-                )
-            }
-        }
+        appKitWorkspaceScrollArea(renderContext: renderContext)
+            .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. They
         // previously hung off the legacy subtree only, which the AppKit flag
@@ -11197,31 +11129,9 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
-        .onAppear {
-            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
-                refreshWorkspaceSnapshots()
-            }
-        }
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 workspaceSnapshotRefreshCoalescer.cancel()
-            } else if !featureFlags.isAppKitSidebarListEnabled {
-                refreshWorkspaceSnapshots()
-            }
-        }
-        .onChange(of: renderContext.workspaceIds) { _, _ in
-            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
-                refreshWorkspaceSnapshots()
-            }
-        }
-        .onChange(of: renderContext.tabItemSettings) { _, _ in
-            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
-                refreshWorkspaceSnapshots()
-            }
-        }
-        .onChange(of: renderContext.showsAgentActivity) { _, _ in
-            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
-                refreshWorkspaceSnapshots()
             }
         }
         .onDisappear {
@@ -12179,12 +12089,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 settings: settings,
                 showsAgentActivity: showsAgentActivity
             )
-            if featureFlags.isAppKitSidebarListEnabled {
-                guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
-                    continue
-                }
-                appKitRowSnapshotCache.store(snapshot, for: workspaceId)
+            guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
+                continue
             }
+            appKitRowSnapshotCache.store(snapshot, for: workspaceId)
             guard next[workspaceId] != snapshot else { continue }
             next[workspaceId] = snapshot
             changed = true
@@ -13994,9 +13902,7 @@ struct VerticalTabsSidebar: View, Equatable {
             settings: settings,
             showsAgentActivity: renderContext.showsAgentActivity
         )
-        let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
-            ? appKitRowSnapshotCache.value(for: tab.id)
-            : workspaceSnapshotsById[tab.id]
+        let cachedWorkspaceSnapshot = appKitRowSnapshotCache.value(for: tab.id)
         let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
         if let cachedWorkspaceSnapshot,
            cachedWorkspaceSnapshot.presentationKey == expectedPresentationKey {
@@ -14007,9 +13913,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 settings: settings,
                 showsAgentActivity: renderContext.showsAgentActivity
             )
-            if featureFlags.isAppKitSidebarListEnabled {
-                appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
-            }
+            appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
         }
 
         let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(

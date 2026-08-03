@@ -197,8 +197,6 @@ struct SidebarHiddenPresentationTests {
             defaults: defaults,
             remoteFlagValueProvider: { _ in nil }
         )
-        featureFlags.setOverride(true, for: CmuxFeatureFlags.appKitSidebarListFlag)
-
         let tabManager = TabManager()
         for _ in 0..<3 {
             tabManager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -327,20 +325,17 @@ struct SidebarHiddenPresentationTests {
     func persistenceIsScopedToDefaultProvider() throws {
         #expect(
             ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
                 effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
             )
         )
         #expect(
             !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
                 effectiveProviderId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
             )
         )
         let bundledProviderId = try #require(CmuxExtensionSidebarSelection.providers.first?.descriptor.id)
         #expect(
             !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: true,
                 effectiveProviderId: bundledProviderId
             )
         )
@@ -354,17 +349,10 @@ struct SidebarHiddenPresentationTests {
         CmuxExtensionSidebarSelection.withCustomSidebarsDirectoryForTesting(customSidebarsDirectory) {
             #expect(
                 !ContentView.retainsDefaultAppKitSidebar(
-                    appKitListEnabled: true,
                     effectiveProviderId: customProviderId
                 )
             )
         }
-        #expect(
-            !ContentView.retainsDefaultAppKitSidebar(
-                appKitListEnabled: false,
-                effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
-            )
-        )
     }
 
     private func descendants<View: NSView>(of type: View.Type, in root: NSView?) -> [View] {
