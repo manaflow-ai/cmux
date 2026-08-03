@@ -13791,7 +13791,7 @@ mod tests {
         writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
-        let waiting_writer = writer.clone();
+        let waiting_writer = writer;
         let waiting_stream = stream.clone();
         let worker = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
@@ -13823,8 +13823,8 @@ mod tests {
         writer.send_stream(&json!({"event": "second"}), &stream).unwrap();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
-        let waiting_writer = writer.clone();
-        let waiting_stream = stream.clone();
+        let waiting_writer = writer;
+        let waiting_stream = stream;
         let worker = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
             done_tx
