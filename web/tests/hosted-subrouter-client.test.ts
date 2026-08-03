@@ -44,7 +44,10 @@ describe("hosted Subrouter client", () => {
       "content-type": "application/json",
     });
     expect(calls[1]?.url).toBe(
-      "https://sr.example/t/srt_0123456789abcdef0123456789abcdef/_subrouter/accounts",
+      "https://sr.example/_subrouter/accounts",
+    );
+    expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe(
+      "Bearer srt_0123456789abcdef0123456789abcdef",
     );
     expect(accounts).toEqual([
       {

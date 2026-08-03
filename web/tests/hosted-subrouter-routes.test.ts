@@ -252,26 +252,34 @@ describe("hosted Subrouter account routes", () => {
     );
     expect(deleted.status).toBe(200);
     expect(calls[1]?.url.pathname).toBe(
-      `/t/${tenantKey}/_subrouter/accounts/old%40example.com`,
+      "/_subrouter/accounts/old%40example.com",
     );
+    expect(calls[1]?.headers.get("authorization")).toBe(`Bearer ${tenantKey}`);
+    expect(calls[1]?.url.href).not.toContain(tenantKey);
 
     calls = [];
     const repaired = await repairRoute.POST(
-      request("/api/subrouter/accounts/old%40example.com/repair", {
+      request("/api/subrouter/accounts/apikey%3Aopenai-apikey%3Awork/repair", {
         method: "POST",
         body: JSON.stringify({
           provider: "openai-apikey",
-          label: "new",
+          label: "work",
           apiKey: "sk-new",
         }),
       }),
-      { params: Promise.resolve({ accountId: "old@example.com" }) },
+      { params: Promise.resolve({ accountId: "apikey:openai-apikey:work" }) },
     );
     expect(repaired.status).toBe(200);
-    expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "DELETE"]);
-    expect(calls[2]?.url.pathname).toBe(
-      `/t/${tenantKey}/_subrouter/accounts/old%40example.com`,
-    );
+    expect(calls.map((call) => call.method)).toEqual(["POST", "POST"]);
+    expect(calls[1]?.url.pathname).toBe("/_subrouter/accounts");
+    expect(calls[1]?.headers.get("authorization")).toBe(`Bearer ${tenantKey}`);
+    expect(calls[1]?.url.href).not.toContain(tenantKey);
+    expect(calls[1]?.body).toEqual({
+      provider: "openai-apikey",
+      label: "work",
+      apiKey: "sk-new",
+      targetAccountID: "apikey:openai-apikey:work",
+    });
   });
 });
 
@@ -329,13 +337,15 @@ async function hostedFetch(
     });
   }
   if (
-    url.pathname === `/t/${tenantKey}/_subrouter/accounts` &&
+    url.pathname === "/_subrouter/accounts" &&
+    headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "GET"
   ) {
     return Response.json(listedAccounts);
   }
   if (
-    url.pathname === `/t/${tenantKey}/_subrouter/accounts` &&
+    url.pathname === "/_subrouter/accounts" &&
+    headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "POST"
   ) {
     const upload = body as { provider: string; label?: string };
@@ -352,7 +362,8 @@ async function hostedFetch(
     });
   }
   if (
-    url.pathname.startsWith(`/t/${tenantKey}/_subrouter/accounts/`) &&
+    url.pathname.startsWith("/_subrouter/accounts/") &&
+    headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "DELETE"
   ) {
     return Response.json({ ok: true });
