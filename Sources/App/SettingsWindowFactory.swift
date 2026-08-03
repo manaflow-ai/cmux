@@ -26,15 +26,9 @@ enum SettingsWindowFactory {
             // in this state — loud, never a silent no-op (issue #7777).
             log.fault("settings.window.factory settingsRuntime unavailable; presenting fallback content")
         }
-        let hostingController = NSHostingController(
+        let hostingView = SettingsHostingView(
             rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
         )
-        // Bridge only the navigation title. `.toolbars` is deliberately
-        // absent: the scene bridge never materializes NavigationSplitView's
-        // implicit sidebar toggle in an AppKit-hosted window, so the factory
-        // owns the toolbar below instead.
-        hostingController.sceneBridgingOptions = [.title]
-        let window = SettingsHostWindow(contentViewController: hostingController)
         // Match the chrome SwiftUI applies to its own `WindowGroup` window
         // (the 0.64.17 Settings scene): `.fullSizeContentView` lets the
         // NavigationSplitView sidebar extend under the titlebar for the
@@ -42,15 +36,68 @@ enum SettingsWindowFactory {
         // AppKit defaults (visible title, opaque titlebar, automatic
         // toolbar style and separator). Forcing any of those away from
         // the defaults is what produced the #8015 hybrid chrome.
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let contentSize = NSSize(width: 980, height: 680)
+        let window = SettingsHostWindow(
+            contentRect: NSRect(origin: .zero, size: contentSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
         window.title = String(localized: "settings.title", defaultValue: "Settings")
+        window.setContentSize(contentSize)
+        // Keep the window out of NSHostingController's scene/window bridge.
+        // On macOS 27 that bridge can recursively alternate SwiftUI content
+        // measurement with AppKit window layout during construction and
+        // overflow the main-thread stack. This direct hosting view makes the
+        // native window's geometry authoritative.
+        window.contentView = hostingView
         // [flexible space, sidebar toggle, sidebar tracking separator] is the
         // exact item layout the SwiftUI-owned 0.64.17 window built for its
         // NavigationSplitView: the toggle sits at the sidebar's trailing edge
         // and the title renders bold at the detail column's leading edge.
+        // Install it after content so replacing the native content view cannot
+        // invalidate AppKit's materialized toolbar items.
         window.toolbar = window.sidebarToolbarController.makeToolbar()
-        window.setContentSize(NSSize(width: 980, height: 680))
         return window
+    }
+}
+
+/// SwiftUI content host whose size follows the native Settings window.
+/// `NSHostingView` otherwise observes window layout and may feed a measured
+/// content size back into `NSWindow`, creating a recursive sizing loop.
+@MainActor
+final class SettingsHostingView<Content: View>: NSHostingView<Content> {
+    override var fittingSize: NSSize { SettingsWindowPresenter.minimumSize }
+    override var intrinsicContentSize: NSSize { SettingsWindowPresenter.minimumSize }
+
+    /// Shadows NSHostingView's private Objective-C window-layout callback, as
+    /// cmux's main-window host does. Settings size belongs to AppKit and the
+    /// user, never to a SwiftUI content measurement.
+    @objc private func windowDidLayout() {}
+
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let window {
+            let bound = window.frame.size
+            if bound.width >= 1, bound.height >= 1 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+            }
+        }
+        super.setFrameSize(size)
+    }
+
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        sizingOptions = []
+        // AppKit owns the title and toolbar above. Without this, SwiftUI
+        // replaces the native toolbar after the NavigationSplitView renders.
+        sceneBridgingOptions = []
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 

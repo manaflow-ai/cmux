@@ -6413,13 +6413,60 @@ class TerminalController {
           return __r;
         };
 
+        const __cmuxBridgeSafeValue = (__value, __seen = new WeakMap()) => {
+          if (__value === null || typeof __value !== 'object') {
+            return __value;
+          }
+
+          if (typeof DOMRectReadOnly !== 'undefined' && __value instanceof DOMRectReadOnly) {
+            return {
+              x: __value.x,
+              y: __value.y,
+              width: __value.width,
+              height: __value.height,
+              top: __value.top,
+              right: __value.right,
+              bottom: __value.bottom,
+              left: __value.left
+            };
+          }
+
+          if (__seen.has(__value)) {
+            return __seen.get(__value);
+          }
+
+          if (Array.isArray(__value)) {
+            const __copy = [];
+            __seen.set(__value, __copy);
+            for (const __item of __value) {
+              __copy.push(__cmuxBridgeSafeValue(__item, __seen));
+            }
+            return __copy;
+          }
+
+          const __prototype = Object.getPrototypeOf(__value);
+          if (__prototype === Object.prototype || __prototype === null) {
+            const __copy = {};
+            __seen.set(__value, __copy);
+            for (const __key of Object.keys(__value)) {
+              __copy[__key] = __cmuxBridgeSafeValue(__value[__key], __seen);
+            }
+            return __copy;
+          }
+
+          return __value;
+        };
+
         const __cmuxEvalInFrame = async function() {
           const document = __cmuxDoc;
           \(executionBlock)
           const __value = await __cmuxMaybeAwait(__r);
           return {
             __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
+            // WebKit 620.3 on macOS 15 can crash in JSDOMRect::create while
+            // deserializing a DOMRect returned by callAsyncJavaScript. Flatten
+            // DOMRect values in JavaScript before they cross the process boundary.
+            __cmux_v: __cmuxBridgeSafeValue(__value)
           };
         };
 

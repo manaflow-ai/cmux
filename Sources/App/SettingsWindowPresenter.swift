@@ -65,11 +65,6 @@ final class SettingsWindowPresenter: NSObject {
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
-    /// Retains each AppKit window controller until presenter teardown begins.
-    /// The identity map matters because `show()` may re-enter from another
-    /// `willClose` observer and install a replacement while the closing
-    /// window is still unwinding.
-    private var windowControllers: [ObjectIdentifier: ReleasingWindowController] = [:]
     // Navigation-delivery state is internal (not private) because its
     // behavior lives in SettingsWindowNavigationDelivery.swift (split for
     // the file-length budget); no type outside the presenter touches it.
@@ -344,7 +339,6 @@ final class SettingsWindowPresenter: NSObject {
             name: NSWindow.willCloseNotification,
             object: window
         )
-        installWindowController(for: window)
         settingsWindow = window
     }
 
@@ -379,7 +373,6 @@ final class SettingsWindowPresenter: NSObject {
             name: NSWindow.willCloseNotification,
             object: window
         )
-        installWindowController(for: window)
         settingsWindow = window
         isContentReadyForNavigation = false
         return window
@@ -447,8 +440,6 @@ final class SettingsWindowPresenter: NSObject {
         strip(window)
         window.orderOut(nil)
         window.close()
-        window.contentViewController = nil
-        window.contentView = nil
     }
 
     /// Removes the window's settings identity and the presenter's tracking,
@@ -460,7 +451,6 @@ final class SettingsWindowPresenter: NSObject {
             object: window
         )
         window.identifier = nil
-        retireWindowController(for: window)
         if settingsWindow === window {
             settingsWindow = nil
             isContentReadyForNavigation = false
@@ -473,23 +463,11 @@ final class SettingsWindowPresenter: NSObject {
             let window = notification.object as? NSWindow,
             window === settingsWindow
         else { return }
-        // A closed window must never be rediscovered by an open request, and
-        // its SwiftUI tree must be released with it so it cannot linger
-        // half-alive (the #4964 blank-reopen / #5321 lingering-window
-        // classes). The next show() builds a fresh window from scratch.
+        // A closed window must never be rediscovered by an open request. Drop
+        // the complete window graph instead of dismantling hosted content
+        // inside AppKit's close callback: AppKit and SwiftUI may still be
+        // unwinding that content, while the next show builds a fresh graph.
         strip(window)
-        window.contentViewController = nil
-        window.contentView = nil
-    }
-
-    private func installWindowController(for window: NSWindow) {
-        let key = ObjectIdentifier(window)
-        guard windowControllers[key] == nil else { return }
-        windowControllers[key] = ReleasingWindowController(window: window)
-    }
-
-    private func retireWindowController(for window: NSWindow) {
-        windowControllers.removeValue(forKey: ObjectIdentifier(window))
     }
 
     // Multi-monitor recovery + diagnostics live in SettingsWindowGeometry.swift.
