@@ -18,6 +18,85 @@ import ExtensionFoundation
 import SwiftUI
 
 extension View {
+    func shortcutHintTransition() -> some View {
+        transition(.opacity)
+    }
+
+    func shortcutHintVisibilityAnimation<Value: Equatable>(value: Value) -> some View {
+        animation(.easeOut(duration: ShortcutHintAnimation.visibilityDuration), value: value)
+    }
+
+    @ViewBuilder
+    func sidebarShortcutHintOverlay(
+        text: String?,
+        emphasis: Double,
+        offsetX: Double,
+        offsetY: Double,
+        fontSize: CGFloat = 10
+    ) -> some View {
+        overlay(alignment: .topTrailing) {
+            if let text {
+                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(offsetX),
+                        y: ShortcutHintDebugSettings.clamped(offsetY)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            }
+        }
+    }
+}
+
+struct ShortcutHintPill: NSViewRepresentable {
+    let text: String
+    var fontSize: CGFloat = 9
+    var emphasis = 1.0
+
+    init(shortcut: StoredShortcut, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+        text = shortcut.displayString
+        self.fontSize = fontSize
+        self.emphasis = emphasis
+    }
+
+    init(text: String, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
+        self.text = text
+        self.fontSize = fontSize
+        self.emphasis = emphasis
+    }
+
+    func makeCoordinator() -> UUID { UUID() }
+
+    func makeNSView(context: Context) -> SidebarShortcutHintPillView {
+        let view = SidebarShortcutHintPillView()
+        configure(view, identity: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ view: SidebarShortcutHintPillView, context: Context) {
+        configure(view, identity: context.coordinator)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: SidebarShortcutHintPillView,
+        context: Context
+    ) -> CGSize? {
+        nsView.fittingPillSize()
+    }
+
+    private func configure(_ view: SidebarShortcutHintPillView, identity: UUID) {
+        view.configure(
+            text: text,
+            fontSize: fontSize,
+            emphasis: emphasis,
+            representedIdentity: identity
+        )
+    }
+}
+
+extension View {
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
