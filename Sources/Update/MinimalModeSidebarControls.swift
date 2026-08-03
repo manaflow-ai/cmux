@@ -1,31 +1,6 @@
 import AppKit
 import Combine
 import CmuxTestSupport
-import SwiftUI
-
-struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
-    let config: TitlebarControlsStyleConfig
-    var isEnabled = true
-    var requiresRevealedState = false
-    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void
-
-    func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
-        let view = MinimalModeSidebarControlActionView()
-        configure(view)
-        return view
-    }
-
-    func updateNSView(_ nsView: MinimalModeSidebarControlActionView, context: Context) {
-        configure(nsView)
-    }
-
-    private func configure(_ view: MinimalModeSidebarControlActionView) {
-        view.config = config
-        view.isEnabled = isEnabled
-        view.requiresRevealedState = requiresRevealedState
-        view.onAction = onAction
-    }
-}
 
 enum TitlebarControlsHitRegions {
     static let outerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding

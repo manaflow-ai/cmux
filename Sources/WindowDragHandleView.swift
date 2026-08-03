@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CmuxTestSupport
-import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
     private struct Record {
@@ -130,8 +129,8 @@ private func windowDragHandleShouldResolveActiveHitCapture(
     // We only need active hit resolution for titlebar mouse-down handling.
     // During launch, NSApp.currentEvent can transiently point at a stale
     // leftMouseDown from outside this window (for example Finder/Dock
-    // activation). Treat those as passive events so we never walk SwiftUI/
-    // AppKit hierarchy while initial layout is mutating it.
+    // activation). Treat those as passive events so we never walk the AppKit
+    // hierarchy while initial layout is mutating it.
     guard eventType == .leftMouseDown else {
         return false
     }
@@ -411,8 +410,8 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
     return previousMovableState
 }
 
-/// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
-/// titlebar space. Treat those as pass-through so explicit sibling checks decide.
+/// AppKit container wrappers can appear as the top hit even for empty titlebar
+/// space. Treat those as pass-through so explicit sibling checks decide.
 ///
 /// Interactive titlebar controls are *not* identified here by their hit view.
 /// They register their region with ``MinimalModeTitlebarControlHitRegionRegistry``
@@ -422,8 +421,7 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
-        || className.contains("AppKitWindowHostingView")
-        || className.contains("NSHostingView") {
+        || className.contains("AppKitWindowHostingView") {
         return true
     }
     if let window = view.window, view === window.contentView {
@@ -525,44 +523,32 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
 /// Marks the region occupied by an interactive titlebar control so window-drag,
 /// resize-drag, and double-click-zoom routing yields to the control's own clicks.
 ///
-/// This is the backing of `titlebarInteractiveControl()`. It is applied as a
-/// `.background(...)` of the control, so it matches the control's frame but never
-/// reparents the control out of its SwiftUI host. The view is transparent to
+/// This is the native backing of `titlebarInteractiveControl()`. It matches the
+/// control's frame without reparenting it. The view is transparent to
 /// hit-testing (`hitTest` returns `nil`) — it exists only to register its bounds
 /// with ``MinimalModeTitlebarControlHitRegionRegistry``. Every titlebar
 /// drag/double-click surface consults that registry (via
 /// `isMinimalModeTitlebarControlHit`) and skips any registered region, so the
 /// control keeps receiving mouse-downs in place.
 ///
-/// Reparenting interactive controls into a nested `NSHostingView` instead (the
-/// previous approach) silently dropped their clicks when the control lived in the
-/// full-size-content titlebar band, e.g. the right-sidebar mode bar (issue #5099).
-struct TitlebarInteractiveControlRegion: NSViewRepresentable {
-    final class RegisteredView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window == nil {
-                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
-            } else {
-                MinimalModeTitlebarControlHitRegionRegistry.register(self)
-            }
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override var mouseDownCanMoveWindow: Bool { false }
-
-        deinit {
+/// The previous nested hosting approach dropped clicks in the full-size-content
+/// titlebar band, including the right-sidebar mode bar (issue #5099).
+final class TitlebarInteractiveControlRegionView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
             MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+        } else {
+            MinimalModeTitlebarControlHitRegionRegistry.register(self)
         }
     }
 
-    func makeNSView(context: Context) -> NSView {
-        RegisteredView(frame: .zero)
-    }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    deinit {
+        MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
     }
 }
 
@@ -1078,8 +1064,8 @@ func recordMinimalModeSidebarChromeHoverForUITest(
 #endif
 
 /// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
-/// triggers SwiftUI view-body evaluation, AppKit can call back into this
-/// function before the outer invocation finishes, causing a Swift
+/// triggers hosted view evaluation, AppKit can call back into this function
+/// before the outer invocation finishes, causing a Swift
 /// exclusive-access violation (SIGABRT). Scope it per window so one window's
 /// active walk does not disable hit resolution in another window.
 /// Main-thread only, no lock needed.
@@ -1154,8 +1140,8 @@ func windowDragHandleShouldCaptureHit(
         }
     }
 
-    // Bail out before the view-hierarchy walk so we never re-enter SwiftUI
-    // views during a layout pass — which causes exclusive-access crashes (#490).
+    // Bail out before the view-hierarchy walk so we never re-enter hosted views
+    // during a layout pass, which causes exclusive-access crashes (#490).
     if !windowDragHandleShouldResolveActiveHitCapture(
         for: eventType,
         eventWindow: eventWindow,
@@ -1197,7 +1183,7 @@ func windowDragHandleShouldCaptureHit(
     }
 
     // Bail out if we're already inside a sibling hit-test walk. This happens
-    // when sibling.hitTest() re-enters SwiftUI layout, which calls hitTest on
+    // when sibling.hitTest() re-enters hosted layout, which calls hitTest on
     // this drag handle again. Proceeding would trigger an exclusive-access
     // violation in the Swift runtime.
     let hitResolutionScope = windowDragHandleSiblingHitResolutionScope(
@@ -1266,26 +1252,14 @@ func windowDragHandleShouldCaptureHit(
 /// A transparent view that enables dragging the window when clicking in empty titlebar space.
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
-struct WindowDragHandleView: NSViewRepresentable {
+final class WindowDragHandleNSView: NSView {
     static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
-
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
-    func makeNSView(context: Context) -> NSView {
-        DraggableView(doubleClickBehavior: doubleClickBehavior)
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? DraggableView)?.doubleClickBehavior = doubleClickBehavior
-    }
-
-    private final class DraggableView: NSView {
-        var doubleClickBehavior: TitlebarDoubleClickBehavior
-
-        init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
+    init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
             super.init(frame: .zero)
-            identifier = WindowDragHandleView.viewIdentifier
+            identifier = Self.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
@@ -1300,7 +1274,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             let currentEvent = NSApp.currentEvent
             // Fast bail-out: only claim hits for left-mouse-down events.
             // For mouseMoved / mouseEntered / etc., return nil immediately
-            // to avoid re-entering SwiftUI view state during layout passes,
+            // to avoid re-entering view state during layout passes,
             // which causes exclusive-access crashes.
             guard currentEvent?.type == .leftMouseDown else {
                 return nil
@@ -1359,91 +1333,74 @@ struct WindowDragHandleView: NSViewRepresentable {
             } else {
                 super.mouseDown(with: event)
             }
-        }
     }
 }
 
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
-/// higher-level SwiftUI/AppKit container views.
-struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
+/// higher-level AppKit container views.
+final class TitlebarDoubleClickMonitorNSView: NSView {
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+    private var monitor: Any?
+    private var lastClick: MinimalModeTitlebarClickRecord?
 
-    final class Coordinator {
-        weak var view: NSView?
-        var monitor: Any?
-        var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
-        var lastClick: MinimalModeTitlebarClickRecord?
-
-        deinit {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-            }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            self?.handle(event) ?? event
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+    }
 
-        context.coordinator.view = view
-        context.coordinator.doubleClickBehavior = doubleClickBehavior
-
-        let coordinator = context.coordinator
-        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak coordinator] event in
-            guard let coordinator, let view = coordinator.view, let window = view.window else { return event }
-            guard event.window === window else { return event }
-
-            let point = view.convert(event.locationInWindow, from: nil)
-            guard view.bounds.contains(point) else {
-                coordinator.lastClick = nil
-                return event
-            }
-            guard !minimalModeTitlebarDoubleClickShouldDefer(
-                window: window,
-                locationInWindow: event.locationInWindow
-            ) else {
-                coordinator.lastClick = nil
-                return event
-            }
-            let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: event.clickCount,
-                timestamp: event.timestamp,
-                locationInWindow: event.locationInWindow,
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window else { return event }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else {
+            lastClick = nil
+            return event
+        }
+        guard !minimalModeTitlebarDoubleClickShouldDefer(
+            window: window,
+            locationInWindow: event.locationInWindow
+        ) else {
+            lastClick = nil
+            return event
+        }
+        let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
+            clickCount: event.clickCount,
+            timestamp: event.timestamp,
+            locationInWindow: event.locationInWindow,
+            windowNumber: window.windowNumber,
+            previous: lastClick,
+            doubleClickInterval: NSEvent.doubleClickInterval,
+            doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+        )
+        guard isDoubleClick else {
+            lastClick = MinimalModeTitlebarClickRecord(
                 windowNumber: window.windowNumber,
-                previous: coordinator.lastClick,
-                doubleClickInterval: NSEvent.doubleClickInterval,
-                doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+                timestamp: event.timestamp,
+                locationInWindow: event.locationInWindow
             )
-            guard isDoubleClick else {
-                coordinator.lastClick = MinimalModeTitlebarClickRecord(
-                    windowNumber: window.windowNumber,
-                    timestamp: event.timestamp,
-                    locationInWindow: event.locationInWindow
-                )
-                return event
-            }
-            coordinator.lastClick = nil
-
-            let result = handleTitlebarDoubleClick(
-                window: window,
-                behavior: coordinator.doubleClickBehavior
-            )
-            #if DEBUG
-            cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
-            #endif
-            return result.consumesEvent ? nil : event
+            return event
         }
-
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.view = nsView
-        context.coordinator.doubleClickBehavior = doubleClickBehavior
+        lastClick = nil
+        let result = handleTitlebarDoubleClick(window: window, behavior: doubleClickBehavior)
+#if DEBUG
+        cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
+#endif
+        return result.consumesEvent ? nil : event
     }
 }
 
@@ -1604,15 +1561,26 @@ func isMinimalModeWindowTitlebarClickCandidate(
     )
 }
 
-struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
-    var isEnabled: Bool
-
-    private final class PassthroughView: NSView {
-        var isEnabled = false
+final class MinimalModeTitlebarEventSurfaceNSView: NSView {
+        var isEnabled = false {
+            didSet { refreshMouseMovedTracking() }
+        }
         private weak var mouseMovedWindow: NSWindow?
         private var isTrackingMouseMovedEvents = false
         private var titlebarClickMonitor: Any?
         private var lastTitlebarClick: MinimalModeTitlebarClickRecord?
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
 
         deinit {
             stopMouseMovedTracking()
@@ -1743,19 +1711,4 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
             guard window.frame.insetBy(dx: -1, dy: -1).contains(screenPoint) else { return nil }
             return window.convertFromScreen(NSRect(origin: screenPoint, size: .zero)).origin
         }
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = PassthroughView(frame: .zero)
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
-        view.isEnabled = isEnabled
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard let view = nsView as? PassthroughView else { return }
-        view.isEnabled = isEnabled
-        view.refreshMouseMovedTracking()
-    }
 }

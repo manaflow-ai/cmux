@@ -4,7 +4,7 @@ import CmuxWorkspaces
 // MARK: - Support
 
 /// Bridges Return / Escape / focus loss on a checklist field to commit and
-/// cancel closures — the exact `ChecklistInputField.Coordinator` semantics
+/// cancel closures, preserving the former checklist-field semantics
 /// (focus loss commits non-empty text, Option-Return inserts a newline).
 @MainActor
 final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {

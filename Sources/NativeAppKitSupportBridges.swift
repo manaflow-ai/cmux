@@ -341,6 +341,83 @@ struct DetachedFolderDragIcon: NSViewRepresentable {
     }
 }
 
+struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+    var isEnabled = true
+    var requiresRevealedState = false
+    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void
+
+    func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
+        let view = MinimalModeSidebarControlActionView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: MinimalModeSidebarControlActionView, context: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: MinimalModeSidebarControlActionView) {
+        view.config = config
+        view.isEnabled = isEnabled
+        view.requiresRevealedState = requiresRevealedState
+        view.onAction = onAction
+    }
+}
+
+struct TitlebarInteractiveControlRegion: NSViewRepresentable {
+    typealias RegisteredView = TitlebarInteractiveControlRegionView
+
+    func makeNSView(context: Context) -> TitlebarInteractiveControlRegionView {
+        TitlebarInteractiveControlRegionView(frame: .zero)
+    }
+
+    func updateNSView(_ view: TitlebarInteractiveControlRegionView, context: Context) {
+        MinimalModeTitlebarControlHitRegionRegistry.register(view)
+    }
+}
+
+struct WindowDragHandleView: NSViewRepresentable {
+    static let viewIdentifier = WindowDragHandleNSView.viewIdentifier
+    var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+
+    func makeNSView(context: Context) -> WindowDragHandleNSView {
+        WindowDragHandleNSView(doubleClickBehavior: doubleClickBehavior)
+    }
+
+    func updateNSView(_ view: WindowDragHandleNSView, context: Context) {
+        view.doubleClickBehavior = doubleClickBehavior
+    }
+}
+
+struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
+    var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+
+    func makeNSView(context: Context) -> TitlebarDoubleClickMonitorNSView {
+        let view = TitlebarDoubleClickMonitorNSView(frame: .zero)
+        view.doubleClickBehavior = doubleClickBehavior
+        return view
+    }
+
+    func updateNSView(_ view: TitlebarDoubleClickMonitorNSView, context: Context) {
+        view.doubleClickBehavior = doubleClickBehavior
+    }
+}
+
+struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
+    var isEnabled: Bool
+
+    func makeNSView(context: Context) -> MinimalModeTitlebarEventSurfaceNSView {
+        let view = MinimalModeTitlebarEventSurfaceNSView(frame: .zero)
+        view.isEnabled = isEnabled
+        return view
+    }
+
+    func updateNSView(_ view: MinimalModeTitlebarEventSurfaceNSView, context: Context) {
+        view.isEnabled = isEnabled
+    }
+}
+
 #if DEBUG
 private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
     static let defaultValue = MinimalModeInvalidationProbe()
