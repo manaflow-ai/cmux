@@ -10483,13 +10483,15 @@ struct CMUXCLI {
             remoteShellCommand: remoteShellCommand
         )
         let attachAttemptCommand = "/bin/sh -c \(shellQuote(attachAttemptScript))"
-        let registeredAttachAttemptCommand = [
-            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi",
-            attachAttemptCommand,
-        ].joined(separator: "\n")
-        let attachScript = SSHPTYAttachExitCode.noProgressRetryLoopLines(
-            command: registeredAttachAttemptCommand
-        ).joined(separator: "\n")
+        // The no-progress retry loop prefixes this command with env assignments, and a
+        // variable-assignment prefix is only legal before a simple command. Wrap the
+        // registration plus the attach attempt in a shell function and pass its name,
+        // matching SSHPTYAttachStartupCommandBuilder.
+        let registeredAttachAttemptFunction = "cmux_ssh_attach_no_progress_attempt"
+        let registeredAttachAttemptDefinition = "\(registeredAttachAttemptFunction)() { if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || return 1; fi; \(attachAttemptCommand); }"
+        let attachScript = ([registeredAttachAttemptDefinition] + SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: registeredAttachAttemptFunction
+        )).joined(separator: "\n")
         var authScriptLines: [String] = []
         let sharingOptions = SSHConnectionSharingOptions()
         let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(

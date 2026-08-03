@@ -3761,7 +3761,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             initialScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+                "cmux_ssh_attach_no_progress_attempt() { if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || return 1; fi;"
             ),
             initialScript
         )
@@ -3793,7 +3793,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             terminalStartupScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+                "cmux_ssh_attach_no_progress_attempt() { if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || return 1; fi;"
             ),
             terminalStartupScript
         )
