@@ -24,6 +24,12 @@ public struct SocketListenerPolicy: Sendable {
     public let acceptFailureMinimumRearmDelayMs: Int
     /// Consecutive-failure count at which the listener rearms instead of resuming.
     public let acceptFailureRearmThreshold: Int
+    /// First listener-start retry delay in milliseconds.
+    public let startupFailureBaseBackoffMs: Int
+    /// Upper bound for listener-start retry delays in milliseconds.
+    public let startupFailureMaxBackoffMs: Int
+    /// Maximum transient listener-start failures retried before escalation.
+    public let startupFailureRetryLimit: Int
 
     /// Creates a policy.
     ///
@@ -32,16 +38,25 @@ public struct SocketListenerPolicy: Sendable {
     ///   - acceptFailureMaxBackoffMs: Backoff cap (default 5s).
     ///   - acceptFailureMinimumRearmDelayMs: Rearm-delay floor (default 100ms).
     ///   - acceptFailureRearmThreshold: Failure streak that forces a rearm (default 50).
+    ///   - startupFailureBaseBackoffMs: First startup retry delay (default 100ms).
+    ///   - startupFailureMaxBackoffMs: Startup retry-delay cap (default 2s).
+    ///   - startupFailureRetryLimit: Transient failures retried before reporting (default 6).
     public init(
         acceptFailureBaseBackoffMs: Int = 10,
         acceptFailureMaxBackoffMs: Int = 5_000,
         acceptFailureMinimumRearmDelayMs: Int = 100,
-        acceptFailureRearmThreshold: Int = 50
+        acceptFailureRearmThreshold: Int = 50,
+        startupFailureBaseBackoffMs: Int = 100,
+        startupFailureMaxBackoffMs: Int = 2_000,
+        startupFailureRetryLimit: Int = 6
     ) {
         self.acceptFailureBaseBackoffMs = acceptFailureBaseBackoffMs
         self.acceptFailureMaxBackoffMs = acceptFailureMaxBackoffMs
         self.acceptFailureMinimumRearmDelayMs = acceptFailureMinimumRearmDelayMs
         self.acceptFailureRearmThreshold = acceptFailureRearmThreshold
+        self.startupFailureBaseBackoffMs = startupFailureBaseBackoffMs
+        self.startupFailureMaxBackoffMs = startupFailureMaxBackoffMs
+        self.startupFailureRetryLimit = startupFailureRetryLimit
     }
 
     /// Classifies an `accept(2)` `errno` into a recovery class.
@@ -160,6 +175,63 @@ public struct SocketListenerPolicy: Sendable {
         return (consecutiveFailures & (consecutiveFailures - 1)) == 0
     }
 
+    /// Whether a listener-start failure should retry before it is reported.
+    ///
+    /// Retries are limited to transport occupancy, interrupted setup, temporary
+    /// filesystem I/O failure (including post-bind identity capture), and
+    /// resource pressure. Permission, path-shape, and inconclusive bound-path
+    /// ownership proofs remain immediately actionable.
+    ///
+    /// - Parameters:
+    ///   - stage: Stable listener-start stage identifier.
+    ///   - errnoCode: The failing `errno`.
+    ///   - consecutiveFailures: Failure count including the current attempt.
+    /// - Returns: `true` when another bounded retry should be scheduled.
+    public func shouldRetryStartupFailure(
+        stage: String,
+        errnoCode: Int32,
+        consecutiveFailures: Int
+    ) -> Bool {
+        guard consecutiveFailures > 0,
+              consecutiveFailures <= startupFailureRetryLimit else {
+            return false
+        }
+        // Once the retained descriptor is listening for an ownership proof,
+        // any inconclusive result must close it instead of leaving an
+        // unverified listener reachable during another retry delay.
+        guard stage != "verify_bound_path" else { return false }
+
+        switch errnoCode {
+        case EADDRINUSE:
+            return stage == "bind"
+        case EAGAIN:
+            return stage == "lock" || stage == "open_lock"
+        case EINTR, EIO, EMFILE, ENFILE, ENOBUFS, ENOMEM:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Exponential listener-start retry delay, capped by
+    /// ``startupFailureMaxBackoffMs``.
+    ///
+    /// - Parameter consecutiveFailures: Failure count including the current attempt.
+    /// - Returns: Retry delay in milliseconds, or zero for no failures.
+    public func startupFailureRetryDelayMilliseconds(consecutiveFailures: Int) -> Int {
+        guard consecutiveFailures > 0 else { return 0 }
+        var delay = startupFailureBaseBackoffMs
+        var remaining = consecutiveFailures - 1
+        while remaining > 0 {
+            if delay >= startupFailureMaxBackoffMs {
+                return startupFailureMaxBackoffMs
+            }
+            delay = min(delay * 2, startupFailureMaxBackoffMs)
+            remaining -= 1
+        }
+        return delay
+    }
+
     /// Whether accept-loop cleanup may unlink the socket path: only when the
     /// path still belongs to this listener, nothing is running or starting, and
     /// no newer accept-loop generation exists.
@@ -214,6 +286,9 @@ public struct SocketListenerPolicy: Sendable {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
+        // Only the stable path detours. Once an attempt is on the user-scoped
+        // fallback, transient occupancy is retried in place by
+        // `shouldRetryStartupFailure` instead of selecting another path.
         guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
             return nil
         }

@@ -21,9 +21,10 @@ internal import os
 /// - **Lifecycle mutations** (start, stop, reserve, rearm claim) are all
 ///   driven from the main thread — app startup, `applicationWillTerminate`,
 ///   the updater relaunch hook, settings-driven restarts, and the recovery
-///   callbacks all live there. The full ``ListenerState`` machine, including
-///   the `DispatchSource` references and their suspend flags, is therefore
-///   `@MainActor`: the legacy threading, made compiler-checked. Termination
+///   callbacks all live there. The ``ListenerState`` startup machine and the
+///   transport resources, including `DispatchSource` references and their
+///   suspend flags, are therefore `@MainActor`: the legacy threading, made
+///   compiler-checked. Termination
 ///   teardown and startup path reservation stay synchronous for their
 ///   callers by construction.
 /// - **Hot synchronous reads** (``isRunning`` polled per client read,
@@ -54,11 +55,65 @@ internal import os
 /// the queue-side drain can never `accept(2)` on a recycled descriptor.
 @MainActor
 public final class SocketControlServer {
-    /// The full listener state machine, main-actor isolated. One value,
-    /// mirroring the legacy field block.
-    struct ListenerState {
+    /// Immutable request retained across a bounded listener-start retry.
+    struct ListenerStartRequest: Equatable, Sendable {
+        let socketPath: String
+        let accessMode: SocketControlMode
+        let preserveAcceptFailureStreak: Bool
+    }
+
+    /// The authoritative listener-start lifecycle.
+    ///
+    /// Generation checks make delayed wakes harmless after stop or an explicit
+    /// restart. The waiting case owns the request and failure count, so the
+    /// timer task carries no lifecycle state and can only request a wakeup.
+    enum ListenerState: Equatable, Sendable {
+        /// No startup operation is active. A listener may already be running.
+        case idle(generation: UInt64)
+        /// One synchronous startup attempt owns the request on the main actor.
+        case starting(generation: UInt64, request: ListenerStartRequest, failureCount: Int)
+        /// A bounded delay is pending before the same request may retry.
+        case waiting(generation: UInt64, request: ListenerStartRequest, failureCount: Int)
+
+        var generation: UInt64 {
+            switch self {
+            case .idle(let generation),
+                 .starting(let generation, _, _),
+                 .waiting(let generation, _, _):
+                return generation
+            }
+        }
+
+        var isStarting: Bool {
+            if case .starting = self { return true }
+            return false
+        }
+
+        var isWaiting: Bool {
+            if case .waiting = self { return true }
+            return false
+        }
+    }
+
+    /// Ownership proof for a pathname created by `bind(2)`.
+    enum BoundSocketPathOwnership: Equatable, Sendable {
+        case none
+        /// `bind(2)` succeeded while the immediate `lstat(2)` failed. The
+        /// server retains both the bound descriptor and path lock until a
+        /// later identity capture or safe teardown.
+        case identityPending
+        case identified(SocketPathIdentity)
+
+        var identity: SocketPathIdentity? {
+            guard case .identified(let identity) = self else { return nil }
+            return identity
+        }
+    }
+
+    /// Main-actor transport resources and listener state.
+    struct ListenerResources {
         var socketPath: String
-        var boundSocketPathIdentity: SocketPathIdentity?
+        var boundSocketPathOwnership: BoundSocketPathOwnership = .none
         var serverSocket: Int32 = -1
         var isRunning = false
         var acceptLoopAlive = false
@@ -67,7 +122,7 @@ public final class SocketControlServer {
         var pendingAcceptLoopRearmGeneration: UInt64?
         var reservedStartupSocketPath: String?
         var reservedStartupSocketPathCanReplaceRefusedSocket = false
-        var listenerStartInProgress = false
+        var listenerState: ListenerState = .idle(generation: 0)
         var socketPathLockFD: Int32 = -1
         var listenerReadSource: (any DispatchSourceRead)?
         var listenerReadSourceSuspended = false
@@ -88,6 +143,7 @@ public final class SocketControlServer {
         let pendingRearmGeneration: UInt64?
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
+        let pendingStartupRetry: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
         let configuredPreferredSocketPath: String?
@@ -106,7 +162,7 @@ public final class SocketControlServer {
 
     /// Authoritative state; mutated only through ``withListenerState(_:)``
     /// so every change publishes to the mirror.
-    private var state: ListenerState
+    private var state: ListenerResources
 
     /// Last-published state snapshot for the nonisolated synchronous reads.
     /// Lock carve-out: single writer (the main-actor mutators), short
@@ -151,6 +207,11 @@ public final class SocketControlServer {
     /// further accept failures can schedule another.
     var acceptResumeTask: Task<Void, Never>?
 
+    /// Pending listener-start wakeup. This task owns only the injected delay;
+    /// the matching generation, request, and failure count live exclusively in
+    /// ``ListenerState`` and are claimed atomically on the main actor.
+    var startupWakeTask: Task<Void, Never>?
+
     /// Creates a control-socket server.
     /// - Parameters:
     ///   - initialSocketPath: Path reported before any reservation or start;
@@ -159,8 +220,8 @@ public final class SocketControlServer {
     ///     timeouts/backlog.
     ///   - listenerPolicy: Recovery policy; defaults preserve production
     ///     backoff/rearm behavior.
-    ///   - recoveryClock: Clock for recovery delays; defaults to the
-    ///     continuous clock.
+    ///   - recoveryClock: Clock for startup and accept-source recovery delays;
+    ///     defaults to the continuous clock.
     ///   - maximumBufferedConnections: Maximum accepted connections waiting
     ///     for the stream consumer. New connections are closed when full.
     ///   - notificationCenter: Source of authorization-secret change
@@ -182,7 +243,7 @@ public final class SocketControlServer {
         authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
-        let initialState = ListenerState(socketPath: initialSocketPath)
+        let initialState = ListenerResources(socketPath: initialSocketPath)
         self.state = initialState
         self.stateMirror = OSAllocatedUnfairLock(initialState: Self.snapshot(of: initialState))
         self.acceptRecovery = OSAllocatedUnfairLock(initialState: AcceptRecoveryState())
@@ -262,24 +323,25 @@ public final class SocketControlServer {
     /// the resulting snapshot to the read mirror. The direct successor of the
     /// legacy lock helper; every former critical section maps to one call.
     @discardableResult
-    func withListenerState<T>(_ body: (inout ListenerState) -> T) -> T {
+    func withListenerState<T>(_ body: (inout ListenerResources) -> T) -> T {
         let result = body(&state)
         let snapshot = Self.snapshot(of: state)
         stateMirror.withLock { $0 = snapshot }
         return result
     }
 
-    private static func snapshot(of state: ListenerState) -> ListenerStateSnapshot {
+    private static func snapshot(of state: ListenerResources) -> ListenerStateSnapshot {
         ListenerStateSnapshot(
             socketPath: state.socketPath,
-            boundSocketPathIdentity: state.boundSocketPathIdentity,
+            boundSocketPathIdentity: state.boundSocketPathOwnership.identity,
             serverSocket: state.serverSocket,
             isRunning: state.isRunning,
             acceptLoopAlive: state.acceptLoopAlive,
             activeGeneration: state.activeAcceptLoopGeneration,
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
-            listenerStartInProgress: state.listenerStartInProgress,
+            listenerStartInProgress: state.listenerState.isStarting,
+            pendingStartupRetry: state.listenerState.isWaiting,
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode,
             configuredPreferredSocketPath: state.configuredPreferredSocketPath
@@ -338,6 +400,7 @@ public final class SocketControlServer {
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
         if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
+            || snapshot.pendingStartupRetry
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
@@ -353,6 +416,7 @@ public final class SocketControlServer {
         if snapshot.isRunning
             || snapshot.acceptLoopAlive
             || snapshot.listenerStartInProgress
+            || snapshot.pendingStartupRetry
             || snapshot.pendingRearmGeneration != nil
             || snapshot.socketPathLockHeld
             || snapshot.serverSocket >= 0 {

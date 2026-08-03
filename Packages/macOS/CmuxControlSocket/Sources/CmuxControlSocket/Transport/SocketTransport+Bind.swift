@@ -41,7 +41,7 @@ extension SocketTransport {
                 failure: SocketStageFailure(stage: "bind", errnoCode: errno)
             )
         }
-        let identityResult = pathIdentityResult(at: path)
+        let identityResult = boundPathIdentityResult(at: path)
         if let identity = identityResult.identity {
             return .success(path: path, identity: identity)
         }
@@ -52,6 +52,19 @@ extension SocketTransport {
                 errnoCode: identityResult.errnoCode ?? EIO
             )
         )
+    }
+
+    /// Applies one socket path's access mode, returning the failing `errno`.
+    ///
+    /// - Parameters:
+    ///   - permissions: POSIX permission bits.
+    ///   - path: Bound Unix-domain socket path.
+    /// - Returns: `nil` on success, otherwise the `chmod(2)` error.
+    func applySocketPermissions(_ permissions: mode_t, at path: String) -> Int32? {
+        if let errnoCode = injectedErrnoCode(stage: "chmod", path: path) {
+            return errnoCode
+        }
+        return chmod(path, permissions) == 0 ? nil : errno
     }
 
     /// Clears `path` for a fresh bind, or returns the blocking stage failure.

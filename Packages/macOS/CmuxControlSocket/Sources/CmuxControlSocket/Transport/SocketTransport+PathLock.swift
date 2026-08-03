@@ -20,6 +20,9 @@ extension SocketTransport {
     /// - Parameter socketPath: The socket path whose lock to acquire.
     /// - Returns: The ``SocketPathLockAcquisition`` outcome.
     public func acquireSocketPathLock(for socketPath: String) -> SocketPathLockAcquisition {
+        if let errnoCode = injectedErrnoCode(stage: "create_lock_directory", path: socketPath) {
+            return .failed(SocketStageFailure(stage: "create_lock_directory", errnoCode: errnoCode))
+        }
         if let errnoCode = ensureSocketParentDirectoryExists(path: socketPath) {
             return .failed(SocketStageFailure(stage: "create_lock_directory", errnoCode: errnoCode))
         }

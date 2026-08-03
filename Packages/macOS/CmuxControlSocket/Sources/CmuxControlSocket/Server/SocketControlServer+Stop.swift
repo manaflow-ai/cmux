@@ -3,9 +3,9 @@ internal import Foundation
 
 extension SocketControlServer {
     /// Stops the listener: tears down the accept and path-monitor sources,
-    /// cancels any pending accept-source resume, shuts down and closes the
-    /// server socket, unlinks the socket path when the listener still owns
-    /// it, and releases the path lock.
+    /// cancels any pending startup retry or accept-source resume, shuts down
+    /// and closes the server socket, unlinks the socket path when the listener
+    /// still owns it, and releases the path lock.
     ///
     /// Synchronous on the main actor, where every caller already lives — the
     /// app's termination and updater-relaunch paths call it directly, so the
@@ -14,6 +14,8 @@ extension SocketControlServer {
         deactivateConnectionAuthorizations()
         acceptResumeTask?.cancel()
         acceptResumeTask = nil
+        startupWakeTask?.cancel()
+        startupWakeTask = nil
         let (
             sourceToCancel,
             sourceWasSuspended,
@@ -21,7 +23,7 @@ extension SocketControlServer {
             socketToShutdown,
             socketToClose,
             socketPathToUnlink,
-            boundSocketPathIdentityToUnlink,
+            boundSocketPathOwnershipToUnlink,
             socketPathLockFDToClose
         ) = withListenerState { state in
             state.isRunning = false
@@ -29,7 +31,8 @@ extension SocketControlServer {
             state.pendingAcceptLoopRearmGeneration = nil
             state.reservedStartupSocketPath = nil
             state.reservedStartupSocketPathCanReplaceRefusedSocket = false
-            state.listenerStartInProgress = false
+            let startupGeneration = state.listenerState.generation &+ 1
+            state.listenerState = .idle(generation: startupGeneration)
             state.nextAcceptLoopGeneration &+= 1
             state.activeAcceptLoopGeneration = 0
             let sourceToCancel = state.listenerReadSource
@@ -40,8 +43,8 @@ extension SocketControlServer {
             state.socketPathMonitorSource = nil
             let socketToClose = state.serverSocket
             state.serverSocket = -1
-            let identity = state.boundSocketPathIdentity
-            state.boundSocketPathIdentity = nil
+            let ownership = state.boundSocketPathOwnership
+            state.boundSocketPathOwnership = .none
             let lockFD = state.socketPathLockFD
             state.socketPathLockFD = -1
             return (
@@ -51,7 +54,7 @@ extension SocketControlServer {
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
                 state.socketPath,
-                identity,
+                ownership,
                 lockFD
             )
         }
@@ -63,14 +66,12 @@ extension SocketControlServer {
         }
         sourceToCancel?.cancel()
         monitorToCancel?.cancel()
+        unlinkOwnedSocketPath(
+            socketPathToUnlink,
+            ownership: boundSocketPathOwnershipToUnlink
+        )
         if socketToClose >= 0 {
             close(socketToClose)
-        }
-        if listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
-            currentIdentity: transport.pathIdentity(at: socketPathToUnlink),
-            boundIdentity: boundSocketPathIdentityToUnlink
-        ) {
-            unlink(socketPathToUnlink)
         }
         transport.releaseSocketPathLock(socketPathLockFDToClose)
     }
