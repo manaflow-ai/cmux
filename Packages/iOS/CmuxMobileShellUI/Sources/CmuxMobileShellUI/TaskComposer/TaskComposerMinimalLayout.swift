@@ -40,7 +40,7 @@ struct TaskComposerMinimalLayout: View {
     let chooseAttachmentFiles: () -> Void
     let removeAttachment: (UUID) -> Void
 
-    @FocusState private var isPromptFocused: Bool
+    @State private var isPromptFocused = false
     @State private var isOptionsPresented = false
 
     var body: some View {
@@ -83,25 +83,18 @@ struct TaskComposerMinimalLayout: View {
                     .accessibilityHidden(true)
             }
 
-            TextEditor(text: $prompt)
-                .scrollContentBackground(.hidden)
-                .font(.title3)
-                .fontWeight(.regular)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-                .focused($isPromptFocused)
-                .disabled(isDisabled)
-                // The prompt owns drags that begin in its text canvas. Keeping
-                // keyboard geometry stable avoids both the caret snap-back of
-                // interactive dismissal and the abrupt resize of immediate
-                // dismissal while a long prompt is being scrolled.
-                .scrollDismissesKeyboard(.never)
-                .accessibilityLabel(L10n.string(
+            TaskComposerPromptEditor(
+                text: $prompt,
+                isFocused: $isPromptFocused,
+                isDisabled: isDisabled,
+                accessibilityLabel: L10n.string(
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
-                ))
-                .accessibilityHint(promptPlaceholder)
-                .accessibilityIdentifier("MobileTaskComposerPrompt")
+                ),
+                accessibilityHint: promptPlaceholder
+            )
+                .padding(.horizontal, 20)
+                .padding(.vertical, 18)
                 .taskComposerEditingCompletion(
                     isFocused: isPromptFocused,
                     endEditing: endEditing
