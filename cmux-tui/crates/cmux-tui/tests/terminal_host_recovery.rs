@@ -293,8 +293,7 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
             "text": "go\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    wait_for_detached(&mut attached_reader, surface);
+    wait_for_render_text_then_detached(&mut attached_reader, surface, &marker);
 
     let later = transport::connect(&harness.socket).unwrap();
     later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -3048,13 +3047,30 @@ fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, 
     }
 }
 
-fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+fn wait_for_render_text_then_detached(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    surface: u64,
+    marker: &str,
+) {
+    let mut saw_marker = false;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("timed out waiting for hosted detach");
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if matches!(value["event"].as_str(), Some("render-state" | "render-delta")) {
+            saw_marker |= value["rows"].as_array().into_iter().flatten().any(|row| {
+                row["runs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|run| run["text"].as_str())
+                    .collect::<String>()
+                    .contains(marker)
+            });
+        }
         if value["event"] == "detached" {
             assert_eq!(value["surface"], surface);
+            assert!(saw_marker, "hosted exit detached before its final render frame: {value}");
             return;
         }
     }
