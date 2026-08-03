@@ -179,13 +179,13 @@ jobs:
       - name: Download the validated npm artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-npm-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
           path: validated-npm
 
       - name: Download the validated Python distributions
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: validated-python
 
       - name: Reject conflicting or unusable registry state
@@ -390,13 +390,13 @@ jobs:
       - name: Download the validated npm artifact for final revalidation
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-npm-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
           path: validated-npm
 
       - name: Download the validated Python distributions for final revalidation
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: validated-python
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -1410,6 +1410,8 @@ jobs:
   verify-stable-provenance:
     needs:
       - validate-release
+      - typescript-preflight
+      - python-preflight
       - publish-crate-client
       - publish-crate-sidebar
       - publish-npm
@@ -1437,13 +1439,13 @@ jobs:
       - name: Download the validated npm artifact
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-npm-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
           path: validated-npm
 
       - name: Download the validated Python distributions
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-python-dist-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: validated-python
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
