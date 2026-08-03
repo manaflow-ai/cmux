@@ -96,7 +96,7 @@ final class AccountSignInModel {
         isStartingSignIn = true
         startTask?.cancel()
         startTask = Task { @MainActor [weak self, weak flow] in
-            // Give SwiftUI one update cycle to render the launch state before
+            // Give the UI one update cycle to render the launch state before
             // the system authentication session takes over.
             await Task.yield()
             guard !Task.isCancelled, let self, let flow else { return }

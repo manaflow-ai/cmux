@@ -233,7 +233,7 @@ struct MobilePairingView: View {
         case .loading:
             loadingContent
         case .signedOut:
-            AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
+            NativeAccountSignInViewBridge(model: signInModel, automaticallyStartsSignIn: false)
         case .preparing:
             centered {
                 ProgressView().controlSize(.small)
@@ -280,7 +280,7 @@ struct MobilePairingView: View {
     @ViewBuilder
     private var loadingContent: some View {
         if accountFlow?.isPresentingSignIn == true {
-            AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
+            NativeAccountSignInViewBridge(model: signInModel, automaticallyStartsSignIn: false)
         } else {
             centered {
                 ProgressView().controlSize(.small)

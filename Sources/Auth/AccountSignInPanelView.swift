@@ -8,7 +8,7 @@ struct AccountSignInPanelView: View {
 
     var body: some View {
         ScrollView {
-            AccountSignInView(model: panel.model, automaticallyStartsSignIn: true)
+            NativeAccountSignInViewBridge(model: panel.model, automaticallyStartsSignIn: true)
                 .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

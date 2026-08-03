@@ -3,6 +3,7 @@ import Bonsplit
 
 /// Shared helpers for portal hosts that must defer to the minimal-mode
 /// Bonsplit tab strip rendered underneath them.
+@MainActor
 enum BonsplitTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)

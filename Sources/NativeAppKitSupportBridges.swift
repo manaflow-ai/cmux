@@ -227,6 +227,42 @@ struct NativeResolvedIconImage: NSViewRepresentable {
     }
 }
 
+struct NativeAccountSignInViewBridge: NSViewRepresentable {
+    let model: AccountSignInModel
+    let automaticallyStartsSignIn: Bool
+
+    func makeNSView(context: Context) -> AccountSignInView {
+        AccountSignInView(
+            model: model,
+            automaticallyStartsSignIn: automaticallyStartsSignIn
+        )
+    }
+
+    func updateNSView(_ view: AccountSignInView, context: Context) {}
+}
+
+struct NativeStackAccountAvatarBridge: NSViewRepresentable {
+    let avatarURL: URL?
+    let displayName: String
+    let email: String
+    let size: CGFloat
+    let loadingSystemName: String?
+
+    func makeNSView(context: Context) -> StackAccountAvatarView {
+        StackAccountAvatarView(
+            avatarURL: avatarURL,
+            displayName: displayName,
+            email: email,
+            size: size,
+            loadingSystemName: loadingSystemName
+        )
+    }
+
+    func updateNSView(_ view: StackAccountAvatarView, context: Context) {
+        view.update(avatarURL: avatarURL, displayName: displayName, email: email)
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 

@@ -426,7 +426,7 @@ struct SidebarAccountAvatar: View {
 
     var body: some View {
         if isSignedIn {
-            StackAccountAvatarView(
+            NativeStackAccountAvatarBridge(
                 avatarURL: avatarURL,
                 displayName: displayName,
                 email: email,
