@@ -16,8 +16,10 @@ DMG="$TMP_DIR/cmux-nightly-macos.dmg"
 IMMUTABLE="$TMP_DIR/cmux-nightly-immutable.dmg"
 FAKE_BIN="$TMP_DIR/bin"
 LOG="$TMP_DIR/calls.log"
+HELPER_STATE="$TMP_DIR/helper-notarization.state"
 mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
+printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
 cat > "$FAKE_BIN/create-dmg" <<'EOF'
 #!/usr/bin/env bash
@@ -92,6 +94,7 @@ run_helper() {
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+  CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   APPLE_ID=fixture@example.com \
   APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
@@ -103,9 +106,9 @@ run_helper() {
 run_helper
 
 if ! grep -Fxq \
-  "notarize-helper $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
+  "notarize-helper --finish $HELPER_STATE $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
   "$LOG"; then
-  echo "FAIL: nightly packaging skipped standalone Computer Use helper notarization" >&2
+  echo "FAIL: nightly packaging did not finish the early Computer Use notarization" >&2
   exit 1
 fi
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
@@ -121,7 +124,7 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
-helper_notary_line="$(line_of "notarize-helper $APP")"
+helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
 create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
 app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"

@@ -101,12 +101,14 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit")"
+helper_sign_line="$(line_of "codesign --force --options runtime --timestamp --sign Developer ID Application: Fixture")"
 wait_line="$(line_of "xcrun notarytool wait helper-fixture-id")"
 staple_line="$(line_of "xcrun stapler staple $HELPER")"
 validate_line="$(line_of "xcrun stapler validate $HELPER")"
 reseal_line="$(line_of "sign-bundle mode=main-only")"
 host_verify_line="$(line_of "codesign --verify --deep --strict --verbose=2 $APP")"
-if ! [ "$submit_line" -lt "$wait_line" ] \
+if ! [ "$helper_sign_line" -lt "$submit_line" ] \
+  || ! [ "$submit_line" -lt "$wait_line" ] \
   || ! [ "$wait_line" -lt "$staple_line" ] \
   || ! [ "$staple_line" -lt "$validate_line" ] \
   || ! [ "$validate_line" -lt "$reseal_line" ] \

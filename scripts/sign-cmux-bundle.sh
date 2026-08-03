@@ -13,9 +13,11 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
-#   CMUX_SIGN_MODE             "all" (default) or "main-only". main-only
-#                              re-seals the outer app after a nested helper is
-#                              stapled without replacing the helper's ticket.
+#   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
+#                              "main-only". The split Computer Use notarization
+#                              flow uses all-except-computer-use while Apple's
+#                              service processes the helper, then main-only after
+#                              stapling so the submitted helper CDHash survives.
 #
 # Signs in the Apple-documented inside-out order:
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
@@ -56,7 +58,7 @@ if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   exit 1
 fi
 case "$SIGN_MODE" in
-  all|main-only) ;;
+  all|all-except-computer-use|main-only) ;;
   *)
     echo "error: unsupported CMUX_SIGN_MODE: $SIGN_MODE" >&2
     exit 2
@@ -72,7 +74,7 @@ fi
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 
-if [[ "$SIGN_MODE" == "all" ]]; then
+if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
   # 1. CLI and private helpers
   for helper_dir in bin libexec; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
@@ -82,8 +84,10 @@ if [[ "$SIGN_MODE" == "all" ]]; then
     done
   done
 
-  # 2. Computer Use helper app
-  if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  # 2. Computer Use helper app. An early notarization submission owns this
+  # signature in all-except-computer-use mode; changing it would invalidate the
+  # ticket that finish is waiting to staple.
+  if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     /usr/bin/codesign \
       "${COMMON[@]}" \
