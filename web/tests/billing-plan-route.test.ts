@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { stripeSubscriptions } from "../db/schema";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -26,7 +28,7 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
     if (dbMissing) throw new Error("DATABASE_URL is required");
-    return {
+    return withAccountMutationLeaseSupport({
       select: () => ({
         from: (table: unknown) => ({
           where: () => ({
@@ -39,7 +41,7 @@ mock.module("../db/client", () => ({
           }),
         }),
       }),
-    };
+    });
   },
 }));
 

@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 final class MobileMacConnectionRegistry {
-    private var entriesByMacDeviceID: [String: Entry] = [:] {
+    private var entriesByOwnerKey: [MacPairingKey: Entry] = [:] {
         didSet { rebuildSnapshots() }
     }
 
@@ -24,14 +24,14 @@ final class MobileMacConnectionRegistry {
     }
 
     var controlEntries: [ControlSubscriptions.Element] {
-        entriesByMacDeviceID.compactMap { macDeviceID, entry in
+        entriesByOwnerKey.compactMap { ownerKey, entry in
             guard case .control(let subscription) = entry else { return nil }
-            return (key: macDeviceID, value: subscription)
+            return (key: ownerKey, value: subscription)
         }
     }
 
     var controlEntryCount: Int {
-        entriesByMacDeviceID.values.reduce(into: 0) { count, entry in
+        entriesByOwnerKey.values.reduce(into: 0) { count, entry in
             if case .control = entry {
                 count += 1
             }
@@ -39,9 +39,9 @@ final class MobileMacConnectionRegistry {
     }
 
     func controlSubscription(
-        for macDeviceID: String
+        for ownerKey: MacPairingKey
     ) -> SecondaryMacSubscription? {
-        guard case .control(let subscription) = entriesByMacDeviceID[macDeviceID] else {
+        guard case .control(let subscription) = entriesByOwnerKey[ownerKey] else {
             return nil
         }
         return subscription
@@ -49,18 +49,18 @@ final class MobileMacConnectionRegistry {
 
     func setControlSubscription(
         _ subscription: SecondaryMacSubscription?,
-        for macDeviceID: String
+        for ownerKey: MacPairingKey
     ) {
         if let subscription {
             // Compatibility setters may refresh their own role, but cannot
             // silently destroy the opposite owner. Cross-role changes use the
             // explicit transition methods below.
-            if case .focused = entriesByMacDeviceID[macDeviceID] {
+            if case .focused = entriesByOwnerKey[ownerKey] {
                 return
             }
-            entriesByMacDeviceID[macDeviceID] = .control(subscription)
-        } else if case .control = entriesByMacDeviceID[macDeviceID] {
-            entriesByMacDeviceID[macDeviceID] = nil
+            entriesByOwnerKey[ownerKey] = .control(subscription)
+        } else if case .control = entriesByOwnerKey[ownerKey] {
+            entriesByOwnerKey[ownerKey] = nil
         }
     }
 
@@ -71,32 +71,45 @@ final class MobileMacConnectionRegistry {
         _ subscription: SecondaryMacSubscription,
         maximumControlCount: Int
     ) -> Bool {
-        guard entriesByMacDeviceID[subscription.macDeviceID] == nil,
+        guard entriesByOwnerKey[subscription.ownerKey] == nil,
               controlEntryCount < maximumControlCount else {
             return false
         }
-        entriesByMacDeviceID[subscription.macDeviceID] = .control(subscription)
+        entriesByOwnerKey[subscription.ownerKey] = .control(subscription)
         return true
     }
 
-    func focusedConnection(for macDeviceID: String) -> MacConnection? {
-        guard case .focused(let connection) = entriesByMacDeviceID[macDeviceID] else {
+    func focusedConnection(for ownerKey: MacPairingKey) -> MacConnection? {
+        guard case .focused(let connection) = entriesByOwnerKey[ownerKey] else {
             return nil
         }
         return connection
     }
 
+    /// The focused connection on the given physical device, regardless of
+    /// instance tag. Safe as a device-level read because the registry holds at
+    /// most one focused entry; writes must always name the exact pairing.
+    func focusedConnection(onDevice macDeviceID: String) -> MacConnection? {
+        for (ownerKey, entry) in entriesByOwnerKey {
+            if case .focused(let connection) = entry,
+               ownerKey.isOnDevice(macDeviceID) {
+                return connection
+            }
+        }
+        return nil
+    }
+
     func setFocusedConnection(
         _ connection: MacConnection?,
-        for macDeviceID: String
+        for ownerKey: MacPairingKey
     ) {
         if let connection {
-            if case .control = entriesByMacDeviceID[macDeviceID] {
+            if case .control = entriesByOwnerKey[ownerKey] {
                 return
             }
-            entriesByMacDeviceID[macDeviceID] = .focused(connection)
-        } else if case .focused = entriesByMacDeviceID[macDeviceID] {
-            entriesByMacDeviceID[macDeviceID] = nil
+            entriesByOwnerKey[ownerKey] = .focused(connection)
+        } else if case .focused = entriesByOwnerKey[ownerKey] {
+            entriesByOwnerKey[ownerKey] = nil
         }
     }
 
@@ -106,12 +119,12 @@ final class MobileMacConnectionRegistry {
         _ connection: MacConnection
     ) -> SecondaryMacSubscription? {
         let displaced: SecondaryMacSubscription?
-        if case .control(let subscription) = entriesByMacDeviceID[connection.macDeviceID] {
+        if case .control(let subscription) = entriesByOwnerKey[connection.ownerKey] {
             displaced = subscription
         } else {
             displaced = nil
         }
-        entriesByMacDeviceID[connection.macDeviceID] = .focused(connection)
+        entriesByOwnerKey[connection.ownerKey] = .focused(connection)
         return displaced
     }
 
@@ -123,13 +136,13 @@ final class MobileMacConnectionRegistry {
         maximumControlCount: Int
     ) -> Bool {
         guard case .focused(let current) =
-                entriesByMacDeviceID[connection.macDeviceID],
+                entriesByOwnerKey[connection.ownerKey],
               current.client === connection.client,
               current.generation == connection.generation,
               controlEntryCount < maximumControlCount else {
             return false
         }
-        entriesByMacDeviceID[connection.macDeviceID] = .control(subscription)
+        entriesByOwnerKey[connection.ownerKey] = .control(subscription)
         return true
     }
 
@@ -142,23 +155,23 @@ final class MobileMacConnectionRegistry {
         demotedControl: SecondaryMacSubscription,
         replacing focusedConnection: MacConnection
     ) -> Bool {
-        guard promotedControl.macDeviceID
-                != focusedConnection.macDeviceID,
+        guard promotedControl.ownerKey
+                != focusedConnection.ownerKey,
               case .control(let currentPromoted) =
-                entriesByMacDeviceID[promotedControl.macDeviceID],
+                entriesByOwnerKey[promotedControl.ownerKey],
               currentPromoted === promotedControl,
               case .focused(let currentFocused) =
-                entriesByMacDeviceID[focusedConnection.macDeviceID],
+                entriesByOwnerKey[focusedConnection.ownerKey],
               currentFocused.client === focusedConnection.client,
               currentFocused.generation
                 == focusedConnection.generation else {
             return false
         }
-        var updated = entriesByMacDeviceID
-        updated[promotedControl.macDeviceID] = nil
-        updated[focusedConnection.macDeviceID] =
+        var updated = entriesByOwnerKey
+        updated[promotedControl.ownerKey] = nil
+        updated[focusedConnection.ownerKey] =
             .control(demotedControl)
-        entriesByMacDeviceID = updated
+        entriesByOwnerKey = updated
         return true
     }
 
@@ -167,18 +180,18 @@ final class MobileMacConnectionRegistry {
     /// untouched.
     @discardableResult
     func removeFocused(ifMatching connection: MacConnection) -> Bool {
-        guard case .focused(let current) = entriesByMacDeviceID[connection.macDeviceID],
+        guard case .focused(let current) = entriesByOwnerKey[connection.ownerKey],
               current.client === connection.client,
               current.generation == connection.generation else {
             return false
         }
-        entriesByMacDeviceID[connection.macDeviceID] = nil
+        entriesByOwnerKey[connection.ownerKey] = nil
         return true
     }
 
     func isFocused(ifMatching connection: MacConnection) -> Bool {
         guard case .focused(let current) =
-                entriesByMacDeviceID[connection.macDeviceID] else {
+                entriesByOwnerKey[connection.ownerKey] else {
             return false
         }
         return current.client === connection.client
@@ -186,7 +199,7 @@ final class MobileMacConnectionRegistry {
     }
 
     func ownsClient(of connection: MacConnection) -> Bool {
-        switch entriesByMacDeviceID[connection.macDeviceID] {
+        switch entriesByOwnerKey[connection.ownerKey] {
         case .focused(let current):
             return current.client === connection.client
         case .control(let current):
@@ -197,38 +210,38 @@ final class MobileMacConnectionRegistry {
     }
 
     func removeAllControlSubscriptions() {
-        let controlIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
-            if case .control = entry { return macDeviceID }
+        let controlKeys = entriesByOwnerKey.compactMap { ownerKey, entry -> MacPairingKey? in
+            if case .control = entry { return ownerKey }
             return nil
         }
-        for macDeviceID in controlIDs {
-            entriesByMacDeviceID[macDeviceID] = nil
+        for ownerKey in controlKeys {
+            entriesByOwnerKey[ownerKey] = nil
         }
     }
 
     func removeAllFocusedConnections() {
-        let focusedIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
-            if case .focused = entry { return macDeviceID }
+        let focusedKeys = entriesByOwnerKey.compactMap { ownerKey, entry -> MacPairingKey? in
+            if case .focused = entry { return ownerKey }
             return nil
         }
-        for macDeviceID in focusedIDs {
-            entriesByMacDeviceID[macDeviceID] = nil
+        for ownerKey in focusedKeys {
+            entriesByOwnerKey[ownerKey] = nil
         }
     }
 
     func removeAll() {
-        entriesByMacDeviceID.removeAll()
+        entriesByOwnerKey.removeAll()
     }
 
     private func rebuildSnapshots() {
-        snapshots = entriesByMacDeviceID.map { macDeviceID, entry in
+        snapshots = entriesByOwnerKey.map { ownerKey, entry in
             switch entry {
             case .control(let subscription):
                 return MobileMacConnectionSnapshot(
-                    macDeviceID: macDeviceID,
+                    macDeviceID: ownerKey.canonicalMacDeviceID,
                     displayName: mobileMacConnectionDisplayName(
                         subscription.displayName,
-                        fallback: macDeviceID
+                        fallback: ownerKey.canonicalMacDeviceID
                     ),
                     instanceTag: subscription.authenticatedInstanceTag
                         ?? subscription.storedInstanceTag,
@@ -236,10 +249,10 @@ final class MobileMacConnectionRegistry {
                 )
             case .focused(let connection):
                 return MobileMacConnectionSnapshot(
-                    macDeviceID: macDeviceID,
+                    macDeviceID: ownerKey.canonicalMacDeviceID,
                     displayName: mobileMacConnectionDisplayName(
                         connection.displayName,
-                        fallback: macDeviceID
+                        fallback: ownerKey.canonicalMacDeviceID
                     ),
                     instanceTag: connection.instanceTag,
                     role: .focused

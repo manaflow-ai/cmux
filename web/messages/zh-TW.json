@@ -3523,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
+    "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
+    "signedOutSignIn": "登入"
   },
   "platforms": {
     "macos": "macOS",
@@ -3600,6 +3602,37 @@
       "primaryCta": "下載 .deb",
       "requirements": "Debian 或 Ubuntu · x64",
       "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "歡迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感謝你加入 cmux Pro！完整的 Pro 體驗仍在完善中，Cloud 存取也即將推出。",
+      "cloudStatus": "Cloud 存取上線後，我們會根據你的訂閱月數，將使用額度加入帳戶。",
+      "currentBenefit": "在此期間，你的 Pro 權益是搶先體驗 cmux iOS 版。請透過下方連結註冊，完成後 Apple 會寄出 TestFlight 邀請。",
+      "testflightLink": "註冊 TestFlight：{url}",
+      "testflightLinkLabel": "註冊 TestFlight",
+      "signoff": "很高興有你加入！\ncmux 團隊"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已啟用",
+    "title": "歡迎加入 cmux Pro",
+    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手機上使用 cmux。",
+        "action": "加入 iOS 測試版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、發票與取消選項。",
+        "action": "管理方案"
+      }
     }
   }
 }

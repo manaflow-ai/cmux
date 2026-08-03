@@ -11,6 +11,11 @@ import Foundation
 struct MacConnection {
     /// The stable device id of the Mac this connection targets.
     let macDeviceID: String
+    /// The typed pool identity: canonical device + STORED tag, matching the
+    /// control-subscription keying so promotion/demotion round-trips one key.
+    var ownerKey: MacPairingKey {
+        MacPairingKey(macDeviceID: macDeviceID, instanceTag: storedInstanceTag)
+    }
     /// The attach ticket the connection was established with.
     let ticket: CmxAttachTicket
     /// The route (host/port + kind) the client dialed.

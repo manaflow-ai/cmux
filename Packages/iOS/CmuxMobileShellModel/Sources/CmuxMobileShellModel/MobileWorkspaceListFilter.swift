@@ -27,6 +27,16 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
     /// - Parameter workspace: The workspace row under consideration.
     /// - Returns: `true` when the row should be shown.
     public func matches(_ workspace: MobileWorkspacePreview) -> Bool {
+        matches(workspace, parsedMachines: Self.parsedMachineEntries(machines))
+    }
+
+    /// Row-projection variant: `parsedMachines` is this filter's `machines`
+    /// parsed once by the caller, so filtering N rows does not re-split each
+    /// scope entry N times.
+    public func matches(
+        _ workspace: MobileWorkspacePreview,
+        parsedMachines: [ParsedMachineEntry]
+    ) -> Bool {
         let readOK: Bool
         switch readState {
         case .all: readOK = true
@@ -35,9 +45,63 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         // A machine filter only matches rows whose owning Mac is in the set; a
         // row with an unknown machine (an older Mac that didn't report one) is
         // excluded while a machine filter is active, since it can't be confirmed
-        // to belong to a selected machine.
-        let machineOK = machines.isEmpty || (workspace.macDeviceID.map(machines.contains) ?? false)
+        // to belong to a selected machine. An entry may be a bare device id
+        // (matches every build on that device) or a pairing id
+        // (device + unit separator + tag: matches only that build's rows).
+        let machineOK = parsedMachines.isEmpty || (workspace.macDeviceID.map { deviceID in
+            parsedMachines.contains(where: {
+                $0.matches(deviceID: deviceID, rowTag: workspace.macInstanceTag)
+            })
+        } ?? false)
         return readOK && machineOK
+    }
+
+    /// The pairing-id separator shared with `MobilePairedMac.pairingID`.
+    private static let pairingSeparator: Character = "\u{1F}"
+
+    public static func machineEntryMatches(
+        _ entry: String,
+        deviceID: String,
+        rowTag: String?
+    ) -> Bool {
+        ParsedMachineEntry(entry).matches(deviceID: deviceID, rowTag: rowTag)
+    }
+
+    /// One preparsed scope entry (a bare device id or a composite pairing id).
+    /// Row projection runs per workspace row and per retained notification, so
+    /// callers parse each selected entry ONCE and reuse it instead of
+    /// splitting/allocating strings on every row.
+    public struct ParsedMachineEntry: Sendable {
+        public let deviceID: String
+        /// `nil` for a device-level entry; a device-level entry matches every
+        /// build's rows on that device.
+        public let instanceTag: String?
+
+        public init(_ entry: String) {
+            let parts = entry.split(
+                separator: pairingSeparator, maxSplits: 1, omittingEmptySubsequences: false
+            )
+            self.deviceID = parts.first.map(String.init) ?? entry
+            self.instanceTag = parts.count == 2 ? String(parts[1]) : nil
+        }
+
+        public func matches(deviceID rowDeviceID: String, rowTag: String?) -> Bool {
+            guard deviceID == rowDeviceID else { return false }
+            guard let instanceTag else { return true }
+            // An exact pairing entry matches only rows proven to be that
+            // build. Unknown-tag rows stay visible under device entries and
+            // All Computers, never inside a sibling build's scope where
+            // acting on them could route to the wrong build.
+            guard let rowTag, !rowTag.isEmpty else { return false }
+            return instanceTag == rowTag
+        }
+    }
+
+    /// Parse a scope's entries once for reuse across row projection.
+    public static func parsedMachineEntries<S: Sequence>(
+        _ entries: S
+    ) -> [ParsedMachineEntry] where S.Element == String {
+        entries.map(ParsedMachineEntry.init)
     }
 
     /// Whether this filter actually narrows the list (drives the filled-vs-

@@ -44,7 +44,11 @@ The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.soc
 
 ## iOS builds open on the iPhone by default
 
-For any iOS-related build, install and launch the tagged build on the user's connected iPhone in addition to the simulator, without being asked. Use `ios/scripts/reload-cloud.sh --tag <tag> --device-id <id>` (find the device with `xcrun devicectl list devices`); auto sign-in and auto-pair apply as usual, and launch the app so it is immediately open on the phone. If no iPhone is reachable, say so explicitly in the handoff and include the exact retry command instead of silently stopping at simulator-only.
+Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhone. Never stop at simulator-only. Use `ios/scripts/reload-cloud.sh --tag <tag>` (or `ios/scripts/reload.sh --tag <tag>`); with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Auto sign-in and auto-pair apply as usual; launch the app so it is immediately open on the phone. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
+
+Every phone build requires the same-tag Mac dev build (the iOS app is unusable without its Mac). The reload scripts build the Mac tag first when it is missing and refuse to ship a phone-only build if that fails; do not bypass this with `CMUX_IOS_SKIP_MAC_BUILD_CHECK` in normal work.
+
+If the iPhone is unreachable at build time, the reload still completes: the signed build is parked in the offline install queue (`scripts/iphone-install-queue.sh`, persistent under `~/Library/Application Support/cmux-dev/iphone-install-queue`), and a LaunchAgent auto-installs and launches it within seconds of the phone being plugged back in or reappearing on the network, then sends a `cmux notify` with the installed tags. The LaunchAgent is a one-time per-Mac setup: `scripts/install-iphone-queue-agent.sh install`; it runs a stable copy of the queue script, so re-run the installer after changing that script. In the handoff, report the queued state (`scripts/iphone-install-queue.sh list`) instead of treating an unreachable phone as a failure; `drain` retries manually, `clear` abandons a queued build.
 
 ## iOS dev auth
 
