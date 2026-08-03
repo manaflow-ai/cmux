@@ -140,7 +140,7 @@ final class CLISocketSentryTelemetry {
             .map(sentryPolicy.shouldSuppressPolicyDenial) ?? false
         guard !noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
-            message: errorDescription,
+            error: error,
             dataKeys: Set(data.keys),
             allowSandboxPolicyDenial: allowPolicyDenial
         ) else {

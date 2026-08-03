@@ -59,35 +59,35 @@ import Testing
         let refused = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 61)
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
-            message: refused.description
+            error: refused
         ))
 
         let missing = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 2)
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
-            message: missing.description
+            error: missing
         ))
 
         let policyDenied = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 1)
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
-            message: policyDenied.description,
+            error: policyDenied,
             allowSandboxPolicyDenial: true
         ))
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
-            message: policyDenied.description
+            error: policyDenied
         ))
 
         let permissionDenied = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 13)
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
-            message: permissionDenied.description,
+            error: permissionDenied,
             allowSandboxPolicyDenial: true
         ))
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "codex-monitor-start",
-            message: refused.description
+            error: refused
         ))
     }
 
