@@ -426,6 +426,55 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func unreadBadgesDefaultToStickyTrailingEdge() throws {
+        let width: CGFloat = 320
+        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        #expect(settings.notificationBadgePosition == .trailing)
+
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(
+                title: "Workspace",
+                canClose: false,
+                unreadCount: 125,
+                settings: settings
+            )
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: width, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: width, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 125))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let expectedMaxX = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+        #expect(abs(workspaceBadge.frame.maxX - expectedMaxX) < 0.5)
+        #expect(abs(groupBadge.frame.maxX - expectedMaxX) < 0.5)
+
+        group.configurePresentation(
+            model: Self.makeGroupModel(
+                name: "A very long group name that must truncate before its unread badge",
+                unreadCount: 125
+            )
+        )
+        group.layoutSubtreeIfNeeded()
+        #expect(abs(groupBadge.frame.maxX - expectedMaxX) < 0.5)
+    }
+
+    @Test
     func groupHeaderUsesMarkdownRegularWorkspaceSizedTextWithoutFolderIcon() throws {
         let cell = SidebarGroupHeaderTableCellView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 32)
