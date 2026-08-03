@@ -1,6 +1,5 @@
-import CmuxFoundation
 import AppKit
-import SwiftUI
+import CmuxFoundation
 
 private enum PDFPreviewChromeDebugAction {
     case zoomOut
@@ -13,226 +12,269 @@ private enum PDFPreviewChromeDebugAction {
 
     var title: String {
         switch self {
-        case .zoomOut:
-            String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out")
-        case .actualSize:
-            String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size")
-        case .zoomIn:
-            String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In")
-        case .zoomToFit:
-            String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit")
-        case .rotateLeft:
-            String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
-        case .rotateRight:
-            String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
-        case .refresh:
-            String(localized: "filePreview.refresh", defaultValue: "Refresh")
+        case .zoomOut: String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out")
+        case .actualSize: String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size")
+        case .zoomIn: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In")
+        case .zoomToFit: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit")
+        case .rotateLeft: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
+        case .rotateRight: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+        case .refresh: String(localized: "filePreview.refresh", defaultValue: "Refresh")
         }
     }
 
     var systemName: String {
         switch self {
-        case .zoomOut:
-            "minus.magnifyingglass"
-        case .actualSize:
-            "1.magnifyingglass"
-        case .zoomIn:
-            "plus.magnifyingglass"
-        case .zoomToFit:
-            "arrow.up.left.and.arrow.down.right"
-        case .rotateLeft:
-            "rotate.left"
-        case .rotateRight:
-            "rotate.right"
-        case .refresh:
-            "arrow.clockwise"
+        case .zoomOut: "minus.magnifyingglass"
+        case .actualSize: "1.magnifyingglass"
+        case .zoomIn: "plus.magnifyingglass"
+        case .zoomToFit: "arrow.up.left.and.arrow.down.right"
+        case .rotateLeft: "rotate.left"
+        case .rotateRight: "rotate.right"
+        case .refresh: "arrow.clockwise"
         }
     }
 }
 
-private final class PDFPreviewChromeDebugModel: ObservableObject {
-    @Published var lastActionTitle = ""
-    @Published var actionCount = 0
+@MainActor
+private final class PDFPreviewChromeDebugModel {
+    private(set) var lastActionTitle = ""
+    private(set) var actionCount = 0
+    var onChange: (() -> Void)?
 
     func record(_ action: PDFPreviewChromeDebugAction) {
         lastActionTitle = action.title
         actionCount += 1
+        onChange?()
     }
 }
 
-private struct PDFPreviewChromeDebugView: View {
-    @ObservedObject var model: PDFPreviewChromeDebugModel
+@MainActor
+private final class PDFPreviewChromeDebugView: NSView {
+    private let model: PDFPreviewChromeDebugModel
+    private let contentStack = NSStackView()
+    private let statusLabel = NSTextField(wrappingLabelWithString: "")
 
-    @AppStorage(FilePreviewPDFChromeStyleVariant.defaultsKey)
-    private var chromeStyleRawValue = FilePreviewPDFChromeStyleVariant.liquidGlass.rawValue
-
-    private var currentVariant: FilePreviewPDFChromeStyleVariant {
-        FilePreviewPDFChromeStyleVariant(rawValue: chromeStyleRawValue) ?? .liquidGlass
+    init(model: PDFPreviewChromeDebugModel) {
+        self.model = model
+        super.init(frame: .zero)
+        setupView()
+        model.onChange = { [weak self] in self?.updateStatus() }
+        rebuildRows()
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "debug.pdfPreviewChrome.heading", defaultValue: "PDF Preview Chrome"))
-                    .cmuxFont(.headline)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-                Text(
-                    String(
-                        localized: "debug.pdfPreviewChrome.description",
-                        defaultValue: "Choose the floating control style used by PDF previews."
-                    )
-                )
-                .cmuxFont(.subheadline)
-                .foregroundStyle(.secondary)
+    private func setupView() {
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 14
+        contentStack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = contentStack
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 500),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 620),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        ])
+    }
 
-                GroupBox(String(localized: "debug.pdfPreviewChrome.toolbarReference", defaultValue: "Native Window Toolbar")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(
-                            String(
-                                localized: "debug.pdfPreviewChrome.toolbarReferenceDescription",
-                                defaultValue: "Use the buttons in this debug window's titlebar toolbar to test real NSToolbar hover and press feedback."
-                            )
-                        )
-                        .cmuxFont(size: 12)
-                        .foregroundStyle(.secondary)
-
-                        actionStatus
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-
-                ForEach(FilePreviewPDFChromeStyleVariant.allCases) { variant in
-                    variantRow(variant)
-                }
-
-                Divider()
-
-                HStack(spacing: 10) {
-                    Text(
-                        String(
-                            format: String(
-                                localized: "debug.pdfPreviewChrome.currentFormat",
-                                defaultValue: "Current: %@"
-                            ),
-                            currentVariant.title
-                        )
-                    )
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button(String(localized: "debug.pdfPreviewChrome.copyConfig", defaultValue: "Copy Config")) {
-                        copyConfig()
-                    }
-
-                    Button(String(localized: "debug.pdfPreviewChrome.resetToDefault", defaultValue: "Reset to Default")) {
-                        apply(.liquidGlass)
-                    }
-                }
-            }
-            .padding(16)
+    private func rebuildRows() {
+        contentStack.arrangedSubviews.forEach {
+            contentStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
         }
-        .frame(width: 500, height: 620)
-    }
+        let heading = NSTextField(labelWithString: String(
+            localized: "debug.pdfPreviewChrome.heading",
+            defaultValue: "PDF Preview Chrome"
+        ))
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        contentStack.addArrangedSubview(heading)
 
-    @ViewBuilder
-    private var actionStatus: some View {
-        if model.actionCount == 0 {
-            Text(String(localized: "debug.pdfPreviewChrome.noActions", defaultValue: "No sample actions yet."))
-                .cmuxFont(size: 11, design: .monospaced)
-                .foregroundStyle(.secondary)
-        } else {
-            Text(
-                String(
-                    format: String(
-                        localized: "debug.pdfPreviewChrome.lastActionFormat",
-                        defaultValue: "Last action: %@ (%d)"
-                    ),
-                    model.lastActionTitle,
-                    model.actionCount
-                )
-            )
-            .cmuxFont(size: 11, design: .monospaced)
-            .foregroundStyle(.secondary)
+        let description = NSTextField(wrappingLabelWithString: String(
+            localized: "debug.pdfPreviewChrome.description",
+            defaultValue: "Choose the floating control style used by PDF previews."
+        ))
+        description.font = .systemFont(ofSize: 12)
+        description.textColor = .secondaryLabelColor
+        contentStack.addArrangedSubview(description)
+
+        let referenceDescription = NSTextField(wrappingLabelWithString: String(
+            localized: "debug.pdfPreviewChrome.toolbarReferenceDescription",
+            defaultValue: "Use the buttons in this debug window's titlebar toolbar to test real NSToolbar hover and press feedback."
+        ))
+        referenceDescription.font = .systemFont(ofSize: 12)
+        referenceDescription.textColor = .secondaryLabelColor
+        statusLabel.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        statusLabel.textColor = .secondaryLabelColor
+        let referenceStack = NSStackView(views: [referenceDescription, statusLabel])
+        referenceStack.orientation = .vertical
+        referenceStack.alignment = .leading
+        referenceStack.spacing = 8
+        contentStack.addArrangedSubview(group(
+            String(localized: "debug.pdfPreviewChrome.toolbarReference", defaultValue: "Native Window Toolbar"),
+            content: referenceStack
+        ))
+        updateStatus()
+
+        for variant in FilePreviewPDFChromeStyleVariant.allCases {
+            contentStack.addArrangedSubview(variantRow(variant))
         }
+
+        let current = FilePreviewPDFChromeStyleVariant.current()
+        let currentText = NSTextField(labelWithString: String(
+            format: String(localized: "debug.pdfPreviewChrome.currentFormat", defaultValue: "Current: %@"),
+            current.title
+        ))
+        currentText.font = .systemFont(ofSize: 11, weight: .medium)
+        currentText.textColor = .secondaryLabelColor
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let footer = NSStackView(views: [
+            currentText,
+            spacer,
+            button(String(localized: "debug.pdfPreviewChrome.copyConfig", defaultValue: "Copy Config"), selector: #selector(copyConfig)),
+            button(String(localized: "debug.pdfPreviewChrome.resetToDefault", defaultValue: "Reset to Default"), selector: #selector(resetToDefault)),
+        ])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 10
+        footer.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -32).isActive = true
+        contentStack.addArrangedSubview(footer)
     }
 
-    private func variantRow(_ variant: FilePreviewPDFChromeStyleVariant) -> some View {
-        let isSelected = variant == currentVariant
+    private func variantRow(_ variant: FilePreviewPDFChromeStyleVariant) -> NSView {
+        let selected = variant == FilePreviewPDFChromeStyleVariant.current()
+        let check = NSImageView(image: NSImage(
+            systemSymbolName: selected ? "checkmark.circle.fill" : "circle",
+            accessibilityDescription: nil
+        ) ?? NSImage())
+        check.contentTintColor = selected ? .controlAccentColor : .secondaryLabelColor
+        let title = NSTextField(labelWithString: variant.title)
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let use = PDFPreviewChromeVariantButton(variant: variant, selected: selected)
+        use.target = self
+        use.action = #selector(selectVariant(_:))
+        let heading = NSStackView(views: [check, title, spacer, use])
+        heading.orientation = .horizontal
+        heading.alignment = .centerY
+        heading.spacing = 10
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 16)
-
-                Text(variant.title)
-                    .cmuxFont(size: 13, weight: .medium)
-
-                Spacer()
-
-                Button(
-                    isSelected
-                        ? String(localized: "debug.pdfPreviewChrome.selected", defaultValue: "Selected")
-                        : String(localized: "debug.pdfPreviewChrome.use", defaultValue: "Use")
-                ) {
-                    apply(variant)
-                }
-                .disabled(isSelected)
-                .controlSize(.small)
-            }
-
-            HStack(spacing: 8) {
-                Text(String(localized: "debug.pdfPreviewChrome.sampleLabel", defaultValue: "Sample"))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
-
-                PDFPreviewChromeDebugSample(variant: variant, model: model)
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func apply(_ variant: FilePreviewPDFChromeStyleVariant) {
-        chromeStyleRawValue = variant.rawValue
-        variant.persist()
-    }
-
-    private func copyConfig() {
-        let payload = "\(FilePreviewPDFChromeStyleVariant.defaultsKey)=\(currentVariant.rawValue)"
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
-    }
-}
-
-private struct PDFPreviewChromeDebugSample: View {
-    let variant: FilePreviewPDFChromeStyleVariant
-    @ObservedObject var model: PDFPreviewChromeDebugModel
-
-    var body: some View {
-        FilePreviewPDFZoomChromeView(
+        let sampleLabel = NSTextField(labelWithString: String(
+            localized: "debug.pdfPreviewChrome.sampleLabel",
+            defaultValue: "Sample"
+        ))
+        sampleLabel.font = .systemFont(ofSize: 11)
+        sampleLabel.textColor = .secondaryLabelColor
+        sampleLabel.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        let sample = FilePreviewPDFZoomChromeView(
             chromeStyleVariant: variant,
             fileURL: URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-debug.pdf"),
-            zoomOut: { model.record(.zoomOut) },
-            actualSize: { model.record(.actualSize) },
-            zoomIn: { model.record(.zoomIn) },
-            zoomToFit: { model.record(.zoomToFit) },
-            rotateLeft: { model.record(.rotateLeft) },
-            rotateRight: { model.record(.rotateRight) },
-            refresh: { model.record(.refresh) }
+            zoomOut: { [weak model] in model?.record(.zoomOut) },
+            actualSize: { [weak model] in model?.record(.actualSize) },
+            zoomIn: { [weak model] in model?.record(.zoomIn) },
+            zoomToFit: { [weak model] in model?.record(.zoomToFit) },
+            rotateLeft: { [weak model] in model?.record(.rotateLeft) },
+            rotateRight: { [weak model] in model?.record(.rotateRight) },
+            refresh: { [weak model] in model?.record(.refresh) }
         )
+        let sampleRow = NSStackView(views: [sampleLabel, sample])
+        sampleRow.orientation = .horizontal
+        sampleRow.alignment = .centerY
+        sampleRow.spacing = 8
+        let stack = NSStackView(views: [heading, sampleRow])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        return group(variant.title, content: stack, showsTitle: false)
+    }
+
+    private func group(_ title: String, content: NSView, showsTitle: Bool = true) -> NSBox {
+        let box = NSBox()
+        box.title = showsTitle ? title : ""
+        box.titlePosition = showsTitle ? .atTop : .noTitle
+        content.translatesAutoresizingMaskIntoConstraints = false
+        let wrapper = NSView()
+        wrapper.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: 10),
+            content.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -10),
+            content.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 10),
+            content.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -10),
+        ])
+        box.contentView = wrapper
+        box.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -32).isActive = true
+        return box
+    }
+
+    private func button(_ title: String, selector: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: selector)
+        button.bezelStyle = .rounded
+        return button
+    }
+
+    private func updateStatus() {
+        if model.actionCount == 0 {
+            statusLabel.stringValue = String(localized: "debug.pdfPreviewChrome.noActions", defaultValue: "No sample actions yet.")
+        } else {
+            statusLabel.stringValue = String(
+                format: String(localized: "debug.pdfPreviewChrome.lastActionFormat", defaultValue: "Last action: %@ (%d)"),
+                model.lastActionTitle,
+                model.actionCount
+            )
+        }
+    }
+
+    @objc private func selectVariant(_ sender: PDFPreviewChromeVariantButton) {
+        sender.variant.persist()
+        rebuildRows()
+    }
+
+    @objc private func copyConfig() {
+        let variant = FilePreviewPDFChromeStyleVariant.current()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("\(FilePreviewPDFChromeStyleVariant.defaultsKey)=\(variant.rawValue)", forType: .string)
+    }
+
+    @objc private func resetToDefault() {
+        FilePreviewPDFChromeStyleVariant.liquidGlass.persist()
+        rebuildRows()
+    }
+}
+
+@MainActor
+private final class PDFPreviewChromeVariantButton: NSButton {
+    let variant: FilePreviewPDFChromeStyleVariant
+
+    init(variant: FilePreviewPDFChromeStyleVariant, selected: Bool) {
+        self.variant = variant
+        super.init(frame: .zero)
+        title = selected
+            ? String(localized: "debug.pdfPreviewChrome.selected", defaultValue: "Selected")
+            : String(localized: "debug.pdfPreviewChrome.use", defaultValue: "Use")
+        bezelStyle = .rounded
+        controlSize = .small
+        isEnabled = !selected
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 
@@ -264,7 +306,7 @@ final class PDFPreviewChromeDebugWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.pdfPreviewChromeDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: PDFPreviewChromeDebugView(model: model))
+        window.contentView = PDFPreviewChromeDebugView(model: model)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         installToolbar(on: window)
         return window
@@ -289,29 +331,12 @@ final class PDFPreviewChromeDebugWindowController: ReleasingWindowController {
         window.toolbarStyle = .unifiedCompact
     }
 
-    @objc private func toolbarZoomOut(_ sender: Any?) {
-        model.record(.zoomOut)
-    }
-
-    @objc private func toolbarActualSize(_ sender: Any?) {
-        model.record(.actualSize)
-    }
-
-    @objc private func toolbarZoomIn(_ sender: Any?) {
-        model.record(.zoomIn)
-    }
-
-    @objc private func toolbarZoomToFit(_ sender: Any?) {
-        model.record(.zoomToFit)
-    }
-
-    @objc private func toolbarRotateLeft(_ sender: Any?) {
-        model.record(.rotateLeft)
-    }
-
-    @objc private func toolbarRotateRight(_ sender: Any?) {
-        model.record(.rotateRight)
-    }
+    @objc private func toolbarZoomOut(_ sender: Any?) { model.record(.zoomOut) }
+    @objc private func toolbarActualSize(_ sender: Any?) { model.record(.actualSize) }
+    @objc private func toolbarZoomIn(_ sender: Any?) { model.record(.zoomIn) }
+    @objc private func toolbarZoomToFit(_ sender: Any?) { model.record(.zoomToFit) }
+    @objc private func toolbarRotateLeft(_ sender: Any?) { model.record(.rotateLeft) }
+    @objc private func toolbarRotateRight(_ sender: Any?) { model.record(.rotateRight) }
 
     private func makeToolbarItem(
         identifier: NSToolbarItem.Identifier,
@@ -332,27 +357,11 @@ final class PDFPreviewChromeDebugWindowController: ReleasingWindowController {
 
 extension PDFPreviewChromeDebugWindowController: NSToolbarDelegate {
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            .flexibleSpace,
-            Self.zoomOutItemID,
-            Self.actualSizeItemID,
-            Self.zoomInItemID,
-            Self.zoomToFitItemID,
-            Self.rotateLeftItemID,
-            Self.rotateRightItemID,
-        ]
+        [.flexibleSpace, Self.zoomOutItemID, Self.actualSizeItemID, Self.zoomInItemID, Self.zoomToFitItemID, Self.rotateLeftItemID, Self.rotateRightItemID]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            .flexibleSpace,
-            Self.zoomOutItemID,
-            Self.actualSizeItemID,
-            Self.zoomInItemID,
-            Self.zoomToFitItemID,
-            Self.rotateLeftItemID,
-            Self.rotateRightItemID,
-        ]
+        toolbarAllowedItemIdentifiers(toolbar)
     }
 
     func toolbar(
@@ -361,20 +370,13 @@ extension PDFPreviewChromeDebugWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case Self.zoomOutItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .zoomOut, selector: #selector(toolbarZoomOut(_:)))
-        case Self.actualSizeItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .actualSize, selector: #selector(toolbarActualSize(_:)))
-        case Self.zoomInItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .zoomIn, selector: #selector(toolbarZoomIn(_:)))
-        case Self.zoomToFitItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .zoomToFit, selector: #selector(toolbarZoomToFit(_:)))
-        case Self.rotateLeftItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .rotateLeft, selector: #selector(toolbarRotateLeft(_:)))
-        case Self.rotateRightItemID:
-            makeToolbarItem(identifier: itemIdentifier, action: .rotateRight, selector: #selector(toolbarRotateRight(_:)))
-        default:
-            nil
+        case Self.zoomOutItemID: makeToolbarItem(identifier: itemIdentifier, action: .zoomOut, selector: #selector(toolbarZoomOut(_:)))
+        case Self.actualSizeItemID: makeToolbarItem(identifier: itemIdentifier, action: .actualSize, selector: #selector(toolbarActualSize(_:)))
+        case Self.zoomInItemID: makeToolbarItem(identifier: itemIdentifier, action: .zoomIn, selector: #selector(toolbarZoomIn(_:)))
+        case Self.zoomToFitItemID: makeToolbarItem(identifier: itemIdentifier, action: .zoomToFit, selector: #selector(toolbarZoomToFit(_:)))
+        case Self.rotateLeftItemID: makeToolbarItem(identifier: itemIdentifier, action: .rotateLeft, selector: #selector(toolbarRotateLeft(_:)))
+        case Self.rotateRightItemID: makeToolbarItem(identifier: itemIdentifier, action: .rotateRight, selector: #selector(toolbarRotateRight(_:)))
+        default: nil
         }
     }
 }
