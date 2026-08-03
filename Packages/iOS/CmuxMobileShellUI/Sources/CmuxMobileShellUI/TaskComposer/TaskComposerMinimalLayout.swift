@@ -133,48 +133,42 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            TaskComposerPillBar {
-                leadingCluster
-            } pills: {
-                HStack(spacing: 8) {
-                    agentPill
+            HStack(spacing: 10) {
+                if showsAttachmentButton {
+                    TaskComposerAttachmentPickerMenu(
+                        style: .circularPlus,
+                        isDisabled: isDisabled,
+                        choosePhotos: chooseAttachmentPhotos,
+                        chooseFiles: chooseAttachmentFiles
+                    )
+                }
 
-                    if !models.isEmpty, showsStandaloneModelPill {
-                        modelPill
+                optionsButton
+
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        agentPill
+
+                        if !models.isEmpty, showsStandaloneModelPill {
+                            modelPill
+                        }
                     }
                 }
-            } trailing: {
-                trailingCluster
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("MobileTaskComposerPillScroller")
+
+                submitButton
             }
-                .frame(height: 44)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
-    }
-
-    private var leadingCluster: some View {
-        HStack(spacing: 10) {
-            if showsAttachmentButton {
-                TaskComposerAttachmentPickerMenu(
-                    style: .circularPlus,
-                    isDisabled: isDisabled,
-                    choosePhotos: chooseAttachmentPhotos,
-                    chooseFiles: chooseAttachmentFiles
-                )
-            }
-
-            optionsButton
-        }
-        .padding(.leading, 16)
-    }
-
-    private var trailingCluster: some View {
-        submitButton
-            .padding(.trailing, 16)
     }
 
     private var optionsButton: some View {
