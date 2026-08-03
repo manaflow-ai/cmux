@@ -5419,16 +5419,7 @@ class TerminalController {
             // resolve, exactly as the former main-actor dispatch did before
             // handing off to the coordinator.
             self.v2RefreshKnownRefs()
-            let routing = ControlRoutingSelectors(
-                hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
-                windowID: self.v2UUID(params, "window_id"),
-                groupID: self.v2UUID(params, "group_id"),
-                workspaceID: self.v2UUID(params, "workspace_id"),
-                surfaceID: self.v2UUID(params, "surface_id")
-                    ?? self.v2UUID(params, "terminal_id")
-                    ?? self.v2UUID(params, "tab_id"),
-                paneID: self.v2UUID(params, "pane_id")
-            )
+            let routing = self.v2RoutingSelectors(params)
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
             }

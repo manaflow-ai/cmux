@@ -45,6 +45,31 @@ struct SurfaceRoutingUnresolvableWorkspaceTests {
         #expect(resolved?.id == selected.id)
     }
 
+    /// The app-side request decoder is the single place every non-coordinator
+    /// entrypoint (`surface.read_text` on the socket-worker lane, the
+    /// remote-tmux paths) gets its selectors from, so the presence flag cannot
+    /// be wired into one command and forgotten in another.
+    @Test
+    func appSideDecoderFlagsPresentButUnresolvableWorkspaceID() {
+        let controller = TerminalController.shared
+
+        let unresolvable = controller.v2RoutingSelectors(["workspace_id": "workspace:999"])
+        #expect(unresolvable.workspaceID == nil)
+        #expect(unresolvable.hasWorkspaceIDParam)
+
+        #expect(!controller.v2RoutingSelectors([:]).hasWorkspaceIDParam)
+        #expect(!controller.v2RoutingSelectors(["workspace_id": NSNull()]).hasWorkspaceIDParam)
+
+        let uuid = UUID()
+        let resolved = controller.v2RoutingSelectors(["workspace_id": uuid.uuidString])
+        #expect(resolved.workspaceID == uuid)
+        #expect(resolved.hasWorkspaceIDParam)
+
+        #expect(
+            controller.remoteTmuxRouting(from: ["workspace_id": "workspace:999"]) == unresolvable
+        )
+    }
+
     private static func routing(
         workspaceID: UUID?,
         hasWorkspaceIDParam: Bool
