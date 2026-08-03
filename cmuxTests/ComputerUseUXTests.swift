@@ -2575,6 +2575,9 @@ struct ComputerUseUXTests {
             "1.75",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
+        #expect(configuration.environment[
+            "CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL"
+        ] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
         #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
@@ -2629,6 +2632,9 @@ struct ComputerUseUXTests {
             let source = try String(contentsOf: wrapperURL, encoding: .utf8)
             #expect(source.contains(
                 #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
+            ))
+            #expect(source.contains(
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL="1""#
             ))
             #expect(!source.contains(
                 #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
