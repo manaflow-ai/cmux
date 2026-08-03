@@ -142,7 +142,7 @@ raw_mutation() {
   local key="$2"
   local params="$3"
   "$CMUX_TUI" --socket "$MUX_SOCKET" raw operation "$operation" \
-    --params-json "$params" --mutation --idempotency-key "$key"
+    --params-json "$params" --mutation --idempotency-key "$key" --json
 }
 
 result_id() {
