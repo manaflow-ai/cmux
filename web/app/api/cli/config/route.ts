@@ -3,7 +3,7 @@ import { defaultHostedSubrouterURL } from "@/services/subrouter/constants";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STACK_API_URL = "https://api.stack-auth.com/api/v1";
+const DEFAULT_STACK_API_URL = "https://api.stack-auth.com/api/v1";
 
 export function GET(request: Request): Response {
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
@@ -23,7 +23,9 @@ export function GET(request: Request): Response {
     {
       version: 1,
       auth: {
-        apiUrl: STACK_API_URL,
+        apiUrl:
+          process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
+          DEFAULT_STACK_API_URL,
         projectId,
         publishableClientKey,
         // Start and complete the CLI login against the same deployment so the

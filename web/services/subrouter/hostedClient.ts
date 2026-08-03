@@ -132,7 +132,14 @@ export function createHostedSubrouterClient(options: {
           body: JSON.stringify(team),
         },
       );
-      return parseHostedTenant(response);
+      const tenant = parseHostedTenant(response);
+      if (tenant.tenantId !== team.teamId) {
+        throw new HostedSubrouterError(
+          "hosted Subrouter returned a tenant for a different team",
+          502,
+        );
+      }
+      return tenant;
     },
     deleteTenant: async (accessToken, teamId) => {
       assertTenantDeletionConfigured();
