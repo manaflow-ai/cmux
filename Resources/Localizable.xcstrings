@@ -51448,121 +51448,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فشل الاتصال بالمقبس في %1$@ (%2$@، errno %3$lld)"
+            "value": "تعذر الاتصال بـ cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povezivanje sa soketom na %1$@ nije uspjelo (%2$@, errno %3$lld)"
+            "value": "Nije se moguće povezati s cmux-om."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke oprette forbindelse til socket på %1$@ (%2$@, errno %3$lld)"
+            "value": "Kunne ikke oprette forbindelse til cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbindung zum Socket unter %1$@ fehlgeschlagen (%2$@, errno %3$lld)"
+            "value": "Verbindung zu cmux fehlgeschlagen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed to connect to socket at %1$@ (%2$@, errno %3$lld)"
+            "value": "Failed to connect to cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo conectar al socket en %1$@ (%2$@, errno %3$lld)"
+            "value": "No se pudo conectar a cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Échec de la connexion au socket à %1$@ (%2$@, errno %3$lld)"
+            "value": "Impossible de se connecter à cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile connettersi al socket in %1$@ (%2$@, errno %3$lld)"
+            "value": "Impossibile connettersi a cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ のソケットに接続できませんでした（%2$@、errno %3$lld）"
+            "value": "cmux に接続できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចភ្ជាប់ទៅ socket នៅ %1$@ បានទេ (%2$@, errno %3$lld)"
+            "value": "មិនអាចភ្ជាប់ទៅ cmux បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@의 소켓에 연결하지 못했습니다(%2$@, errno %3$lld)"
+            "value": "cmux에 연결하지 못했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke koble til socket på %1$@ (%2$@, errno %3$lld)"
+            "value": "Kunne ikke koble til cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się połączyć z gniazdem w %1$@ (%2$@, errno %3$lld)"
+            "value": "Nie udało się połączyć z cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Falha ao conectar ao socket em %1$@ (%2$@, errno %3$lld)"
+            "value": "Não foi possível conectar ao cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось подключиться к сокету по адресу %1$@ (%2$@, errno %3$lld)"
+            "value": "Не удалось подключиться к cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถเชื่อมต่อซ็อกเก็ตที่ %1$@ (%2$@, errno %3$lld)"
+            "value": "ไม่สามารถเชื่อมต่อกับ cmux ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konumundaki sokete bağlanılamadı (%2$@, errno %3$lld)"
+            "value": "cmux'a bağlanılamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося підключитися до сокета за адресою %1$@ (%2$@, errno %3$lld)"
+            "value": "Не вдалося підключитися до cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法连接到 %1$@ 的套接字（%2$@，errno %3$lld）"
+            "value": "无法连接到 cmux。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法連線至 %1$@ 的通訊端（%2$@，errno %3$lld）"
+            "value": "無法連線至 cmux。"
           }
         }
       }

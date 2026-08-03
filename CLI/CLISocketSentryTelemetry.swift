@@ -157,6 +157,11 @@ final class CLISocketSentryTelemetry {
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
+        if let connectError = error as? CLISocketConnectError {
+            for (key, value) in connectError.telemetryContext {
+                context[key] = value
+            }
+        }
         for (key, value) in data {
             context[key] = value
         }

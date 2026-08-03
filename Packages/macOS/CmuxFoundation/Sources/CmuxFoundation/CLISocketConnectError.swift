@@ -2,8 +2,8 @@ public import Foundation
 
 /// A stable, file-scope identity for Unix-domain socket connection failures.
 ///
-/// Keep the socket path in the rendered description for CLI diagnostics, but
-/// exclude it from Sentry grouping so tagged sockets share one errno group.
+/// User-visible text stays product-level while structured telemetry retains the
+/// connection details needed to diagnose failures and group tagged sockets.
 public struct CLISocketConnectError: Error, CustomNSError, CustomStringConvertible, Sendable {
     public static let errorDomain = "com.cmux.cli.socket-connect"
 
@@ -16,21 +16,30 @@ public struct CLISocketConnectError: Error, CustomNSError, CustomStringConvertib
     }
 
     public var description: String {
+        String(
+            localized: "cli.socket.error.connectFailed",
+            defaultValue: "Failed to connect to cmux."
+        )
+    }
+
+    /// Structured diagnostics for internal telemetry. Never render these
+    /// fields directly in user-visible CLI output.
+    public var telemetryContext: [String: String] {
+        [
+            "socket_path": path,
+            "errno": String(errnoCode),
+            "system_error": systemErrorMessage,
+        ]
+    }
+
+    private var systemErrorMessage: String {
         var buffer = [CChar](repeating: 0, count: 256)
         let result = strerror_r(errnoCode, &buffer, buffer.count)
-        let message: String
         if result == 0 {
             let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-            message = Self.decodeSystemErrorMessage(bytes: bytes, errnoCode: errnoCode)
-        } else {
-            message = Self.localizedUnknownSystemError(errnoCode: errnoCode)
+            return Self.decodeSystemErrorMessage(bytes: bytes, errnoCode: errnoCode)
         }
-
-        let format = String(
-            localized: "cli.socket.error.connectFailed",
-            defaultValue: "Failed to connect to socket at %1$@ (%2$@, errno %3$lld)"
-        )
-        return String(format: format, locale: Locale.current, path, message, Int64(errnoCode))
+        return Self.localizedUnknownSystemError(errnoCode: errnoCode)
     }
 
     static func decodeSystemErrorMessage(bytes: [UInt8], errnoCode: Int32) -> String {

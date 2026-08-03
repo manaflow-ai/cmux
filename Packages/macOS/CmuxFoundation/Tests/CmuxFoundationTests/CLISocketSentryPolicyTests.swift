@@ -121,6 +121,9 @@ import Testing
         #expect(!first.description.contains("/tmp/cmux-a.sock"))
         #expect(!first.description.localizedCaseInsensitiveContains("errno"))
         #expect(!first.description.localizedCaseInsensitiveContains("permission denied"))
+        #expect(first.telemetryContext["socket_path"] == "/tmp/cmux-a.sock")
+        #expect(first.telemetryContext["errno"] == "1")
+        #expect(!(first.telemetryContext["system_error"] ?? "").isEmpty)
         #expect(!firstNSError.domain.contains("unknown context"))
         #expect(!firstNSError.domain.contains("$"))
     }
