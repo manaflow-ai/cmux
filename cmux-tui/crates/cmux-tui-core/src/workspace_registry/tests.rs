@@ -1419,6 +1419,44 @@ fn resource_ids_survive_registry_restart() {
 }
 
 #[test]
+fn opening_legacy_workspaces_seeds_compatibility_active_workspace() {
+    let root = temp_root("legacy-active-workspace");
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "INSERT INTO workspaces(
+                   workspace_key, numeric_id, name, group_key, position,
+                   tombstoned, created_revision, updated_revision, deleted_revision
+                 ) VALUES
+                   ('later', 2, 'Later', 'default', 1, 0, 1, 1, NULL),
+                   ('first', 1, 'First', 'default', 0, 0, 2, 2, NULL);
+                 UPDATE meta SET value = '2' WHERE key = 'revision';",
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let workspaces = registry.snapshot().unwrap().workspaces;
+    let topology = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(
+        workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<Vec<_>>(),
+        ["first", "later"]
+    );
+    assert_eq!(topology.active_workspace.as_ref(), Some(&workspaces[0].public_id));
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        reopened.resource_topology_snapshot().unwrap().active_workspace,
+        Some(workspaces[0].public_id.clone())
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn browser_restart_metadata_is_safe_and_exact() {
     let browser = RegistryBrowser {
         public_id: browser_id(1),
