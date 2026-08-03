@@ -58,6 +58,7 @@ final class PanelContentViewController: NSViewController {
         case rightSidebarTool
         case customSidebar
         case markdown
+        case filePreview
         case transitional(String)
     }
 
@@ -143,6 +144,8 @@ final class PanelContentViewController: NSViewController {
             return .customSidebar
         case .markdown:
             return .markdown
+        case .filePreview:
+            return .filePreview
         default:
             return .transitional(configuration.panel.panelType.rawValue)
         }
@@ -171,6 +174,8 @@ final class PanelContentViewController: NSViewController {
             return CustomSidebarPanelViewController(configuration: configuration)
         case .markdown:
             return MarkdownPanelNativeViewController(configuration: configuration)
+        case .filePreview:
+            return FilePreviewPanelNativeViewController(configuration: configuration)
         case .transitional:
             return TransitionalPanelLeafHostingController(configuration: configuration)
         }

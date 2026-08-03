@@ -24,7 +24,13 @@ final class MarkdownPanelNativeViewController: NSViewController, PanelContentCon
     private let divider = NSBox()
     private let contentContainer = NSView()
     private let renderer = MarkdownWebRendererNativeView()
-    private let unavailableView = MarkdownFileUnavailableView()
+    private let unavailableView = PanelFileUnavailableNativeView(
+        title: String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"),
+        message: String(
+            localized: "markdown.fileUnavailable.message",
+            defaultValue: "The file may have been moved or deleted."
+        )
+    )
     private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
     private var textEditorController: FilePreviewTextEditorController?
 
@@ -467,7 +473,7 @@ private final class MarkdownPanelHeaderView: NSView {
 }
 
 @MainActor
-private final class PanelHeaderNativeButton: NSButton {
+final class PanelHeaderNativeButton: NSButton {
     var actionClosure: (() -> Void)?
     private var trackingAreaReference: NSTrackingArea?
     private var isPointerInside = false
@@ -544,11 +550,11 @@ private final class PanelHeaderNativeButton: NSButton {
 }
 
 @MainActor
-private final class MarkdownFileUnavailableView: NSView {
+final class PanelFileUnavailableNativeView: NSView {
     private let pathLabel = NSTextField(wrappingLabelWithString: "")
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    init(title titleText: String, message messageText: String) {
+        super.init(frame: .zero)
 
         let icon = NSImageView()
         icon.image = RenderableSystemSymbol.configuredAppKitImage(
@@ -558,10 +564,7 @@ private final class MarkdownFileUnavailableView: NSView {
         )
         icon.contentTintColor = .secondaryLabelColor
 
-        let title = NSTextField(labelWithString: String(
-            localized: "markdown.fileUnavailable.title",
-            defaultValue: "File unavailable"
-        ))
+        let title = NSTextField(labelWithString: titleText)
         title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         title.alignment = .center
 
@@ -571,10 +574,7 @@ private final class MarkdownFileUnavailableView: NSView {
         pathLabel.isSelectable = true
         pathLabel.maximumNumberOfLines = 0
 
-        let message = NSTextField(wrappingLabelWithString: String(
-            localized: "markdown.fileUnavailable.message",
-            defaultValue: "The file may have been moved or deleted."
-        ))
+        let message = NSTextField(wrappingLabelWithString: messageText)
         message.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         message.textColor = .secondaryLabelColor
         message.alignment = .center

@@ -1,11 +1,12 @@
 import CmuxFoundation
 import AppKit
+import AVKit
 import Bonsplit
 import Combine
 import Foundation
+import Observation
 import PDFKit
 import Quartz
-import SwiftUI
 import UniformTypeIdentifiers
 
 enum FilePreviewInteraction {
@@ -213,191 +214,6 @@ enum FileExternalOpenMenuFactory {
             action: action
         )
         return item
-    }
-}
-
-enum FileExternalOpenMenuStyle {
-    case header
-    case chrome
-
-    var buttonSize: CGSize {
-        switch self {
-        case .header:
-            return CGSize(width: 18, height: 18)
-        case .chrome:
-            return CGSize(width: 40, height: 40)
-        }
-    }
-}
-
-struct FileExternalOpenMenu: View {
-    let fileURL: URL
-    var isDisabled = false
-    var style: FileExternalOpenMenuStyle = .header
-
-    @State private var resolvedApplications: [FileExternalOpenApplication] = []
-
-    var body: some View {
-        let applications = resolvedApplications
-        let primaryApplication = primaryApplication(in: applications)
-        let otherApplications = applications.filter { application in
-            application.id != primaryApplication?.id
-        }
-        let helpText = helpText(for: primaryApplication)
-
-        Group {
-            switch style {
-            case .header:
-                FileExternalOpenHeaderMenuButton(
-                    fileURL: fileURL,
-                    primaryApplication: primaryApplication,
-                    otherApplications: otherApplications,
-                    helpText: helpText,
-                    isDisabled: isDisabled
-                )
-            case .chrome:
-                Button {
-                    presentMenu(
-                        applications: applications,
-                        currentPrimaryApplication: primaryApplication,
-                        otherApplications: otherApplications
-                    )
-                } label: {
-                    label
-                }
-                .contentShape(Rectangle())
-                .disabled(isDisabled)
-                .help(helpText)
-                .accessibilityLabel(helpText)
-            }
-        }
-        .task(id: fileURL) {
-            await refreshApplications()
-        }
-    }
-
-    @ViewBuilder
-    private var label: some View {
-        switch style {
-        case .header:
-            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
-        case .chrome:
-            Image(systemName: "square.and.arrow.up")
-                .cmuxFont(size: 16, weight: .semibold)
-                .foregroundStyle(.secondary)
-                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
-                .contentShape(Rectangle())
-                .accessibilityHidden(true)
-        }
-    }
-
-    private func primaryApplication(in applications: [FileExternalOpenApplication]) -> FileExternalOpenApplication? {
-        applications.first { $0.isDefault } ?? applications.first
-    }
-
-    private func helpText(for primaryApplication: FileExternalOpenApplication?) -> String {
-        if let primaryApplication {
-            return openInTitle(primaryApplication.displayName)
-        }
-        return FileExternalOpenText.openExternally
-    }
-
-    private func openInTitle(_ applicationName: String) -> String {
-        FileExternalOpenText.openInApplication(applicationName)
-    }
-
-    @MainActor
-    private func refreshApplications() async {
-        resolvedApplications = []
-        let url = fileURL
-        let applications = await Task.detached(priority: .userInitiated) {
-            FileExternalOpenApplicationResolver.live.applications(for: url)
-        }.value
-        guard !Task.isCancelled else { return }
-        resolvedApplications = applications
-    }
-
-    private func presentMenu(
-        applications: [FileExternalOpenApplication],
-        currentPrimaryApplication: FileExternalOpenApplication?,
-        otherApplications: [FileExternalOpenApplication]
-    ) {
-        guard !isDisabled else { return }
-        let menuApplications: [FileExternalOpenApplication]
-        if applications.isEmpty {
-            menuApplications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-        } else {
-            menuApplications = applications
-        }
-        let primary = primaryApplication(in: menuApplications) ?? currentPrimaryApplication
-        let others = menuApplications.filter { application in
-            application.id != primary?.id
-        } + otherApplications.filter { application in
-            application.id != primary?.id
-                && !menuApplications.contains(where: { $0.id == application.id })
-        }
-        let menu = makeMenu(primaryApplication: primary, otherApplications: others)
-        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
-        } else {
-            menu.popUp(positioning: nil as NSMenuItem?, at: NSEvent.mouseLocation, in: nil as NSView?)
-        }
-    }
-
-    private func makeMenu(
-        primaryApplication: FileExternalOpenApplication?,
-        otherApplications: [FileExternalOpenApplication]
-    ) -> NSMenu {
-        FileExternalOpenMenuFactory.makeMenu(
-            fileURL: fileURL,
-            primaryApplication: primaryApplication,
-            otherApplications: otherApplications
-        )
-    }
-}
-
-private struct FileExternalOpenHeaderMenuButton: View {
-    let fileURL: URL
-    let primaryApplication: FileExternalOpenApplication?
-    let otherApplications: [FileExternalOpenApplication]
-    let helpText: String
-    let isDisabled: Bool
-
-    var body: some View {
-        Button(action: presentMenu) {
-            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .disabled(isDisabled)
-        .help(helpText)
-        .accessibilityLabel(helpText)
-    }
-
-    private func presentMenu() {
-        let menu = makeMenu()
-        if let event = NSApp.currentEvent,
-           let contentView = event.window?.contentView {
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
-            return
-        }
-
-        guard let contentView = NSApp.keyWindow?.contentView else { return }
-        menu.popUp(
-            positioning: nil as NSMenuItem?,
-            at: NSPoint(x: contentView.bounds.maxX - 24, y: contentView.bounds.maxY - 32),
-            in: contentView
-        )
-    }
-
-    private func makeMenu() -> NSMenu {
-        FileExternalOpenMenuFactory.makeMenu(
-            fileURL: fileURL,
-            primaryApplication: primaryApplication,
-            otherApplications: otherApplications
-        )
     }
 }
 
@@ -1346,175 +1162,472 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 }
 
-struct FilePreviewPanelView: View {
-    @ObservedObject var panel: FilePreviewPanel
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let portalPriority: Int
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
-
-    @State private var focusFlashOpacity = 0.0
-    @State private var focusFlashAnimationGeneration = 0
-    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
-
-    private var themeForegroundColor: NSColor {
-        appearance.foregroundColor
+@MainActor
+final class FilePreviewPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private enum InstalledContent: Equatable {
+        case unavailable
+        case preview(FilePreviewMode)
     }
 
-    private var contentBackgroundColor: NSColor {
-        appearance.contentBackgroundColor
+    private var configuration: PanelContentConfiguration
+    private weak var panel: FilePreviewPanel?
+    private var panelCancellable: AnyCancellable?
+    private var defaultsTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var externalApplicationTask: Task<Void, Never>?
+    private var externalApplications: [FileExternalOpenApplication] = []
+    private var lastFocusFlashToken = 0
+    private var revisionObservationGeneration = 0
+
+    private let header = FilePreviewPanelHeaderNativeView()
+    private let divider = NSBox()
+    private let contentContainer = NSView()
+    private let unavailableView = PanelFileUnavailableNativeView(
+        title: String(localized: "filePreview.fileUnavailable.title", defaultValue: "File unavailable"),
+        message: String(
+            localized: "filePreview.fileUnavailable.message",
+            defaultValue: "The file may have been moved or deleted."
+        )
+    )
+    private let pointerObserver = FilePreviewPointerObserverView()
+    private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
+    private var headerHeightConstraint: NSLayoutConstraint?
+    private var dividerHeightConstraint: NSLayoutConstraint?
+    private var installedContent: InstalledContent?
+    private weak var installedView: NSView?
+    private var textEditorController: FilePreviewTextEditorController?
+
+    init(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            if panel.previewMode != .pdf || panel.isFileUnavailable {
-                header
-                Divider()
-            }
-            content(previewRevision: panel.previewRevisionState.value)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: contentBackgroundColor))
-        .overlay {
-            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
-        }
-        .overlay {
-            if isVisibleInUI {
-                FilePreviewPointerObserver(onPointerDown: onRequestPanelFocus)
-            }
-        }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
-        }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var header: some View {
-        PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.viewfinder",
-            filePath: panel.filePath,
-            foregroundColor: themeForegroundColor
-        ) {
-            if panel.previewMode == .text {
-                PanelHeaderIconButton(
-                    systemName: "arrow.counterclockwise",
-                    label: String(localized: "filePreview.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
-                    action: { panel.loadTextContent() }
-                )
-
-                PanelHeaderIconButton(
-                    systemName: "square.and.arrow.down",
-                    label: String(localized: "filePreview.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
-                    action: { panel.saveTextContent() }
-                )
-            }
-
-            PanelHeaderIconButton(
-                systemName: "arrow.clockwise",
-                label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
-                action: { panel.reloadFromDisk() }
-            )
-
-            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        contentContainer.wantsLayer = true
+        divider.boxType = .separator
+        [header, divider, contentContainer, pointerObserver, flashRing].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview($0)
         }
+        let headerHeight = header.heightAnchor.constraint(equalToConstant: 30)
+        let dividerHeight = divider.heightAnchor.constraint(equalToConstant: 1)
+        headerHeightConstraint = headerHeight
+        dividerHeightConstraint = dividerHeight
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            header.topAnchor.constraint(equalTo: root.topAnchor),
+            headerHeight,
+            divider.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: header.bottomAnchor),
+            dividerHeight,
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            pointerObserver.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            pointerObserver.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            pointerObserver.topAnchor.constraint(equalTo: root.topAnchor),
+            pointerObserver.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            flashRing.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            flashRing.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            flashRing.topAnchor.constraint(equalTo: root.topAnchor),
+            flashRing.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
     }
 
-    @ViewBuilder
-    private func content(previewRevision: Int) -> some View {
-        if panel.isFileUnavailable {
-            fileUnavailableView
+    func update(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        loadViewIfNeeded()
+        guard let panel = configuration.panel as? FilePreviewPanel else { return }
+        observe(panel)
+        refresh(panel: panel)
+    }
+
+    func teardownPanelContent() {
+        panelCancellable = nil
+        defaultsTask?.cancel()
+        defaultsTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        externalApplicationTask?.cancel()
+        externalApplicationTask = nil
+        revisionObservationGeneration &+= 1
+        if installedContent == .preview(.quickLook), let installedView, let panel {
+            panel.nativeViewSessions.quickLook.dismantle(installedView)
         } else {
-            switch panel.previewMode {
-            case .text:
-                FilePreviewTextEditor(
-                    panel: panel,
-                    isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
-                )
-            case .pdf:
-                FilePreviewPDFView(
-                    panel: panel,
-                    revision: previewRevision,
-                    isVisibleInUI: isVisibleInUI,
-                    backgroundColor: contentBackgroundColor,
-                    drawsBackground: appearance.drawsContentBackground
-                )
-            case .image:
-                FilePreviewImageView(
-                    panel: panel,
-                    revision: previewRevision,
-                    isVisibleInUI: isVisibleInUI,
-                    backgroundColor: contentBackgroundColor,
-                    drawsBackground: appearance.drawsContentBackground
-                )
-            case .media:
-                FilePreviewMediaView(
-                    panel: panel,
-                    revision: previewRevision,
-                    isVisibleInUI: isVisibleInUI,
-                    backgroundColor: contentBackgroundColor,
-                    drawsBackground: appearance.drawsContentBackground
-                )
-            case .quickLook:
-                QuickLookPreviewView(
-                    panel: panel,
-                    revision: previewRevision,
-                    isVisibleInUI: isVisibleInUI,
-                    backgroundColor: contentBackgroundColor,
-                    drawsBackground: appearance.drawsContentBackground
-                )
+            installedView?.removeFromSuperview()
+        }
+        installedView = nil
+        installedContent = nil
+        textEditorController?.panel = nil
+        textEditorController = nil
+        header.teardown()
+        pointerObserver.onPointerDown = nil
+        panel = nil
+    }
+
+    isolated deinit {
+        defaultsTask?.cancel()
+        refreshTask?.cancel()
+        externalApplicationTask?.cancel()
+    }
+
+    private func observe(_ panel: FilePreviewPanel) {
+        guard self.panel !== panel else { return }
+        panelCancellable = panel.objectWillChange.sink { [weak self] in
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.scheduleRefresh()
+            }
+        }
+        defaultsTask?.cancel()
+        defaultsTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(
+                named: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            ) {
+                guard !Task.isCancelled else { return }
+                self?.scheduleRefresh()
+            }
+        }
+        self.panel = panel
+        lastFocusFlashToken = panel.focusFlashToken
+        observeRevision(panel.previewRevisionState)
+        resolveExternalApplications(for: panel.fileURL)
+    }
+
+    private func observeRevision(_ revision: FilePreviewRevision) {
+        revisionObservationGeneration &+= 1
+        let generation = revisionObservationGeneration
+        withObservationTracking {
+            _ = revision.value
+        } onChange: { [weak self, weak revision] in
+            Task { @MainActor [weak self, weak revision] in
+                guard let self, let revision,
+                      self.revisionObservationGeneration == generation else { return }
+                self.observeRevision(revision)
+                self.scheduleRefresh()
             }
         }
     }
 
-    private var fileUnavailableView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "doc.questionmark")
-                .cmuxFont(size: 40)
-                .foregroundStyle(.secondary)
-            Text(String(localized: "filePreview.fileUnavailable.title", defaultValue: "File unavailable"))
-                .cmuxFont(.headline)
-            Text(panel.filePath)
-                .cmuxFont(size: 12, design: .monospaced)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
-            Text(String(localized: "filePreview.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let panel = self.panel else { return }
+            self.refresh(panel: panel)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+    private func refresh(panel: FilePreviewPanel) {
+        let appearance = configuration.appearance
+        let backgroundColor = appearance.contentBackgroundColor
+        view.layer?.backgroundColor = backgroundColor.cgColor
+        contentContainer.layer?.backgroundColor = backgroundColor.cgColor
+        view.appearance = NSAppearance(named: appearance.backgroundColor.isLightColor ? .aqua : .darkAqua)
+        pointerObserver.isHidden = !configuration.isVisibleInUI
+        pointerObserver.onPointerDown = configuration.onRequestPanelFocus
 
-        for segment in FocusFlashPattern.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
-                }
+        header.update(
+            panel: panel,
+            foregroundColor: appearance.foregroundColor,
+            externalLabel: externalHelpText,
+            onRevert: { [weak panel] in _ = panel?.loadTextContent() },
+            onSave: { [weak panel] in _ = panel?.saveTextContent() },
+            onRefresh: { [weak panel] in _ = panel?.reloadFromDisk() },
+            onOpenExternally: { [weak self] button in self?.presentExternalMenu(relativeTo: button) }
+        )
+
+        let showsHeader = panel.previewMode != .pdf || panel.isFileUnavailable
+        header.isHidden = !showsHeader
+        divider.isHidden = !showsHeader
+        headerHeightConstraint?.constant = showsHeader ? 30 : 0
+        dividerHeightConstraint?.constant = showsHeader ? 1 : 0
+
+        if panel.isFileUnavailable {
+            unavailableView.update(filePath: panel.filePath)
+            install(unavailableView, as: .unavailable)
+        } else {
+            installPreview(panel: panel, appearance: appearance)
+        }
+
+        if configuration.isFocused {
+            panel.retryPendingFocus()
+        }
+        if lastFocusFlashToken != panel.focusFlashToken {
+            lastFocusFlashToken = panel.focusFlashToken
+            flashRing.triggerFlash(reason: .navigation)
+        }
+    }
+
+    private func installPreview(panel: FilePreviewPanel, appearance: PanelAppearance) {
+        let mode = panel.previewMode
+        let backgroundColor = appearance.contentBackgroundColor
+        let revision = panel.previewRevision
+        let isVisible = configuration.isVisibleInUI
+        let target = InstalledContent.preview(mode)
+
+        switch mode {
+        case .text:
+            let editor = textEditorController ?? FilePreviewTextEditorController(
+                panel: panel,
+                isVisibleInUI: isVisible,
+                themeBackgroundColor: backgroundColor,
+                themeForegroundColor: appearance.foregroundColor,
+                drawsBackground: appearance.drawsContentBackground,
+                wordWrap: FilePreviewWordWrapSettings.isEnabled()
+            )
+            textEditorController = editor
+            editor.configure(
+                panel: panel,
+                isVisibleInUI: isVisible,
+                themeBackgroundColor: backgroundColor,
+                themeForegroundColor: appearance.foregroundColor,
+                drawsBackground: appearance.drawsContentBackground,
+                wordWrap: FilePreviewWordWrapSettings.isEnabled()
+            )
+            install(editor.scrollView, as: target)
+        case .pdf:
+            let session = panel.nativeViewSessions.pdf
+            if installedContent == target, let view = installedView as? FilePreviewPDFContainerView {
+                session.update(
+                    view,
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
+            } else {
+                install(session.view(
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                ), as: target)
+            }
+        case .image:
+            let session = panel.nativeViewSessions.image
+            if installedContent == target, let view = installedView as? FilePreviewImageContainerView {
+                session.update(
+                    view,
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
+            } else {
+                install(session.view(
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                ), as: target)
+            }
+        case .media:
+            let session = panel.nativeViewSessions.media
+            if installedContent == target, let view = installedView as? AVPlayerView {
+                session.update(
+                    view,
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
+            } else {
+                install(session.view(
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                ), as: target)
+            }
+        case .quickLook:
+            let session = panel.nativeViewSessions.quickLook
+            if installedContent == target, let view = installedView {
+                session.update(
+                    view,
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
+            } else {
+                install(session.view(
+                    panel: panel,
+                    revision: revision,
+                    isVisibleInUI: isVisible,
+                    backgroundColor: backgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                ), as: target)
             }
         }
     }
 
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
+    private func install(_ contentView: NSView, as content: InstalledContent) {
+        guard installedView !== contentView || installedContent != content else { return }
+        if installedContent == .preview(.quickLook), let installedView, let panel {
+            panel.nativeViewSessions.quickLook.dismantle(installedView)
+        } else {
+            installedView?.removeFromSuperview()
         }
+        contentView.removeFromSuperview()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+        installedView = contentView
+        installedContent = content
+    }
+
+    private func resolveExternalApplications(for fileURL: URL) {
+        externalApplications = []
+        externalApplicationTask?.cancel()
+        externalApplicationTask = Task { @MainActor [weak self] in
+            let applications = await Task.detached(priority: .userInitiated) {
+                FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.externalApplications = applications
+            self.scheduleRefresh()
+        }
+    }
+
+    private var externalHelpText: String {
+        if let application = externalApplications.first(where: \.isDefault) ?? externalApplications.first {
+            return FileExternalOpenText.openInApplication(application.displayName)
+        }
+        return FileExternalOpenText.openExternally
+    }
+
+    private func presentExternalMenu(relativeTo button: NSButton) {
+        guard let panel, !panel.isFileUnavailable else { return }
+        let applications = externalApplications.isEmpty
+            ? FileExternalOpenApplicationResolver.live.applications(for: panel.fileURL)
+            : externalApplications
+        let primary = applications.first(where: \.isDefault) ?? applications.first
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: panel.fileURL,
+            primaryApplication: primary,
+            otherApplications: applications.filter { $0.id != primary?.id }
+        )
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+    }
+}
+
+@MainActor
+private final class FilePreviewPanelHeaderNativeView: NSView {
+    private let iconView = NSImageView()
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let controls = NSStackView()
+    private let revertButton = PanelHeaderNativeButton(
+        systemName: "arrow.counterclockwise",
+        label: String(localized: "filePreview.revert", defaultValue: "Revert")
+    )
+    private let saveButton = PanelHeaderNativeButton(
+        systemName: "square.and.arrow.down",
+        label: String(localized: "filePreview.save", defaultValue: "Save")
+    )
+    private let refreshButton = PanelHeaderNativeButton(
+        systemName: "arrow.clockwise",
+        label: String(localized: "filePreview.refresh", defaultValue: "Refresh")
+    )
+    private let externalButton = PanelHeaderNativeButton(systemName: "square.and.arrow.up", label: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = .secondaryLabelColor
+        pathLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        pathLabel.maximumNumberOfLines = 1
+        pathLabel.isSelectable = true
+        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 4
+        [revertButton, saveButton, refreshButton, externalButton].forEach(controls.addArrangedSubview)
+        addSubview(iconView)
+        addSubview(pathLabel)
+        addSubview(controls)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: controls.leadingAnchor, constant: -8),
+            controls.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            controls.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        panel: FilePreviewPanel,
+        foregroundColor: NSColor,
+        externalLabel: String,
+        onRevert: @escaping () -> Void,
+        onSave: @escaping () -> Void,
+        onRefresh: @escaping () -> Void,
+        onOpenExternally: @escaping (NSButton) -> Void
+    ) {
+        iconView.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: panel.displayIcon ?? "doc.viewfinder",
+            pointSize: 16,
+            weight: .regular
+        )
+        pathLabel.stringValue = panel.filePath
+        pathLabel.textColor = foregroundColor.withAlphaComponent(0.68)
+        let showsEditingControls = panel.previewMode == .text
+        revertButton.isHidden = !showsEditingControls
+        saveButton.isHidden = !showsEditingControls
+        revertButton.isEnabled = panel.isDirty
+        saveButton.isEnabled = panel.isDirty && !panel.isSaving
+        externalButton.isEnabled = !panel.isFileUnavailable
+        externalButton.update(systemName: "square.and.arrow.up", label: externalLabel)
+        revertButton.actionClosure = onRevert
+        saveButton.actionClosure = onSave
+        refreshButton.actionClosure = onRefresh
+        externalButton.actionClosure = { [weak externalButton] in
+            guard let externalButton else { return }
+            onOpenExternally(externalButton)
+        }
+    }
+
+    func teardown() {
+        [revertButton, saveButton, refreshButton, externalButton].forEach { $0.actionClosure = nil }
     }
 }
 
@@ -1762,226 +1875,6 @@ private final class FilePreviewPDFSidebarChromeView: NSView {
         case .singlePage: selectSinglePage()
         case .twoPages: selectTwoPages()
         }
-    }
-}
-
-struct FilePreviewChromeIconButton: View {
-    let systemName: String
-    let label: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .cmuxFont(size: 16, weight: .semibold)
-                .frame(width: 42, height: 40)
-        }
-        .buttonStyle(FilePreviewChromeHoverButtonStyle(isHovered: isHovered))
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .accessibilityLabel(label)
-        .help(label)
-    }
-}
-
-private struct FilePreviewChromeSidebarMenuLabel: View {
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "sidebar.left")
-            Image(systemName: "chevron.down")
-                .cmuxFont(size: 11, weight: .semibold)
-        }
-        .cmuxFont(size: 16, weight: .semibold)
-        .foregroundStyle(isHovered ? Color.primary : Color.secondary)
-        .frame(width: 68, height: 34)
-        .background {
-            Capsule()
-                .fill(Color.white.opacity(isHovered ? 0.14 : 0))
-        }
-        .contentShape(Capsule())
-        .onHover { hovering in
-            isHovered = hovering
-        }
-    }
-}
-
-private struct FilePreviewChromeHoverButtonStyle: ButtonStyle {
-    let isHovered: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(configuration.isPressed || isHovered ? Color.primary : Color.secondary)
-            .background {
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.24 : (isHovered ? 0.14 : 0)))
-                    .frame(width: 32, height: 32)
-            }
-    }
-}
-
-struct FilePreviewPDFChromeStyleModifier: ViewModifier {
-    let variant: FilePreviewPDFChromeStyleVariant
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        switch variant {
-        case .systemControlGroup:
-            content
-                .buttonStyle(.automatic)
-                .controlSize(.regular)
-        case .liquidGlass:
-            liquidGlassChrome(content: content)
-        case .materialCapsule:
-            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.5)
-        case .borderedCapsule:
-            content
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.regular)
-        case .thinOutline:
-            materialChrome(content: content, material: .thinMaterial, strokeOpacity: 0.75)
-        case .plainToolbar:
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .foregroundStyle(Color.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func liquidGlassChrome(content: Content) -> some View {
-        #if compiler(>=6.3)
-        if #available(macOS 26.0, *) {
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .glassEffect(.regular, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
-                }
-                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
-        } else {
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .background {
-                    Capsule()
-                        .fill(.regularMaterial)
-                    Capsule()
-                        .fill(Color.white.opacity(0.04))
-                }
-                .overlay {
-                    Capsule()
-                        .stroke(Color.white.opacity(0.28), lineWidth: 0.85)
-                }
-        }
-        #else
-        content
-            .buttonStyle(.borderless)
-            .controlSize(.regular)
-            .background {
-                Capsule()
-                    .fill(.regularMaterial)
-                Capsule()
-                    .fill(Color.white.opacity(0.04))
-            }
-            .overlay {
-                Capsule()
-                    .stroke(Color.white.opacity(0.28), lineWidth: 0.85)
-            }
-        #endif
-    }
-
-    private func materialChrome(
-        content: Content,
-        material: Material,
-        strokeOpacity: Double
-    ) -> some View {
-        content
-            .buttonStyle(.borderless)
-            .controlSize(.regular)
-            .background(material, in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
-            }
-    }
-}
-
-struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
-    let variant: FilePreviewPDFChromeStyleVariant
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        switch variant {
-        case .systemControlGroup:
-            content
-                .buttonStyle(.automatic)
-                .controlSize(.regular)
-        case .liquidGlass:
-            liquidGlassChrome(content: content)
-        case .materialCapsule:
-            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.5)
-        case .borderedCapsule:
-            materialChrome(content: content, material: .ultraThinMaterial, strokeOpacity: 0.55)
-        case .thinOutline:
-            materialChrome(content: content, material: .thinMaterial, strokeOpacity: 0.75)
-        case .plainToolbar:
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .foregroundStyle(Color.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func liquidGlassChrome(content: Content) -> some View {
-        #if compiler(>=6.3)
-        if #available(macOS 26.0, *) {
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .foregroundStyle(Color.secondary)
-                .glassEffect(.regular, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
-                }
-                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
-        } else {
-            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
-        }
-        #else
-        materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
-        #endif
-    }
-
-    private func materialChrome(
-        content: Content,
-        material: Material,
-        strokeOpacity: Double
-    ) -> some View {
-        content
-            .buttonStyle(.borderless)
-            .controlSize(.regular)
-            .foregroundStyle(Color.secondary)
-            .background {
-                Circle()
-                    .fill(material)
-                Circle()
-                    .fill(Color.white.opacity(0.04))
-            }
-            .overlay {
-                Circle()
-                    .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
-            }
     }
 }
 
@@ -3621,69 +3514,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 }
 
-private struct FilePreviewImageChromeView: View {
-    let zoomOut: () -> Void
-    let zoomIn: () -> Void
-    let zoomToFit: () -> Void
-    let actualSize: () -> Void
-    let rotateLeft: () -> Void
-    let rotateRight: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 0) {
-                FilePreviewChromeIconButton(
-                    systemName: "minus.magnifyingglass",
-                    label: String(localized: "filePreview.image.zoomOut", defaultValue: "Zoom Out"),
-                    action: zoomOut
-                )
-                chromeDivider
-                FilePreviewChromeIconButton(
-                    systemName: "1.magnifyingglass",
-                    label: String(localized: "filePreview.image.actualSize", defaultValue: "Actual Size"),
-                    action: actualSize
-                )
-                chromeDivider
-                FilePreviewChromeIconButton(
-                    systemName: "plus.magnifyingglass",
-                    label: String(localized: "filePreview.image.zoomIn", defaultValue: "Zoom In"),
-                    action: zoomIn
-                )
-            }
-            .frame(height: 40)
-            .modifier(FilePreviewPDFChromeStyleModifier(variant: .liquidGlass))
-
-            HStack(spacing: 0) {
-                FilePreviewChromeIconButton(
-                    systemName: "arrow.up.left.and.arrow.down.right",
-                    label: String(localized: "filePreview.image.zoomToFit", defaultValue: "Zoom to Fit"),
-                    action: zoomToFit
-                )
-                chromeDivider
-                FilePreviewChromeIconButton(
-                    systemName: "rotate.left",
-                    label: String(localized: "filePreview.image.rotateLeft", defaultValue: "Rotate Left"),
-                    action: rotateLeft
-                )
-                chromeDivider
-                FilePreviewChromeIconButton(
-                    systemName: "rotate.right",
-                    label: String(localized: "filePreview.image.rotateRight", defaultValue: "Rotate Right"),
-                    action: rotateRight
-                )
-            }
-            .frame(height: 40)
-            .modifier(FilePreviewPDFChromeStyleModifier(variant: .liquidGlass))
-        }
-    }
-
-    private var chromeDivider: some View {
-        Divider()
-            .frame(width: 1, height: 20)
-            .overlay(Color.white.opacity(0.18))
-    }
-}
-
 final class FilePreviewImageContainerView: NSView {
     private let viewport = FilePreviewViewport()
     private let scrollView = FilePreviewImageScrollView()
@@ -4420,20 +4250,6 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
     }
 }
 
-private struct FilePreviewPointerObserver: NSViewRepresentable {
-    let onPointerDown: () -> Void
-
-    func makeNSView(context: Context) -> FilePreviewPointerObserverView {
-        let view = FilePreviewPointerObserverView()
-        view.onPointerDown = onPointerDown
-        return view
-    }
-
-    func updateNSView(_ nsView: FilePreviewPointerObserverView, context: Context) {
-        nsView.onPointerDown = onPointerDown
-    }
-}
-
 private final class FilePreviewPointerObserverView: NSView {
     var onPointerDown: (() -> Void)?
     private var eventMonitor: Any?
@@ -4446,7 +4262,8 @@ private final class FilePreviewPointerObserverView: NSView {
                   !self.isHiddenOrHasHiddenAncestor else { return event }
             let point = self.convert(event.locationInWindow, from: nil)
             if self.bounds.contains(point) {
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
+                    await Task.yield()
                     self?.onPointerDown?()
                 }
             }

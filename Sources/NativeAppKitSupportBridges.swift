@@ -705,16 +705,6 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 paneOwnershipOverride: configuration.paneOwnershipOverride,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
-        case .filePreview:
-            guard let filePreviewPanel = panel as? FilePreviewPanel else { return setEmpty() }
-            rootView = AnyView(FilePreviewPanelView(
-                panel: filePreviewPanel,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                portalPriority: configuration.portalPriority,
-                appearance: configuration.appearance,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return setEmpty() }
             rootView = AnyView(ProjectPanelView(
@@ -733,7 +723,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
             guard let loadingPanel = panel as? CloudVMLoadingPanel else { return setEmpty() }
             rootView = AnyView(CloudVMLoadingPanelView(panel: loadingPanel))
         case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
-             .rightSidebarTool, .customSidebar, .markdown:
+             .rightSidebarTool, .customSidebar, .markdown, .filePreview:
             setEmpty()
         }
         rootView = AnyView(
@@ -892,60 +882,6 @@ private struct CloudVMLoadingStatusRow: View {
                 .foregroundStyle(isActive ? .secondary : .tertiary)
                 .lineLimit(2)
         }
-    }
-}
-
-struct PanelFilePathHeader<TrailingContent: View>: View {
-    let iconSystemName: String
-    let filePath: String
-    let foregroundColor: NSColor
-    @ViewBuilder let trailingContent: () -> TrailingContent
-
-    var body: some View {
-        HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(filePath)
-                .cmuxFont(size: 11, design: .monospaced)
-                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
-            trailingContent()
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Color.clear)
-    }
-}
-
-struct PanelHeaderIconButton: View {
-    let systemName: String
-    let label: String
-    var isDisabled: Bool = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            PanelHeaderIconGlyph(systemName: systemName)
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .disabled(isDisabled)
-        .help(label)
-        .accessibilityLabel(label)
-    }
-}
-
-struct PanelHeaderIconGlyph: View {
-    let systemName: String
-
-    var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
-            .frame(width: 20, height: 20)
-            .contentShape(Rectangle())
     }
 }
 
@@ -1426,42 +1362,6 @@ struct PaneDropTargetRepresentable: NSViewRepresentable {
         view.dropContext = dropContext
         view.hostedView = nil
         if dropContext == nil { view.draggingExited(nil) }
-    }
-}
-
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable
-where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
-    let isVisibleInUI: Bool
-    let themeBackgroundColor: NSColor
-    let themeForegroundColor: NSColor
-    let drawsBackground: Bool
-    let wordWrap: Bool
-
-    func makeCoordinator() -> FilePreviewTextEditorController {
-        FilePreviewTextEditorController(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            themeBackgroundColor: themeBackgroundColor,
-            themeForegroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground,
-            wordWrap: wordWrap
-        )
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        context.coordinator.scrollView
-    }
-
-    func updateNSView(_ view: NSScrollView, context: Context) {
-        context.coordinator.configure(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            themeBackgroundColor: themeBackgroundColor,
-            themeForegroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground,
-            wordWrap: wordWrap
-        )
     }
 }
 
@@ -2175,93 +2075,6 @@ struct GPUSpinner: NSViewRepresentable {
     }
 }
 
-struct FilePreviewImageView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let revision: Int
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> FilePreviewImageContainerView {
-        panel.nativeViewSessions.image.view(
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ view: FilePreviewImageContainerView, context: Context) {
-        panel.nativeViewSessions.image.update(
-            view,
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
-struct FilePreviewPDFView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let revision: Int
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> FilePreviewPDFContainerView {
-        panel.nativeViewSessions.pdf.view(
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ view: FilePreviewPDFContainerView, context: Context) {
-        panel.nativeViewSessions.pdf.update(
-            view,
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
-struct FilePreviewMediaView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let revision: Int
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        panel.nativeViewSessions.media.view(
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        panel.nativeViewSessions.media.update(
-            view,
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
 struct SessionIndexTableView: NSViewRepresentable {
     let rows: [SessionIndexTableRow]
     @Environment(\.colorScheme) private var colorScheme
@@ -2390,48 +2203,6 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         coordinator: SidebarWorkspaceTableController
     ) {
         coordinator.dismantleContainerView(view)
-    }
-}
-
-struct QuickLookPreviewView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let revision: Int
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeCoordinator() -> FilePreviewQuickLookViewCoordinator {
-        FilePreviewQuickLookViewCoordinator(panel: panel)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        return quickLook.view(
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        quickLook.update(
-            view,
-            panel: panel,
-            revision: revision,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    static func dismantleNSView(_ view: NSView, coordinator: FilePreviewQuickLookViewCoordinator) {
-        coordinator.quickLook?.dismantle(view)
-        coordinator.quickLook = nil
     }
 }
 
