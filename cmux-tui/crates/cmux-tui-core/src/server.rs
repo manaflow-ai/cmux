@@ -12457,6 +12457,11 @@ mod tests {
                     "classes":["state"],
                     "subjects":[{"kind":"workspace","id":workspace_id}],
                     "max_sensitivity":"sensitive",
+                    "regex":{
+                        "pattern":"JOURNAL|missing",
+                        "field":"payload",
+                        "case_sensitive":false,
+                    },
                 },
             }),
             None,
@@ -12527,6 +12532,30 @@ mod tests {
         assert!(resumed["item"]["payload"]["changes"].as_array().unwrap().iter().any(|change| {
             change["resource"] == "workspace" && change["value"]["name"] == "resumed"
         }));
+
+        let invalid_stream = "stream_00000000000000000000000000000035";
+        let invalid = resource_request(
+            "journal-invalid-regex",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":invalid_stream,
+                "filter":{
+                    "regex":{
+                        "pattern":"(",
+                        "field":"record",
+                        "case_sensitive":true,
+                    },
+                },
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &invalid, &writer, &scheduler));
+        let rejected = pop_json(&outbound);
+        assert_eq!(rejected["id"], "journal-invalid-regex");
+        assert_eq!(rejected["error"]["code"], "validation.invalid");
+        assert_eq!(rejected["error"]["details"]["field"], "filter.regex.pattern");
         assert!(disconnect_client(&mux, client, false));
     }
 

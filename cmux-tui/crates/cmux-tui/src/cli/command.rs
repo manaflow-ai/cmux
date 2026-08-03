@@ -2523,6 +2523,11 @@ mod tests {
             &format!("workspace:{WORKSPACE}"),
             "--max-sensitivity",
             "metadata",
+            "--regex",
+            "journal|resumed",
+            "--regex-field",
+            "payload",
+            "--ignore-case",
         ]);
         assert_eq!(operation(&replay), "session.journal.subscribe");
         assert!(replay.stream);
@@ -2534,6 +2539,14 @@ mod tests {
             json!([{"kind":"workspace","id":WORKSPACE}])
         );
         assert_eq!(replay.params["filter"]["max_sensitivity"], "metadata");
+        assert_eq!(
+            replay.params["filter"]["regex"],
+            json!({
+                "pattern":"journal|resumed",
+                "field":"payload",
+                "case_sensitive":false,
+            })
+        );
 
         let resumed = protocol(&[
             "session",
@@ -2555,6 +2568,9 @@ mod tests {
             vec!["--classes", "unknown"],
             vec!["--subjects", "workspace"],
             vec!["--max-sensitivity", "secret"],
+            vec!["--regex-field", "payload"],
+            vec!["--ignore-case"],
+            vec!["--regex", "value", "--regex-field", "unknown"],
         ] {
             let mut args = vec!["session", SESSION, "journal", "subscribe"];
             args.extend(invalid);
