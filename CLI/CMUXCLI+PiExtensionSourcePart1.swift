@@ -376,37 +376,38 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: unknown): string | undefined {
-  const messagesValue = objectValue(event, ["messages"]);
-  const messages = Array.isArray(messagesValue) ? messagesValue : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!message || typeof message !== "object") continue;
-    const typed = message as { role?: unknown; content?: unknown };
-    if (typed.role !== "assistant") continue;
-    const text = firstString(textFromContent(typed.content));
-    if (text) return text;
-  }
-  return undefined;
+interface AssistantCompletion {
+  lastAssistantMessage?: string;
+  suppressNotification: boolean;
 }
 
-function completionSuppressesNotification(event: unknown): boolean {
+function assistantCompletionFrom(event: unknown): AssistantCompletion {
   const messagesValue = objectValue(event, ["messages"]);
   const messages = Array.isArray(messagesValue) ? messagesValue : [];
+  let suppressNotification = false;
+  let inspectedLatestAssistant = false;
+  // Resolve text and interruption metadata in one reverse pass. agent_end may
+  // carry a large message array, so notification support must not rescan it.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
     const typed = message as {
       role?: unknown;
+      content?: unknown;
       stopReason?: unknown;
       cmuxSuppressNotification?: unknown;
     };
     if (typed.role !== "assistant") continue;
-    // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
-    // the marker preserves the interruption intent across that normalization.
-    return typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+    if (!inspectedLatestAssistant) {
+      // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
+      // the marker preserves the interruption intent across that normalization.
+      suppressNotification = typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+      inspectedLatestAssistant = true;
+    }
+    const text = firstString(textFromContent(typed.content));
+    if (text) return { lastAssistantMessage: text, suppressNotification };
   }
-  return false;
+  return { suppressNotification };
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {
