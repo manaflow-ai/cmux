@@ -71,10 +71,15 @@ struct PreferredEditorServiceTests {
         let sourceURL = packageRoot
             .appendingPathComponent("Sources/CmuxWorkspaces/FileOpen/NSWorkspaceFileOpener.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let asynchronousCallPattern = [
+            #"NSWorkspace\.shared\.open\s*\(\s*url\s*,"#,
+            #"\s*configuration\s*:\s*NSWorkspace\.OpenConfiguration\s*\(\s*\)\s*,"#,
+            #"\s*completionHandler\s*:"#,
+        ].joined()
+        let synchronousCallPattern = #"NSWorkspace\.shared\.open\s*\(\s*url\s*\)"#
 
-        #expect(source.contains("configuration:"))
-        #expect(source.contains("completionHandler:"))
-        #expect(!source.contains("NSWorkspace.shared.open(url)"))
+        #expect(source.range(of: asynchronousCallPattern, options: .regularExpression) != nil)
+        #expect(source.range(of: synchronousCallPattern, options: .regularExpression) == nil)
     }
 
     @Test func configuredCommandReceivesTheQuotedPathAsItsArgument() async throws {
