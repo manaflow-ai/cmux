@@ -63,6 +63,20 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs == [url])
     }
 
+    @Test func systemDefaultOpenUsesTheAsynchronousWorkspaceAPI() throws {
+        var packageRoot = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 {
+            packageRoot.deleteLastPathComponent()
+        }
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/CmuxWorkspaces/FileOpen/NSWorkspaceFileOpener.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("configuration:"))
+        #expect(source.contains("completionHandler:"))
+        #expect(!source.contains("NSWorkspace.shared.open(url)"))
+    }
+
     @Test func configuredCommandReceivesTheQuotedPathAsItsArgument() async throws {
         let scratch = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: scratch) }
