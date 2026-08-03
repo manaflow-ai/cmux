@@ -30,28 +30,32 @@ struct WorkspaceChangesChipLabel: View {
 
     @ViewBuilder
     private var counts: some View {
-        let theme = ChangesTheme(colorScheme: colorScheme)
+        let theme = ChangesTheme(appearance: colorScheme == .dark ? .dark : .light)
         let text = chipText
         if stacksVertically, let secondary = text.secondary {
             VStack(spacing: 0) {
                 Text(text.primary)
-                    .foregroundStyle(theme.addedStatus)
+                    .foregroundStyle(color(theme.addedStatus))
                 Text(secondary)
-                    .foregroundStyle(theme.deletedStatus)
+                    .foregroundStyle(color(theme.deletedStatus))
             }
         } else {
             HStack(spacing: 3) {
                 if let secondary = text.secondary {
                     Text(text.primary)
-                        .foregroundStyle(theme.addedStatus)
+                        .foregroundStyle(color(theme.addedStatus))
                     Text(secondary)
-                        .foregroundStyle(theme.deletedStatus)
+                        .foregroundStyle(color(theme.deletedStatus))
                 } else {
                     Text(text.primary)
                         .foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+    private func color(_ token: ChangesColor) -> Color {
+        Color(red: token.red, green: token.green, blue: token.blue, opacity: token.alpha)
     }
 
     private var chipText: WorkspaceChangesChipText {
