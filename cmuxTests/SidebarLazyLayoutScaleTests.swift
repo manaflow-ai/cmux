@@ -49,6 +49,7 @@ final class SidebarLazyLayoutScaleTests {
     final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
+        var defaultWorkspaceAreaBodies = 0
         var workspaceSnapshotBuilds = 0
         var workspaceRowInputProjections = 0
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
@@ -61,6 +62,7 @@ final class SidebarLazyLayoutScaleTests {
         func reset() {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
+            defaultWorkspaceAreaBodies = 0
             workspaceSnapshotBuilds = 0
             workspaceRowInputProjections = 0
             insideWorkspaceRowBody = false
@@ -72,6 +74,7 @@ final class SidebarLazyLayoutScaleTests {
     @MainActor
     struct Harness {
         let tabManager: TabManager
+        let fileExplorerState: FileExplorerState
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
         let window: InjectableMouseLocationWindow
@@ -142,11 +145,12 @@ final class SidebarLazyLayoutScaleTests {
         Self.turnMainRunLoopOnce(layingOut: nil)
 
         let unread = SidebarUnreadModel()
+        let fileExplorerState = FileExplorerState()
         let counter = RowBodyCounter()
 
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
-            fileExplorerState: FileExplorerState(),
+            fileExplorerState: fileExplorerState,
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
@@ -168,6 +172,9 @@ final class SidebarLazyLayoutScaleTests {
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(
+                defaultWorkspaceAreaBody: {
+                    counter.defaultWorkspaceAreaBodies += 1
+                },
                 workspaceRowBody: {
                     counter.workspaceRowBodies += 1
                     counter.insideWorkspaceRowBody = true
@@ -209,10 +216,42 @@ final class SidebarLazyLayoutScaleTests {
 
         return Harness(
             tabManager: tabManager,
+            fileExplorerState: fileExplorerState,
             unread: unread,
             counter: counter,
             window: window,
             defaultsSuiteName: defaultsSuiteName
+        )
+    }
+
+    /// The footer observes right-sidebar state, but the default workspace area
+    /// must not be rebuilt when that unrelated state changes. At 300
+    /// workspaces, copying the former all-in-one `VerticalTabsSidebar` value
+    /// into this path is the CMUXTERM-MACOS-25V4 main-thread hang signature.
+    @Test
+    @MainActor
+    func testFileExplorerInvalidationDoesNotReevaluateDefaultWorkspaceArea() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        harness.counter.reset()
+
+        var heartbeatRan = false
+        Task { @MainActor in
+            heartbeatRan = true
+        }
+        harness.fileExplorerState.width += 1
+        await Self.drainMainRunLoop(for: harness.window)
+
+        #expect(heartbeatRan, "The main run loop must keep making progress after the invalidation.")
+        #expect(
+            harness.counter.defaultWorkspaceAreaBodies == 0,
+            """
+            An unrelated FileExplorerState update reevaluated the 300-workspace area \
+            \(harness.counter.defaultWorkspaceAreaBodies) times. The footer may update, but \
+            the default workspace subtree must remain behind its independent snapshot boundary.
+            """
         )
     }
 
