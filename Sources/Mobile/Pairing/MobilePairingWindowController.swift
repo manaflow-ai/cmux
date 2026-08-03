@@ -1,13 +1,12 @@
 import AppKit
 import Bonsplit
 import CmuxWorkspaces
-import SwiftUI
 
 /// Owns the single iOS pairing window and presents it on demand.
 ///
 /// Mirrors the host-side config window pattern: it reuses the existing window
 /// when one is already open (so repeated requests focus instead of spawning
-/// duplicates) and hosts ``MobilePairingView`` in an `NSHostingController`.
+/// duplicates) and installs ``MobilePairingView`` directly in AppKit.
 @MainActor
 final class MobilePairingWindowController: ReleasingWindowController {
     /// The shared controller. The app target composes window controllers as
@@ -50,14 +49,15 @@ final class MobilePairingWindowController: ReleasingWindowController {
     }
 
     override func makeWindow() -> NSWindow {
-        let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        let root = MobilePairingView { [weak self] height in
-            self?.pairingContentHeightDidChange(height)
-        }
-            .cmuxAppearanceColorScheme(appearanceMode)
-        let hostingController = NSHostingController(rootView: root)
+        let root = MobilePairingView(
+            onContentHeightChange: { [weak self] height in
+                self?.pairingContentHeightDidChange(height)
+            }
+        )
+        let contentController = NSViewController()
+        contentController.view = root
 
-        let window = NSWindow(contentViewController: hostingController)
+        let window = NSWindow(contentViewController: contentController)
         window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         // Resizable so the QR (which fills the window width) can be made even
@@ -146,21 +146,6 @@ final class MobilePairingPanel: Panel {
     func unfocus() {}
     func close() {}
     func triggerFlash(reason: WorkspaceAttentionFlashReason) { _ = reason }
-}
-
-struct MobilePairingPanelView: View {
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
-
-    var body: some View {
-        MobilePairingView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.contentBackgroundColor))
-            .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
-            .contentShape(Rectangle())
-            .onTapGesture { onRequestPanelFocus() }
-            .accessibilityIdentifier("MobilePairingPanel")
-    }
 }
 
 extension Workspace {

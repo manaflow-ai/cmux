@@ -1,65 +1,87 @@
-import CmuxFoundation
 import AppKit
 import CMUXMobileCore
-import SwiftUI
 
-/// Renders a payload string as a crisp, square QR code for the iOS pairing
-/// window.
-///
-/// The view is flexible: it fills whatever width the layout offers (keeping a
-/// 1:1 aspect), so the pairing window can show the code as large as possible.
-/// ``CmxPairingQRBitmap`` supplies the bitmap at one pixel per module, pure
-/// black on pure white, ECC M, with the full 4-module quiet zone baked in so
-/// the white margin scales with the code and cannot be cropped by layout.
-/// SwiftUI upscales it with interpolation disabled, so every module stays a
-/// sharp nearest-neighbor square at any display size and backing scale.
-struct MobilePairingQRImageView: View {
-    /// The string encoded into the QR (the `cmux-ios://attach?...` URL).
-    let payload: String
+/// Draws a pairing payload as a crisp native QR image.
+@MainActor
+final class MobilePairingQRImageView: NSView {
+    private var payload: String
+    private var image: NSImage?
 
-    var body: some View {
-        Group {
-            if let image = qrImage {
-                Image(nsImage: image)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-                    .accessibilityLabel(
-                        String(
-                            localized: "mobile.pairing.qrAccessibilityLabel",
-                            defaultValue: "Pairing QR code"
-                        )
-                    )
-            } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.secondary.opacity(0.12))
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(
-                        Image(systemName: "qrcode")
-                            .cmuxFont(size: 48)
-                            .foregroundStyle(.secondary)
-                    )
-                    .accessibilityLabel(
-                        String(
-                            localized: "mobile.pairing.qrUnavailable",
-                            defaultValue: "Pairing code unavailable. Tap Refresh Code."
-                        )
-                    )
-            }
-        }
+    init(payload: String) {
+        self.payload = payload
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
+        heightAnchor.constraint(equalTo: widthAnchor).isActive = true
+        update(payload: payload)
     }
 
-    /// The payload rendered at native module resolution, or `nil` if the
-    /// generator produced no output for the given string. No scaling happens
-    /// here; the view upscales with interpolation disabled so modules stay
-    /// sharp.
-    private var qrImage: NSImage? {
-        guard let cgImage = CmxPairingQRBitmap().makeImage(payload: payload) else {
-            return nil
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 380, height: 380) }
+
+    func update(payload: String) {
+        guard self.payload != payload || image == nil else { return }
+        self.payload = payload
+        if let cgImage = CmxPairingQRBitmap().makeImage(payload: payload) {
+            image = NSImage(
+                cgImage: cgImage,
+                size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+            )
+            setAccessibilityLabel(String(
+                localized: "mobile.pairing.qrAccessibilityLabel",
+                defaultValue: "Pairing QR code"
+            ))
+        } else {
+            image = nil
+            setAccessibilityLabel(String(
+                localized: "mobile.pairing.qrUnavailable",
+                defaultValue: "Pairing code unavailable. Tap Refresh Code."
+            ))
         }
-        return NSImage(
-            cgImage: cgImage,
-            size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
-        )
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        NSBezierPath(rect: bounds).fill()
+        if let image {
+            image.draw(
+                in: bounds,
+                from: .zero,
+                operation: .copy,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.none]
+            )
+        } else {
+            NSColor.secondaryLabelColor.withAlphaComponent(0.12).setFill()
+            NSBezierPath(rect: bounds).fill()
+            guard let symbol = NSImage(systemSymbolName: "qrcode", accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 48, weight: .regular)) else {
+                return
+            }
+            let size = symbol.size
+            symbol.draw(
+                at: NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 0.7
+            )
+        }
     }
 }

@@ -263,6 +263,40 @@ struct NativeStackAccountAvatarBridge: NSViewRepresentable {
     }
 }
 
+struct NativeMobilePairingViewBridge: NSViewRepresentable {
+    let backgroundColor: NSColor
+    let onRequestPanelFocus: () -> Void
+
+    func makeNSView(context: Context) -> MobilePairingView {
+        MobilePairingView(
+            backgroundColor: backgroundColor,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+    }
+
+    func updateNSView(_ view: MobilePairingView, context: Context) {
+        view.updatePresentation(
+            backgroundColor: backgroundColor,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+    }
+}
+
+struct MobilePairingPanelView: View {
+    let appearance: PanelAppearance
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        NativeMobilePairingViewBridge(
+            backgroundColor: appearance.contentBackgroundColor,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
+        .accessibilityIdentifier("MobilePairingPanel")
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 

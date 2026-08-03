@@ -1,112 +1,179 @@
 import AppKit
-import CMUXMobileCore
-import SwiftUI
+import CmuxFoundation
 
 extension MobilePairingView {
-    @ViewBuilder
-    func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .cmuxFont(size: 36)
-                .foregroundStyle(.green)
-            Text(String(localized: "mobile.pairing.connected.title", defaultValue: "iPhone connected"))
-                .cmuxFont(.title3, weight: .semibold)
-            Text(String(localized: "mobile.pairing.connected.subtitle", defaultValue: "Your terminal workspaces are now syncing to your iPhone. You can close this window."))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 200)
+    func connectedContent(_ ready: MobilePairingModel.Ready) -> NSView {
+        _ = ready
+        return centered([
+            symbol("checkmark.circle.fill", pointSize: 36, color: .systemGreen),
+            label(
+                String(localized: "mobile.pairing.connected.title", defaultValue: "iPhone connected"),
+                size: 17,
+                weight: .semibold
+            ),
+            wrappingLabel(
+                String(
+                    localized: "mobile.pairing.connected.subtitle",
+                    defaultValue: "Your terminal workspaces are now syncing to your iPhone. You can close this window."
+                ),
+                alignment: .center
+            ),
+        ])
     }
 
-    var steps: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
-            HStack(spacing: 4) {
-                Spacer(minLength: 30)
-                Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                Link(
-                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
-                    destination: Self.iphoneAppURL
-                )
-                .cmuxFont(.caption)
-                Spacer(minLength: 0)
-            }
-            step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
-            step(3, String(localized: "mobile.pairing.step.scan", defaultValue: "Tap Add device, then Scan QR Code, and point the camera at the code above."))
+    func stepsView() -> NSView {
+        let install = stepView(
+            1,
+            String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it.")
+        )
+        let prompt = label(
+            String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"),
+            size: 11
+        )
+        prompt.textColor = .secondaryLabelColor
+        let getApp = linkButton(
+            String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone")
+        ) { NSWorkspace.shared.open(Self.iphoneAppURL) }
+        let appRow = NSStackView(views: [NSView(), prompt, getApp, NSView()])
+        appRow.orientation = .horizontal
+        appRow.alignment = .firstBaseline
+        appRow.spacing = 4
+        let signIn = stepView(
+            2,
+            String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac.")
+        )
+        let scan = stepView(
+            3,
+            String(localized: "mobile.pairing.step.scan", defaultValue: "Tap Add device, then Scan QR Code, and point the camera at the code above.")
+        )
+        let stack = vertical([install, appRow, signIn, scan], alignment: .leading, spacing: 10)
+        for row in [install, appRow, signIn, scan] {
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return stack
     }
 
-    func step(_ number: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(number)")
-                .cmuxFont(.caption, weight: .bold)
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(Color.accentColor, in: Circle())
-            Text(text).cmuxFont(.callout).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
+    func stepView(_ number: Int, _ text: String) -> NSView {
+        let badge = label(String(number), size: 11, weight: .bold)
+        badge.alignment = .center
+        badge.textColor = .white
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        badge.layer?.cornerRadius = 10
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            badge.widthAnchor.constraint(equalToConstant: 20),
+            badge.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        let body = wrappingLabel(text)
+        body.textColor = .labelColor
+        body.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = NSStackView(views: [badge, body])
+        row.orientation = .horizontal
+        row.alignment = .firstBaseline
+        row.spacing = 10
+        return row
     }
 
-    @ViewBuilder
-    func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
-                .cmuxFont(.caption, weight: .semibold)
-                .foregroundStyle(.secondary)
-            ForEach(ready.tailscaleLines, id: \.self) { line in
-                Text(line).cmuxFont(.caption, design: .monospaced)
-                    .textSelection(.enabled).foregroundStyle(.secondary)
-            }
-            if let entry = ready.manualEntry {
-                HStack(spacing: 8) {
-                    copyButton(label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"), value: entry.host)
-                    copyButton(label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"), value: String(entry.port))
-                }
-                .padding(.top, 2)
-            }
+    func manualFallback(_ ready: MobilePairingModel.Ready) -> NSView {
+        let title = label(
+            String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"),
+            size: 11,
+            weight: .semibold
+        )
+        title.textColor = .secondaryLabelColor
+        var views: [NSView] = [title]
+        for line in ready.tailscaleLines {
+            let route = label(line, size: 11)
+            route.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            route.textColor = .secondaryLabelColor
+            route.isSelectable = true
+            views.append(route)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        if let entry = ready.manualEntry {
+            let buttons = NSStackView(views: [
+                copyButton(
+                    label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
+                    value: entry.host
+                ),
+                copyButton(
+                    label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
+                    value: String(entry.port)
+                ),
+            ])
+            buttons.orientation = .horizontal
+            buttons.alignment = .centerY
+            buttons.spacing = 8
+            views.append(buttons)
+        }
+
+        let stack = vertical(views, alignment: .leading, spacing: 6)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let card = MobilePairingCardView(frame: .zero)
+        card.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+        ])
+        return card
     }
 
-    func copyButton(label: String, value: String) -> some View {
-        Button {
+    func copyButton(label title: String, value: String) -> NSButton {
+        let copied = copiedValue == value
+        let title = copied
+            ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
+            : title
+        let button = button(title) { [weak self] in
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(value, forType: .string)
-            flashCopied(value)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: copiedValue == value ? "checkmark" : "doc.on.doc")
-                Text(copiedValue == value
-                    ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
-                    : label)
-            }
-            .cmuxFont(.caption)
+            self?.flashCopied(value)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        button.controlSize = .small
+        button.font = GlobalFontMagnification.systemFont(ofSize: 11)
+        button.image = NSImage(systemSymbolName: copied ? "checkmark" : "doc.on.doc", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        return button
     }
 
     func flashCopied(_ value: String) {
         copiedValueGeneration &+= 1
         let generation = copiedValueGeneration
         copiedValue = value
-        Task { @MainActor in
+        rerender()
+        copyFeedbackTask?.cancel()
+        copyFeedbackTask = Task { @MainActor [weak self] in
             try? await ContinuousClock().sleep(for: .seconds(1.6))
-            guard copiedValueGeneration == generation else { return }
+            guard !Task.isCancelled,
+                  let self,
+                  copiedValueGeneration == generation else { return }
             copiedValue = nil
+            rerender()
         }
     }
+}
 
-    func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        HStack(spacing: 10) { content() }
-            .frame(maxWidth: .infinity, minHeight: 200)
+private final class MobilePairingCardView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        refreshColor()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColor()
+    }
+
+    private func refreshColor() {
+        layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.08).cgColor
     }
 }
