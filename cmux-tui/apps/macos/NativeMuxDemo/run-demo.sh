@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
 ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
 
-for command in cargo codesign jq openssl swift; do
+for command in cargo codesign jq open openssl swift; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "NativeMuxDemo needs $command on PATH." >&2
     exit 1
@@ -49,12 +49,17 @@ INVITATION_FILE="$DEMO_ROOT/invitation.txt"
 DAEMON_LOG="$DEMO_ROOT/daemon.log"
 DAEMON_PID=""
 APP_PID=""
+OPEN_PID=""
 
 cleanup() {
   set +e
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null
     wait "$APP_PID" 2>/dev/null
+  fi
+  if [[ -n "$OPEN_PID" ]] && kill -0 "$OPEN_PID" 2>/dev/null; then
+    kill "$OPEN_PID" 2>/dev/null
+    wait "$OPEN_PID" 2>/dev/null
   fi
   if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
     kill "$DAEMON_PID" 2>/dev/null
@@ -219,14 +224,19 @@ while (( ${#STANDARD} % 4 != 0 )); do STANDARD="${STANDARD}="; done
 INVITATION_ID="$(printf '%s' "$STANDARD" | openssl base64 -d -A | jq -er '.id')"
 
 echo "Launching NativeMuxDemo and claiming invitation $INVITATION_ID..."
-CMUX_NATIVE_INVITATION_FILE="$INVITATION_FILE" \
-CMUX_NATIVE_AUTOCONNECT=1 \
-  "$APP_EXECUTABLE" &
-APP_PID=$!
+open -n -W \
+  --env "CMUX_NATIVE_INVITATION_FILE=$INVITATION_FILE" \
+  --env CMUX_NATIVE_AUTOCONNECT=1 \
+  "$APP_BUNDLE" &
+OPEN_PID=$!
 
 claimed=0
 for _ in $(seq 1 900); do
-  if ! kill -0 "$APP_PID" 2>/dev/null; then
+  if [[ -z "$APP_PID" ]]; then
+    APP_PID="$(ps -axo pid=,command= \
+      | awk -v executable="$APP_EXECUTABLE" '$2 == executable { print $1; exit }')"
+  fi
+  if ! kill -0 "$OPEN_PID" 2>/dev/null; then
     echo "NativeMuxDemo exited before claiming its invitation." >&2
     exit 1
   fi
@@ -248,5 +258,6 @@ fi
 echo "Ready. Exercise workspaces, spaces, splits, vertical tabs, browser tabs, and niri columns."
 echo "Close NativeMuxDemo to stop the isolated daemon and remove its state."
 
-wait "$APP_PID"
+wait "$OPEN_PID"
+OPEN_PID=""
 APP_PID=""
