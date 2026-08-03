@@ -61,7 +61,7 @@ enum KeyboardShortcutSettings {
         case rejected(ShortcutRecordingRejection)
     }
 
-    enum Action: String, CaseIterable, Identifiable {
+    enum Action: String, CaseIterable, Identifiable, Sendable {
         // App / window
         case openSettings
         case reloadConfiguration
@@ -1404,7 +1404,7 @@ final class SystemWideHotkeyController {
 
 }
 
-struct ShortcutStroke: Equatable, Hashable {
+struct ShortcutStroke: Equatable, Hashable, Sendable {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -2045,7 +2045,7 @@ struct ShortcutStroke: Equatable, Hashable {
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable, Hashable {
+struct StoredShortcut: Codable, Equatable, Hashable, Sendable {
     var key: String
     var command: Bool
     var shift: Bool

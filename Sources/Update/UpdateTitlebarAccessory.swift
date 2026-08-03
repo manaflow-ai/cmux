@@ -2456,7 +2456,8 @@ private struct NotificationsPopoverView: View {
             .accessibilityValue(jumpToUnreadShortcut.displayString)
             .safeHelp(
                 KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
-                    String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+                    String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"),
+                    shortcut: jumpToUnreadShortcut
                 )
             )
             .disabled(!hasUnreadNotifications)
@@ -2618,8 +2619,7 @@ private struct NotificationsPopoverView: View {
 
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
+        keyboardShortcutSettingsObserver.shortcut(for: .jumpToUnread)
     }
 
     private var hasUnreadNotifications: Bool {

@@ -22,33 +22,33 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(observer.revision == expectedRevision)
     }
 
-    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() {
+    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() async {
         let notificationCenter = NotificationCenter()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
+        let state = ShortcutProviderState(
+            configuredShortcut: StoredShortcut(
+                key: "f",
+                command: true,
+                shift: false,
+                option: true,
+                control: false
+            )
         )
-        var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
             shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
+                state.shortcut(for: action)
             }
         )
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        let initialLookupCount = globalSearchLookupCount
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        let initialLookupCount = state.globalSearchLookupCount
         for _ in 0..<100 {
             _ = observer.globalSearchShortcut
         }
-        #expect(globalSearchLookupCount == initialLookupCount)
+        #expect(state.globalSearchLookupCount == initialLookupCount)
 
-        configuredShortcut = StoredShortcut(
+        state.configuredShortcut = StoredShortcut(
             key: "g",
             command: true,
             shift: true,
@@ -60,18 +60,20 @@ extension GlobalSearchShortcutBehaviorTests {
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 1)
 
-        configuredShortcut = .unbound
+        state.configuredShortcut = .unbound
         notificationCenter.post(
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
         #expect(observer.globalSearchShortcut == .unbound)
-        #expect(globalSearchLookupCount == initialLookupCount + 2)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 2)
     }
 
     @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {
@@ -108,26 +110,26 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
     }
 
-    @Test func completedKeyboardLayoutChangeRefreshesGlobalSearchSnapshot() {
+    @Test func completedKeyboardLayoutChangeRefreshesGlobalSearchSnapshot() async {
         let notificationCenter = NotificationCenter()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
+        let state = ShortcutProviderState(
+            configuredShortcut: StoredShortcut(
+                key: "f",
+                command: true,
+                shift: false,
+                option: true,
+                control: false
+            )
         )
-        var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
             shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
+                state.shortcut(for: action)
             }
         )
-        let initialLookupCount = globalSearchLookupCount
-        configuredShortcut = StoredShortcut(
+        await observer.waitUntilShortcutSnapshotIsIdle()
+        let initialLookupCount = state.globalSearchLookupCount
+        state.configuredShortcut = StoredShortcut(
             key: "g",
             command: true,
             shift: true,
@@ -136,10 +138,11 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         notificationCenter.post(name: KeyboardLayout.didChangeNotification, object: nil)
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
-        #expect(observer.revision == 1)
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 1)
+        #expect(observer.revision >= 2)
     }
 
     @Test func blockedShortcutProviderDoesNotBlockMainActorDuringObserverStartup() async {
@@ -274,6 +277,43 @@ private final class BlockedShortcutProviderProbe: @unchecked Sendable {
             if didRecord { return }
             await Task.yield()
         }
+    }
+}
+
+private final class ShortcutProviderState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedConfiguredShortcut: StoredShortcut
+    private var storedGlobalSearchLookupCount = 0
+
+    init(configuredShortcut: StoredShortcut) {
+        storedConfiguredShortcut = configuredShortcut
+    }
+
+    var configuredShortcut: StoredShortcut {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedConfiguredShortcut
+        }
+        set {
+            lock.lock()
+            storedConfiguredShortcut = newValue
+            lock.unlock()
+        }
+    }
+
+    var globalSearchLookupCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedGlobalSearchLookupCount
+    }
+
+    func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+        lock.lock()
+        defer { lock.unlock() }
+        guard action == .globalSearch else { return .unbound }
+        storedGlobalSearchLookupCount += 1
+        return storedConfiguredShortcut
     }
 }
 
