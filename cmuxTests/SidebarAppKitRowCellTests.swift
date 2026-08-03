@@ -162,7 +162,8 @@ struct SidebarAppKitRowCellTests {
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
         onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
-        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in },
+        commitRename: @escaping (String) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let resolvedTab = tab ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
@@ -208,7 +209,7 @@ struct SidebarAppKitRowCellTests {
             onEndChecklistItemEdit: { _ in },
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
-            commitRename: { _ in }
+            commitRename: commitRename
         )
     }
 
@@ -217,6 +218,7 @@ struct SidebarAppKitRowCellTests {
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
         onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
+        commitRename: @escaping (String) -> Void = { _ in },
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarWorkspaceRowTableCellView {
         let cell = SidebarWorkspaceRowTableCellView()
@@ -227,7 +229,8 @@ struct SidebarAppKitRowCellTests {
                 tab: tab,
                 tabManager: tabManager,
                 onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
-                onOpenStatusURL: onOpenStatusURL
+                onOpenStatusURL: onOpenStatusURL,
+                commitRename: commitRename
             ),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -1071,6 +1074,40 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeSwiftUIRow(settings: settings).settings.details[keyPath: detailKey])
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
+    }
+
+    @Test
+    func beginInlineRenameLeavesFieldEditingWithoutCommittingPrefilledTitle() throws {
+        // Regression test for the workspace double-click rename flashing and
+        // committing instantly: the inline field appeared then vanished before
+        // the user could type. beginInlineRename must attach the field editor
+        // and leave the field editable; it must NOT synchronously fire onCommit
+        // with the pre-filled, unchanged title.
+        let model = Self.makeModel()
+        var committedTitles: [String] = []
+        let cell = Self.configuredCell(
+            model: model,
+            commitRename: { committedTitles.append($0) }
+        )
+
+        // The shared field editor only attaches when the cell is in a window.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 40),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView?.addSubview(cell)
+        cell.frame = NSRect(x: 0, y: 0, width: 260, height: 40)
+        cell.layoutSubtreeIfNeeded()
+
+        cell.beginInlineRename()
+
+        // On the buggy path, selectText(nil) re-entered the field-editor
+        // machinery and fired controlTextDidEndEditing synchronously,
+        // committing the untouched title. The field must stay editable with
+        // no spurious commit.
+        #expect(committedTitles.isEmpty)
     }
 }
 
