@@ -127,14 +127,14 @@ struct WorkspaceFloatingDockScreenPlacementTests {
 
         #expect(migrated.restoreFrame == CGRect(x: 2_200, y: 750, width: 400, height: 300))
         #expect(migrated.visibleScreenFrame == destinationScreen)
-        #expect(destinationScreen.intersection(migrated.parkedFrame).width == 24)
+        #expect(destinationScreen.intersection(migrated.parkedFrame).width == 80)
     }
 }
 
 @Suite
 struct WorkspaceFloatingDockParkingRegressionTests {
     @Test
-    func parkingUsesANarrowAdaptivePeek() {
+    func parkingKeepsARecognizableAdaptiveWindowSlice() {
         let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let regularWindow = CGRect(x: 240, y: 180, width: 620, height: 420)
         let narrowWindow = CGRect(x: 240, y: 180, width: 80, height: 420)
@@ -148,7 +148,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             visibleScreenFrame: screen
         ).parkedFrame
 
-        #expect(screen.intersection(regularParked).width == 24)
+        #expect(screen.intersection(regularParked).width == 80)
         #expect(screen.intersection(narrowParked).width == 16)
         #expect(regularParked.size == regularWindow.size)
         #expect(narrowParked.size == narrowWindow.size)
@@ -164,8 +164,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         )
 
         #expect(snapshot.restoreFrame == restoreFrame)
-        #expect(screen.intersection(snapshot.parkedFrame).width == 24)
-        #expect(screen.intersection(snapshot.revealedFrame).width == 120)
+        #expect(screen.intersection(snapshot.parkedFrame).width == 80)
+        #expect(screen.intersection(snapshot.revealedFrame).width == 176)
         #expect(snapshot.parkedFrame.size == restoreFrame.size)
         #expect(snapshot.revealedFrame.size == restoreFrame.size)
         #expect(snapshot.containsRevealedPoint(CGPoint(
