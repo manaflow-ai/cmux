@@ -326,7 +326,7 @@ struct FileExplorerStoreTests {
         }
         let children = try #require(directory.children)
 
-        #expect(children.prefix(5_000).allSatisfy(\.isDirectory))
+        #expect(children.prefix(5_000).allSatisfy { node in node.isDirectory })
         #expect(children.suffix(5_000).allSatisfy { !$0.isDirectory })
         for index in 1..<children.count {
             let previous = children[index - 1]
