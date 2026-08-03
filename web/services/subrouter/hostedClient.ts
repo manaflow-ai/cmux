@@ -78,14 +78,21 @@ export function createHostedSubrouterClient(options: {
     headers.set("authorization", `Bearer ${tenantKey}`);
     return requestJson(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
   };
+  const tenantRequestResponse = (
+    tenantKey: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> => {
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${tenantKey}`);
+    return requestResponse(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+  };
   const tenantRequestWithoutResponse = async (
     tenantKey: string,
     path: string,
     init: RequestInit,
   ): Promise<void> => {
-    const headers = new Headers(init.headers);
-    headers.set("authorization", `Bearer ${tenantKey}`);
-    await requestResponse(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+    await tenantRequestResponse(tenantKey, path, init);
   };
   const uploadAccount = async (
     tenantKey: string,
@@ -141,9 +148,7 @@ export function createHostedSubrouterClient(options: {
           },
           body: JSON.stringify({ teamId }),
         },
-        [404],
       );
-      if (upstreamResponse.status === 404) return;
       const response = await responseJson(upstreamResponse);
       if (!isRecord(response)) {
         throw new HostedSubrouterError("invalid tenant deletion response", 502);
@@ -194,7 +199,7 @@ export function createHostedSubrouterClient(options: {
       return parseCredentialLease(response.lease);
     },
     reportCredentialLease: async (tenantKey, leaseId, input) => {
-      await tenantRequestWithoutResponse(
+      const response = await tenantRequestResponse(
         tenantKey,
         `/_subrouter/leases/${encodeURIComponent(leaseId)}/events`,
         {
@@ -203,7 +208,21 @@ export function createHostedSubrouterClient(options: {
           body: JSON.stringify(input),
         },
       );
-      return { ok: true };
+      if (response.status === 204) return { ok: true };
+      const body = await responseJson(response);
+      if (
+        !isRecord(body) ||
+        body.ok !== true ||
+        (body.refreshState !== undefined && body.refreshState !== "refreshed")
+      ) {
+        throw new HostedSubrouterError("invalid credential lease report", 502);
+      }
+      return {
+        ok: true,
+        ...(body.refreshState === "refreshed"
+          ? { refreshState: "refreshed" as const }
+          : {}),
+      };
     },
   };
 }
@@ -239,7 +258,6 @@ async function requestResponse(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
-  allowedStatuses: readonly number[] = [],
 ): Promise<Response> {
   let response: Response;
   try {
@@ -250,7 +268,7 @@ async function requestResponse(
   } catch {
     throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
   }
-  if (!response.ok && !allowedStatuses.includes(response.status)) {
+  if (!response.ok) {
     throw new HostedSubrouterError("hosted Subrouter request failed", response.status);
   }
   return response;
