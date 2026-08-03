@@ -8,8 +8,8 @@ internal import UIKit
 /// The app-wide toast presenter: one instance owns which toast is visible,
 /// the FIFO queue behind it, and every dwell/coalescing/interaction policy.
 ///
-/// Views never decide toast lifetime. They render ``presented`` inside a
-/// `toastHost(_:)` overlay, forward drags through ``beginInteraction()`` /
+/// Presentations never decide toast lifetime. They render ``presented`` inside
+/// the native toast window, forward drags through ``beginInteraction()`` /
 /// ``endInteraction()``, and call ``dismiss(_:)``. All timing runs on the
 /// injected clock so the policy is testable without wall-clock sleeps.
 @MainActor

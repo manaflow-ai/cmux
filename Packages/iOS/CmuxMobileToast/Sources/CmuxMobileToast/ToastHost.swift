@@ -1,77 +1,41 @@
 public import CMUXMobileCore
-public import SwiftUI
 
-#if os(iOS)
-internal import CmuxMobileSupport
-internal import UIKit
-#endif
+#if canImport(UIKit)
+import CmuxMobileSupport
+public import UIKit
 
-public extension View {
-    /// Installs the toast presentation layer for this view tree and injects
-    /// `center` into the environment so any descendant can present through
-    /// `@Environment(ToastCenter.self)`. Mount once at the app root.
-    ///
-    /// On iOS toasts render in their own passthrough window above the app's
-    /// window level, so they float over sheets and full-screen covers while
-    /// every touch outside the toast falls through to the app untouched.
-    @ViewBuilder
-    func toastHost(
-        _ center: ToastCenter,
+/// Zero-size UIKit mount point that discovers its `UIWindowScene` and owns the
+/// independent toast window for that scene.
+@MainActor
+public final class ToastWindowMountView: UIView {
+    private let coordinator: ToastWindowCoordinator
+
+    public init(
+        center: ToastCenter,
         haptics: MobileHapticFeedback = MobileHapticFeedback()
-    ) -> some View {
-        #if os(iOS)
-        background(ToastWindowMounter(center: center, haptics: haptics))
-            .environment(center)
-        #else
-        overlay(ToastOverlayRoot(center: center, haptics: haptics))
-            .environment(center)
-        #endif
-    }
-}
-
-#if os(iOS)
-
-/// Zero-size anchor that discovers the hosting `UIWindowScene` and hands it
-/// to the coordinator, which owns the overlay window.
-private struct ToastWindowMounter: UIViewRepresentable {
-    let center: ToastCenter
-    let haptics: MobileHapticFeedback
-
-    func makeCoordinator() -> ToastWindowCoordinator {
-        ToastWindowCoordinator(center: center, haptics: haptics)
+    ) {
+        coordinator = ToastWindowCoordinator(center: center, haptics: haptics)
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
     }
 
-    func makeUIView(context: Context) -> ToastWindowAnchorView {
-        let view = ToastWindowAnchorView()
-        view.isUserInteractionEnabled = false
-        let coordinator = context.coordinator
-        view.onWindowSceneChanged = { [weak coordinator] scene in
-            coordinator?.windowSceneChanged(scene)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    public override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if let scene = window?.windowScene {
+            coordinator.windowSceneChanged(scene)
         }
-        return view
     }
 
-    func updateUIView(_ uiView: ToastWindowAnchorView, context: Context) {}
-
-    static func dismantleUIView(_ uiView: ToastWindowAnchorView, coordinator: ToastWindowCoordinator) {
+    public func teardown() {
         coordinator.teardown()
     }
 }
 
-private final class ToastWindowAnchorView: UIView {
-    var onWindowSceneChanged: ((UIWindowScene?) -> Void)?
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        onWindowSceneChanged?(window?.windowScene)
-    }
-}
-
-/// Owns the overlay window and feeds keyboard overlap into the overlay so
-/// bottom toasts ride above the keyboard (a separate window gets no keyboard
-/// safe area of its own).
 @MainActor
-final class ToastWindowCoordinator {
+private final class ToastWindowCoordinator {
     private let center: ToastCenter
     private let haptics: MobileHapticFeedback
     private let chrome = ToastHostChrome()
@@ -90,36 +54,25 @@ final class ToastWindowCoordinator {
         #endif
     }
 
-    func windowSceneChanged(_ scene: UIWindowScene?) {
-        // A transient nil (view briefly detached) keeps the window: tearing it
-        // down mid-toast would eat the departure animation.
-        guard let scene else { return }
+    func windowSceneChanged(_ scene: UIWindowScene) {
         if let window, window.windowScene === scene { return }
         installWindow(in: scene)
     }
 
     private func installWindow(in scene: UIWindowScene) {
         window?.isHidden = true
-        let host = UIHostingController(
-            rootView: ToastOverlayRoot(center: center, chrome: chrome, haptics: haptics)
-        )
-        host.view.backgroundColor = .clear
-        // Keyboard avoidance is handled explicitly through `chrome`; opting
-        // out here keeps the hosting view's own safe-area math deterministic.
-        host.safeAreaRegions = .container
+        let controller = ToastOverlayViewController(center: center, chrome: chrome, haptics: haptics)
         let overlay = ToastPassthroughWindow(windowScene: scene)
-        overlay.interactiveRegion = { [weak chrome = chrome] in chrome?.interactiveRegion }
+        overlay.interactiveRegion = { [weak controller] in controller?.interactiveRegion }
         overlay.windowLevel = .alert
         overlay.backgroundColor = .clear
-        overlay.rootViewController = host
+        overlay.rootViewController = controller
         overlay.isHidden = false
         window = overlay
     }
 
     func teardown() {
-        if let keyboardObserver {
-            NotificationCenter.default.removeObserver(keyboardObserver)
-        }
+        if let keyboardObserver { NotificationCenter.default.removeObserver(keyboardObserver) }
         keyboardObserver = nil
         #if DEBUG
         debugTrigger?.invalidate()
@@ -136,9 +89,7 @@ final class ToastWindowCoordinator {
             queue: .main
         ) { [weak self] notification in
             guard let transition = MobileKeyboardTransition(notification: notification) else { return }
-            MainActor.assumeIsolated {
-                self?.keyboardChanged(transition)
-            }
+            MainActor.assumeIsolated { self?.keyboardChanged(transition) }
         }
     }
 
@@ -149,22 +100,12 @@ final class ToastWindowCoordinator {
     }
 }
 
-/// Full-screen window that swallows touches only inside the visible card's
-/// published frame; everything else falls through to the app's own windows.
-///
-/// SwiftUI draws the card without dedicated UIViews, so `super.hitTest`
-/// returns the hosting view for card and empty space alike — the geometry
-/// gate is what distinguishes them.
 final class ToastPassthroughWindow: UIWindow {
-    /// The visible toast's window-space frame, `nil` when nothing is shown.
     var interactiveRegion: (() -> CGRect?)?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let region = interactiveRegion?(), region.contains(point) else {
-            return nil
-        }
+        guard let region = interactiveRegion?(), region.contains(point) else { return nil }
         return super.hitTest(point, with: event)
     }
 }
-
 #endif

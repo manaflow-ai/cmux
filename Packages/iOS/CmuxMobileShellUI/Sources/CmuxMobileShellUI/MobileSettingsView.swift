@@ -6,6 +6,7 @@ import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+import UIKit
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -459,7 +460,7 @@ struct MobileSettingsView: View {
                 TerminalLogDemoScreen()
             }
             .sheet(isPresented: $showingToastGallery) {
-                ToastGalleryView()
+                ToastGalleryHost(center: toasts)
             }
             #endif
             .sheet(isPresented: $showingHostPicker) {
@@ -578,5 +579,17 @@ struct MobileSettingsView: View {
         )
     }
     #endif
+}
+#endif
+
+#if os(iOS) && DEBUG
+private struct ToastGalleryHost: UIViewControllerRepresentable {
+    let center: ToastCenter
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        UINavigationController(rootViewController: ToastGalleryViewController(center: center))
+    }
+
+    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
 }
 #endif

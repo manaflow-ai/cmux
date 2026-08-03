@@ -14,6 +14,10 @@ import Foundation
 import OSLog
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 #if canImport(UIKit) && DEBUG
 import CmuxMobileTerminal
 #endif
@@ -306,7 +310,8 @@ public struct CMUXMobileRootScene: View {
         rootContent
             // App-wide toast layer: every root host gets the presentation
             // window and the ToastCenter environment.
-            .toastHost(toastCenter, haptics: displaySettings.haptics)
+            .background(ToastMountHost(center: toastCenter, haptics: displaySettings.haptics))
+            .environment(toastCenter)
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -334,7 +339,7 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
-            ToastGalleryView()
+            ToastGalleryHost(center: toastCenter)
         } else {
             makeMobileAppView()
         }
@@ -414,3 +419,32 @@ public struct CMUXMobileRootScene: View {
         )
     }
 }
+
+#if canImport(UIKit)
+private struct ToastMountHost: UIViewRepresentable {
+    let center: ToastCenter
+    let haptics: MobileHapticFeedback
+
+    func makeUIView(context: Context) -> ToastWindowMountView {
+        ToastWindowMountView(center: center, haptics: haptics)
+    }
+
+    func updateUIView(_ view: ToastWindowMountView, context: Context) {}
+
+    static func dismantleUIView(_ view: ToastWindowMountView, coordinator: ()) {
+        view.teardown()
+    }
+}
+
+#if DEBUG
+private struct ToastGalleryHost: UIViewControllerRepresentable {
+    let center: ToastCenter
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        UINavigationController(rootViewController: ToastGalleryViewController(center: center))
+    }
+
+    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
+}
+#endif
+#endif

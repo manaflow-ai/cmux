@@ -76,8 +76,9 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [ ] `CmuxAgentChatUI` (69)
   - [ ] `CmuxMobileChanges` (8)
   - [ ] `CmuxMobileTerminal` (5)
-  - [ ] `CmuxMobileToast` (3)
-  - [ ] `CmuxMobileBrowserStream` (3)
+  - [x] `CmuxMobileToast` (0)
+  - [x] `CmuxMobileBrowserStream` (0)
+  - [x] `CmuxMobileBrowser` (0)
   - [ ] `CmuxMobileWorkspace` (2)
   - [ ] Replace the SwiftUI `App` and scene graph with `UIApplicationDelegate`,
     `UISceneDelegate`, and UIKit coordinators.

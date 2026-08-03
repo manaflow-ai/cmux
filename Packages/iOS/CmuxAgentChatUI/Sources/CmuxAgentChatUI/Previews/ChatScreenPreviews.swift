@@ -9,7 +9,7 @@ import SwiftUI
     NavigationStack {
         ChatScreen(store: store, onOpenTerminal: {})
     }
-    .toastHost(ToastCenter())
+    .environment(ToastCenter())
     .preferredColorScheme(.dark)
 }
 

@@ -1,154 +1,213 @@
+#if canImport(UIKit)
 import CmuxMobileSupport
-import SwiftUI
+import UIKit
 
-/// The toast's visual card: content-hugging Liquid Glass (material fallback),
-/// a capsule for plain messages and a continuous rounded rect for
-/// title+message pairs. Pure looks; lifetime and gestures live in the host.
-struct ToastCardView: View {
-    let toast: Toast
-    /// Bumped on appear and on every coalescing re-present; bounces the icon.
-    let iconBounceTrigger: Int
-    let dismiss: () -> Void
+@MainActor
+final class ToastCardView: UIView, UIGestureRecognizerDelegate {
+    private let effectView = UIVisualEffectView()
+    private let contentStack = UIStackView()
+    private var toast: Toast
+    private let dismiss: () -> Void
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    private var isCompact: Bool { toast.title == nil }
-
-    private var shape: AnyShape {
-        isCompact
-            ? AnyShape(Capsule())
-            : AnyShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    init(toast: Toast, dismiss: @escaping () -> Void) {
+        self.toast = toast
+        self.dismiss = dismiss
+        super.init(frame: .zero)
+        setupChrome()
+        configure(with: toast)
     }
 
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if let symbol = toast.resolvedSystemImage {
-                iconView(symbol)
-            }
-            textStack
-            if let action = toast.action {
-                actionButton(action)
-            }
-        }
-        .padding(.leading, toast.resolvedSystemImage != nil ? 9 : 16)
-        .padding(.trailing, toast.action != nil ? 9 : 16)
-        .padding(.vertical, isCompact ? 9 : 11)
-        .background { chrome }
-        .contentShape(shape)
-        .onTapGesture { dismiss() }
-        .accessibilityElement(children: .combine)
-        .accessibilityAction(named: Text(L10n.string("mobile.common.dismiss", defaultValue: "Dismiss"))) {
-            dismiss()
-        }
-        .accessibilityAction(.escape) { dismiss() }
-        .accessibilityIdentifier("MobileToast")
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = toast.title == nil ? bounds.height / 2 : 22
+        effectView.layer.cornerRadius = layer.cornerRadius
     }
 
-    @ViewBuilder
-    private var chrome: some View {
-        if reduceTransparency {
-            shape
-                .fill(solidBackgroundColor)
-                .overlay(shape.stroke(Color.primary.opacity(0.12), lineWidth: 1))
-                .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+    override func accessibilityPerformEscape() -> Bool {
+        dismiss()
+        return true
+    }
+
+    func configure(with toast: Toast) {
+        self.toast = toast
+        contentStack.arrangedSubviews.forEach { view in
+            contentStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        if let symbol = toast.resolvedSystemImage {
+            contentStack.addArrangedSubview(makeIcon(symbol))
+        }
+        contentStack.addArrangedSubview(makeTextStack())
+        if let action = toast.action {
+            contentStack.addArrangedSubview(makeActionButton(action))
+        }
+        contentStack.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: toast.title == nil ? 9 : 11,
+            leading: toast.resolvedSystemImage == nil ? 16 : 9,
+            bottom: toast.title == nil ? 9 : 11,
+            trailing: toast.action == nil ? 16 : 9
+        )
+        accessibilityLabel = [toast.title, toast.message].compactMap { $0 }.joined(separator: ". ")
+        var actions = [UIAccessibilityCustomAction(
+            name: L10n.string("mobile.common.dismiss", defaultValue: "Dismiss"),
+            actionHandler: { [weak self] _ in self?.dismiss(); return true }
+        )]
+        if let action = toast.action {
+            actions.insert(UIAccessibilityCustomAction(
+                name: action.label,
+                actionHandler: { [weak self] _ in
+                    action.handler()
+                    self?.dismiss()
+                    return true
+                }
+            ), at: 0)
+        }
+        accessibilityCustomActions = actions
+        setNeedsLayout()
+    }
+
+    private func setupChrome() {
+        clipsToBounds = false
+        layer.borderWidth = 1 / UIScreen.main.scale
+        layer.borderColor = UIColor.label.withAlphaComponent(0.10).cgColor
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 16
+        layer.shadowOffset = CGSize(width: 0, height: 6)
+
+        if UIAccessibility.isReduceTransparencyEnabled {
+            effectView.effect = nil
+            effectView.backgroundColor = .secondarySystemBackground
+        } else if #available(iOS 26.0, *) {
+            let glass = UIGlassEffect(style: .regular)
+            glass.isInteractive = true
+            effectView.effect = glass
         } else {
-            glassOrMaterial
+            effectView.effect = UIBlurEffect(style: .systemMaterial)
         }
+        effectView.clipsToBounds = true
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(effectView)
+
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 10
+        contentStack.isLayoutMarginsRelativeArrangement = true
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        effectView.contentView.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            effectView.topAnchor.constraint(equalTo: topAnchor),
+            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: effectView.contentView.topAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor),
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(didTapCard))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        addGestureRecognizer(tap)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "MobileToast"
     }
 
-    @ViewBuilder
-    private var glassOrMaterial: some View {
-        #if os(iOS)
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(touch.view is UIControl)
+    }
+
+    @objc private func didTapCard() { dismiss() }
+
+    private func makeIcon(_ symbol: String) -> UIView {
+        let container = UIView()
+        container.backgroundColor = toast.style.uiTint.withAlphaComponent(0.15)
+        container.layer.cornerRadius = 13
+        container.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        container.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        let image = UIImageView(image: UIImage(systemName: symbol))
+        image.tintColor = toast.style.uiTint
+        image.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+        image.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(image)
+        NSLayoutConstraint.activate([
+            image.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            image.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
+    }
+
+    private func makeTextStack() -> UIView {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 1
+        if let title = toast.title {
+            let label = UILabel()
+            label.text = title
+            label.font = .preferredFont(forTextStyle: .footnote).withWeight(.semibold)
+            label.numberOfLines = 2
+            stack.addArrangedSubview(label)
+        }
+        let message = UILabel()
+        message.text = toast.message
+        message.font = .preferredFont(forTextStyle: toast.title == nil ? .subheadline : .footnote)
+        message.textColor = toast.title == nil ? .label : .secondaryLabel
+        message.numberOfLines = 4
+        stack.addArrangedSubview(message)
+        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return stack
+    }
+
+    private func makeActionButton(_ action: Toast.Action) -> UIButton {
+        var configuration: UIButton.Configuration
         if #available(iOS 26.0, *) {
-            // Bare Liquid Glass is nearly transparent over busy content (a
-            // terminal screen made toast text illegible), so the material
-            // plate guarantees diffusion and the glass rides on top purely
-            // for its rim and specular response.
-            shape
-                .fill(.regularMaterial)
-                .overlay(Color.clear.glassEffect(.regular, in: shape))
-                .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+            configuration = .glass()
         } else {
-            materialFallback
+            configuration = .tinted()
         }
-        #else
-        materialFallback
-        #endif
-    }
-
-    private var materialFallback: some View {
-        shape
-            .fill(.regularMaterial)
-            .overlay(shape.stroke(Color.primary.opacity(0.08), lineWidth: 1))
-            .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-    }
-
-    private var solidBackgroundColor: Color {
-        #if os(iOS)
-        Color(uiColor: .secondarySystemBackground)
-        #else
-        Color(nsColor: .windowBackgroundColor)
-        #endif
-    }
-
-    private func iconView(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 12, weight: .bold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(toast.style.tint)
-            .symbolEffect(.bounce, options: .nonRepeating, value: iconBounceTrigger)
-            .frame(width: 26, height: 26)
-            .background(Circle().fill(toast.style.tint.opacity(0.15)))
-            .accessibilityHidden(true)
-    }
-
-    private var textStack: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            if let title = toast.title {
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-            }
-            Text(toast.message)
-                .font(isCompact ? .subheadline : .footnote)
-                .foregroundStyle(isCompact ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .lineLimit(4)
-        }
-        .multilineTextAlignment(.leading)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func actionButton(_ action: Toast.Action) -> some View {
-        Button(action.label) {
+        configuration.title = action.label
+        configuration.buttonSize = .small
+        configuration.baseForegroundColor = toast.style.actionUITint
+        let button = UIButton(configuration: configuration)
+        button.accessibilityIdentifier = "MobileToastActionButton"
+        button.addAction(UIAction { [weak self] _ in
             action.handler()
-            dismiss()
-        }
-        .font(.footnote.weight(.semibold))
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
-        .controlSize(.small)
-        .tint(toast.style.actionTint)
-        .accessibilityIdentifier("MobileToastActionButton")
+            self?.dismiss()
+        }, for: .touchUpInside)
+        return button
+    }
+}
+
+private extension UIFont {
+    func withWeight(_ weight: UIFont.Weight) -> UIFont {
+        let descriptor = fontDescriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: weight],
+        ])
+        return UIFont(descriptor: descriptor, size: pointSize)
     }
 }
 
 extension Toast.Style {
-    var tint: Color {
+    var uiTint: UIColor {
         switch self {
-        case .info: return .secondary
-        case .success: return .green
-        case .warning: return .orange
-        case .failure: return .red
+        case .info: .secondaryLabel
+        case .success: .systemGreen
+        case .warning: .systemOrange
+        case .failure: .systemRed
         }
     }
 
-    /// Info actions use the app accent (a gray action button reads disabled);
-    /// semantic styles keep their tint.
-    var actionTint: Color? {
+    var actionUITint: UIColor? {
         switch self {
-        case .info: return nil
-        case .success, .warning, .failure: return tint
+        case .info: nil
+        case .success, .warning, .failure: uiTint
         }
     }
 }
+#endif
