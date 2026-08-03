@@ -123,8 +123,36 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
         }
 
+        func assertPageContentFitsWithoutScrolling(
+            title: XCUIElement,
+            visual: XCUIElement,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(title.exists, file: file, line: line)
+            XCTAssertTrue(visual.exists, file: file, line: line)
+
+            let viewportFrame = pageViewport.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(viewportFrame.contains(title.frame), file: file, line: line)
+            XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
+
+            let initialTitleFrame = title.frame
+            let initialVisualFrame = visual.frame
+            visual.swipeUp()
+
+            XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
+            assertStableChrome(file: file, line: line)
+        }
+
         capture("onboarding-01-agents")
-        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
+        let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot
+        )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -141,9 +169,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
+        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
+        XCTAssertTrue(notificationsScreenshot.exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot
+        )
         capture("onboarding-02-notifications")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
