@@ -3672,14 +3672,6 @@ impl Mux {
         self.persist_terminal_exit(&host_id, incarnation.as_deref(), exit)
     }
 
-    #[cfg(test)]
-    pub(crate) fn detach_exited_terminal_topology_for_test(
-        &self,
-        terminal_id: &str,
-    ) -> anyhow::Result<Option<SurfaceId>> {
-        self.detach_exited_terminal_topology(terminal_id)
-    }
-
     fn publish_resource_event(&self) {
         let mut epoch = self.resource_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -8879,6 +8871,11 @@ impl Mux {
                         "could not persist terminal {} exit: {error}",
                         surface.id
                     )));
+                    self.schedule_exited_terminal_detach(
+                        identity.terminal_id,
+                        surface,
+                        "host-exited-before-attach",
+                    );
                     return;
                 }
                 if let Err(error) = self.detach_exited_terminal_topology(&identity.terminal_id) {
@@ -8886,7 +8883,11 @@ impl Mux {
                         "could not detach exited terminal {}: {error}",
                         identity.terminal_id
                     )));
-                    self.schedule_exited_terminal_detach(identity.terminal_id);
+                    self.schedule_exited_terminal_detach(
+                        identity.terminal_id,
+                        surface,
+                        "host-exited-before-attach",
+                    );
                 }
                 return;
             }
@@ -8925,6 +8926,8 @@ impl Mux {
                 self.emit(MuxEvent::Status(format!(
                     "could not persist terminal {id} exit: {error}"
                 )));
+                self.schedule_exited_terminal_detach(identity.terminal_id, &surface, "host-exited");
+                self.emit(MuxEvent::SurfaceExited(id));
                 return;
             }
             if let Err(error) = self.detach_exited_terminal_topology(&identity.terminal_id) {
@@ -8932,7 +8935,7 @@ impl Mux {
                     "could not detach exited terminal {}: {error}",
                     identity.terminal_id
                 )));
-                self.schedule_exited_terminal_detach(identity.terminal_id);
+                self.schedule_exited_terminal_detach(identity.terminal_id, &surface, "host-exited");
             }
             self.emit(MuxEvent::SurfaceExited(id));
             return;
@@ -8944,12 +8947,18 @@ impl Mux {
     /// A failed resource commit leaves the dead surface and its durable tab
     /// intact. Retry until the projection commits or shutdown begins; startup
     /// performs the same reconciliation if the daemon exits first.
-    fn schedule_exited_terminal_detach(self: &Arc<Self>, terminal_id: String) {
+    fn schedule_exited_terminal_detach(
+        self: &Arc<Self>,
+        terminal_id: String,
+        surface: &Arc<Surface>,
+        reason: &'static str,
+    ) {
         if !self.terminal_exit_detaches.lock().unwrap().insert(terminal_id.clone()) {
             return;
         }
         let cleanup_id = terminal_id.clone();
         let mux = Arc::downgrade(self);
+        let surface = Arc::downgrade(surface);
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
@@ -8963,7 +8972,13 @@ impl Mux {
                         mux.terminal_exit_detaches.lock().unwrap().remove(&terminal_id);
                         break;
                     }
-                    match mux.detach_exited_terminal_topology(&terminal_id) {
+                    let persisted = surface
+                        .upgrade()
+                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
+                        .unwrap_or(Ok(()));
+                    let reconciled = persisted
+                        .and_then(|()| mux.detach_exited_terminal_topology(&terminal_id).map(drop));
+                    match reconciled {
                         Ok(_) => {
                             mux.terminal_exit_detaches.lock().unwrap().remove(&terminal_id);
                             break;
@@ -9002,7 +9017,7 @@ impl Mux {
         Ok(())
     }
 
-    /// Commit terminal lifecycle, public snapshot, and exactly one session
+    /// Commit terminal lifecycle, topology detach, and exactly one public
     /// event in one registry transaction. Callers may observe the same exit
     /// through the live frame, sidecar recovery, and dead-host reconciliation;
     /// the first commit is the latch and all later observations are no-ops.
@@ -9049,10 +9064,37 @@ impl Mux {
         } else {
             terminal_exit_snapshot_in_state(&registry, &state, terminal_id)?
         };
-        let (_, terminal_revision, resource_revision, replayed) =
-            registry.commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot)?;
+        let detach_projection = if matches!(
+            terminal.lifecycle,
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+        ) {
+            None
+        } else if let Some(public_terminal_id) = public_terminal_id.as_ref() {
+            self.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                terminal_id,
+                public_terminal_id,
+            )?
+        } else {
+            None
+        };
+        let topology =
+            detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
+        let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
+            terminal_id,
+            incarnation,
+            exit,
+            terminal_snapshot,
+            topology,
+        )?;
+        let mut detach_effects = None;
         if !replayed {
-            state.resource_revision = resource_revision;
+            if let Some(projection) = detach_projection {
+                detach_effects = Some(projection.install(&mut state, resource_revision));
+            } else {
+                state.resource_revision = resource_revision;
+            }
             self.emit_terminal_registry_changed(&registry, terminal_revision);
         }
         drop(state);
@@ -9062,6 +9104,9 @@ impl Mux {
                 self.terminal_exit_waiters.notify(public_terminal_id);
             }
             self.publish_resource_event();
+            if let Some(effects) = detach_effects {
+                self.finish_terminal_exit_detach(effects);
+            }
         }
         Ok(!replayed)
     }
@@ -15175,11 +15220,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
-        let restored = reopened.list_agents(None, None);
-        assert_eq!(restored.len(), 1);
-        assert_eq!(restored[0].state, AgentState::Blocked);
-        assert_eq!(restored[0].source, AgentSource::Hook);
-        assert_eq!(restored[0].session.as_deref(), Some("hook-session"));
+        assert!(
+            reopened.list_agents(None, None).is_empty(),
+            "legacy agent cache must not retain a detached terminal surface"
+        );
         assert_eq!(
             crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])
@@ -19065,13 +19109,6 @@ mod tests {
             .unwrap();
         let surface =
             mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
-        let terminal =
-            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
-        let exit = TerminalExit {
-            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 1 },
-            exited_at_ms: 9_876_543,
-        };
-        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
 
         mux.surface_exited(surface);

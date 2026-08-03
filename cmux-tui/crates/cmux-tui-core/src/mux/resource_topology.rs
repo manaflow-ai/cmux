@@ -50,6 +50,49 @@ struct ResourceClosePlan {
     selection_resync: bool,
 }
 
+pub(super) struct TerminalExitDetachProjection {
+    pub(super) state: State,
+    pub(super) removed: Vec<Arc<Surface>>,
+    pub(super) patch: ResourcePatch,
+    pub(super) result: Value,
+    pub(super) changes: Value,
+    pub(super) target: SurfaceId,
+    pub(super) tab_id: TabPublicId,
+    pub(super) delta: TreeDelta,
+    pub(super) changed_screens: Vec<ScreenId>,
+    pub(super) selection_resync: bool,
+}
+
+pub(super) struct TerminalExitDetachEffects {
+    target: SurfaceId,
+    removed: Vec<Arc<Surface>>,
+    delta: TreeDelta,
+    changed_screens: Vec<ScreenId>,
+    selection_resync: bool,
+    empty_revision: Option<u64>,
+}
+
+impl TerminalExitDetachProjection {
+    pub(super) fn install(
+        mut self,
+        state: &mut State,
+        resource_revision: u64,
+    ) -> TerminalExitDetachEffects {
+        self.state.resource_revision = resource_revision;
+        let empty_revision =
+            self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
+        *state = self.state;
+        TerminalExitDetachEffects {
+            target: self.target,
+            removed: self.removed,
+            delta: self.delta,
+            changed_screens: self.changed_screens,
+            selection_resync: self.selection_resync,
+            empty_revision,
+        }
+    }
+}
+
 struct ResourceCreationActivity<'a> {
     active: &'a AtomicBool,
 }
@@ -2016,6 +2059,103 @@ impl Mux {
         )
     }
 
+    pub(super) fn terminal_exit_detach_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &State,
+        terminal_id: &str,
+        terminal_public_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
+        let Some(target) = state
+            .resource_indexes
+            .content
+            .get(&ContentPublicId::Terminal(terminal_public_id.clone()))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let pane = state.pane_of(target).context("exited terminal tab has no pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("exited terminal pane has no screen")?;
+        let workspace = state.workspaces[workspace_index].id;
+        let screen = state.workspaces[workspace_index].screens[screen_index].id;
+        let tab_id = state
+            .resource_indexes
+            .tab_ids
+            .get(&target)
+            .cloned()
+            .context("exited terminal has no durable tab identity")?;
+        let notifications = self.surface_notifications();
+        let mut plan = self.resource_close_plan_locked(
+            ResourceOperation::TabClose,
+            EffectSlots {
+                workspace: Some(workspace),
+                screen: Some(screen),
+                pane: Some(pane),
+                tab: Some(target),
+            },
+            registry,
+            state,
+            &notifications,
+        )?;
+        anyhow::ensure!(
+            plan.terminals.iter().any(|(candidate, _)| candidate == terminal_id),
+            "exited terminal detach lost its durable host identity"
+        );
+        let mut projection =
+            self.resource_effect_projection_locked(registry, &mut plan.state, json!({}))?;
+        let mut detached_tab = false;
+        let mut preserved_terminal = false;
+        projection.patch.changes.retain_mut(|change| match change {
+            ResourceChange::TombstoneTab { tab_id: candidate, close_content }
+                if candidate == &tab_id =>
+            {
+                *close_content = false;
+                detached_tab = true;
+                true
+            }
+            ResourceChange::TombstoneTerminal { public_id, .. }
+                if public_id == terminal_public_id =>
+            {
+                preserved_terminal = true;
+                false
+            }
+            _ => true,
+        });
+        anyhow::ensure!(detached_tab, "exited terminal projection did not close its tab");
+        anyhow::ensure!(
+            preserved_terminal,
+            "exited terminal projection did not preserve its terminal resource"
+        );
+        Ok(Some(TerminalExitDetachProjection {
+            state: plan.state,
+            removed: plan.removed,
+            patch: projection.patch,
+            result: projection.result,
+            changes: projection.changes,
+            target,
+            tab_id,
+            delta: plan.delta,
+            changed_screens: plan.changed_screens,
+            selection_resync: plan.selection_resync,
+        }))
+    }
+
+    pub(super) fn finish_terminal_exit_detach(&self, effects: TerminalExitDetachEffects) {
+        // Restored terminal slots can exist in the resource indexes before a
+        // runtime Surface is materialized. Purge metadata by the detached slot
+        // even when there is no Arc in `removed` to carry that identity.
+        self.purge_surface_side_tables(effects.target);
+        for surface in effects.removed {
+            surface.kill();
+        }
+        self.emit_tree_delta(effects.delta, effects.selection_resync);
+        for screen in effects.changed_screens {
+            self.emit(MuxEvent::LayoutChanged(screen));
+        }
+        self.emit_empty_if_current(effects.empty_revision);
+    }
+
     /// Remove an Exited terminal's durable tab binding without tombstoning
     /// the terminal resource or its exact exit outcome. The resource patch
     /// commits before the projected live state becomes authoritative, so a
@@ -2096,65 +2236,22 @@ impl Mux {
                 continue;
             }
 
-            let pane = state.pane_of(target).context("exited terminal tab has no pane")?;
-            let (workspace_index, screen_index) =
-                state.screen_of(pane).context("exited terminal pane has no screen")?;
-            let screen = state.workspaces[workspace_index].screens[screen_index].id;
-            let tab_id = state
-                .resource_indexes
-                .tab_ids
-                .get(&target)
-                .cloned()
-                .context("exited terminal has no durable tab identity")?;
-            let notifications = self.surface_notifications();
-            let mut plan = self.resource_close_plan_locked(
-                ResourceOperation::TabClose,
-                EffectSlots {
-                    workspace: Some(workspace),
-                    screen: Some(screen),
-                    pane: Some(pane),
-                    tab: Some(target),
-                },
+            let Some(projection) = self.terminal_exit_detach_projection_locked(
                 &registry,
                 &state,
-                &notifications,
-            )?;
-            anyhow::ensure!(
-                plan.terminals.iter().any(|(candidate, _)| candidate == terminal_id),
-                "exited terminal detach lost its durable host identity"
-            );
-            let mut projection =
-                self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-            let mut detached_tab = false;
-            let mut preserved_terminal = false;
-            projection.patch.changes.retain_mut(|change| match change {
-                ResourceChange::TombstoneTab { tab_id: candidate, close_content }
-                    if candidate == &tab_id =>
-                {
-                    *close_content = false;
-                    detached_tab = true;
-                    true
-                }
-                ResourceChange::TombstoneTerminal { public_id, .. }
-                    if public_id == &terminal_public_id =>
-                {
-                    preserved_terminal = true;
-                    false
-                }
-                _ => true,
-            });
-            anyhow::ensure!(detached_tab, "exited terminal projection did not close its tab");
-            anyhow::ensure!(
-                preserved_terminal,
-                "exited terminal projection did not preserve its terminal resource"
-            );
+                terminal_id,
+                &terminal_public_id,
+            )?
+            else {
+                return Ok(None);
+            };
 
             let mutation = WorkspaceMutation::local("cmux-tui-runtime");
             let fingerprint = json!({
                 "operation":"terminal.exit.detach",
                 "terminal_id":terminal_id,
                 "terminal":terminal_public_id,
-                "tab":tab_id,
+                "tab":projection.tab_id,
             });
             let expected_revision = state.resource_revision;
             let commit = registry.commit_resource_patch(
@@ -2167,28 +2264,14 @@ impl Mux {
                 &projection.result,
                 &projection.changes,
             )?;
-            plan.state.resource_revision = commit.revision;
-            let empty_revision =
-                plan.state.workspaces.is_empty().then_some(plan.state.workspace_revision);
-            let removed = plan.removed;
-            let delta = plan.delta;
-            let selection_resync = plan.selection_resync;
-            let changed_screens = plan.changed_screens;
-            *state = plan.state;
+            let target = projection.target;
+            let effects = projection.install(&mut state, commit.revision);
             drop(state);
             drop(registry);
             drop(workspace_lifecycle);
 
             self.publish_resource_event();
-            for surface in removed {
-                self.purge_surface_side_tables(surface.id);
-                surface.kill();
-            }
-            self.emit_tree_delta(delta, selection_resync);
-            for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
-            }
-            self.emit_empty_if_current(empty_revision);
+            self.finish_terminal_exit_detach(effects);
             return Ok(Some(target));
         }
     }

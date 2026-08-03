@@ -1764,7 +1764,6 @@ mod tests {
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
         let incarnation = internal.incarnation.as_deref().unwrap_or_default();
-
         let pending = dispatch(
             &mux,
             parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
@@ -1808,27 +1807,29 @@ mod tests {
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let changes = events.batches[0].changes.as_array().unwrap();
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0]["kind"], "upsert");
-        assert_eq!(changes[0]["sequence"], 0);
-        assert_eq!(changes[0]["resource"], "terminal");
-        assert_eq!(changes[0]["id"], public_id.as_str());
-        assert_eq!(changes[0]["value"]["lifecycle"], "exited");
-        assert_eq!(changes[0]["value"]["exit"]["outcome"], exited["outcome"]);
-        let public_json = serde_json::to_string(&changes[0]).unwrap();
+        let exit_upsert = changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("exit batch omitted the terminal upsert");
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
+        assert!(changes.iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+                && change["kind"] == "delete"
+        }));
+        let public_json = serde_json::to_string(exit_upsert).unwrap();
         assert!(!public_json.contains("\"incarnation\""));
         assert!(!public_json.contains(internal_id));
         assert!(incarnation.is_empty() || !public_json.contains(incarnation));
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let terminal = snapshot["terminals"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|terminal| terminal["id"] == public_id.as_str())
-            .unwrap();
-        assert_eq!(terminal["lifecycle"], "exited");
-        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(snapshot["terminals"], json!([]));
         surface.kill();
     }
 
@@ -1837,9 +1838,6 @@ mod tests {
     fn terminal_wait_exit_resolves_detached_id_after_exit_upsert_then_delete() {
         let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
-        let durable = mux.terminal_registry_snapshot().unwrap();
-        let internal_id =
-            durable.terminals.first().expect("fixture has one terminal").terminal_id.clone();
         let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
             .as_str()
             .unwrap()
@@ -1853,10 +1851,6 @@ mod tests {
             exited_at_ms: 3_456_789,
         };
         assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
-        assert!(
-            mux.detach_exited_terminal_topology_for_test(&internal_id).unwrap().is_some(),
-            "exited terminal retained its topology binding"
-        );
 
         let exited = dispatch(
             &mux,
@@ -1873,7 +1867,7 @@ mod tests {
         let snapshot = public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["terminals"], json!([]));
         let events = mux.resource_events_after(before).unwrap();
-        assert_eq!(events.batches.len(), 2);
+        assert_eq!(events.batches.len(), 1);
         let exit_changes = events.batches[0].changes.as_array().unwrap();
         let exit_upsert = exit_changes
             .iter()
@@ -1885,8 +1879,8 @@ mod tests {
             .expect("exit batch omitted the terminal upsert");
         assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
         assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
-        let detach_changes = events.batches[1].changes.as_array().unwrap();
-        assert!(detach_changes.iter().any(|change| {
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert!(exit_changes.iter().any(|change| {
             change["resource"] == "terminal"
                 && change["id"] == public_id.as_str()
                 && change["kind"] == "delete"

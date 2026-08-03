@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 #[cfg(test)]
@@ -43,6 +43,20 @@ pub struct RegistryAgentProjection {
     pub source: String,
     pub updated_at_ms: u64,
     pub source_session: Option<String>,
+}
+
+impl RegistryAgentProjection {
+    pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
+        json!({
+            "id": self.id,
+            "session_id": session_id,
+            "terminal_id": self.terminal_id,
+            "state": self.state,
+            "source": self.source,
+            "updated_at_ms": self.updated_at_ms.to_string(),
+            "source_session": self.source_session,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +193,11 @@ impl WorkspaceRegistry {
             terminal_defaults,
             frontend_projections,
         })
+    }
+
+    pub(crate) fn public_agent_projections(&self) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let live_terminals = self.live_terminal_public_ids()?;
+        self.durable_agents(&live_terminals)
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
