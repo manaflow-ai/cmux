@@ -47,6 +47,11 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Running task list per workstream, accumulated from the agent's
+    /// per-task tool calls (`TaskCreate` / `TaskUpdate`), which report one
+    /// task at a time rather than the whole list.
+    private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
@@ -308,7 +313,19 @@ public final class WorkstreamStore {
                 )
             )
         case .preToolUse:
-            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
+            let toolName = event.toolName ?? ""
+            // Claude's task tools (and the legacy whole-list TodoWrite) reach
+            // us as ordinary PreToolUse calls; fold them into the workstream's
+            // running checklist instead of anonymous tool telemetry.
+            if WorkstreamTaskToolTodos.handles(toolName: toolName) {
+                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
+                let todos = accumulator.apply(toolName: toolName, toolInputJSON: event.toolInputJSON)
+                taskToolTodosByWorkstream[event.sessionId] = accumulator
+                if let todos {
+                    return (.todos, .todos(todos))
+                }
+            }
+            return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
         case .postToolUse:
             return (
                 .toolResult,
@@ -341,7 +358,9 @@ public final class WorkstreamStore {
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
+            let todos = WorkstreamTaskToolTodos.parseTodoWriteList(event.toolInputJSON)
+            taskToolTodosByWorkstream[event.sessionId] = nil
+            return (.todos, .todos(todos))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
         }
@@ -488,39 +507,5 @@ public final class WorkstreamStore {
                 ?? (dict["cause"] as? String)
         }
         return nil
-    }
-
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
     }
 }

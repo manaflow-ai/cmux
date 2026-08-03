@@ -15,6 +15,11 @@ extension WorkstreamEvent {
             // These establish authoritative session phase or needs-input state that cannot be
             // reconstructed from a later high-volume tool telemetry event.
             return .sessionCritical
+        case .preToolUse where toolName.map(WorkstreamTaskToolTodos.handles(toolName:)) == true:
+            // Task-tool calls are deltas: a dropped TaskCreate leaves the
+            // accumulated checklist permanently wrong, so it cannot be
+            // reconstructed from later traffic.
+            return .sessionCritical
         case .preToolUse, .postToolUse, .todoWrite,
              .subagentStart, .subagentStop, .preCompact, .postCompact:
             // Tool traffic is best-effort; prompt submission establishes working

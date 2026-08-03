@@ -120,6 +120,9 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        if let item = store.items.last {
+            applyAgentTodos(from: item, event: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -717,7 +720,7 @@ extension FeedCoordinator {
     /// session store when the event omits a parseable id. The surface comes
     /// from the session store only when its workspace matches the resolved
     /// workspace, so a stale entry can't point the panel elsewhere.
-    private static func resolveAttentionTarget(
+    static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
         let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
