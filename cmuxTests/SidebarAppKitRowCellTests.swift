@@ -280,7 +280,19 @@ struct SidebarAppKitRowCellTests {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         let bounds = view.bounds.integral
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: bounds))
+        let renderingScale: CGFloat = 4
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(bounds.width * renderingScale)),
+            pixelsHigh: max(1, Int(bounds.height * renderingScale)),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
         bitmap.size = bounds.size
         view.cacheDisplay(in: bounds, to: bitmap)
 
