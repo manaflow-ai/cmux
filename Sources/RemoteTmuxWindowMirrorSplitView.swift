@@ -1,193 +1,301 @@
+import AppKit
 import Bonsplit
-import SwiftUI
+import Observation
 
 @MainActor
-struct RemoteTmuxWindowMirrorSplitView: View {
+final class RemoteTmuxMirrorPresentationContext {
     let mirror: RemoteTmuxWindowMirror
-    let appearance: PanelAppearance
-    let isOuterFocused: Bool
-    let isVisibleInUI: Bool
-    let portalPriority: Int
-    let onOuterFocus: () -> Void
-    var unreadSurfaceIDs: Set<UUID> = []
-    @Environment(\.displayScale) private var displayScale
-    @State private var containerSize: CGSize = .zero
+    var appearance: PanelAppearance
+    var isOuterFocused: Bool
+    var isVisibleInUI: Bool
+    var portalPriority: Int
+    var onOuterFocus: () -> Void
+    var unreadSurfaceIDs: Set<UUID>
 
-    var body: some View {
-        // The base color is the region, and it answers every proposal with
-        // the proposal; the split tree renders in the overlay at its exact
-        // grid-plus-chrome size. The two are separated because they disagree
-        // under churn: the tree's frame is derived from the BANKED container
-        // while the proposal comes from the live window, so a window shrink
-        // leaves the tree momentarily wider than the region. In an overlay
-        // the excess overflows in place. Sizing the tree inline let it leak —
-        // a flexible frame with no minWidth reports its CHILD's width when
-        // the child exceeds the proposal — so the imposed width became this
-        // view's reported size, every space-filling ancestor up to the main
-        // window's root content inherited it (observed live: the content
-        // view marching wider than the display-pinned window a step per
-        // layout pass), and the geometry callback below then read the
-        // mirror's own imposed width back as its "container".
-        Color(nsColor: appearance.backgroundColor)
-            .overlay(alignment: .topLeading) {
-                splitTree
-            }
-            .background(MirrorHostProbe(mirror: mirror))
-            .onGeometryChange(for: CGSize.self) { proxy in
-                proxy.size
-            } action: { newSize in
-                containerSize = newSize
-                pushClientSize(pointSize: newSize)
-            }
-            .onAppear {
-                mirror.isVisibleForSizing = isVisibleInUI
-                if !isVisibleInUI {
-                    mirror.cancelPendingControlPaneFocus()
-                    mirror.cancelPendingCreatedPaneFocus()
-                }
-                // The workspace keeps every tab's content alive and hides
-                // deselected tabs at SwiftUI opacity 0, which never reaches
-                // the AppKit split tree this mirror renders: the hidden
-                // trees kept painting dividers over the visible panes,
-                // registering resize-cursor rects, and stacking alpha-0
-                // drop zones that rejected pane drops. isInteractive is
-                // bonsplit's AppKit-level switch (it sets isHidden on the
-                // split tree), so it follows the same visibility edge.
-                mirror.bonsplitController.isInteractive = isVisibleInUI
-                if isVisibleInUI { becameVisible() }
-            }
-            .onChange(of: isVisibleInUI) { _, visible in
-                mirror.isVisibleForSizing = visible
-                if !visible {
-                    mirror.cancelPendingControlPaneFocus()
-                    mirror.cancelPendingCreatedPaneFocus()
-                }
-                mirror.bonsplitController.isInteractive = visible
-                if visible { becameVisible() }
-            }
-            .onChange(of: mirror.layoutStructureVersion) { _, _ in
-                pushClientSize(pointSize: containerSize)
-            }
-    }
-
-    private var splitTree: some View {
-        BonsplitView(controller: mirror.bonsplitController) { tab, paneId in
-            if let tmuxPaneId = mirror.tmuxPaneId(forTab: tab.id),
-               let panel = mirror.panel(forPane: tmuxPaneId) {
-                TerminalPanelView(
-                    panel: panel,
-                    paneId: paneId,
-                    isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
-                    isVisibleInUI: isVisibleInUI,
-                    portalPaneOwnershipResolver: {
-                        mirror.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                    },
-                    portalPriority: portalPriority,
-                    isSplit: true,
-                    appearance: appearance,
-                    hasUnreadNotification: unreadSurfaceIDs.contains(panel.id),
-                    terminalAgentContext: "",
-                    onFocus: {
-                        onOuterFocus()
-                        mirror.setActivePane(tmuxPaneId, fromTmux: false)
-                    },
-                    onResumeAgentHibernation: {},
-                    onAutoResumeAgentHibernation: {},
-                    onTriggerFlash: {}
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onTapGesture {
-                    onOuterFocus()
-                    mirror.bonsplitController.focusPane(paneId)
-                }
-            } else {
-                Color(nsColor: appearance.backgroundColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } emptyPane: { _ in
-            Color(nsColor: appearance.backgroundColor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .internalOnlyTabDrag()
-        // The tree renders at its exact grid-plus-chrome size; the region's
-        // sub-cell remainder stays outside it as trailing margin (painted by
-        // the base color), so no pane inherits a fraction of a cell along a
-        // split axis and rounds onto an extra row or column. nil (before the
-        // first sized pass) falls back to filling the region — the overlay
-        // proposes the base's size.
-        .frame(
-            width: mirror.renderFrameSize?.width,
-            height: mirror.renderFrameSize?.height,
-            alignment: .topLeading
-        )
-    }
-
-    private func pushClientSize(pointSize: CGSize) {
-        mirror.isVisibleForSizing = isVisibleInUI
-        guard pointSize.width > 0, pointSize.height > 0 else { return }
-        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-    }
-
-    /// A tab shown again may have had its views recreated while hidden, so
-    /// identical sizing inputs do not mean the fresh views hold the plan —
-    /// request the pass that ignores the settled check.
-    private func becameVisible() {
-        pushClientSize(pointSize: containerSize)
-        mirror.setNeedsSizingPassIgnoringInputs()
+    init(
+        mirror: RemoteTmuxWindowMirror,
+        appearance: PanelAppearance,
+        isOuterFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onOuterFocus: @escaping () -> Void,
+        unreadSurfaceIDs: Set<UUID>
+    ) {
+        self.mirror = mirror
+        self.appearance = appearance
+        self.isOuterFocused = isOuterFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onOuterFocus = onOuterFocus
+        self.unreadSurfaceIDs = unreadSurfaceIDs
     }
 }
 
-/// The zero-cost NSView ``MirrorHostProbe`` plants inside the mirror's own
-/// view subtree so the mirror has a window handle that survives portal
-/// churn, and an ancestor chain rooted at the mirror's real position for
-/// geometry diagnostics.
-final class MirrorHostProbeView: NSView {
-    weak var mirror: RemoteTmuxWindowMirror?
+@MainActor
+final class RemoteTmuxWindowMirrorSplitViewController: NSViewController {
+    private struct MirrorLayoutSnapshot {
+        let structureVersion: Int
+        let renderFrameSize: CGSize?
+    }
 
-    /// The probe backs the whole mirror region, including the sub-cell
-    /// margin outside the split tree; it must never swallow a click there.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    private let context: RemoteTmuxMirrorPresentationContext
+    private let containerView = RemoteTmuxMirrorContainerView()
+    private let bonsplitViewController: BonsplitViewController
+    private var observationGeneration: UInt = 0
+    private var lastStructureVersion: Int?
 
-    override func viewDidEndLiveResize() {
-        super.viewDidEndLiveResize()
-        // A window live-resize whose final geometry arrived BEFORE mouse-up
-        // leaves a parked oversized reading with no edge to consume it —
-        // onGeometryChange fires only on value change, and the parked-reading
-        // consumer holds while inLiveResize is true. By the time this
-        // coalesced pass runs, inLiveResize is false so the consume proceeds.
-        // setNeedsSizingPass (not IgnoringInputs): the consume sits above the
-        // inputs == lastCompletedSizingInputs check.
-        mirror?.setNeedsSizingPass()
+    init(
+        mirror: RemoteTmuxWindowMirror,
+        appearance: PanelAppearance,
+        isOuterFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onOuterFocus: @escaping () -> Void,
+        unreadSurfaceIDs: Set<UUID>
+    ) {
+        let context = RemoteTmuxMirrorPresentationContext(
+            mirror: mirror,
+            appearance: appearance,
+            isOuterFocused: isOuterFocused,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            onOuterFocus: onOuterFocus,
+            unreadSurfaceIDs: unreadSurfaceIDs
+        )
+        self.context = context
+        self.bonsplitViewController = BonsplitViewController(
+            controller: mirror.bonsplitController,
+            content: { tab, paneID in
+                RemoteTmuxTerminalHostingController(context: context, tab: tab, paneID: paneID)
+            },
+            emptyPane: { _ in
+                RemoteTmuxEmptyPaneViewController()
+            }
+        )
+        super.init(nibName: nil, bundle: nil)
+        applyVisibility(isVisibleInUI)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        addChild(bonsplitViewController)
+        containerView.install(splitView: bonsplitViewController.view)
+        containerView.mirror = context.mirror
+        containerView.onContainerSizeChange = { [weak self] size, scale in
+            self?.pushClientSize(pointSize: size, scale: scale)
+        }
+        view = containerView
+        updateAppearanceAndFrame()
+        observeLayout()
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        applyVisibility(false)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        applyVisibility(context.isVisibleInUI)
+    }
+
+    func update(
+        appearance: PanelAppearance,
+        isOuterFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onOuterFocus: @escaping () -> Void,
+        unreadSurfaceIDs: Set<UUID>
+    ) {
+        context.appearance = appearance
+        context.isOuterFocused = isOuterFocused
+        context.isVisibleInUI = isVisibleInUI
+        context.portalPriority = portalPriority
+        context.onOuterFocus = onOuterFocus
+        context.unreadSurfaceIDs = unreadSurfaceIDs
+        applyVisibility(isVisibleInUI)
+        updateAppearanceAndFrame()
+        bonsplitViewController.refreshContent()
+        observeLayout()
+    }
+
+    func teardown() {
+        observationGeneration &+= 1
+        applyVisibility(false)
+        containerView.onContainerSizeChange = nil
+        if context.mirror.hostProbeView === containerView.probeView {
+            context.mirror.hostProbeView = nil
+        }
+    }
+
+    private func observeLayout() {
+        observationGeneration &+= 1
+        let generation = observationGeneration
+        let snapshot = withObservationTracking {
+            MirrorLayoutSnapshot(
+                structureVersion: context.mirror.layoutStructureVersion,
+                renderFrameSize: context.mirror.renderFrameSize
+            )
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.observationGeneration == generation else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self.observeLayout()
+            }
+        }
+
+        containerView.renderFrameSize = snapshot.renderFrameSize
+        if lastStructureVersion != snapshot.structureVersion {
+            lastStructureVersion = snapshot.structureVersion
+            let scale = containerView.window?.backingScaleFactor
+                ?? containerView.window?.screen?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1
+            pushClientSize(pointSize: containerView.bounds.size, scale: scale)
+        }
+    }
+
+    private func updateAppearanceAndFrame() {
+        guard isViewLoaded else { return }
+        containerView.backgroundColor = context.appearance.backgroundColor
+        containerView.renderFrameSize = context.mirror.renderFrameSize
+    }
+
+    private func applyVisibility(_ visible: Bool) {
+        context.mirror.isVisibleForSizing = visible
+        context.mirror.bonsplitController.isInteractive = visible
+        if visible {
+            becameVisible()
+        } else {
+            context.mirror.cancelPendingControlPaneFocus()
+            context.mirror.cancelPendingCreatedPaneFocus()
+        }
+    }
+
+    private func pushClientSize(pointSize: CGSize, scale: CGFloat) {
+        context.mirror.isVisibleForSizing = context.isVisibleInUI
+        guard pointSize.width > 0, pointSize.height > 0 else { return }
+        context.mirror.noteContainerSize(pointSize: pointSize, scale: scale)
+    }
+
+    private func becameVisible() {
+        guard isViewLoaded else {
+            context.mirror.setNeedsSizingPassIgnoringInputs()
+            return
+        }
+        let scale = containerView.window?.backingScaleFactor
+            ?? containerView.window?.screen?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 1
+        pushClientSize(pointSize: containerView.bounds.size, scale: scale)
+        context.mirror.setNeedsSizingPassIgnoringInputs()
+    }
+}
+
+@MainActor
+final class RemoteTmuxMirrorContainerView: NSView {
+    let probeView = MirrorHostProbeView()
+    weak var mirror: RemoteTmuxWindowMirror? {
+        didSet {
+            probeView.mirror = mirror
+            if window != nil { mirror?.hostProbeView = probeView }
+        }
+    }
+    var backgroundColor: NSColor = .windowBackgroundColor {
+        didSet { layer?.backgroundColor = backgroundColor.cgColor }
+    }
+    var renderFrameSize: CGSize? {
+        didSet { needsLayout = true }
+    }
+    var onContainerSizeChange: ((CGSize, CGFloat) -> Void)?
+    private weak var splitView: NSView?
+    private var lastPublishedSize = CGSize.zero
+    private var lastPublishedScale: CGFloat = 0
+
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        probeView.frame = bounds
+        probeView.autoresizingMask = [.width, .height]
+        addSubview(probeView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func install(splitView: NSView) {
+        guard self.splitView !== splitView else { return }
+        self.splitView?.removeFromSuperview()
+        self.splitView = splitView
+        addSubview(splitView, positioned: .above, relativeTo: probeView)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        probeView.frame = bounds
+        splitView?.frame = NSRect(origin: .zero, size: renderFrameSize ?? bounds.size)
+        publishContainerSizeIfChanged()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
-            // A tab re-show can recreate the probe, and AppKit delivers the
-            // DYING probe's move-to-nil-window after the replacement already
-            // registered — claiming here would shadow the live probe's
-            // window handle with a windowless view until the next SwiftUI
-            // update. Only the currently registered probe may clear the
-            // slot; a stale probe changes nothing.
-            if mirror?.hostProbeView === self { mirror?.hostProbeView = nil }
-            return
+        if window != nil {
+            mirror?.hostProbeView = probeView
+            publishContainerSizeIfChanged()
+        } else if mirror?.hostProbeView === probeView {
+            mirror?.hostProbeView = nil
         }
-        mirror?.hostProbeView = self
+    }
+
+    private func publishContainerSizeIfChanged() {
+        let scale = window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? 1
+        guard bounds.size != lastPublishedSize || scale != lastPublishedScale else { return }
+        lastPublishedSize = bounds.size
+        lastPublishedScale = scale
+        onContainerSizeChange?(bounds.size, scale)
     }
 }
 
-private struct MirrorHostProbe: NSViewRepresentable {
-    let mirror: RemoteTmuxWindowMirror
+/// A transparent view rooted at the mirror's real position. It supplies a
+/// stable window handle for sizing diagnostics without intercepting input.
+@MainActor
+final class MirrorHostProbeView: NSView {
+    weak var mirror: RemoteTmuxWindowMirror?
 
-    func makeNSView(context: Context) -> MirrorHostProbeView {
-        let view = MirrorHostProbeView()
-        view.mirror = mirror
-        mirror.hostProbeView = view
-        return view
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        mirror?.setNeedsSizingPass()
+    }
+}
+
+@MainActor
+private final class RemoteTmuxEmptyPaneViewController: NSViewController {
+    init() {
+        super.init(nibName: nil, bundle: nil)
     }
 
-    func updateNSView(_ nsView: MirrorHostProbeView, context: Context) {
-        nsView.mirror = mirror
-        mirror.hostProbeView = nsView
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        self.view = view
     }
 }

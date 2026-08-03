@@ -224,6 +224,49 @@ struct DockPanelView: NSViewControllerRepresentable {
     }
 }
 
+struct RemoteTmuxWindowMirrorSplitView: NSViewControllerRepresentable {
+    let mirror: RemoteTmuxWindowMirror
+    let appearance: PanelAppearance
+    let isOuterFocused: Bool
+    let isVisibleInUI: Bool
+    let portalPriority: Int
+    let onOuterFocus: () -> Void
+    var unreadSurfaceIDs: Set<UUID> = []
+
+    func makeNSViewController(context: Context) -> RemoteTmuxWindowMirrorSplitViewController {
+        RemoteTmuxWindowMirrorSplitViewController(
+            mirror: mirror,
+            appearance: appearance,
+            isOuterFocused: isOuterFocused,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            onOuterFocus: onOuterFocus,
+            unreadSurfaceIDs: unreadSurfaceIDs
+        )
+    }
+
+    func updateNSViewController(
+        _ controller: RemoteTmuxWindowMirrorSplitViewController,
+        context: Context
+    ) {
+        controller.update(
+            appearance: appearance,
+            isOuterFocused: isOuterFocused,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            onOuterFocus: onOuterFocus,
+            unreadSurfaceIDs: unreadSurfaceIDs
+        )
+    }
+
+    static func dismantleNSViewController(
+        _ controller: RemoteTmuxWindowMirrorSplitViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+}
+
 struct ShortcutDiscoveryButton: NSViewRepresentable {
     @Binding var isPopoverPresented: Bool
 
@@ -1213,6 +1256,80 @@ final class DockSplitPanelContentHostingController: NSHostingController<AnyView>
             .environment(\.paneDropZone, dropZone)
             .onTapGesture {
                 context.store.bonsplitController.focusPane(paneID)
+            }
+        )
+    }
+}
+
+@MainActor
+final class RemoteTmuxTerminalHostingController: NSHostingController<AnyView>,
+    BonsplitContentUpdating,
+    BonsplitPaneDropZoneReceiving
+{
+    private let context: RemoteTmuxMirrorPresentationContext
+    private var tab: Bonsplit.Tab
+    private var paneID: PaneID
+    private var dropZone: DropZone?
+
+    init(context: RemoteTmuxMirrorPresentationContext, tab: Bonsplit.Tab, paneID: PaneID) {
+        self.context = context
+        self.tab = tab
+        self.paneID = paneID
+        super.init(rootView: AnyView(EmptyView()))
+        sizingOptions = []
+        render()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateBonsplitContent(tab: Bonsplit.Tab, pane: PaneID) {
+        self.tab = tab
+        self.paneID = pane
+        render()
+    }
+
+    func bonsplitPaneDropZoneDidChange(_ zone: DropZone?) {
+        dropZone = zone
+        render()
+    }
+
+    private func render() {
+        guard let tmuxPaneID = context.mirror.tmuxPaneId(forTab: tab.id),
+              let panel = context.mirror.panel(forPane: tmuxPaneID)
+        else {
+            rootView = AnyView(Color(nsColor: context.appearance.backgroundColor))
+            return
+        }
+        rootView = AnyView(
+            TerminalPanelView(
+                panel: panel,
+                paneId: paneID,
+                isFocused: context.isOuterFocused && context.mirror.isFocused(tabId: tab.id),
+                isVisibleInUI: context.isVisibleInUI,
+                portalPaneOwnershipResolver: {
+                    context.mirror.bonsplitController.selectedTab(inPane: paneID)?.id == tab.id
+                },
+                portalPriority: context.portalPriority,
+                isSplit: true,
+                appearance: context.appearance,
+                hasUnreadNotification: context.unreadSurfaceIDs.contains(panel.id),
+                terminalAgentContext: "",
+                onFocus: {
+                    context.onOuterFocus()
+                    context.mirror.setActivePane(tmuxPaneID, fromTmux: false)
+                },
+                onResumeAgentHibernation: {},
+                onAutoResumeAgentHibernation: {},
+                onTriggerFlash: {}
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environment(\.paneDropZone, dropZone)
+            .onTapGesture {
+                context.onOuterFocus()
+                context.mirror.bonsplitController.focusPane(paneID)
             }
         )
     }
