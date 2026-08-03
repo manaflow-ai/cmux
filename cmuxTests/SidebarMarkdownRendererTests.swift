@@ -8,6 +8,20 @@ import XCTest
 #endif
 
 final class SidebarMarkdownRendererTests: XCTestCase {
+    func testRenderInlineMarkdownForSidebarLabels() throws {
+        let rendered = try XCTUnwrap(
+            SidebarMarkdownRenderer(markdown: "**Bold** and _italic_").inline
+        )
+
+        XCTAssertEqual(String(rendered.characters), "Bold and italic")
+        XCTAssertTrue(rendered.runs.contains {
+            $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true
+        })
+        XCTAssertTrue(rendered.runs.contains {
+            $0.inlinePresentationIntent?.contains(.emphasized) == true
+        })
+    }
+
     func testRenderWorkspaceDescriptionPreservesLineBreaks() throws {
         let rendered = try XCTUnwrap(
             SidebarMarkdownRenderer(markdown: "First line\nSecond line").workspaceDescription

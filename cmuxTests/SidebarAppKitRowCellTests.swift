@@ -10,6 +10,8 @@ import Testing
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
+        customDescription: String? = nil,
+        isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -18,8 +20,8 @@ struct SidebarAppKitRowCellTests {
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
-            isPinned: false,
+            customDescription: customDescription,
+            isPinned: isPinned,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
@@ -53,8 +55,12 @@ struct SidebarAppKitRowCellTests {
 
     private static func makeModel(
         workspaceId: UUID = UUID(),
+        title: String = "Workspace",
+        customDescription: String? = nil,
+        isPinned: Bool = false,
         isActive: Bool = false,
         canClose: Bool = true,
+        unreadCount: Int = 0,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         shortcutHintText: String? = nil
@@ -64,13 +70,18 @@ struct SidebarAppKitRowCellTests {
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                title: title,
+                customDescription: customDescription,
+                isPinned: isPinned,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -224,8 +235,58 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
+    private static func makeGroupModel(
+        name: String = "Group",
+        isPinned: Bool = false,
+        unreadCount: Int = 0
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: name,
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: isPinned,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: unreadCount,
+            canMarkRead: unreadCount > 0,
+            canMarkUnread: unreadCount == 0,
+            hasLatestNotifications: unreadCount > 0,
+            canMarkAllRead: unreadCount > 0,
+            canMarkAllUnread: unreadCount == 0,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 1,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        )
+    }
+
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func fontTraits(in field: NSTextField) -> [NSFontTraitMask] {
+        let attributed = field.attributedStringValue
+        var traits: [NSFontTraitMask] = []
+        attributed.enumerateAttribute(
+            .font,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, _, _ in
+            guard let font = value as? NSFont else { return }
+            traits.append(NSFontManager.shared.traits(of: font))
+        }
+        return traits
     }
 
     private static let linkedMetadataMarkdown =
@@ -287,6 +348,108 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    @Test
+    func workspaceTitleRendersMarkdownWithRegularBaseWeight() throws {
+        let cell = Self.configuredCell(model: Self.makeModel(title: "**Build** and _status_"))
+        let title = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == "SidebarWorkspaceTitle" }
+        )
+
+        #expect(title.stringValue == "Build and status")
+        let traits = Self.fontTraits(in: title)
+        #expect(traits.contains { $0.contains(.boldFontMask) })
+        #expect(traits.contains { $0.contains(.italicFontMask) })
+        #expect(traits.contains { !$0.contains(.boldFontMask) && !$0.contains(.italicFontMask) })
+    }
+
+    @Test
+    func workspaceDescriptionPreservesMarkdownFontTraits() throws {
+        let cell = Self.configuredCell(
+            model: Self.makeModel(customDescription: "**Important** and _optional_")
+        )
+        let description = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == "Important and optional" }
+        )
+
+        let traits = Self.fontTraits(in: description)
+        #expect(traits.contains { $0.contains(.boldFontMask) })
+        #expect(traits.contains { $0.contains(.italicFontMask) })
+    }
+
+    @Test
+    func unreadBadgeExpandsForLargeCountsAndKeepsFullAccessibleCount() throws {
+        let cell = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 125)
+        )
+        cell.frame = NSRect(x: 0, y: 0, width: 320, height: 60)
+        cell.layoutSubtreeIfNeeded()
+        let badge = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(badge.frame.width > badge.frame.height)
+        #expect(badge.accessibilityLabel() == "125 unread")
+    }
+
+    @Test
+    func groupHeaderUsesMarkdownRegularWorkspaceSizedTextWithoutFolderIcon() throws {
+        let cell = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        cell.configurePresentation(model: Self.makeGroupModel(name: "**Backend** _work_"))
+        cell.layoutSubtreeIfNeeded()
+
+        let name = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == "SidebarWorkspaceGroupName" }
+        )
+        #expect(name.stringValue == "Backend work")
+        #expect(name.font?.pointSize == 12.5)
+        let traits = Self.fontTraits(in: name)
+        #expect(traits.contains { $0.contains(.boldFontMask) })
+        #expect(traits.contains { $0.contains(.italicFontMask) })
+        #expect(traits.contains { !$0.contains(.boldFontMask) && !$0.contains(.italicFontMask) })
+
+        let visibleImages = Self.descendants(of: cell)
+            .compactMap { $0 as? NSImageView }
+            .filter { !$0.isHidden && $0.image != nil }
+        #expect(visibleImages.isEmpty)
+    }
+
+    @Test
+    func groupPinAlignsWithWorkspacePin() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(isPinned: true, canClose: false)
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspacePin = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip?.contains("Pinned workspace") == true }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(isPinned: true))
+        group.layoutSubtreeIfNeeded()
+        let groupPin = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip == "Pinned group" }
+        )
+
+        #expect(groupPin.frame.minX == workspacePin.frame.minX)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))

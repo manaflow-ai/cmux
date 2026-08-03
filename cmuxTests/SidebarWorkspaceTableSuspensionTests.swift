@@ -9,6 +9,14 @@ import Testing
 @MainActor
 struct SidebarWorkspaceTableSuspensionTests {
     @Test
+    func workspaceTableUsesCompactDefaultRowSpacing() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+
+        #expect(container.tableView.intercellSpacing.height == 1)
+    }
+
+    @Test
     func rowHeightCacheMeasuresAgainAfterPayloadSuspension() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()

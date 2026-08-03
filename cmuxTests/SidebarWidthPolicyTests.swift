@@ -139,6 +139,54 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreAppliesWorkspaceSpacingSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = SidebarCatalogSection().workspaceSpacing.userDefaultsKey
+        let preserved = [
+            key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in preserved {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        for (key, _) in preserved {
+            defaults.removeObject(forKey: key)
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sidebar-workspace-spacing-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "workspaceSpacing": 6
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: key) as? Int, 6)
+    }
+
     func testSettingsFileStoreAppliesRightSidebarMaxWidthSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = RightSidebarWidthSettings.maxWidthKey
