@@ -23,6 +23,9 @@ describe("legacy Subrouter migration operator", () => {
       migrateLegacyTenant: async () => {
         throw new Error("unexpected migration");
       },
+      markHostedReady: async () => {
+        throw new Error("unexpected readiness mutation");
+      },
       log: () => {},
     })).rejects.toThrow("--finalize-source requires --apply");
   });
@@ -31,6 +34,7 @@ describe("legacy Subrouter migration operator", () => {
     let sessionsOpened = 0;
     let exchanges = 0;
     let migrations = 0;
+    let readinessMutations = 0;
     const logged: unknown[] = [];
 
     await expect(runLegacyTenantMigration({
@@ -50,12 +54,16 @@ describe("legacy Subrouter migration operator", () => {
         migrations += 1;
         throw new Error("unexpected migration");
       },
+      markHostedReady: async () => {
+        readinessMutations += 1;
+      },
       log: (value) => logged.push(value),
     })).resolves.toEqual({ planned: 2, migrated: 0, sourceFinalized: false });
 
     expect(sessionsOpened).toBe(0);
     expect(exchanges).toBe(0);
     expect(migrations).toBe(0);
+    expect(readinessMutations).toBe(0);
     expect(logged).toEqual([{
       mode: "dry-run",
       destinationUrl: "https://sr.cmux.com",
@@ -99,6 +107,7 @@ describe("legacy Subrouter migration operator", () => {
       };
     };
     const logged: unknown[] = [];
+    const readyTeamIds: string[] = [];
 
     await expect(runLegacyTenantMigration({
       mappings,
@@ -108,6 +117,9 @@ describe("legacy Subrouter migration operator", () => {
       openStackSession,
       exchangeHostedTenant,
       migrateLegacyTenant,
+      markHostedReady: async (teamId) => {
+        readyTeamIds.push(teamId);
+      },
       log: (value) => logged.push(value),
     })).resolves.toEqual({ planned: 2, migrated: 6, sourceFinalized: true });
 
@@ -122,12 +134,14 @@ describe("legacy Subrouter migration operator", () => {
       finalizeSource: true,
     });
     expect(closedTeamIds).toEqual(["team-a", "team-b"]);
+    expect(readyTeamIds).toEqual(["team-a", "team-b"]);
     expect(JSON.stringify(logged)).not.toContain("srt_");
     expect(JSON.stringify(logged)).not.toContain("access-");
   });
 
   test("closes the current session before stopping after a migration failure", async () => {
     let closeCount = 0;
+    let readinessMutations = 0;
 
     await expect(runLegacyTenantMigration({
       mappings: [mappings[0]!],
@@ -147,9 +161,13 @@ describe("legacy Subrouter migration operator", () => {
       migrateLegacyTenant: async () => {
         throw new Error("source migration failed");
       },
+      markHostedReady: async () => {
+        readinessMutations += 1;
+      },
       log: () => {},
     })).rejects.toThrow("source migration failed");
 
     expect(closeCount).toBe(1);
+    expect(readinessMutations).toBe(0);
   });
 });

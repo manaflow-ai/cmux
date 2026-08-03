@@ -23,12 +23,17 @@ let authJson = {
 const getUser = mock(async () => currentUser);
 const getAuthJson = mock(async () => authJson);
 const signOut = mock(async () => {});
+let hostedCutoverReady = true;
+const hostedSubrouterCutoverReadyForTeam = mock(async () => hostedCutoverReady);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser, getAuthJson }),
   getNonRedirectingStackServerApp: () => ({ getUser, signOut }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
+}));
+mock.module("../services/subrouter/cutover", () => ({
+  hostedSubrouterCutoverReadyForTeam,
 }));
 
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
@@ -54,6 +59,8 @@ let calls: Array<{
   readonly body: unknown;
 }> = [];
 let listedAccounts: unknown[] = [];
+let exchangeStatus = 200;
+let accountListStatus = 200;
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -75,9 +82,13 @@ beforeEach(() => {
   };
   calls = [];
   listedAccounts = [];
+  hostedCutoverReady = true;
+  exchangeStatus = 200;
+  accountListStatus = 200;
   getUser.mockClear();
   getAuthJson.mockClear();
   signOut.mockClear();
+  hostedSubrouterCutoverReadyForTeam.mockClear();
   globalThis.fetch = hostedFetch as typeof fetch;
 });
 
@@ -105,6 +116,21 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(calls).toHaveLength(0);
+  });
+
+  test("fails closed before hosted cutover for an unmigrated legacy team", async () => {
+    hostedCutoverReady = false;
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "subrouter_migration_pending",
+    });
+    expect(calls).toHaveLength(0);
+    expect(getAuthJson).not.toHaveBeenCalled();
   });
 
   test("rejects a team outside the caller's Stack memberships", async () => {
@@ -222,6 +248,32 @@ describe("hosted Subrouter account routes", () => {
     expect(text).not.toContain("must-not-leak");
     expect(text).not.toContain("upstream detail must not leak");
     expect(text).not.toContain(tenantKey);
+  });
+
+  test("maps internal tenant-key authentication failures to an upstream error", async () => {
+    accountListStatus = 401;
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: "upstream_request_failed",
+    });
+  });
+
+  test("preserves caller authentication failures from the Stack exchange", async () => {
+    exchangeStatus = 401;
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "upstream_request_failed",
+    });
   });
 
   test("validates and bounds uploads before forwarding provider secrets", async () => {
@@ -454,6 +506,9 @@ async function hostedFetch(
   calls.push({ url, method, headers, body });
 
   if (url.pathname === "/_subrouter/auth/stack" && method === "POST") {
+    if (exchangeStatus !== 200) {
+      return Response.json({ error: "unauthorized" }, { status: exchangeStatus });
+    }
     return Response.json({
       tenantId: "team-a",
       tenantName: "Team A",
@@ -466,6 +521,12 @@ async function hostedFetch(
     headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "GET"
   ) {
+    if (accountListStatus !== 200) {
+      return Response.json(
+        { error: "tenant credential rejected" },
+        { status: accountListStatus },
+      );
+    }
     return Response.json(listedAccounts);
   }
   if (
