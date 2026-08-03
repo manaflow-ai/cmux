@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxAgentChat
 import Foundation
-import SwiftUI
 import UIKit
 
 extension Data {
@@ -34,7 +33,7 @@ extension UIImage {
             id: id,
             data: jpeg,
             format: .jpeg,
-            thumbnail: Image(uiImage: thumbnailImage)
+            thumbnail: thumbnailImage
         )
     }
 

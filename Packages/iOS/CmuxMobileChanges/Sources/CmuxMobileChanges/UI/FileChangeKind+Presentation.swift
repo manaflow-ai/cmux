@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// The quiet capsule badge a file row shows for exceptional change kinds.
 ///

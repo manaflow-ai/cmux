@@ -428,7 +428,7 @@ public struct ChatComposerView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
-                    attachment.thumbnail
+                    Image(uiImage: attachment.thumbnail)
                         .resizable()
                         .scaledToFill()
                         .frame(width: 60, height: 60)

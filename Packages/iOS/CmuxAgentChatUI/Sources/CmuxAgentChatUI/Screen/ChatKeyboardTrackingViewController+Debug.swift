@@ -1,5 +1,4 @@
 #if os(iOS) && DEBUG
-import SwiftUI
 import UIKit
 
 extension ChatKeyboardTrackingViewController {

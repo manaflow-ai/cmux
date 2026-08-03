@@ -1,5 +1,4 @@
 import CmuxSettings
-import SwiftUI
 
 /// User-facing copy for the Auto-Naming Agent picker and its status line.
 /// Brand names (Claude Code, Codex, …) are proper nouns and stay verbatim;

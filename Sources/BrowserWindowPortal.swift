@@ -3,7 +3,6 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import ObjectiveC
-import SwiftUI
 import WebKit
 
 private var cmuxWindowBrowserPortalKey: UInt8 = 0

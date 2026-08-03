@@ -1,7 +1,6 @@
 import CmuxFoundation
 import CmuxSettings
 import Observation
-import SwiftUI
 
 /// View-model that owns keyboard shortcut Settings state and persistence.
 @MainActor

@@ -2,7 +2,6 @@ import CmuxFoundation
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
-import SwiftUI
 
 /// Immutable render input for one pure-AppKit sidebar workspace row.
 ///

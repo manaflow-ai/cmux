@@ -1,5 +1,4 @@
 import CmuxSettings
-import SwiftUI
 
 private let shortcutFormatter = ShortcutDisplayFormatter()
 

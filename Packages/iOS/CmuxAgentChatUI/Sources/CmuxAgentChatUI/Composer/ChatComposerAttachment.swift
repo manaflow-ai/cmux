@@ -1,6 +1,8 @@
 import CmuxAgentChat
 import Foundation
-import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// An image the user staged in the composer, ready to send: the encoded
 /// payload plus the thumbnail shown in the attachment strip.
@@ -16,7 +18,7 @@ public struct ChatComposerAttachment: Identifiable {
 
     #if os(iOS)
     /// The strip thumbnail rendered from the staged image.
-    public let thumbnail: Image
+    public let thumbnail: UIImage
 
     /// Creates a staged attachment.
     ///
@@ -25,7 +27,7 @@ public struct ChatComposerAttachment: Identifiable {
     ///   - data: Encoded image payload.
     ///   - format: Encoding of `data`.
     ///   - thumbnail: Strip thumbnail.
-    public init(id: String, data: Data, format: ChatOutboundAttachment.Format, thumbnail: Image) {
+    public init(id: String, data: Data, format: ChatOutboundAttachment.Format, thumbnail: UIImage) {
         self.id = id
         self.data = data
         self.format = format
