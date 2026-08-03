@@ -41,6 +41,24 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             hostedView.surfaceView.frame.size != staleSurfaceSize,
             "The next AppKit layout pass must still reconcile terminal geometry"
         )
+
+        let staleWidthUpdateSize = NSSize(width: 19, height: 23)
+        hostedView.surfaceView.setFrameSize(staleWidthUpdateSize)
+        hostedView.setSessionContentWidthPresentation(SessionContentWidthPresentation(
+            storedMaximumWidth: 180,
+            storedAlignment: SessionContentAlignment.center.rawValue
+        ))
+
+        #expect(
+            hostedView.surfaceView.frame.size == staleWidthUpdateSize,
+            "Representable presentation updates must not synchronously flush terminal geometry"
+        )
+
+        hostedView.layoutSubtreeIfNeeded()
+        #expect(
+            hostedView.surfaceView.frame.size != staleWidthUpdateSize,
+            "The next AppKit layout pass must apply the new content-width presentation"
+        )
     }
 
     @Test func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
