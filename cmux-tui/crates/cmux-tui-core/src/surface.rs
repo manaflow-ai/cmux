@@ -1883,12 +1883,12 @@ impl Surface {
         let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
         let pid = child.process_id();
         let killer = child.clone_killer();
-        let mut reader = master.try_clone_reader()?;
-        let writer = master.take_writer()?;
         #[cfg(unix)]
         let supports_clear_history_key_fallback = master.as_raw_fd().is_some();
         #[cfg(not(unix))]
         let supports_clear_history_key_fallback = false;
+        let mut reader = master.try_clone_reader()?;
+        let writer = master.take_writer()?;
 
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback

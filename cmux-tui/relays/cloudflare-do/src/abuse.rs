@@ -59,8 +59,12 @@ pub(crate) fn websocket_counts_toward_capacity(
     idle_deadline_ms: u64,
     now_ms: u64,
 ) -> bool {
+    websocket_is_open(ready_state) && idle_deadline_ms > now_ms
+}
+
+pub(crate) fn websocket_is_open(ready_state: u16) -> bool {
     const OPEN: u16 = 1;
-    ready_state == OPEN && idle_deadline_ms > now_ms
+    ready_state == OPEN
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
