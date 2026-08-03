@@ -649,6 +649,32 @@ struct KeyboardShortcutRecorder: NSViewRepresentable {
     }
 }
 
+struct MarkdownTypographyControl: NSViewRepresentable {
+    @ObservedObject var panel: MarkdownPanel
+
+    func makeNSView(context: Context) -> MarkdownTypographyButtonView {
+        let view = MarkdownTypographyButtonView(frame: .zero)
+        view.update(panel: panel)
+        return view
+    }
+
+    func updateNSView(_ view: MarkdownTypographyButtonView, context: Context) {
+        view.update(panel: panel)
+    }
+
+    static func dismantleNSView(_ view: MarkdownTypographyButtonView, coordinator: ()) {
+        view.teardown()
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: MarkdownTypographyButtonView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: 20, height: 20)
+    }
+}
+
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating
