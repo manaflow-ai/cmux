@@ -8,10 +8,11 @@ Storage v1 records durable resource mutations, schema-validated producer
 events, hook manifests and delivery outcomes, checkpoints, and sealed history
 segments. Resource mutations include workspace, screen, pane, and tab focus;
 tab selection; split ratios; viewport column widths; topology; terminal and
-browser lifecycle; frontend projections; and explicit agent reports. A pure
-restoration reducer can preview the state reconstructed from a checkpoint and
-its tail. Native agent adapters, continuous terminal content chunks, and live
-application of a restored model remain pending.
+browser lifecycle; continuous terminal output and geometry; frontend focus,
+viewport, and geometry observations; frontend projections; and explicit agent
+reports. A pure restoration reducer can preview the state reconstructed from a
+checkpoint and its tail. Native agent adapters, verified root ownership leases,
+and live application of a restored model remain pending.
 
 ## Invariants
 
@@ -142,16 +143,21 @@ retained records. Reconnecting with the last delivered cursor resumes after
 that record. A cursor from another session, or one ahead of the current head,
 fails with `cursor.invalid`. A bounded subscriber that falls behind receives a
 `gap` stream end with its last safe cursor and reconnects from that cursor.
+`start` and `cursor` are mutually exclusive.
 
 Filters are optional. Filter dimensions are ANDed, entries within one
 dimension are ORed, and filtered records still advance the cursor:
 
 - `kinds` accepts exact dotted kinds and terminal prefixes such as `pane.*`;
 - `classes` accepts `state`, `observation`, `effect`, and `checkpoint`;
-- `subjects` matches a subject kind, ID, or both;
-- `max_sensitivity` accepts `public`, `metadata`, or `sensitive`.
-- `regex` is compiled once and matches `kind`, `subjects`, `payload`, or the
-  complete record after the structured filters pass.
+- `subjects` matches a subject kind, ID, or both, and every entry contains at
+  least one of those fields;
+- `max_sensitivity` accepts `public`, `metadata`, or `sensitive`, with each
+  threshold including lower levels. Omission uses the transport cap:
+  `sensitive` for a trusted local Unix client and `metadata` remotely;
+- `regex` is compiled once and matches `kind`, `subjects`, `payload`, the
+  complete record, or exact decoded `terminal_output` bytes after structured
+  filters pass.
 
 No subscription delivers `secret` records. Unix-socket clients may request up
 to `sensitive`. WebSocket clients are capped at `metadata`; their authority,
@@ -173,6 +179,8 @@ cmux --session main --jsonl session current journal subscribe \
   --cursor-session session_... --sequence 42
 cmux --session main --jsonl session current journal subscribe \
   --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
+cmux --session main --jsonl session current journal subscribe \
+  --kinds terminal.output --regex 'error|failed' --regex-field terminal_output --ignore-case
 ```
 
 The first command tails new events. Add `--from beginning` to view retained
@@ -259,17 +267,30 @@ and scroll position belong to that frontend unless promoted by an explicit
 shared-state operation. They may be journal observations for analytics or
 feeds, but restoration must not treat them as session authority.
 
+The built-in TUI submits focus paths, accepted outer geometry, and viewport
+targets through an off-UI worker. Events use stable public resource IDs and one
+frontend generation. Viewport animation records intent and settlement, not
+every rendered frame.
+
 Resize gestures append accepted layout mutations. A frontend may reduce raw
 pointer samples before submitting them. It must append the final accepted
 value, including a no-op outcome when an operation receipt needs to explain why
 no state changed.
 
 Terminal output is a high-volume content stream, not inline journal payload.
-The checkpoint writer currently captures each terminal under its terminal
-lock as a bounded VT replay blob, compresses it with deterministic gzip, and
-stores it by SHA-256 content ID. The checkpoint records terminal ID, grid,
-format, digest, and byte count. Continuous immutable output chunks and offsets
-between checkpoints remain pending.
+The PTY reader copies accepted output only when journaling is enabled, releases
+the terminal lock, and sends it to the single journal writer. That writer
+coalesces adjacent chunks up to 256 KiB, assigns generation-local byte offsets,
+and stores the exact bytes accepted by the authoritative terminal parser in
+SQLite BLOBs. JSON wire and sealed-segment forms use base64; storage and regex
+matching use those parser input bytes. Accepted geometry
+changes use the same ordered ingress actor.
+
+The checkpoint writer captures each terminal under its terminal lock as a
+bounded VT replay blob, compresses it with deterministic gzip, and stores it by
+SHA-256 content ID. The checkpoint records terminal ID, grid, format, digest,
+and byte count. Restoration applies later output chunks and geometry changes in
+sequence after that checkpoint.
 
 Raw keyboard input and paste contents are secret by default and are not
 journaled. An audited opt-in recorder may store encrypted content references.
@@ -420,8 +441,11 @@ Append-only does not require one SQLite table to grow forever. The active tail
 stays as indexed rows. `journal segment seal` moves only a checkpoint-covered
 prefix into deterministic gzip JSON segments of at most 1,024 records or 16
 MiB uncompressed, verifies their SHA-256 digests on read, preserves the causal
-event index, and appends a
-segment-manifest record. Reads, subscriptions, hooks, and reducers cross active
+event index, and appends a segment-manifest record. Segment selection,
+serialization, compression, and digesting happen before the writer transaction.
+The short commit revalidates the prepared range, inserts immutable segments,
+deletes the covered active rows, and appends the manifest atomically. Reads,
+subscriptions, hooks, and reducers cross active
 and sealed ranges transparently. Projection tables, hook cursors, and receipts
 may be compacted because canonical records remain rebuildable.
 
@@ -448,8 +472,9 @@ markers.
 | v8 bounded resource-event rows | Migrated with an explicit history-completeness checkpoint |
 | Legacy workspace and terminal event tables | Compatibility projections, migration pending |
 | Transient `MuxEvent` observations | Classification and ingress pending |
+| Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
-| Continuous terminal content chunks | Pending |
+| Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
 | Agent adapter manifests and root leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |

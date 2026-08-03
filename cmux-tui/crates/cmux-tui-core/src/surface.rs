@@ -1199,7 +1199,8 @@ pub struct PtyTerminalRuntime {
     event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
-    terminal_public_id: Option<TerminalPublicId>,
+    terminal_public_id: Option<Arc<TerminalPublicId>>,
+    journal_generation: Arc<str>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -1786,7 +1787,7 @@ impl Surface {
 
     pub fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
         match self {
-            Self::Pty(surface) => surface.terminal_public_id.as_ref(),
+            Self::Pty(surface) => surface.terminal_public_id.as_deref(),
             Self::Browser(_) => None,
         }
     }
@@ -2081,7 +2082,11 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation: Arc::from(format!(
+                    "local-{}",
+                    crate::workspace_registry::new_uuid_v4()
+                )),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2163,6 +2168,8 @@ impl Surface {
                         Err(_) => break,
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                    let journal_target = pty.journal_target();
+                    let journal_enabled = journal_target.is_some();
                     let mut scroll_changed = None;
                     let generation = {
                         let mut term = pty.term.lock().unwrap();
@@ -2204,8 +2211,15 @@ impl Surface {
                             scroll_changed = Some(after);
                             broadcast_render_scroll_locked(pty, after);
                         }
-                        pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                        let journal_output = journal_enabled.then(|| normalized.into_owned());
+                        (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
                     };
+                    let (generation, journal_output) = generation;
+                    if let (Some(journal_target), Some(journal_output)) =
+                        (journal_target, journal_output)
+                    {
+                        pty.journal_output(journal_target, journal_output);
+                    }
                     pty.stream_progress.notify();
                     pty.request_frame(generation);
                     if let Some((offset, at_bottom)) = scroll_changed
@@ -2427,6 +2441,7 @@ impl Surface {
         let sequence_boundary = snapshot.sequence_boundary;
         let protocol_version = attachment.protocol_version();
         let host_identity = attachment.identity();
+        let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
@@ -2442,7 +2457,8 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation,
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2556,6 +2572,8 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
+                                let journal_target = pty.journal_target();
+                                let journal_enabled = journal_target.is_some();
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -2590,16 +2608,20 @@ impl Surface {
                                     // The parser already contains the complete
                                     // coupled state before any attach observer can
                                     // see the Output or ColorsChanged callback.
-                                    if colors.is_some() {
+                                    let journal_output = if colors.is_some() {
+                                        let journal_output =
+                                            journal_enabled.then(|| output.clone());
                                         pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
                                             output,
                                             colors: Box::new(
                                                 pty.terminal_colors_locked(&term, defaults),
                                             ),
                                         });
+                                        journal_output
                                     } else {
                                         pty.broadcast_attach_output(&output);
-                                    }
+                                        journal_enabled.then_some(output)
+                                    };
                                     if title_changed.swap(false, Ordering::Relaxed) {
                                         let title = term.title().unwrap_or_default();
                                         *pty.title.lock().unwrap() = title.clone();
@@ -2612,8 +2634,17 @@ impl Surface {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
                                     }
-                                    pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                                    (
+                                        pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
+                                        journal_output,
+                                    )
                                 };
+                                let (generation, journal_output) = generation;
+                                if let (Some(journal_target), Some(journal_output)) =
+                                    (journal_target, journal_output)
+                                {
+                                    pty.journal_output(journal_target, journal_output);
+                                }
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -2699,6 +2730,7 @@ impl Surface {
                                     **term = replacement;
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                                     *geometry = next_geometry;
+                                    pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
                                     *pty.pwd.lock().unwrap() = pwd;
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
@@ -3244,6 +3276,7 @@ impl Surface {
         terminal_public_id: TerminalPublicId,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
@@ -3279,7 +3312,8 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id: Some(terminal_public_id),
+                terminal_public_id: Some(Arc::new(terminal_public_id)),
+                journal_generation,
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3458,7 +3492,8 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
-                terminal_public_id,
+                terminal_public_id: terminal_public_id.map(Arc::new),
+                journal_generation: Arc::from(format!("test-{id}")),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -5237,6 +5272,35 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+        let terminal_id = self.terminal_public_id.clone()?;
+        let mux = self.mux.upgrade()?;
+        mux.terminal_journal_enabled().then_some((mux, terminal_id))
+    }
+
+    fn journal_output(
+        &self,
+        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
+        bytes: Vec<u8>,
+    ) {
+        mux.journal_terminal_output(terminal_id, self.journal_generation.clone(), bytes);
+    }
+
+    fn journal_geometry(&self, geometry: PtyGeometry) {
+        let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
+        else {
+            return;
+        };
+        mux.journal_terminal_resize(
+            terminal_id,
+            self.journal_generation.clone(),
+            geometry.cols,
+            geometry.rows,
+            geometry.cell_width,
+            geometry.cell_height,
+        );
+    }
+
     fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
         let scrollbar = term.scrollbar()?;
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
@@ -5663,6 +5727,7 @@ impl PtySurface {
         };
         drop(runtime);
         *geometry = next;
+        self.journal_geometry(next);
         #[cfg(test)]
         self.run_geometry_test_hook(if refresh_attach_colors {
             PtyGeometryTestStep::ResizeCommitBoundary

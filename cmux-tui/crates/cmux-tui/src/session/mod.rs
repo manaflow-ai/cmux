@@ -14,8 +14,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::{
-    LAYOUT_UNDO_CAPABILITY, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
+    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
@@ -357,6 +358,19 @@ impl Session {
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
+        }
+    }
+
+    pub fn journal_frontend_event(
+        &self,
+        event: cmux_tui_core::FrontendJournalEvent,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux.journal_local_frontend_event(event),
+            Session::Remote(remote) if remote.supports_capability(FRONTEND_JOURNAL_CAPABILITY) => {
+                remote.request(json!({"cmd":"journal-frontend-event","event":event})).map(|_| ())
+            }
+            Session::Remote(_) => Ok(()),
         }
     }
 

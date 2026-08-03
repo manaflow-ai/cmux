@@ -1,8 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex, RwLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 
+use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::workspace_registry::SessionJournalReader;
@@ -22,53 +23,131 @@ const JOURNAL_READ_PAGE_SIZE: usize = 1024;
 /// their documents remain private to that one catch-up path.
 pub(crate) struct JournalDocument {
     pub(crate) record: SessionJournalRecord,
-    wire_value: Value,
-    subjects_bytes: Vec<u8>,
-    payload_bytes: Vec<u8>,
-    record_bytes: Vec<u8>,
+    wire_value: OnceLock<Value>,
+    subjects_bytes: OnceLock<Vec<u8>>,
+    payload_bytes: OnceLock<Result<Vec<u8>, serde_json::Error>>,
+    record_bytes: OnceLock<Result<Vec<u8>, serde_json::Error>>,
+    resident_budget_bytes: usize,
 }
 
 impl JournalDocument {
     pub(crate) fn new(record: SessionJournalRecord) -> Self {
-        let mut subjects_bytes = Vec::new();
-        for subject in &record.subjects {
-            if !subjects_bytes.is_empty() {
-                subjects_bytes.push(0);
-            }
-            subjects_bytes.extend_from_slice(subject.kind.as_bytes());
-            subjects_bytes.push(b':');
-            subjects_bytes.extend_from_slice(subject.id.as_bytes());
+        let resident_budget_bytes = journal_document_resident_budget(&record);
+        Self {
+            record,
+            wire_value: OnceLock::new(),
+            subjects_bytes: OnceLock::new(),
+            payload_bytes: OnceLock::new(),
+            record_bytes: OnceLock::new(),
+            resident_budget_bytes,
         }
-        let payload_bytes = serde_json::to_vec(&record.payload)
-            .expect("session journal payloads are already validated JSON");
-        let wire_value = journal_record_value(&record);
-        let record_bytes = serde_json::to_vec(&wire_value)
-            .expect("session journal wire records are always serializable JSON");
-        Self { record, wire_value, subjects_bytes, payload_bytes, record_bytes }
     }
 
     pub(crate) fn wire_value(&self) -> &Value {
-        &self.wire_value
+        self.wire_value.get_or_init(|| journal_record_value(&self.record))
     }
 
     pub(crate) fn subjects_bytes(&self) -> &[u8] {
-        &self.subjects_bytes
+        self.subjects_bytes
+            .get_or_init(|| {
+                let mut subjects = Vec::new();
+                for subject in &self.record.subjects {
+                    if !subjects.is_empty() {
+                        subjects.push(0);
+                    }
+                    subjects.extend_from_slice(subject.kind.as_bytes());
+                    subjects.push(b':');
+                    subjects.extend_from_slice(subject.id.as_bytes());
+                }
+                subjects
+            })
+            .as_slice()
     }
 
-    pub(crate) fn payload_bytes(&self) -> &[u8] {
-        &self.payload_bytes
+    pub(crate) fn payload_bytes(&self) -> Option<&[u8]> {
+        self.payload_bytes
+            .get_or_init(|| serde_json::to_vec(&self.record.payload))
+            .as_ref()
+            .ok()
+            .map(Vec::as_slice)
     }
 
-    pub(crate) fn record_bytes(&self) -> &[u8] {
-        &self.record_bytes
+    pub(crate) fn record_bytes(&self) -> Option<&[u8]> {
+        self.record_bytes
+            .get_or_init(|| serde_json::to_vec(self.wire_value()))
+            .as_ref()
+            .ok()
+            .map(Vec::as_slice)
+    }
+
+    pub(crate) fn terminal_output_bytes(&self) -> Option<&[u8]> {
+        self.record.terminal_output.as_deref()
     }
 
     fn resident_bytes(&self) -> usize {
-        self.record_bytes.len().saturating_mul(3).saturating_add(self.subjects_bytes.len())
+        self.resident_budget_bytes
+    }
+}
+
+/// Conservatively accounts for the decoded record and every lazy search/wire
+/// representation without allocating those representations on the tail path.
+fn journal_document_resident_budget(record: &SessionJournalRecord) -> usize {
+    let subject_bytes = record.subjects.iter().fold(0_usize, |bytes, subject| {
+        bytes.saturating_add(subject.kind.len()).saturating_add(subject.id.len()).saturating_add(2)
+    });
+    let string_bytes = record
+        .event_id
+        .len()
+        .saturating_add(record.kind.len())
+        .saturating_add(record.producer.kind.len())
+        .saturating_add(record.producer.id.len())
+        .saturating_add(record.causation_id.as_ref().map_or(0, String::len))
+        .saturating_add(record.correlation_id.as_ref().map_or(0, String::len))
+        .saturating_add(subject_bytes);
+    let content_bytes = record.terminal_output.as_ref().map_or(0, |content| content.len());
+    let inline_content_upper_bound =
+        content_bytes.saturating_add(2).saturating_div(3).saturating_mul(4).saturating_add(64);
+    let wire_upper_bound = string_bytes
+        .saturating_add(json_encoded_upper_bound(&record.payload))
+        .saturating_add(inline_content_upper_bound)
+        .saturating_add(2048);
+    // The record can own one decoded payload, one lazy wire Value clone, and
+    // three byte documents (payload, subjects, whole record). JSON strings can
+    // expand to six bytes per input byte when escaped, which the estimator
+    // already includes.
+    wire_upper_bound.saturating_mul(4).saturating_add(subject_bytes).saturating_add(content_bytes)
+}
+
+fn json_encoded_upper_bound(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(_) => 32,
+        Value::String(value) => value.len().saturating_mul(6).saturating_add(2),
+        Value::Array(values) => values.iter().fold(2_usize, |bytes, value| {
+            bytes.saturating_add(1).saturating_add(json_encoded_upper_bound(value))
+        }),
+        Value::Object(values) => values.iter().fold(2_usize, |bytes, (key, value)| {
+            bytes
+                .saturating_add(2)
+                .saturating_add(key.len().saturating_mul(6))
+                .saturating_add(2)
+                .saturating_add(json_encoded_upper_bound(value))
+        }),
     }
 }
 
 fn journal_record_value(record: &SessionJournalRecord) -> Value {
+    let mut payload = record.payload.clone();
+    if let Some(bytes) = record.terminal_output.as_deref()
+        && let Some(payload) = payload.as_object_mut()
+    {
+        payload.insert("encoding".into(), Value::String("base64".into()));
+        payload.insert(
+            "data".into(),
+            Value::String(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        );
+    }
     json!({
         "sequence":record.sequence.to_string(),
         "event_id":record.event_id,
@@ -85,7 +164,7 @@ fn journal_record_value(record: &SessionJournalRecord) -> Value {
         "causation_depth":record.causation_depth,
         "subjects":record.subjects,
         "sensitivity":record.sensitivity,
-        "payload":record.payload,
+        "payload":payload,
         "resource_revision":record.resource_revision.map(|value| value.to_string()),
         "previous_resource_revision":record
             .previous_resource_revision
@@ -135,6 +214,11 @@ struct CompiledJournalEvent {
     replay: JournalReplayPolicy,
     sensitivity: JournalSensitivity,
     validator: jsonschema::Validator,
+}
+
+pub(crate) struct PreparedJournalProducer {
+    producer_id: String,
+    compiled: Arc<CompiledJournalProducer>,
 }
 
 pub(crate) struct ValidatedJournalIngress {
@@ -256,23 +340,26 @@ impl JournalKernel {
                 _head_sequence: state.head_sequence,
             };
         }
-        let records = state
-            .records
-            .iter()
-            .filter(|record| record.record.sequence > sequence)
-            .take(limit)
-            .cloned()
-            .collect();
+        let next_sequence = sequence.saturating_add(1);
+        let start = usize::try_from(next_sequence.saturating_sub(oldest_sequence))
+            .unwrap_or(state.records.len())
+            .min(state.records.len());
+        let end = start.saturating_add(limit).min(state.records.len());
+        let records = state.records.range(start..end).cloned().collect();
         SharedJournalRead::Page(SharedJournalPage { head_sequence: state.head_sequence, records })
     }
 
-    pub(crate) fn install_producer(
-        &self,
+    pub(crate) fn prepare_producer(
         manifest: &JournalProducerManifest,
-    ) -> anyhow::Result<()> {
-        let compiled = compile_journal_producer(manifest)?;
-        self.producers.write().unwrap().insert(manifest.producer_id.clone(), Arc::new(compiled));
-        Ok(())
+    ) -> anyhow::Result<PreparedJournalProducer> {
+        Ok(PreparedJournalProducer {
+            producer_id: manifest.producer_id.clone(),
+            compiled: Arc::new(compile_journal_producer(manifest)?),
+        })
+    }
+
+    pub(crate) fn install_prepared_producer(&self, producer: PreparedJournalProducer) {
+        self.producers.write().unwrap().insert(producer.producer_id, producer.compiled);
     }
 
     pub(crate) fn validate_ingress(
@@ -358,44 +445,44 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
 
 fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_sequence: u64) {
     let mut observed_request_epoch = 0;
-    'tailer: loop {
+    loop {
         let Some(kernel) = weak.upgrade() else { break };
         let requested_epoch = {
             let mut state = kernel.state.lock().unwrap();
             loop {
                 if state.requested_epoch != observed_request_epoch {
-                    break Some(state.requested_epoch);
+                    break state.requested_epoch;
                 }
                 let (next_state, waited) =
                     kernel.changed.wait_timeout(state, Duration::from_secs(1)).unwrap();
                 state = next_state;
-                if waited.timed_out() {
-                    break None;
+                if waited.timed_out() && !state.available {
+                    break state.requested_epoch;
                 }
             }
         };
         drop(kernel);
-        let Some(requested_epoch) = requested_epoch else {
-            if weak.strong_count() == 0 {
-                return;
-            }
-            continue 'tailer;
-        };
         observed_request_epoch = requested_epoch;
 
-        let mut appended = Vec::new();
+        let mut appended = VecDeque::new();
+        let mut appended_bytes = 0;
         let mut read_failed = false;
+        let mut candidate_sequence = last_sequence;
         loop {
-            match reader.after(last_sequence, JOURNAL_READ_PAGE_SIZE) {
+            match reader.after(candidate_sequence, JOURNAL_READ_PAGE_SIZE) {
                 Ok(page) => {
                     if page.records.is_empty() {
                         break;
                     }
                     for record in page.records {
-                        last_sequence = record.sequence;
-                        appended.push(Arc::new(JournalDocument::new(record)));
+                        candidate_sequence = record.sequence;
+                        push_bounded_journal_document(
+                            &mut appended,
+                            &mut appended_bytes,
+                            Arc::new(JournalDocument::new(record)),
+                        );
                     }
-                    if last_sequence >= page.head_sequence {
+                    if candidate_sequence >= page.head_sequence {
                         break;
                     }
                 }
@@ -411,21 +498,174 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         state.available = !read_failed;
         if !read_failed {
             for record in appended {
-                state.record_bytes = state.record_bytes.saturating_add(record.resident_bytes());
-                state.records.push_back(record);
-                while state.records.len() > JOURNAL_FANOUT_CAPACITY
-                    || (state.records.len() > 1
-                        && state.record_bytes > JOURNAL_FANOUT_BYTE_CAPACITY)
-                {
-                    if let Some(removed) = state.records.pop_front() {
-                        state.record_bytes =
-                            state.record_bytes.saturating_sub(removed.resident_bytes());
-                    }
-                }
+                let state = &mut *state;
+                push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);
             }
-            state.head_sequence = last_sequence;
+            last_sequence = candidate_sequence;
+            state.head_sequence = candidate_sequence;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
+    }
+}
+
+fn push_bounded_journal_document(
+    records: &mut VecDeque<Arc<JournalDocument>>,
+    record_bytes: &mut usize,
+    record: Arc<JournalDocument>,
+) {
+    *record_bytes = record_bytes.saturating_add(record.resident_bytes());
+    records.push_back(record);
+    while records.len() > JOURNAL_FANOUT_CAPACITY
+        || (records.len() > 1 && *record_bytes > JOURNAL_FANOUT_BYTE_CAPACITY)
+    {
+        if let Some(removed) = records.pop_front() {
+            *record_bytes = record_bytes.saturating_sub(removed.resident_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod performance_tests {
+    use super::*;
+    use crate::{JournalAuthority, JournalProducer, JournalSubject, SessionJournalRecord};
+    use std::time::Instant;
+
+    fn record(sequence: u64) -> SessionJournalRecord {
+        SessionJournalRecord {
+            sequence,
+            event_id: format!("event_perf_{sequence:020}"),
+            schema_version: 1,
+            kind: "plugin.performance.output".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            occurred_at_ms: sequence,
+            committed_at_ms: sequence,
+            producer: JournalProducer { kind: "benchmark".into(), id: "benchmark".into() },
+            authority: Some(JournalAuthority {
+                principal_id: "client_performance".into(),
+                lease_id: "benchmark".into(),
+                generation: "1".into(),
+                role: "benchmark".into(),
+            }),
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject {
+                kind: "terminal".into(),
+                id: "term_00000000000000000000000000000001".into(),
+            }],
+            sensitivity: JournalSensitivity::Metadata,
+            payload: json!({"message":"approval-42 is ready","padding":"x".repeat(256)}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        }
+    }
+
+    fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
+        let state = kernel.state.lock().unwrap();
+        let records = state
+            .records
+            .iter()
+            .filter(|record| record.record.sequence > sequence)
+            .take(limit)
+            .cloned()
+            .collect();
+        SharedJournalRead::Page(SharedJournalPage { head_sequence: state.head_sequence, records })
+    }
+
+    #[test]
+    fn journal_documents_materialize_search_fields_lazily() {
+        let document = JournalDocument::new(record(1));
+        assert!(document.wire_value.get().is_none());
+        assert!(document.subjects_bytes.get().is_none());
+        assert!(document.payload_bytes.get().is_none());
+        assert!(document.record_bytes.get().is_none());
+        assert!(document.wire_value.get().is_none());
+        assert!(!document.subjects_bytes().is_empty());
+        assert!(document.wire_value.get().is_none());
+        assert!(document.subjects_bytes.get().is_some());
+        assert!(document.payload_bytes.get().is_none());
+        assert!(document.record_bytes.get().is_none());
+    }
+
+    #[test]
+    fn journal_fanout_batches_are_bounded_before_publication() {
+        let mut records = VecDeque::new();
+        let mut record_bytes = 0;
+        for sequence in 1..=JOURNAL_FANOUT_CAPACITY as u64 + 137 {
+            push_bounded_journal_document(
+                &mut records,
+                &mut record_bytes,
+                Arc::new(JournalDocument::new(record(sequence))),
+            );
+        }
+        assert_eq!(records.len(), JOURNAL_FANOUT_CAPACITY);
+        assert_eq!(records.front().unwrap().record.sequence, 138);
+        assert_eq!(records.back().unwrap().record.sequence, JOURNAL_FANOUT_CAPACITY as u64 + 137);
+        assert_eq!(
+            record_bytes,
+            records.iter().map(|record| record.resident_bytes()).sum::<usize>()
+        );
+    }
+
+    #[test]
+    #[ignore = "manual release-mode journal performance probe"]
+    fn journal_tail_cache_performance_probe() {
+        let started = Instant::now();
+        let records = (1..=JOURNAL_FANOUT_CAPACITY as u64)
+            .map(record)
+            .map(JournalDocument::new)
+            .map(Arc::new)
+            .collect::<VecDeque<_>>();
+        let construction = started.elapsed();
+        let record_bytes = records.iter().map(|record| record.resident_bytes()).sum();
+        let kernel = JournalKernel {
+            state: Mutex::new(JournalFanoutState {
+                epoch: 1,
+                requested_epoch: 1,
+                head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
+                records,
+                record_bytes,
+                available: true,
+                database_reader_count: 0,
+            }),
+            changed: Condvar::new(),
+            enabled: true,
+            producers: RwLock::new(HashMap::new()),
+        };
+
+        let iterations = 100_000_u64;
+        let cursor = JOURNAL_FANOUT_CAPACITY as u64 - 1;
+        let started = Instant::now();
+        let mut linear_observed = 0_u64;
+        for _ in 0..iterations {
+            if let SharedJournalRead::Page(page) =
+                linear_read_after(std::hint::black_box(&kernel), cursor, 1)
+            {
+                linear_observed += page.records.len() as u64;
+            }
+        }
+        let linear_reads = started.elapsed();
+        let started = Instant::now();
+        let mut observed = 0_u64;
+        for _ in 0..iterations {
+            if let SharedJournalRead::Page(page) =
+                std::hint::black_box(&kernel).read_after(cursor, 1)
+            {
+                observed += page.records.len() as u64;
+            }
+        }
+        let reads = started.elapsed();
+        eprintln!(
+            "journal tail cache: build {} lazy documents in {construction:?}; linear {iterations} near-tail reads in {linear_reads:?} ({:.0} reads/s); indexed in {reads:?} ({:.0} reads/s), {:.1}x faster",
+            JOURNAL_FANOUT_CAPACITY,
+            iterations as f64 / linear_reads.as_secs_f64(),
+            iterations as f64 / reads.as_secs_f64(),
+            linear_reads.as_secs_f64() / reads.as_secs_f64(),
+        );
+        assert_eq!(linear_observed, iterations);
+        assert_eq!(observed, iterations);
     }
 }

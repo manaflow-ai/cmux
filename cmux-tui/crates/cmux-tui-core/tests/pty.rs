@@ -313,7 +313,7 @@ fn terminal_surface_uses_only_its_explicit_geometry_authority() {
 }
 
 #[test]
-fn surface_exit_preserves_terminal_view_and_emits_event() {
+fn surface_exit_reaps_local_view_and_emits_event() {
     let opts =
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
     let mux = Mux::new("test-exit", opts);
@@ -330,11 +330,18 @@ fn surface_exit_preserves_terminal_view_and_emits_event() {
     );
     assert!(got.is_some(), "no SurfaceExited event");
     assert!(surface.is_dead());
-    mux.with_state(|state| {
-        assert!(state.surfaces.contains_key(&surface.id));
-        assert_eq!(state.workspaces.len(), 1);
-        assert_eq!(state.workspaces[0].screens.len(), 1);
-    });
+    let reaped = wait_for(
+        || {
+            mux.with_state(|state| {
+                (!state.surfaces.contains_key(&surface.id)
+                    && state.workspaces.len() == 1
+                    && state.workspaces[0].screens.is_empty())
+                .then_some(())
+            })
+        },
+        Duration::from_secs(10),
+    );
+    assert!(reaped.is_some(), "exited local surface not reaped from tree");
     mux.shutdown();
 }
 

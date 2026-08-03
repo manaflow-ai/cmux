@@ -1,13 +1,17 @@
 use super::*;
+use base64::Engine;
 use flate2::read::GzDecoder;
+use rusqlite::Row;
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Read;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
@@ -113,6 +117,12 @@ pub struct SessionJournalRecord {
     pub payload: Value,
     pub resource_revision: Option<u64>,
     pub previous_resource_revision: Option<u64>,
+    /// Exact high-volume content stored on the immutable journal row. It is
+    /// omitted from serde so storage segments and public wire envelopes can
+    /// choose their own bounded encoding without duplicating it in payload
+    /// JSON.
+    #[serde(skip)]
+    pub(crate) terminal_output: Option<Arc<[u8]>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +169,7 @@ pub(super) struct JournalAppend<'a> {
     pub(super) subjects: &'a [JournalSubject],
     pub(super) sensitivity: JournalSensitivity,
     pub(super) payload: &'a Value,
+    pub(super) content: Option<&'a [u8]>,
     pub(super) resource_revision: Option<u64>,
     pub(super) previous_resource_revision: Option<u64>,
 }
@@ -182,6 +193,7 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            subjects_json TEXT NOT NULL CHECK(json_valid(subjects_json)),
            sensitivity TEXT NOT NULL CHECK(sensitivity IN ('public', 'metadata', 'sensitive', 'secret')),
            payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+           content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
            CHECK(
@@ -218,7 +230,29 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            SELECT RAISE(ABORT, 'session journal is append-only');
          END;",
     )?;
+    ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
+    Ok(())
+}
+
+fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(session_journal)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if !columns.contains("content") {
+        transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
+    }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS journal_terminal_streams (
+           terminal_id TEXT NOT NULL,
+           generation TEXT NOT NULL,
+           next_offset INTEGER NOT NULL CHECK(next_offset >= 0),
+           PRIMARY KEY(terminal_id, generation)
+         );",
+    )?;
     Ok(())
 }
 
@@ -352,6 +386,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
                 subjects: &[subject],
                 sensitivity: JournalSensitivity::Metadata,
                 payload: &payload,
+                content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
             },
@@ -491,6 +526,7 @@ fn append_resource_journal_record_at(
             subjects: &subjects,
             sensitivity: JournalSensitivity::Sensitive,
             payload: &payload,
+            content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
         },
@@ -504,6 +540,19 @@ pub(super) fn append_journal_record(
 ) -> anyhow::Result<u64> {
     validate_identifier("journal event id", append.event_id)?;
     validate_identifier("journal event kind", append.kind)?;
+    anyhow::ensure!(
+        append.content.is_none_or(|content| !content.is_empty()),
+        "journal content must not be empty"
+    );
+    anyhow::ensure!(
+        append.content.is_none_or(|content| content.len() <= MAX_JOURNAL_CONTENT_BYTES),
+        "journal content exceeds {MAX_JOURNAL_CONTENT_BYTES} bytes"
+    );
+    anyhow::ensure!(
+        append.kind == "terminal.output" || append.content.is_none(),
+        "journal content is not supported for kind {}",
+        append.kind
+    );
     let committed_at_ms =
         if append.occurred_at_ms == 0 { unix_epoch_ms()? } else { append.occurred_at_ms };
     transaction.execute(
@@ -511,8 +560,8 @@ pub(super) fn append_journal_record(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
-           sensitivity, payload_json, resource_revision, previous_resource_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+           sensitivity, payload_json, content, resource_revision, previous_resource_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             append.event_id,
             i64::from(append.schema_version),
@@ -535,6 +584,7 @@ pub(super) fn append_journal_record(
             canonical_json(&serde_json::to_value(append.subjects)?)?,
             append.sensitivity.as_str(),
             canonical_json(append.payload)?,
+            append.content,
             append
                 .resource_revision
                 .map(i64::try_from)
@@ -618,7 +668,8 @@ pub(super) fn query_session_journal_after(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
-                    sensitivity, payload_json, resource_revision, previous_resource_revision
+                    sensitivity, payload_json, content, resource_revision,
+                    previous_resource_revision
              FROM session_journal
              WHERE sequence > ?1
              ORDER BY sequence ASC
@@ -631,28 +682,7 @@ pub(super) fn query_session_journal_after(
                 i64::try_from(limit - records.len())
                     .context("journal page limit exceeds SQLite range")?,
             ],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, Option<String>>(11)?,
-                    row.get::<_, i64>(12)?,
-                    row.get::<_, String>(13)?,
-                    row.get::<_, String>(14)?,
-                    row.get::<_, String>(15)?,
-                    row.get::<_, Option<i64>>(16)?,
-                    row.get::<_, Option<i64>>(17)?,
-                ))
-            },
+            stored_record_row,
         )?
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -673,6 +703,153 @@ pub(super) fn query_session_journal_after(
     Ok(SessionJournalPage { head_sequence, records })
 }
 
+pub(super) fn query_session_journal_sequences(
+    connection: &Connection,
+    sequences: &[u64],
+) -> anyhow::Result<Vec<SessionJournalRecord>> {
+    if sequences.is_empty() {
+        return Ok(Vec::new());
+    }
+    anyhow::ensure!(
+        sequences.len() <= MAX_JOURNAL_PAGE_SIZE,
+        "journal sequence batch exceeds {MAX_JOURNAL_PAGE_SIZE}"
+    );
+    let requested = sequences.iter().copied().map(i64::try_from).collect::<Result<Vec<_>, _>>()?;
+    let requested_json = serde_json::to_string(&requested)?;
+    let requested_set = sequences.iter().copied().collect::<HashSet<_>>();
+    let mut records = BTreeMap::new();
+
+    let mut segment_statement = connection.prepare(
+        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                content, uncompressed_bytes, sha256
+         FROM journal_segments
+         WHERE EXISTS (
+           SELECT 1 FROM json_each(?1) requested
+           WHERE CAST(requested.value AS INTEGER) BETWEEN start_sequence AND end_sequence
+         )
+         ORDER BY start_sequence ASC",
+    )?;
+    let segments = segment_statement
+        .query_map([&requested_json], journal_segment_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(segment_statement);
+    for segment in segments {
+        for record in decode_journal_segment(segment)?.records {
+            if requested_set.contains(&record.sequence) {
+                records.insert(record.sequence, record);
+            }
+        }
+    }
+
+    let mut active_statement = connection.prepare(
+        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                causation_id, correlation_id, causation_depth, subjects_json,
+                sensitivity, payload_json, content, resource_revision,
+                previous_resource_revision
+         FROM session_journal
+         WHERE sequence IN (SELECT CAST(value AS INTEGER) FROM json_each(?1))
+         ORDER BY sequence ASC",
+    )?;
+    let active = active_statement
+        .query_map([&requested_json], stored_record_row)?
+        .map(|row| decode_record(row?))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    drop(active_statement);
+    for record in active {
+        records.insert(record.sequence, record);
+    }
+    anyhow::ensure!(
+        records.len() == requested_set.len(),
+        "one or more requested journal records are absent"
+    );
+    Ok(records.into_values().collect())
+}
+
+type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+
+fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+    ))
+}
+
+struct DecodedJournalSegment {
+    start_sequence: u64,
+    end_sequence: u64,
+    records: Vec<SessionJournalRecord>,
+}
+
+fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+    let (
+        segment_id,
+        start_sequence,
+        end_sequence,
+        record_count,
+        codec,
+        compressed,
+        expected_bytes,
+        expected_digest,
+    ) = row;
+    let start_sequence = u64::try_from(start_sequence)?;
+    let end_sequence = u64::try_from(end_sequence)?;
+    let record_count = usize::try_from(record_count)?;
+    anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
+    anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
+    anyhow::ensure!(
+        start_sequence <= end_sequence,
+        "journal segment {segment_id} sequence range is invalid"
+    );
+    let expected_bytes = usize::try_from(expected_bytes)?;
+    anyhow::ensure!(
+        expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the uncompressed size limit"
+    );
+    let decoder = GzDecoder::new(compressed.as_slice());
+    let mut uncompressed = Vec::new();
+    decoder
+        .take(u64::try_from(expected_bytes)?.saturating_add(1))
+        .read_to_end(&mut uncompressed)
+        .with_context(|| format!("decompress journal segment {segment_id}"))?;
+    anyhow::ensure!(
+        expected_bytes == uncompressed.len(),
+        "journal segment {segment_id} length is invalid"
+    );
+    anyhow::ensure!(
+        Sha256::digest(&uncompressed).as_slice() == expected_digest.as_slice(),
+        "journal segment {segment_id} digest is invalid"
+    );
+    let mut records: Vec<SessionJournalRecord> = serde_json::from_slice(&uncompressed)
+        .with_context(|| format!("decode journal segment {segment_id}"))?;
+    for record in &mut records {
+        normalize_terminal_output(record, None)
+            .with_context(|| format!("validate journal segment {segment_id}"))?;
+    }
+    anyhow::ensure!(
+        records.len() == record_count,
+        "journal segment {segment_id} record count is invalid"
+    );
+    anyhow::ensure!(
+        records.first().map(|record| record.sequence) == Some(start_sequence)
+            && records.last().map(|record| record.sequence) == Some(end_sequence),
+        "journal segment {segment_id} sequence range is invalid"
+    );
+    for pair in records.windows(2) {
+        anyhow::ensure!(
+            pair[1].sequence == pair[0].sequence.saturating_add(1),
+            "journal segment {segment_id} contains a sequence gap"
+        );
+    }
+    Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
+}
+
 fn archived_records_after(
     connection: &Connection,
     sequence: u64,
@@ -686,41 +863,14 @@ fn archived_records_after(
          ORDER BY start_sequence ASC
          LIMIT ?2",
     )?;
-    let mut segments =
-        statement.query_map(params![i64::try_from(sequence)?, i64::try_from(limit)?], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Vec<u8>>(5)?,
-                row.get::<_, i64>(6)?,
-                row.get::<_, Vec<u8>>(7)?,
-            ))
-        })?;
+    let mut segments = statement
+        .query_map(params![i64::try_from(sequence)?, i64::try_from(limit)?], journal_segment_row)?;
     let mut records = Vec::new();
     let mut previous_end = None;
     for segment in &mut segments {
-        let (
-            segment_id,
-            start_sequence,
-            end_sequence,
-            record_count,
-            codec,
-            compressed,
-            expected_bytes,
-            expected_digest,
-        ) = segment?;
-        let start_sequence = u64::try_from(start_sequence)?;
-        let end_sequence = u64::try_from(end_sequence)?;
-        let record_count = usize::try_from(record_count)?;
-        anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
-        anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
-        anyhow::ensure!(
-            start_sequence <= end_sequence,
-            "journal segment {segment_id} sequence range is invalid"
-        );
+        let decoded = decode_journal_segment(segment?)?;
+        let start_sequence = decoded.start_sequence;
+        let end_sequence = decoded.end_sequence;
         if let Some(previous_end) = previous_end {
             anyhow::ensure!(
                 start_sequence == previous_end + 1,
@@ -732,44 +882,8 @@ fn archived_records_after(
                 "journal segments contain a gap before sequence {start_sequence}"
             );
         }
-        let expected_bytes = usize::try_from(expected_bytes)?;
-        anyhow::ensure!(
-            expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
-            "journal segment {segment_id} exceeds the uncompressed size limit"
-        );
-        let decoder = GzDecoder::new(compressed.as_slice());
-        let mut uncompressed = Vec::new();
-        decoder
-            .take(u64::try_from(expected_bytes)?.saturating_add(1))
-            .read_to_end(&mut uncompressed)
-            .with_context(|| format!("decompress journal segment {segment_id}"))?;
-        anyhow::ensure!(
-            expected_bytes == uncompressed.len(),
-            "journal segment {segment_id} length is invalid"
-        );
-        anyhow::ensure!(
-            Sha256::digest(&uncompressed).as_slice() == expected_digest.as_slice(),
-            "journal segment {segment_id} digest is invalid"
-        );
-        let archived: Vec<SessionJournalRecord> = serde_json::from_slice(&uncompressed)
-            .with_context(|| format!("decode journal segment {segment_id}"))?;
-        anyhow::ensure!(
-            archived.len() == record_count,
-            "journal segment {segment_id} record count is invalid"
-        );
-        anyhow::ensure!(
-            archived.first().map(|record| record.sequence) == Some(start_sequence)
-                && archived.last().map(|record| record.sequence) == Some(end_sequence),
-            "journal segment {segment_id} sequence range is invalid"
-        );
-        for pair in archived.windows(2) {
-            anyhow::ensure!(
-                pair[1].sequence == pair[0].sequence.saturating_add(1),
-                "journal segment {segment_id} contains a sequence gap"
-            );
-        }
         previous_end = Some(end_sequence);
-        for record in archived.into_iter().filter(|record| record.sequence > sequence) {
+        for record in decoded.records.into_iter().filter(|record| record.sequence > sequence) {
             records.push(record);
             if records.len() == limit {
                 return Ok(records);
@@ -779,29 +893,53 @@ fn archived_records_after(
     Ok(records)
 }
 
-#[allow(clippy::type_complexity)]
-fn decode_record(
-    row: (
-        i64,
-        String,
-        i64,
-        String,
-        String,
-        String,
-        i64,
-        i64,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        i64,
-        String,
-        String,
-        String,
-        Option<i64>,
-        Option<i64>,
-    ),
-) -> anyhow::Result<SessionJournalRecord> {
+type StoredRecordRow = (
+    i64,
+    String,
+    i64,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+    String,
+    String,
+    String,
+    Option<Vec<u8>>,
+    Option<i64>,
+    Option<i64>,
+);
+
+fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+        row.get(10)?,
+        row.get(11)?,
+        row.get(12)?,
+        row.get(13)?,
+        row.get(14)?,
+        row.get(15)?,
+        row.get(16)?,
+        row.get(17)?,
+        row.get(18)?,
+    ))
+}
+
+fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,
@@ -819,10 +957,11 @@ fn decode_record(
         subjects,
         sensitivity,
         payload,
+        content,
         resource_revision,
         previous_resource_revision,
     ) = row;
-    Ok(SessionJournalRecord {
+    let mut record = SessionJournalRecord {
         sequence: u64::try_from(sequence).context("journal sequence is negative")?,
         event_id,
         schema_version: u32::try_from(schema_version)
@@ -868,7 +1007,108 @@ fn decode_record(
             .map(u64::try_from)
             .transpose()
             .context("journal previous resource revision is negative")?,
-    })
+        terminal_output: None,
+    };
+    normalize_terminal_output(&mut record, content)?;
+    Ok(record)
+}
+
+fn normalize_terminal_output(
+    record: &mut SessionJournalRecord,
+    stored_content: Option<Vec<u8>>,
+) -> anyhow::Result<()> {
+    if record.kind != "terminal.output" {
+        anyhow::ensure!(stored_content.is_none(), "non-terminal journal record contains content");
+        return Ok(());
+    }
+    anyhow::ensure!(
+        record.payload["format"].as_str() == Some("cmux.terminal-output.v1"),
+        "terminal output record has an invalid format"
+    );
+    let bytes = if let Some(bytes) = stored_content {
+        anyhow::ensure!(
+            record.payload["encoding"].as_str() == Some("raw"),
+            "stored terminal output record has an invalid encoding"
+        );
+        anyhow::ensure!(
+            record.payload.get("data").is_none(),
+            "stored terminal output record duplicates inline content"
+        );
+        bytes
+    } else {
+        anyhow::ensure!(
+            record.payload["encoding"].as_str() == Some("base64"),
+            "archived terminal output record has an invalid encoding"
+        );
+        let data = record
+            .payload
+            .as_object_mut()
+            .and_then(|payload| payload.remove("data"))
+            .and_then(|data| data.as_str().map(str::to_owned))
+            .context("archived terminal output record omitted data")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .context("decode archived terminal output")?;
+        record.payload["encoding"] = Value::String("raw".into());
+        bytes
+    };
+    anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");
+    anyhow::ensure!(
+        bytes.len() <= MAX_JOURNAL_CONTENT_BYTES,
+        "terminal output record exceeds the content limit"
+    );
+    let byte_count = decimal_payload_u64(&record.payload, "byte_count")?;
+    anyhow::ensure!(
+        byte_count == u64::try_from(bytes.len())?,
+        "terminal output byte_count does not match its content"
+    );
+    let start = decimal_payload_u64(&record.payload, "stream_offset_start")?;
+    let end = decimal_payload_u64(&record.payload, "stream_offset_end")?;
+    anyhow::ensure!(
+        end.checked_sub(start) == Some(byte_count),
+        "terminal output stream offsets do not match its content"
+    );
+    let expected_digest =
+        record.payload["sha256"].as_str().context("terminal output record omitted sha256")?;
+    anyhow::ensure!(
+        expected_digest == encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
+        "terminal output content digest is invalid"
+    );
+    record.terminal_output = Some(Arc::from(bytes));
+    Ok(())
+}
+
+fn decimal_payload_u64(payload: &Value, field: &str) -> anyhow::Result<u64> {
+    payload[field]
+        .as_str()
+        .with_context(|| format!("terminal output record omitted {field}"))?
+        .parse()
+        .with_context(|| format!("terminal output record has an invalid {field}"))
+}
+
+fn encode_bytes_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+pub(super) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
+    let mut archived = record.clone();
+    if let Some(bytes) = record.terminal_output.as_deref()
+        && let Some(payload) = archived.payload.as_object_mut()
+    {
+        payload.insert("encoding".into(), Value::String("base64".into()));
+        payload.insert(
+            "data".into(),
+            Value::String(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        );
+        archived.terminal_output = None;
+    }
+    archived
 }
 
 fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<JournalSubject>) {
@@ -1012,7 +1252,7 @@ fn collect_subjects(value: &Value, subjects: &mut BTreeSet<JournalSubject>) {
     }
 }
 
-fn expand_topology_subjects(
+pub(super) fn expand_topology_subjects(
     transaction: &Transaction<'_>,
     subjects: &mut BTreeSet<JournalSubject>,
 ) -> anyhow::Result<()> {

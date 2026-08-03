@@ -38,8 +38,8 @@ use crate::pairing::PairingBroker;
 use crate::resource::{
     AgentPublicId, ContentPublicId, FrontendProjectionPublicId, NotificationPublicId,
     PairingRequestPublicId, PanePublicId, PublicSlotIndexes, ResourceError, ResourceOperation,
-    ScreenPublicId, Selector, SidebarViewPublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    TerminalPublicId, WorkspacePublicId,
+    ScreenPublicId, Selector, SessionPublicId, SidebarViewPublicId, SplitPublicId, TabPublicId,
+    TabResourceIdentity, TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
@@ -1701,10 +1701,14 @@ pub struct Mux {
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
+    journal_ingress: crate::journal_ingress::JournalIngressSender,
+    journal_hook_dispatcher_started: AtomicBool,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
+    #[cfg(test)]
+    journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
@@ -1955,6 +1959,10 @@ impl Mux {
             registry.session_journal_database_path(),
             &journal_producers,
         )?;
+        let (journal_ingress, journal_ingress_receiver) =
+            crate::journal_ingress::JournalIngressSender::new(
+                registry.session_journal_database_path().is_some(),
+            );
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
@@ -2045,8 +2053,12 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
+            journal_ingress,
+            journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
+            #[cfg(test)]
+            journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
@@ -2072,6 +2084,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(unix)]
@@ -4283,6 +4296,81 @@ impl Mux {
         self.journal_event_changed.notify_all();
     }
 
+    pub(crate) fn journal_terminal_output(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        bytes: Vec<u8>,
+    ) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            bytes,
+        });
+    }
+
+    pub(crate) fn terminal_journal_enabled(&self) -> bool {
+        self.journal_ingress.enabled()
+    }
+
+    pub fn journal_local_frontend_event(
+        &self,
+        event: crate::FrontendJournalEvent,
+    ) -> anyhow::Result<()> {
+        let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
+        let principal_id = crate::server::public_client_id(&session_id, 0)?.to_string();
+        self.journal_frontend_event(principal_id, event)
+    }
+
+    pub(crate) fn session_public_id(&self) -> SessionPublicId {
+        self.workspace_registry.lock().unwrap().session_id().clone()
+    }
+
+    pub(crate) fn journal_frontend_event(
+        &self,
+        principal_id: String,
+        event: crate::FrontendJournalEvent,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable(crate::journal_ingress::JournalIngressEvent::Frontend {
+            principal_id,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms()?,
+            event,
+        })
+    }
+
+    pub(crate) fn journal_terminal_resize(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        cols: u16,
+        rows: u16,
+        cell_width: u16,
+        cell_height: u16,
+    ) {
+        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            cols,
+            rows,
+            cell_width,
+            cell_height,
+        });
+    }
+
+    pub(crate) fn commit_session_journal_events(
+        &self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+    ) -> anyhow::Result<()> {
+        self.workspace_registry.lock().unwrap().append_internal_journal_events(events)?;
+        self.publish_journal_event();
+        Ok(())
+    }
+
     pub(crate) fn journal_event_epoch(&self) -> u64 {
         *self.journal_event_epoch.lock().unwrap()
     }
@@ -4337,6 +4425,10 @@ impl Mux {
         self.journal_kernel.epoch()
     }
 
+    pub(crate) fn shared_journal_handle(&self) -> Arc<crate::journal_kernel::JournalKernel> {
+        self.journal_kernel.clone()
+    }
+
     pub(crate) fn wait_for_shared_journal(&self, epoch: u64, timeout: Duration) -> u64 {
         self.journal_kernel.wait(epoch, timeout)
     }
@@ -4361,12 +4453,13 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
+        let prepared = crate::journal_kernel::JournalKernel::prepare_producer(manifest)?;
         let commit = self.workspace_registry.lock().unwrap().put_journal_producer(
             manifest,
             origin,
             idempotency_key,
         )?;
-        self.journal_kernel.install_producer(manifest)?;
+        self.journal_kernel.install_prepared_producer(prepared);
         if !commit.replayed {
             self.publish_journal_event();
         }
@@ -4398,16 +4491,16 @@ impl Mux {
         self.workspace_registry.lock().unwrap().journal_hook_states()
     }
 
-    pub(crate) fn journal_events_caused_by_hook(
+    pub(crate) fn journal_events_caused_by_hooks(
         &self,
-        hook_id: &str,
+        hook_ids: &[String],
         event_ids: &[String],
-    ) -> anyhow::Result<HashSet<String>> {
-        self.workspace_registry.lock().unwrap().journal_events_caused_by_hook(hook_id, event_ids)
+    ) -> anyhow::Result<HashSet<(String, String)>> {
+        self.workspace_registry.lock().unwrap().journal_events_caused_by_hooks(hook_ids, event_ids)
     }
 
     pub(crate) fn put_journal_hook(
-        &self,
+        self: &Arc<Self>,
         manifest: &crate::JournalHookManifest,
         origin: &str,
         idempotency_key: &str,
@@ -4420,24 +4513,25 @@ impl Mux {
         if !commit.replayed {
             self.publish_journal_event();
         }
+        crate::journal_hooks::start(self)?;
         Ok(commit)
+    }
+
+    pub(crate) fn try_claim_journal_hook_dispatcher(&self) -> bool {
+        self.journal_hook_dispatcher_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(crate) fn release_journal_hook_dispatcher(&self) {
+        self.journal_hook_dispatcher_started.store(false, Ordering::Release);
     }
 
     pub(crate) fn schedule_journal_hook_deliveries(
         &self,
-        hook_id: &str,
-        manifest_version: u32,
-        expected_cursor: u64,
-        scanned_to: u64,
-        matches: &[(String, u64)],
-    ) -> anyhow::Result<bool> {
-        self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(
-            hook_id,
-            manifest_version,
-            expected_cursor,
-            scanned_to,
-            matches,
-        )
+        scans: &[crate::workspace_registry::JournalHookScan],
+    ) -> anyhow::Result<Vec<bool>> {
+        self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(scans)
     }
 
     pub(crate) fn pending_journal_hook_deliveries(
@@ -4478,8 +4572,11 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
-        if let Some(commit) =
-            self.workspace_registry.lock().unwrap().journal_checkpoint_receipt(idempotency_key)?
+        if let Some(commit) = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .journal_checkpoint_receipt(origin, idempotency_key)?
         {
             return Ok(commit);
         }
@@ -4509,21 +4606,21 @@ impl Mux {
             .unwrap()
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
+        let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
-        let mut records = Vec::new();
         let head_sequence = loop {
             let page = self.session_journal_after(sequence, 1024)?;
             let head = page.head_sequence;
             let empty = page.records.is_empty();
             for record in page.records {
                 sequence = record.sequence;
-                records.push(record);
+                reducer.apply(&record)?;
             }
             if empty || sequence >= head {
                 break head;
             }
         };
-        crate::journal_checkpoint::restore_preview(&checkpoint, &records, head_sequence)
+        reducer.finish(head_sequence)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
@@ -4536,15 +4633,51 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalSegmentSealCommit> {
-        let commit = self.workspace_registry.lock().unwrap().seal_journal_segments(
-            through_sequence,
-            origin,
-            idempotency_key,
-        )?;
-        if !commit.journal.replayed {
-            self.publish_journal_event();
+        let database_path = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_database_path()
+            .context("journal segment sealing requires a persistent session")?;
+        let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
+        for _ in 0..4 {
+            let start = self.workspace_registry.lock().unwrap().begin_journal_segment_seal(
+                through_sequence,
+                origin,
+                idempotency_key,
+            )?;
+            let plan = match start {
+                crate::workspace_registry::JournalSegmentSealStart::Replay(commit) => {
+                    return Ok(commit);
+                }
+                crate::workspace_registry::JournalSegmentSealStart::Prepare(plan) => plan,
+            };
+            #[cfg(test)]
+            if let Some(hook) = self.journal_segment_prepare_hook.lock().unwrap().take() {
+                hook();
+            }
+            let prepared = plan.prepare(&reader)?;
+            let commit = self.workspace_registry.lock().unwrap().commit_journal_segment_seal(
+                prepared,
+                origin,
+                idempotency_key,
+            )?;
+            if let Some(commit) = commit {
+                if !commit.journal.replayed {
+                    self.publish_journal_event();
+                }
+                return Ok(commit);
+            }
         }
-        Ok(commit)
+        anyhow::bail!("journal segment boundary changed repeatedly during sealing")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_segment_prepare_hook_for_test(
+        &self,
+        hook: impl FnOnce() + Send + 'static,
+    ) {
+        *self.journal_segment_prepare_hook.lock().unwrap() = Some(Box::new(hook));
     }
 
     #[cfg(test)]
@@ -18855,7 +18988,12 @@ mod tests {
 
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
-        while mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_some() {
+        loop {
+            let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none();
+            let retry_finished = !mux.terminal_exit_detaches.lock().unwrap().contains(TERMINAL);
+            if detached && retry_finished {
+                break;
+            }
             assert!(Instant::now() < deadline, "atomic exit retry did not detach the terminal");
             std::thread::sleep(Duration::from_millis(5));
         }

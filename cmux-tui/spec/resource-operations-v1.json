@@ -820,7 +820,8 @@
               "kind",
               "subjects",
               "payload",
-              "record"
+              "record",
+              "terminal_output"
             ]
           }
         },
@@ -835,7 +836,7 @@
       "extra": false,
       "constraints": [
         "Patterns use Rust regex syntax and are compiled once per subscription.",
-        "field defaults to record and case_sensitive defaults to true."
+        "field defaults to record; terminal_output decodes exact terminal.output bytes; case_sensitive defaults to true."
       ]
     },
     "JournalFilter": {
@@ -902,6 +903,7 @@
       "constraints": [
         "Dimensions are ANDed. Values within kinds, classes, and subjects are ORed.",
         "A kind ending in .* matches that dotted namespace. Other kinds match exactly.",
+        "Sensitivity order is public, metadata, sensitive; a threshold includes lower levels and omission uses the transport cap (sensitive for local Unix, metadata remotely).",
         "Subscriptions never deliver secret records; remote transports are capped at metadata and redact authority and causal fields.",
         "Structured dimensions run before the optional compiled regex."
       ]
@@ -5206,6 +5208,40 @@
         "extra": false
       }
     },
+    "operation.unsupported": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "capability": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "restart_session"
+              ]
+            }
+          },
+          "session": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false
+      }
+    },
     "resource.not_found": {
       "retryable": false,
       "details": {
@@ -8735,6 +8771,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8752,7 +8789,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalCheckpointCreateResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.checkpoint.list": {
       "class": "read",
@@ -8765,7 +8802,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalCheckpointListResult"},
-      "errors": ["operation.failed", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.hook.list": {
       "class": "read",
@@ -8780,6 +8817,7 @@
       "result": {"kind": "ref", "name": "JournalHookListResult"},
       "errors": [
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8802,6 +8840,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8821,6 +8860,7 @@
       "result": {"kind": "ref", "name": "JournalProducerListResult"},
       "errors": [
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8843,6 +8883,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8862,7 +8903,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalRestorePreview"},
-      "errors": ["operation.failed", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.list": {
       "class": "read",
@@ -8875,7 +8916,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalSegmentListResult"},
-      "errors": ["operation.failed", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.seal": {
       "class": "mutation",
@@ -8890,7 +8931,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalSegmentSealResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.subscribe": {
       "class": "stream_open",
@@ -8941,6 +8982,7 @@
         "constraints": [
           "cursor and start are mutually exclusive.",
           "Omitting both starts at the current head and delivers only later records.",
+          "This stream never delivers secret records, with or without filter; remote transports are capped at metadata.",
           "For this operation Cursor.generation is the immutable session ID and Cursor.revision is the journal sequence."
         ]
       },
@@ -8964,6 +9006,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "operation.unsupported",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

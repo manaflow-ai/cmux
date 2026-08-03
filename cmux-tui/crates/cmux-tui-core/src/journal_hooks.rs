@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -15,7 +15,8 @@ use wait_timeout::ChildExt;
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 use crate::workspace_registry::{
-    JournalHookAttempt, JournalHookDelivery, JournalHookState, SessionJournalReader,
+    JournalHookAttempt, JournalHookDelivery, JournalHookScan, JournalHookState,
+    SessionJournalReader,
 };
 use crate::{JournalHookManifest, JournalSensitivity, Mux};
 
@@ -40,10 +41,15 @@ struct CompiledHook {
     manifest: JournalHookManifest,
     cursor_sequence: u64,
     filter: CompiledHookFilter,
-    catch_up_reader: Option<SessionJournalReader>,
 }
 
 struct CompiledHookFilter {
+    exact_kinds: HashSet<String>,
+    kind_prefixes: Vec<String>,
+    classes: [bool; 4],
+    has_class_filter: bool,
+    subject_kinds: HashSet<String>,
+    max_sensitivity: JournalSensitivity,
     regex: Option<CompiledHookRegex>,
 }
 
@@ -52,6 +58,7 @@ enum HookRegexField {
     Subjects,
     Payload,
     Record,
+    TerminalOutput,
 }
 
 struct CompiledHookRegex {
@@ -65,17 +72,60 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     if !mux.shared_journal_enabled() {
         return Ok(());
     }
+    if !mux.journal_hook_states()?.iter().any(|state| state.enabled)
+        || !mux.try_claim_journal_hook_dispatcher()
+    {
+        return Ok(());
+    }
     let weak = Arc::downgrade(mux);
-    std::thread::Builder::new()
-        .name("mux-session-journal-hooks".into())
-        .spawn(move || run_dispatcher(weak))?;
+    let spawned =
+        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
+            let mut claim = DispatcherClaim::new(weak.clone());
+            run_dispatcher(weak, &mut claim);
+        });
+    if let Err(error) = spawned {
+        mux.release_journal_hook_dispatcher();
+        return Err(error.into());
+    }
     Ok(())
 }
 
-fn run_dispatcher(mux: Weak<Mux>) {
+struct DispatcherClaim {
+    mux: Weak<Mux>,
+    claimed: bool,
+}
+
+impl DispatcherClaim {
+    const fn new(mux: Weak<Mux>) -> Self {
+        Self { mux, claimed: true }
+    }
+
+    fn release(&mut self) {
+        if self.claimed {
+            if let Some(mux) = self.mux.upgrade() {
+                mux.release_journal_hook_dispatcher();
+            }
+            self.claimed = false;
+        }
+    }
+
+    fn reclaim(&mut self, mux: &Mux) -> bool {
+        self.claimed = mux.try_claim_journal_hook_dispatcher();
+        self.claimed
+    }
+}
+
+impl Drop for DispatcherClaim {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
     let (completed_tx, completed_rx) = mpsc::channel::<DeliveryKey>();
     let mut hooks = HashMap::<HookVersion, CompiledHook>::new();
     let mut active = HashSet::<DeliveryKey>::new();
+    let mut catch_up_reader = None;
     let mut epoch = 0;
 
     loop {
@@ -88,16 +138,27 @@ fn run_dispatcher(mux: Weak<Mux>) {
         let states = match mux.journal_hook_states() {
             Ok(states) => states,
             Err(_) => {
-                epoch = mux.wait_for_shared_journal(epoch, ACTIVE_WAIT);
+                let journal = mux.shared_journal_handle();
+                drop(mux);
+                epoch = journal.wait(epoch, ACTIVE_WAIT);
                 continue;
             }
         };
         refresh_compiled_hooks(&mut hooks, states);
 
-        for hook in hooks.values_mut() {
-            if scan_hook(&mux, hook).is_err() {
-                hook.catch_up_reader = None;
+        if hooks.is_empty() && active.is_empty() {
+            claim.release();
+            let enabled = mux
+                .journal_hook_states()
+                .is_ok_and(|states| states.iter().any(|state| state.enabled));
+            if enabled && claim.reclaim(&mux) {
+                continue;
             }
+            return;
+        }
+
+        if scan_hooks(&mux, &mut hooks, &mut catch_up_reader).is_err() {
+            catch_up_reader = None;
         }
 
         if active.len() < MAX_ACTIVE_DELIVERIES {
@@ -141,7 +202,9 @@ fn run_dispatcher(mux: Weak<Mux>) {
         }
 
         let wait = if hooks.is_empty() && active.is_empty() { IDLE_WAIT } else { ACTIVE_WAIT };
-        epoch = mux.wait_for_shared_journal(epoch, wait);
+        let journal = mux.shared_journal_handle();
+        drop(mux);
+        epoch = journal.wait(epoch, wait);
     }
 }
 
@@ -164,6 +227,10 @@ fn refresh_compiled_hooks(
             manifest_version: state.manifest.manifest_version,
         };
         if let Some(hook) = hooks.get_mut(&key) {
+            if hook.manifest != state.manifest {
+                let Ok(filter) = CompiledHookFilter::new(&state.manifest) else { continue };
+                hook.filter = filter;
+            }
             hook.cursor_sequence = state.cursor_sequence;
             hook.manifest = state.manifest;
             continue;
@@ -175,85 +242,134 @@ fn refresh_compiled_hooks(
                 manifest: state.manifest,
                 cursor_sequence: state.cursor_sequence,
                 filter,
-                catch_up_reader: None,
             },
         );
     }
 }
 
-fn scan_hook(mux: &Mux, hook: &mut CompiledHook) -> anyhow::Result<()> {
+fn scan_hooks(
+    mux: &Mux,
+    hooks: &mut HashMap<HookVersion, CompiledHook>,
+    catch_up_reader: &mut Option<SessionJournalReader>,
+) -> anyhow::Result<()> {
     loop {
-        let page = hook_page(mux, hook)?;
-        if page.records.is_empty() {
-            if hook.cursor_sequence >= page.head_sequence {
-                hook.catch_up_reader = None;
-            }
-            return Ok(());
+        let mut cursor_groups = BTreeMap::<u64, Vec<HookVersion>>::new();
+        for (key, hook) in hooks.iter() {
+            cursor_groups.entry(hook.cursor_sequence).or_default().push(key.clone());
         }
-        let scanned_to = page.records.last().expect("non-empty page").record.sequence;
-        let causal_candidates = if hook.manifest.filter.include_causal_descendants {
-            Vec::new()
-        } else {
-            page.records
+        let mut progressed = false;
+        for (cursor, keys) in cursor_groups {
+            let page = hook_page(mux, cursor, catch_up_reader)?;
+            if page.records.is_empty() {
+                continue;
+            }
+            let scanned_to = page.records.last().expect("non-empty page").record.sequence;
+            anyhow::ensure!(scanned_to > cursor, "journal hook scan did not advance its cursor");
+            let causal_candidates = page
+                .records
                 .iter()
                 .filter(|document| document.record.causation_id.is_some())
                 .map(|document| document.record.event_id.clone())
-                .collect::<Vec<_>>()
-        };
-        let causal_descendants =
-            mux.journal_events_caused_by_hook(&hook.manifest.hook_id, &causal_candidates)?;
-        let matches = page
-            .records
-            .iter()
-            .filter(|document| {
-                !causal_descendants.contains(&document.record.event_id)
-                    && hook.filter.matches(&hook.manifest, document)
-            })
-            .map(|document| (document.record.event_id.clone(), document.record.sequence))
-            .collect::<Vec<_>>();
-        if !mux.schedule_journal_hook_deliveries(
-            &hook.manifest.hook_id,
-            hook.manifest.manifest_version,
-            hook.cursor_sequence,
-            scanned_to,
-            &matches,
-        )? {
-            return Ok(());
+                .collect::<Vec<_>>();
+            let causal_hook_ids = keys
+                .iter()
+                .filter_map(|key| hooks.get(key))
+                .filter(|hook| !hook.manifest.filter.include_causal_descendants)
+                .map(|hook| hook.manifest.hook_id.clone())
+                .collect::<Vec<_>>();
+            let causal_descendants = mux
+                .journal_events_caused_by_hooks(&causal_hook_ids, &causal_candidates)?
+                .into_iter()
+                .fold(
+                    HashMap::<String, HashSet<String>>::new(),
+                    |mut descendants, (hook_id, event_id)| {
+                        descendants.entry(hook_id).or_default().insert(event_id);
+                        descendants
+                    },
+                );
+            let scans =
+                keys.iter()
+                    .filter_map(|key| hooks.get(key))
+                    .map(|hook| JournalHookScan {
+                        hook_id: hook.manifest.hook_id.clone(),
+                        manifest_version: hook.manifest.manifest_version,
+                        expected_cursor: cursor,
+                        scanned_to,
+                        matches: page
+                            .records
+                            .iter()
+                            .filter(|document| {
+                                !causal_descendants.get(&hook.manifest.hook_id).is_some_and(
+                                    |events| events.contains(&document.record.event_id),
+                                ) && hook.filter.matches(&hook.manifest, document)
+                            })
+                            .map(|document| {
+                                (document.record.event_id.clone(), document.record.sequence)
+                            })
+                            .collect(),
+                    })
+                    .collect::<Vec<_>>();
+            let applied = mux.schedule_journal_hook_deliveries(&scans)?;
+            anyhow::ensure!(applied.len() == keys.len(), "journal hook scan result is incomplete");
+            for (key, applied) in keys.iter().zip(applied) {
+                if applied {
+                    if let Some(hook) = hooks.get_mut(key) {
+                        hook.cursor_sequence = scanned_to;
+                        progressed = true;
+                    }
+                }
+            }
         }
-        hook.cursor_sequence = scanned_to;
-        if scanned_to >= page.head_sequence {
-            hook.catch_up_reader = None;
+        if !progressed {
             return Ok(());
         }
     }
 }
 
 struct HookPage {
-    head_sequence: u64,
     records: Vec<Arc<JournalDocument>>,
 }
 
-fn hook_page(mux: &Mux, hook: &mut CompiledHook) -> anyhow::Result<HookPage> {
-    if let Some(reader) = &hook.catch_up_reader {
-        return reader.after(hook.cursor_sequence, HOOK_SCAN_PAGE_SIZE).map(|page| HookPage {
-            head_sequence: page.head_sequence,
-            records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
-        });
-    }
-    match mux.shared_journal_after(hook.cursor_sequence, HOOK_SCAN_PAGE_SIZE) {
-        SharedJournalRead::Page(page) => {
-            Ok(HookPage { head_sequence: page.head_sequence, records: page.records })
+fn hook_page(
+    mux: &Mux,
+    cursor: u64,
+    catch_up_reader: &mut Option<SessionJournalReader>,
+) -> anyhow::Result<HookPage> {
+    match mux.shared_journal_after(cursor, HOOK_SCAN_PAGE_SIZE) {
+        SharedJournalRead::Page(page) => Ok(HookPage { records: page.records }),
+        SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable => {
+            if catch_up_reader.is_none() {
+                *catch_up_reader = mux.session_journal_reader()?;
+            }
+            let reader = catch_up_reader
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("journal catch-up reader is unavailable"))?;
+            reader.after(cursor, HOOK_SCAN_PAGE_SIZE).map(|page| HookPage {
+                records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+            })
         }
-        SharedJournalRead::Gap { .. } => {
-            hook.catch_up_reader = mux.session_journal_reader()?;
-            hook_page(mux, hook)
-        }
-        SharedJournalRead::Unavailable => anyhow::bail!("journal fanout is unavailable"),
     }
 }
 
 impl CompiledHookFilter {
     fn new(manifest: &JournalHookManifest) -> anyhow::Result<Self> {
+        let mut exact_kinds = HashSet::new();
+        let mut kind_prefixes = Vec::new();
+        for kind in &manifest.filter.kinds {
+            if let Some(prefix) = kind.strip_suffix(".*") {
+                kind_prefixes.push(format!("{prefix}."));
+            } else {
+                exact_kinds.insert(kind.clone());
+            }
+        }
+        let mut classes = [false; 4];
+        for class in &manifest.filter.classes {
+            classes[class_index(*class)] = true;
+        }
+        let has_class_filter = !manifest.filter.classes.is_empty();
+        let subject_kinds = manifest.filter.subject_kinds.iter().cloned().collect();
+        let max_sensitivity =
+            manifest.filter.max_sensitivity.unwrap_or(JournalSensitivity::Metadata);
         let regex = manifest
             .filter
             .regex
@@ -264,6 +380,7 @@ impl CompiledHookFilter {
                     "subjects" => HookRegexField::Subjects,
                     "payload" => HookRegexField::Payload,
                     "record" => HookRegexField::Record,
+                    "terminal_output" => HookRegexField::TerminalOutput,
                     _ => anyhow::bail!("invalid hook regex field"),
                 };
                 let matcher = RegexBuilder::new(&regex.pattern)
@@ -274,7 +391,15 @@ impl CompiledHookFilter {
                 Ok(CompiledHookRegex { field, matcher })
             })
             .transpose()?;
-        Ok(Self { regex })
+        Ok(Self {
+            exact_kinds,
+            kind_prefixes,
+            classes,
+            has_class_filter,
+            subject_kinds,
+            max_sensitivity,
+            regex,
+        })
     }
 
     fn matches(&self, manifest: &JournalHookManifest, document: &JournalDocument) -> bool {
@@ -288,27 +413,21 @@ impl CompiledHookFilter {
         {
             return false;
         }
-        if !manifest.filter.kinds.is_empty()
-            && !manifest.filter.kinds.iter().any(|filter| {
-                filter.strip_suffix(".*").map_or(record.kind == *filter, |prefix| {
-                    record.kind.strip_prefix(prefix).is_some_and(|suffix| suffix.starts_with('.'))
-                })
-            })
+        if (!self.exact_kinds.is_empty() || !self.kind_prefixes.is_empty())
+            && !self.exact_kinds.contains(&record.kind)
+            && !self.kind_prefixes.iter().any(|prefix| record.kind.starts_with(prefix))
         {
             return false;
         }
-        if !manifest.filter.classes.is_empty() && !manifest.filter.classes.contains(&record.class) {
+        if self.has_class_filter && !self.classes[class_index(record.class)] {
             return false;
         }
-        if !manifest.filter.subject_kinds.is_empty()
-            && !record.subjects.iter().any(|subject| {
-                manifest.filter.subject_kinds.iter().any(|kind| kind == &subject.kind)
-            })
+        if !self.subject_kinds.is_empty()
+            && !record.subjects.iter().any(|subject| self.subject_kinds.contains(&subject.kind))
         {
             return false;
         }
-        let maximum = manifest.filter.max_sensitivity.unwrap_or(JournalSensitivity::Metadata);
-        if sensitivity_rank(record.sensitivity) > sensitivity_rank(maximum) {
+        if sensitivity_rank(record.sensitivity) > sensitivity_rank(self.max_sensitivity) {
             return false;
         }
         self.regex.as_ref().is_none_or(|regex| regex.matches(document))
@@ -320,8 +439,15 @@ impl CompiledHookRegex {
         match self.field {
             HookRegexField::Kind => self.matcher.is_match(document.record.kind.as_bytes()),
             HookRegexField::Subjects => self.matcher.is_match(document.subjects_bytes()),
-            HookRegexField::Payload => self.matcher.is_match(document.payload_bytes()),
-            HookRegexField::Record => self.matcher.is_match(document.record_bytes()),
+            HookRegexField::Payload => {
+                document.payload_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            HookRegexField::Record => {
+                document.record_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            HookRegexField::TerminalOutput => {
+                document.terminal_output_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
         }
     }
 }
@@ -341,6 +467,7 @@ fn spawn_delivery(
     let spawned = std::thread::Builder::new()
         .name(format!("journal-hook-{}", delivery.manifest.hook_id))
         .spawn(move || {
+            let _completion = CompletionGuard { key: Some(key), sender: completed };
             let (exit_code, error) = execute_delivery(&delivery, &attempt);
             if let Some(mux) = mux.upgrade() {
                 let _ = mux.finish_journal_hook_delivery(
@@ -350,7 +477,6 @@ fn spawn_delivery(
                     error.as_deref(),
                 );
             }
-            let _ = completed.send(key);
         });
     if let Err(error) = spawned {
         if let Some(mux) = fallback_mux.upgrade() {
@@ -365,11 +491,27 @@ fn spawn_delivery(
     }
 }
 
+struct CompletionGuard {
+    key: Option<DeliveryKey>,
+    sender: mpsc::Sender<DeliveryKey>,
+}
+
+impl Drop for CompletionGuard {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            let _ = self.sender.send(key);
+        }
+    }
+}
+
 fn execute_delivery(
     delivery: &JournalHookDelivery,
     attempt: &JournalHookAttempt,
 ) -> (Option<i32>, Option<String>) {
     let argv = &delivery.manifest.exec.argv;
+    let Some((program, arguments)) = argv.split_first() else {
+        return (None, Some("hook argv is empty".into()));
+    };
     let session_id = delivery
         .event
         .subjects
@@ -397,9 +539,9 @@ fn execute_delivery(
         Err(error) => return (None, Some(format!("encode hook envelope: {error}"))),
     };
     input.push(b'\n');
-    let mut command = Command::new(&argv[0]);
+    let mut command = Command::new(program);
     command
-        .args(&argv[1..])
+        .args(arguments)
         .env_clear()
         .env("CMUX_JOURNAL_HOOK_ID", &delivery.manifest.hook_id)
         .env("CMUX_JOURNAL_HOOK_VERSION", delivery.manifest.manifest_version.to_string())
@@ -428,6 +570,7 @@ fn execute_delivery(
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
+    let process_group = child.id();
     let Some(mut stdin) = child.stdin.take() else {
         terminate_hook_child(&mut child);
         return (None, Some("hook stdin pipe is unavailable".into()));
@@ -447,7 +590,7 @@ fn execute_delivery(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     match child.wait_timeout(timeout) {
         Ok(Some(status)) => {
-            terminate_hook_process_group(&child);
+            terminate_hook_process_group(process_group);
             cancel_stdin.store(true, Ordering::Release);
             let code = status.code();
             let _ = stdin_writer.join();
@@ -539,9 +682,9 @@ fn write_hook_input(
     stdin.write_all(input)
 }
 
-fn terminate_hook_process_group(child: &std::process::Child) {
+fn terminate_hook_process_group(process_group: u32) {
     #[cfg(unix)]
-    if let Ok(process_group) = i32::try_from(child.id()) {
+    if let Ok(process_group) = i32::try_from(process_group) {
         // The command starts in a fresh process group, so a negative PID
         // targets only this hook and descendants that remain in its group.
         unsafe {
@@ -551,7 +694,7 @@ fn terminate_hook_process_group(child: &std::process::Child) {
 }
 
 fn terminate_hook_child(child: &mut std::process::Child) {
-    terminate_hook_process_group(child);
+    terminate_hook_process_group(child.id());
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -565,6 +708,15 @@ const fn sensitivity_rank(value: JournalSensitivity) -> u8 {
     }
 }
 
+const fn class_index(value: crate::JournalClass) -> usize {
+    match value {
+        crate::JournalClass::State => 0,
+        crate::JournalClass::Observation => 1,
+        crate::JournalClass::Effect => 2,
+        crate::JournalClass::Checkpoint => 3,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,6 +726,7 @@ mod tests {
         JournalProducerManifest, JournalReplayPolicy, JournalSubject, SessionJournalRecord,
     };
     use serde_json::Value;
+    use sha2::Digest;
 
     fn document(kind: &str, payload: Value) -> JournalDocument {
         JournalDocument::new(SessionJournalRecord {
@@ -595,6 +748,39 @@ mod tests {
             payload,
             resource_revision: None,
             previous_resource_revision: None,
+            terminal_output: None,
+        })
+    }
+
+    fn terminal_document(bytes: &[u8]) -> JournalDocument {
+        let digest = sha2::Sha256::digest(bytes);
+        JournalDocument::new(SessionJournalRecord {
+            sequence: 1,
+            event_id: "event_terminal_test".into(),
+            schema_version: 1,
+            kind: "terminal.output".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "terminal_runtime".into(), id: "term_test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "terminal".into(), id: "term_test".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({
+                "format":"cmux.terminal-output.v1",
+                "encoding":"raw",
+                "byte_count":bytes.len().to_string(),
+                "sha256":format!("{digest:x}"),
+                "stream_offset_start":"0",
+                "stream_offset_end":bytes.len().to_string(),
+            }),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: Some(Arc::from(bytes)),
         })
     }
 
@@ -627,6 +813,21 @@ mod tests {
         let filter = CompiledHookFilter::new(&manifest).unwrap();
         assert!(filter.matches(&manifest, &document("resource.changed", json!({"v":"needle-42"}))));
         assert!(!filter.matches(&manifest, &document("resource.changed", json!({"v":"other"}))));
+    }
+
+    #[test]
+    fn compiled_hook_regex_matches_exact_terminal_output_bytes() {
+        let mut manifest = manifest();
+        manifest.permissions.push("journal.read.sensitive".into());
+        manifest.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
+        manifest.filter.regex = Some(crate::JournalHookRegex {
+            pattern: "error-[0-9]+".into(),
+            field: "terminal_output".into(),
+            case_sensitive: true,
+        });
+        let filter = CompiledHookFilter::new(&manifest).unwrap();
+        assert!(filter.matches(&manifest, &terminal_document(b"prompt> error-42\r\n")));
+        assert!(!filter.matches(&manifest, &terminal_document(b"prompt> ready\r\n")));
     }
 
     #[test]
@@ -772,9 +973,12 @@ mod tests {
             )
             .unwrap();
         let causal = mux
-            .journal_events_caused_by_hook("test_hook", std::slice::from_ref(&child.event_id))
+            .journal_events_caused_by_hooks(
+                &["test_hook".into()],
+                std::slice::from_ref(&child.event_id),
+            )
             .unwrap();
-        assert!(causal.contains(&child.event_id));
+        assert!(causal.contains(&("test_hook".into(), child.event_id.clone())));
 
         loop {
             let cursor = mux

@@ -2061,7 +2061,11 @@ fn add_journal_subscription(
                 return Err(UsageError::new("--regex must contain 1 to 1024 UTF-8 bytes"));
             }
             let field = field.unwrap_or_else(|| "record".into());
-            validate_one_of("--regex-field", &field, &["kind", "subjects", "payload", "record"])?;
+            validate_one_of(
+                "--regex-field",
+                &field,
+                &["kind", "subjects", "payload", "record", "terminal_output"],
+            )?;
             filter.insert(
                 "regex".into(),
                 json!({

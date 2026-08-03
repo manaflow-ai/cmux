@@ -96,6 +96,8 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE UNIQUE INDEX IF NOT EXISTS live_resource_tab_position
            ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX IF NOT EXISTS resource_tabs_by_content
+           ON resource_tabs(content_id);
          CREATE UNIQUE INDEX IF NOT EXISTS live_resource_browser_view
            ON resource_tabs(content_id)
            WHERE content_kind = 'browser' AND deleted_revision IS NULL;

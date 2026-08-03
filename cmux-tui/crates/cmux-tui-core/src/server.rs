@@ -87,6 +87,7 @@ pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
+pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -108,6 +109,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
+        FRONTEND_JOURNAL_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
@@ -542,6 +544,9 @@ enum Command {
         projection: Value,
         #[serde(flatten)]
         mutation: MutationRequest,
+    },
+    JournalFrontendEvent {
+        event: crate::FrontendJournalEvent,
     },
     ExportLayout {
         #[serde(default)]
@@ -4344,9 +4349,14 @@ struct SessionJournalStreamStart {
 }
 
 struct JournalStreamFilter {
-    kinds: Vec<String>,
-    classes: Vec<JournalClass>,
-    subjects: Vec<JournalSubjectFilter>,
+    exact_kinds: HashSet<String>,
+    kind_prefixes: Vec<String>,
+    classes: [bool; 4],
+    has_class_filter: bool,
+    subject_kinds: HashSet<String>,
+    subject_ids: HashSet<String>,
+    exact_subjects: HashMap<String, HashSet<String>>,
+    has_subject_filter: bool,
     max_sensitivity: Option<JournalSensitivity>,
     regex: Option<JournalCompiledRegex>,
 }
@@ -4354,18 +4364,18 @@ struct JournalStreamFilter {
 impl Default for JournalStreamFilter {
     fn default() -> Self {
         Self {
-            kinds: Vec::new(),
-            classes: Vec::new(),
-            subjects: Vec::new(),
+            exact_kinds: HashSet::new(),
+            kind_prefixes: Vec::new(),
+            classes: [false; 4],
+            has_class_filter: false,
+            subject_kinds: HashSet::new(),
+            subject_ids: HashSet::new(),
+            exact_subjects: HashMap::new(),
+            has_subject_filter: false,
             max_sensitivity: Some(JournalSensitivity::Sensitive),
             regex: None,
         }
     }
-}
-
-struct JournalSubjectFilter {
-    kind: Option<String>,
-    id: Option<String>,
 }
 
 enum JournalRegexField {
@@ -4373,6 +4383,7 @@ enum JournalRegexField {
     Subjects,
     Payload,
     Record,
+    TerminalOutput,
 }
 
 struct JournalCompiledRegex {
@@ -4382,17 +4393,30 @@ struct JournalCompiledRegex {
 
 impl JournalCompiledRegex {
     fn parse(value: &Value) -> Result<Self, ResourceError> {
-        let object = value.as_object().expect("catalog validates journal regex filters");
-        let pattern = object
-            .get("pattern")
-            .and_then(Value::as_str)
-            .expect("catalog validates journal regex patterns");
+        let object = value.as_object().ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("filter.regex"),
+                "journal regex is not an object",
+            )
+        })?;
+        let pattern = object.get("pattern").and_then(Value::as_str).ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("filter.regex.pattern"),
+                "journal regex pattern is absent",
+            )
+        })?;
         let field = match object.get("field").and_then(Value::as_str).unwrap_or("record") {
             "kind" => JournalRegexField::Kind,
             "subjects" => JournalRegexField::Subjects,
             "payload" => JournalRegexField::Payload,
             "record" => JournalRegexField::Record,
-            _ => unreachable!("catalog validates journal regex fields"),
+            "terminal_output" => JournalRegexField::TerminalOutput,
+            _ => {
+                return Err(ResourceError::validation_invalid(
+                    Some("filter.regex.field"),
+                    "journal regex field is invalid",
+                ));
+            }
         };
         let case_sensitive = object.get("case_sensitive").and_then(Value::as_bool).unwrap_or(true);
         let matcher = BytesRegexBuilder::new(pattern)
@@ -4414,81 +4438,119 @@ impl JournalCompiledRegex {
         match self.field {
             JournalRegexField::Kind => self.matcher.is_match(record.kind.as_bytes()),
             JournalRegexField::Subjects => self.matcher.is_match(document.subjects_bytes()),
-            JournalRegexField::Payload => self.matcher.is_match(document.payload_bytes()),
-            JournalRegexField::Record => self.matcher.is_match(document.record_bytes()),
+            JournalRegexField::Payload => {
+                document.payload_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            JournalRegexField::Record => {
+                document.record_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
+            JournalRegexField::TerminalOutput => {
+                document.terminal_output_bytes().is_some_and(|bytes| self.matcher.is_match(bytes))
+            }
         }
     }
 
     fn exposes_payload_or_record(&self) -> bool {
-        matches!(self.field, JournalRegexField::Payload | JournalRegexField::Record)
+        matches!(
+            self.field,
+            JournalRegexField::Payload
+                | JournalRegexField::Record
+                | JournalRegexField::TerminalOutput
+        )
     }
 }
 
 impl JournalStreamFilter {
     fn parse(value: Option<&Value>) -> Result<Self, ResourceError> {
         let Some(value) = value else { return Ok(Self::default()) };
-        let object = value.as_object().expect("catalog validates journal filters");
-        let kinds = object
-            .get("kinds")
-            .map(|value| {
-                value
-                    .as_array()
-                    .expect("catalog validates journal kind filters")
-                    .iter()
-                    .map(|value| {
-                        let kind =
-                            value.as_str().expect("catalog validates journal kind filter strings");
-                        validate_journal_kind_filter(kind)?;
-                        Ok(kind.to_string())
-                    })
-                    .collect::<Result<Vec<_>, ResourceError>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
-        let classes = object
-            .get("classes")
-            .map(|value| {
-                value
-                    .as_array()
-                    .expect("catalog validates journal class filters")
-                    .iter()
-                    .map(|value| {
-                        serde_json::from_value::<JournalClass>(value.clone()).map_err(|_| {
-                            ResourceError::validation_invalid(
-                                Some("filter.classes"),
-                                "journal class filter is invalid",
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ResourceError>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
-        let subjects = object
-            .get("subjects")
-            .map(|value| {
-                value
-                    .as_array()
-                    .expect("catalog validates journal subject filters")
-                    .iter()
-                    .map(|value| {
-                        let subject = value
-                            .as_object()
-                            .expect("catalog validates journal subject filter objects");
-                        let kind = subject.get("kind").and_then(Value::as_str).map(str::to_string);
-                        let id = subject.get("id").and_then(Value::as_str).map(str::to_string);
-                        if kind.is_none() && id.is_none() {
-                            return Err(ResourceError::validation_invalid(
-                                Some("filter.subjects"),
-                                "journal subject filters require kind or id",
-                            ));
-                        }
-                        Ok(JournalSubjectFilter { kind, id })
-                    })
-                    .collect::<Result<Vec<_>, ResourceError>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
+        let object = value.as_object().ok_or_else(|| {
+            ResourceError::validation_invalid(Some("filter"), "journal filter is not an object")
+        })?;
+        let mut exact_kinds = HashSet::new();
+        let mut kind_prefixes = Vec::new();
+        if let Some(kinds) = object.get("kinds") {
+            let kinds = kinds.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.kinds"),
+                    "journal kind filters are not an array",
+                )
+            })?;
+            for kind in kinds {
+                let kind = kind.as_str().ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("filter.kinds"),
+                        "journal kind filter is not a string",
+                    )
+                })?;
+                validate_journal_kind_filter(kind)?;
+                if let Some(prefix) = kind.strip_suffix(".*") {
+                    kind_prefixes.push(format!("{prefix}."));
+                } else {
+                    exact_kinds.insert(kind.to_string());
+                }
+            }
+        }
+        let mut classes = [false; 4];
+        let mut has_class_filter = false;
+        if let Some(values) = object.get("classes") {
+            let values = values.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.classes"),
+                    "journal class filters are not an array",
+                )
+            })?;
+            has_class_filter = !values.is_empty();
+            for value in values {
+                let class =
+                    serde_json::from_value::<JournalClass>(value.clone()).map_err(|_| {
+                        ResourceError::validation_invalid(
+                            Some("filter.classes"),
+                            "journal class filter is invalid",
+                        )
+                    })?;
+                classes[journal_class_index(class)] = true;
+            }
+        }
+        let mut subject_kinds = HashSet::new();
+        let mut subject_ids = HashSet::new();
+        let mut exact_subjects = HashMap::<String, HashSet<String>>::new();
+        let mut has_subject_filter = false;
+        if let Some(values) = object.get("subjects") {
+            let values = values.as_array().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("filter.subjects"),
+                    "journal subject filters are not an array",
+                )
+            })?;
+            has_subject_filter = !values.is_empty();
+            for value in values {
+                let subject = value.as_object().ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("filter.subjects"),
+                        "journal subject filter is not an object",
+                    )
+                })?;
+                let kind = subject.get("kind").and_then(Value::as_str);
+                let id = subject.get("id").and_then(Value::as_str);
+                match (kind, id) {
+                    (Some(kind), Some(id)) => {
+                        exact_subjects.entry(kind.into()).or_default().insert(id.into());
+                    }
+                    (Some(kind), None) => {
+                        subject_kinds.insert(kind.into());
+                    }
+                    (None, Some(id)) => {
+                        subject_ids.insert(id.into());
+                    }
+                    (None, None) => {
+                        return Err(ResourceError::validation_invalid(
+                            Some("filter.subjects"),
+                            "journal subject filters require kind or id",
+                        ));
+                    }
+                }
+            }
+        }
         let max_sensitivity = object
             .get("max_sensitivity")
             .map(|value| {
@@ -4502,24 +4564,35 @@ impl JournalStreamFilter {
             .transpose()?
             .or(Some(JournalSensitivity::Sensitive));
         let regex = object.get("regex").map(JournalCompiledRegex::parse).transpose()?;
-        Ok(Self { kinds, classes, subjects, max_sensitivity, regex })
+        Ok(Self {
+            exact_kinds,
+            kind_prefixes,
+            classes,
+            has_class_filter,
+            subject_kinds,
+            subject_ids,
+            exact_subjects,
+            has_subject_filter,
+            max_sensitivity,
+            regex,
+        })
     }
 
     fn matches(&self, document: &JournalDocument) -> bool {
         let record = &document.record;
-        let kind_matches = self.kinds.is_empty()
-            || self.kinds.iter().any(|filter| {
-                filter.strip_suffix(".*").map_or(record.kind == *filter, |prefix| {
-                    record.kind.strip_prefix(prefix).is_some_and(|suffix| suffix.starts_with('.'))
-                })
-            });
-        let class_matches = self.classes.is_empty() || self.classes.contains(&record.class);
-        let subject_matches = self.subjects.is_empty()
-            || self.subjects.iter().any(|filter| {
-                record.subjects.iter().any(|subject| {
-                    filter.kind.as_deref().is_none_or(|kind| subject.kind == kind)
-                        && filter.id.as_deref().is_none_or(|id| subject.id == id)
-                })
+        let kind_matches = (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())
+            || self.exact_kinds.contains(&record.kind)
+            || self.kind_prefixes.iter().any(|prefix| record.kind.starts_with(prefix));
+        let class_matches =
+            !self.has_class_filter || self.classes[journal_class_index(record.class)];
+        let subject_matches = !self.has_subject_filter
+            || record.subjects.iter().any(|subject| {
+                self.subject_kinds.contains(&subject.kind)
+                    || self.subject_ids.contains(&subject.id)
+                    || self
+                        .exact_subjects
+                        .get(&subject.kind)
+                        .is_some_and(|ids| ids.contains(&subject.id))
             });
         let sensitivity_matches = self.max_sensitivity.is_none_or(|maximum| {
             journal_sensitivity_rank(record.sensitivity) <= journal_sensitivity_rank(maximum)
@@ -4558,6 +4631,15 @@ const fn journal_sensitivity_rank(sensitivity: JournalSensitivity) -> u8 {
         JournalSensitivity::Metadata => 1,
         JournalSensitivity::Sensitive => 2,
         JournalSensitivity::Secret => 3,
+    }
+}
+
+const fn journal_class_index(class: JournalClass) -> usize {
+    match class {
+        JournalClass::State => 0,
+        JournalClass::Observation => 1,
+        JournalClass::Effect => 2,
+        JournalClass::Checkpoint => 3,
     }
 }
 
@@ -5137,7 +5219,7 @@ fn resource_session_id(
         .ok_or_else(|| ResourceError::not_found("session", "<resolved>"))
 }
 
-fn public_client_id(
+pub(crate) fn public_client_id(
     session_id: &SessionPublicId,
     client: u64,
 ) -> Result<ClientPublicId, ResourceError> {
@@ -6766,12 +6848,13 @@ fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
 }
 
 fn remote_journal_record_value(document: &JournalDocument) -> Value {
-    let mut value = document.wire_value().clone();
-    let object = value.as_object_mut().expect("journal wire value is an object");
+    let Value::Object(mut object) = document.wire_value().clone() else {
+        return Value::Null;
+    };
     object.insert("authority".into(), Value::Null);
     object.insert("causation_id".into(), Value::Null);
     object.insert("correlation_id".into(), Value::Null);
-    value
+    Value::Object(object)
 }
 
 fn handle_journal_extension_request(
@@ -6979,6 +7062,7 @@ fn handle_journal_extension_request(
 
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
     let message = error.to_string();
+    eprintln!("cmux-tui: {operation} failed: {error:#}");
     if message.contains("idempotency key was retried with a different payload") {
         return ResourceError::idempotency_conflict("<redacted>", operation);
     }
@@ -6990,9 +7074,9 @@ fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceErr
         || message.contains("causation")
         || message.contains("payload")
     {
-        return ResourceError::validation_invalid(None, message);
+        return ResourceError::validation_invalid(None, "journal request is invalid");
     }
-    ResourceError::operation_failed(operation, "journal operation failed", json!({"error":message}))
+    ResourceError::operation_failed(operation, "journal operation failed", json!({}))
 }
 
 fn session_journal_page(
@@ -7032,22 +7116,36 @@ fn prepare_session_journal_stream(
     let head_sequence = mux
         .session_journal_after(0, 1)
         .map_err(|error| {
+            eprintln!("cmux-tui: read session journal head: {error:#}");
             ResourceError::operation_failed(
                 "session.journal.subscribe",
                 "could not read the session journal",
-                json!({"error":error.to_string()}),
+                json!({}),
             )
         })?
         .head_sequence;
     let current_cursor = journal_cursor(&session_id, head_sequence);
-    let requested_cursor = request.fields.get("cursor").map(|cursor| {
-        let generation =
-            cursor["generation"].as_str().expect("catalog validates journal cursor generation");
-        let sequence = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
-            .map(WireDecimal::get)
-            .expect("catalog validates journal cursor revision");
-        (generation, sequence)
-    });
+    let requested_cursor = request
+        .fields
+        .get("cursor")
+        .map(|cursor| {
+            let generation = cursor["generation"].as_str().ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("cursor.generation"),
+                    "journal cursor generation is invalid",
+                )
+            })?;
+            let sequence = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+                .map(WireDecimal::get)
+                .map_err(|_| {
+                    ResourceError::validation_invalid(
+                        Some("cursor.revision"),
+                        "journal cursor revision is invalid",
+                    )
+                })?;
+            Ok((generation, sequence))
+        })
+        .transpose()?;
     let last_sequence = if let Some((generation, sequence)) = requested_cursor {
         if generation != session_id.as_str() || sequence > head_sequence {
             return Err(ResourceError::new(
@@ -7076,10 +7174,11 @@ fn prepare_session_journal_stream(
     };
     let reader = if shared_fanout && last_sequence < head_sequence {
         mux.session_journal_reader().map_err(|error| {
+            eprintln!("cmux-tui: open session journal catch-up reader: {error:#}");
             ResourceError::operation_failed(
                 "session.journal.subscribe",
                 "could not open the session journal catch-up reader",
-                json!({"error":error.to_string()}),
+                json!({}),
             )
         })?
     } else {
@@ -7821,6 +7920,7 @@ fn pane_json(
     };
     json!({
         "id": id,
+        "pane_resource_id": pane.public_id,
         "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
         "name": pane.name,
         "active_tab": pane.active_tab,
@@ -7834,8 +7934,16 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            let tab_resource_id = surface
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| &identity.tab_id);
+            let content_resource_id = surface
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| identity.content_id.as_str());
             json!({
                 "surface": sid,
+                "tab_resource_id": tab_resource_id,
+                "content_resource_id": content_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
                 "terminal_incarnation": terminal_identity
@@ -7879,6 +7987,7 @@ fn screen_json(
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
         "id": screen.id,
+        "screen_resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
         "active": active,
@@ -7941,6 +8050,7 @@ fn workspace_json(
 ) -> Value {
     json!({
         "id": workspace.id,
+        "workspace_resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
@@ -9297,6 +9407,12 @@ fn handle_command_with_cancellation(
             let mut value = serde_json::to_value(commit.projection)?;
             value["replayed"] = json!(commit.replayed);
             Ok(value)
+        }
+        Command::JournalFrontendEvent { event } => {
+            let session_id = mux.session_public_id();
+            let principal_id = public_client_id(&session_id, client)?.to_string();
+            mux.journal_frontend_event(principal_id, event)?;
+            Ok(json!({"committed":true}))
         }
         Command::ExportLayout { screen } => {
             mux.with_state(|state| export_layout_json(state, screen))
@@ -13157,6 +13273,72 @@ mod tests {
     }
 
     #[test]
+    fn session_journal_stream_regex_matches_exact_terminal_output_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-terminal-regex-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("terminal-regex", SurfaceOptions::default(), &root).unwrap();
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000041").unwrap();
+        let output = b"ready\xff\x00fatal: SIMD needle\r\n".to_vec();
+        mux.journal_terminal_output(
+            Arc::new(terminal_id),
+            Arc::from("terminal-regex-generation"),
+            output.clone(),
+        );
+        mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
+            event_id: "event_terminal_regex_barrier".into(),
+            generation: "frontend_terminal_regex_generation".into(),
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        })
+        .unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000041";
+        let open = resource_request(
+            "journal-terminal-regex-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "filter":{
+                    "kinds":["terminal.output"],
+                    "max_sensitivity":"sensitive",
+                    "regex":{
+                        "pattern":"fatal: SIMD [a-z]+",
+                        "field":"terminal_output",
+                        "case_sensitive":true
+                    }
+                }
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let item = pop_json(&outbound);
+        assert_eq!(item["item"]["kind"], "terminal.output");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(item["item"]["payload"]["data"].as_str().unwrap())
+                .unwrap(),
+            output
+        );
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     #[ignore = "manual throughput probe"]
     fn journal_compiled_regex_throughput_probe() {
         let document = JournalDocument::new(SessionJournalRecord {
@@ -13178,6 +13360,7 @@ mod tests {
             payload: json!({"message":"approval-42 is ready"}),
             resource_revision: None,
             previous_resource_revision: None,
+            terminal_output: None,
         });
         let filter = JournalStreamFilter::parse(Some(&json!({
             "kinds":["plugin.benchmark.*"],
@@ -13204,6 +13387,65 @@ mod tests {
             "journal compiled-regex filter: {iterations} records in {elapsed:?}, {per_second:.0} records/s"
         );
         assert_eq!(matched, iterations);
+
+        let mut output = vec![b'x'; 256 * 1024];
+        let needle = b"fatal: SIMD needle";
+        let needle_start = output.len() - needle.len();
+        output[needle_start..].copy_from_slice(needle);
+        let output_bytes = output.len();
+        let terminal_document = JournalDocument::new(SessionJournalRecord {
+            sequence: 2,
+            event_id: "event_terminal_benchmark".into(),
+            schema_version: 1,
+            kind: "terminal.output".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 2,
+            committed_at_ms: 2,
+            producer: JournalProducer { kind: "terminal_runtime".into(), id: "benchmark".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "terminal".into(), id: "benchmark".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"format":"cmux.terminal-output.v1"}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: Some(Arc::from(output)),
+        });
+        let terminal_filter = JournalStreamFilter::parse(Some(&json!({
+            "max_sensitivity":"sensitive",
+            "regex":{
+                "pattern":"fatal: SIMD needle",
+                "field":"terminal_output",
+                "case_sensitive":true
+            }
+        })))
+        .unwrap();
+        let terminal_iterations = 8_192_u64;
+        let started = Instant::now();
+        let mut terminal_matches = 0_u64;
+        for _ in 0..terminal_iterations {
+            if std::hint::black_box(&terminal_filter)
+                .matches(std::hint::black_box(&terminal_document))
+            {
+                terminal_matches += 1;
+            }
+        }
+        let elapsed = started.elapsed();
+        let gibibytes_per_second = output_bytes as f64 * terminal_iterations as f64
+            / (1024.0 * 1024.0 * 1024.0)
+            / elapsed.as_secs_f64();
+        eprintln!(
+            "journal terminal-output regex: {} MiB in {elapsed:?}, {gibibytes_per_second:.1} GiB/s",
+            output_bytes * usize::try_from(terminal_iterations).unwrap() / (1024 * 1024)
+        );
+        assert_eq!(terminal_matches, terminal_iterations);
+        assert!(
+            gibibytes_per_second >= 1.0,
+            "terminal-output regex regressed: {gibibytes_per_second:.1} GiB/s"
+        );
     }
 
     #[test]
@@ -13352,9 +13594,8 @@ mod tests {
         assert!(handle_connection_message(&mux, client, &invalid, &writer, &scheduler));
         let rejected = pop_json(&outbound);
         assert_eq!(rejected["error"]["code"], "validation.invalid");
-        assert!(
-            rejected["error"]["message"].as_str().unwrap().contains("does not match its schema")
-        );
+        assert_eq!(rejected["error"]["message"], "journal request is invalid");
+        assert_eq!(rejected["error"]["details"], json!({"reason":"journal request is invalid"}));
 
         let subscribe = resource_request(
             "journal-plugin-subscribe",
@@ -13866,7 +14107,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 22);
+        assert_eq!(connection_operations, 32);
     }
 
     #[test]
@@ -14616,6 +14857,7 @@ mod tests {
             std::process::id(),
             nonce % 1_000_000_000
         ));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
         let mut client = transport::connect(&path).unwrap();
@@ -14701,6 +14943,7 @@ mod tests {
             std::process::id(),
             nonce % 1_000_000_000
         ));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
         let mut client = transport::connect(&path).unwrap();
@@ -14775,6 +15018,7 @@ mod tests {
             std::process::id(),
             nonce % 1_000_000_000
         ));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
         let mut client = transport::connect(&path).unwrap();

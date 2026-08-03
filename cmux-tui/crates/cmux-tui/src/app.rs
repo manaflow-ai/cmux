@@ -11,7 +11,9 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{
+    Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel, sync_channel,
+};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -19,13 +21,13 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GraphicsStatus, GuardedMouseEncode, LayoutUndoError,
-    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
-    PairingChallenge, PaneId, PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn,
-    ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
-    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
-    split_sides, zellij_default_pane_layout,
+    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
+    GraphicsStatus, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH,
+    MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId, PointerSemanticProbe,
+    PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId,
+    ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -322,6 +324,80 @@ impl SessionEventWorker {
 impl Drop for SessionEventWorker {
     fn drop(&mut self) {
         self.stop_and_join();
+    }
+}
+
+enum FrontendJournalMessage {
+    Event(Session, FrontendJournalEvent),
+    Stop,
+}
+
+struct FrontendJournalWorker {
+    sender: Option<Sender<FrontendJournalMessage>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl FrontendJournalWorker {
+    fn spawn() -> anyhow::Result<Self> {
+        let (sender, receiver) = channel();
+        let worker = std::thread::Builder::new()
+            .name("frontend-session-journal".into())
+            .spawn(move || run_frontend_journal_worker(receiver))?;
+        Ok(Self { sender: Some(sender), worker: Some(worker) })
+    }
+
+    #[cfg(test)]
+    const fn disabled() -> Self {
+        Self { sender: None, worker: None }
+    }
+
+    fn send(&self, session: Session, event: FrontendJournalEvent) {
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(FrontendJournalMessage::Event(session, event));
+        }
+    }
+
+    fn stop_and_join(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(FrontendJournalMessage::Stop);
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for FrontendJournalWorker {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
+fn run_frontend_journal_worker(receiver: Receiver<FrontendJournalMessage>) {
+    let mut pending = VecDeque::new();
+    loop {
+        if pending.is_empty() {
+            match receiver.recv() {
+                Ok(FrontendJournalMessage::Event(session, event)) => {
+                    pending.push_back((session, event));
+                }
+                Ok(FrontendJournalMessage::Stop) | Err(_) => return,
+            }
+        }
+        let committed = pending
+            .front()
+            .is_some_and(|(session, event)| session.journal_frontend_event(event.clone()).is_ok());
+        if committed {
+            pending.pop_front();
+            continue;
+        }
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(FrontendJournalMessage::Event(session, event)) => {
+                pending.push_back((session, event));
+            }
+            Ok(FrontendJournalMessage::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
     }
 }
 
@@ -3176,6 +3252,43 @@ pub enum FocusTarget {
     WorkspaceRail,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendFocusSnapshot {
+    target: FrontendFocusTarget,
+    workspace_id: Option<cmux_tui_core::resource::WorkspacePublicId>,
+    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    pane_id: Option<cmux_tui_core::resource::PanePublicId>,
+    tab_id: Option<cmux_tui_core::resource::TabPublicId>,
+    content_id: Option<cmux_tui_core::resource::ContentPublicId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FrontendResizeSnapshot {
+    cols: u16,
+    rows: u16,
+    cell_width: u16,
+    cell_height: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendViewportSnapshot {
+    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
+    offset: u64,
+    target: u64,
+    settled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrontendPresentationSnapshot {
+    focus: FrontendFocusSnapshot,
+    resize: FrontendResizeSnapshot,
+    viewport: FrontendViewportSnapshot,
+}
+
+fn frontend_journal_event_id() -> String {
+    format!("event_frontend_{}", uuid::Uuid::new_v4().simple())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SidebarLayout {
     pub machine: Option<Rect>,
@@ -5346,6 +5459,10 @@ pub struct App {
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
+    frontend_journal: FrontendJournalWorker,
+    frontend_instance: String,
+    last_frontend_presentation: Option<FrontendPresentationSnapshot>,
+    outer_size: (u16, u16),
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
     machine_action_request: Option<MachineRequest>,
@@ -6602,11 +6719,19 @@ fn run_with_machine_updates_inner(
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
+    let frontend_journal = match FrontendJournalWorker::spawn() {
+        Ok(worker) => worker,
+        Err(error) => return Err(terminal_restore.restore_after_error(error)),
+    };
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
+        frontend_journal,
+        frontend_instance: uuid::Uuid::new_v4().simple().to_string(),
+        last_frontend_presentation: None,
+        outer_size: (0, 0),
         machine_action_worker,
         machine_action_in_flight: false,
         machine_action_request: None,
@@ -7233,6 +7358,7 @@ impl App {
         } else {
             PointerRoutePhase::Fresh
         };
+        self.journal_frontend_presentation();
         let mut terminal_paints = TerminalPaintPacer::after_paint(Instant::now());
 
         let mut replay_ready =
@@ -7403,6 +7529,7 @@ impl App {
     }
 
     fn shutdown_background_workers(&mut self) {
+        self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
         }
@@ -7930,6 +8057,7 @@ impl App {
         } = prepared;
         self.pty_input.activate_session_generation(generation);
         self.session_generation = generation;
+        self.last_frontend_presentation = None;
         let previous_session = std::mem::replace(&mut self.session, session);
         let previous_worker = self.session_event_worker.replace(event_worker);
         self.mux_titles = mux_titles;
@@ -8078,7 +8206,145 @@ impl App {
                 PointerRoutePhase::Fresh
             };
         }
+        self.journal_frontend_presentation();
         Ok(())
+    }
+
+    fn frontend_presentation_snapshot(&self) -> FrontendPresentationSnapshot {
+        let workspace = self.tree.active_workspace();
+        let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
+        let focus = FrontendFocusSnapshot {
+            target: match self.focus {
+                FocusTarget::Pane => FrontendFocusTarget::Pane,
+                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
+                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            },
+            workspace_id: workspace.and_then(|workspace| workspace.public_id.clone()),
+            screen_id: screen.and_then(|screen| screen.public_id.clone()),
+            pane_id: pane.and_then(|pane| pane.public_id.clone()),
+            tab_id: tab.and_then(|tab| tab.public_id.clone()),
+            content_id: tab.and_then(|tab| tab.content_id.clone()),
+        };
+        let resize = FrontendResizeSnapshot {
+            cols: self.outer_size.0,
+            rows: self.outer_size.1,
+            cell_width: self.cell_pixels.0,
+            cell_height: self.cell_pixels.1,
+        };
+        let (target, settled) = screen
+            .and_then(|screen| self.viewport_states.get(&screen.id))
+            .map_or((self.viewport_offset, true), |motion| {
+                (motion.target.round() as u64, !motion.animating())
+            });
+        let viewport = FrontendViewportSnapshot {
+            screen_id: screen.and_then(|screen| screen.public_id.clone()),
+            offset: if settled { self.viewport_offset } else { target },
+            target,
+            settled,
+        };
+        FrontendPresentationSnapshot { focus, resize, viewport }
+    }
+
+    fn frontend_presentation_unchanged(&self) -> bool {
+        let Some(previous) = &self.last_frontend_presentation else { return false };
+        let workspace = self.tree.active_workspace();
+        let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
+        let target = match self.focus {
+            FocusTarget::Pane => FrontendFocusTarget::Pane,
+            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
+            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+        };
+        if previous.focus.target != target
+            || previous.focus.workspace_id.as_ref()
+                != workspace.and_then(|workspace| workspace.public_id.as_ref())
+            || previous.focus.screen_id.as_ref()
+                != screen.and_then(|screen| screen.public_id.as_ref())
+            || previous.focus.pane_id.as_ref() != pane.and_then(|pane| pane.public_id.as_ref())
+            || previous.focus.tab_id.as_ref() != tab.and_then(|tab| tab.public_id.as_ref())
+            || previous.focus.content_id.as_ref() != tab.and_then(|tab| tab.content_id.as_ref())
+        {
+            return false;
+        }
+        if previous.resize
+            != (FrontendResizeSnapshot {
+                cols: self.outer_size.0,
+                rows: self.outer_size.1,
+                cell_width: self.cell_pixels.0,
+                cell_height: self.cell_pixels.1,
+            })
+        {
+            return false;
+        }
+        let (target, settled) = screen
+            .and_then(|screen| self.viewport_states.get(&screen.id))
+            .map_or((self.viewport_offset, true), |motion| {
+                (motion.target.round() as u64, !motion.animating())
+            });
+        previous.viewport.screen_id.as_ref() == screen.and_then(|screen| screen.public_id.as_ref())
+            && previous.viewport.offset == if settled { self.viewport_offset } else { target }
+            && previous.viewport.target == target
+            && previous.viewport.settled == settled
+    }
+
+    fn journal_frontend_presentation(&mut self) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            return;
+        }
+        if self.frontend_presentation_unchanged() {
+            return;
+        }
+        let next = self.frontend_presentation_snapshot();
+        let previous = self.last_frontend_presentation.replace(next.clone());
+        let generation = format!("{}_{}", self.frontend_instance, self.session_generation);
+        let session = self.session.inner.clone();
+        if previous.as_ref().is_none_or(|previous| previous.focus != next.focus) {
+            let focus = next.focus;
+            self.frontend_journal.send(
+                session.clone(),
+                FrontendJournalEvent::Focus {
+                    event_id: frontend_journal_event_id(),
+                    generation: generation.clone(),
+                    target: focus.target,
+                    workspace_id: focus.workspace_id,
+                    screen_id: focus.screen_id,
+                    pane_id: focus.pane_id,
+                    tab_id: focus.tab_id,
+                    content_id: focus.content_id,
+                },
+            );
+        }
+        if previous.as_ref().is_none_or(|previous| previous.resize != next.resize) {
+            let resize = next.resize;
+            self.frontend_journal.send(
+                session.clone(),
+                FrontendJournalEvent::Resize {
+                    event_id: frontend_journal_event_id(),
+                    generation: generation.clone(),
+                    cols: resize.cols,
+                    rows: resize.rows,
+                    cell_width: resize.cell_width,
+                    cell_height: resize.cell_height,
+                },
+            );
+        }
+        if previous.as_ref().is_none_or(|previous| previous.viewport != next.viewport) {
+            let viewport = next.viewport;
+            self.frontend_journal.send(
+                session,
+                FrontendJournalEvent::Viewport {
+                    event_id: frontend_journal_event_id(),
+                    generation,
+                    screen_id: viewport.screen_id,
+                    offset: viewport.offset,
+                    target: viewport.target,
+                    settled: viewport.settled,
+                },
+            );
+        }
     }
 
     fn mark_pointer_route_for_rebuild(&mut self, action: RenderAction) {
@@ -9756,6 +10022,7 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        self.outer_size = size;
         self.sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -17434,29 +17701,30 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DeferredInput, DeferredInputAdmission, DeferredReplayDisposition, Drag, FocusTarget,
-        ForwardMuxOutcome, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, MachineActionWorker, MachineConnectRoute,
-        MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration,
-        PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
-        forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
-        layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
+        ForwardMuxOutcome, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
+        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
+        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
+        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
+        keyboard_protocol_accepts, layout_undo_error_completion,
+        negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
+        record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
@@ -17548,6 +17816,22 @@ mod tests {
             RenderAction::Paint,
             "deferred input must flush the pointer route before replay"
         );
+    }
+
+    #[test]
+    fn frontend_journal_skips_unchanged_presentation_frames() {
+        let mux = Mux::new("frontend-journal-frame-dedupe", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.outer_size = (80, 24);
+        assert!(!app.frontend_presentation_unchanged());
+        app.last_frontend_presentation = Some(app.frontend_presentation_snapshot());
+        assert!(app.frontend_presentation_unchanged());
+
+        app.outer_size.0 = 81;
+        assert!(!app.frontend_presentation_unchanged());
+        app.outer_size.0 = 80;
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(!app.frontend_presentation_unchanged());
     }
 
     #[test]
@@ -19680,10 +19964,13 @@ mod tests {
     fn viewport_animation_leases_every_column_in_its_swept_range() {
         let pane = |id, surface| PaneView {
             id,
+            public_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
                 surface,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
@@ -19699,6 +19986,7 @@ mod tests {
         };
         let screen = ScreenView {
             id: 4,
+            public_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -19735,10 +20023,13 @@ mod tests {
     fn viewport_animation_rejects_an_unbounded_synchronization_sweep() {
         let pane = |id, surface| PaneView {
             id,
+            public_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
                 surface,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
@@ -19755,6 +20046,7 @@ mod tests {
         let pane_count = 80;
         let screen = ScreenView {
             id: 4,
+            public_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -19792,6 +20084,7 @@ mod tests {
         let pane_count = 128u64;
         let screen = ScreenView {
             id: 4,
+            public_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -19802,10 +20095,13 @@ mod tests {
             panes: (1..=pane_count)
                 .map(|id| PaneView {
                     id,
+                    public_id: None,
                     short_id: format!("p{id}"),
                     name: None,
                     tabs: vec![TabView {
                         surface: 100 + id,
+                        public_id: None,
+                        content_id: None,
                         terminal_id: None,
                         short_id: format!("t{id}"),
                         name: None,
@@ -19832,6 +20128,7 @@ mod tests {
         app.tree = TreeView {
             workspaces: vec![WorkspaceView {
                 id: 3,
+                public_id: None,
                 key: "workspace".to_string(),
                 short_id: "w".to_string(),
                 name: "workspace".to_string(),
@@ -19860,10 +20157,13 @@ mod tests {
     fn viewport_projection_cache_matches_full_projection_for_overlapping_ranges() {
         let pane = |id| PaneView {
             id,
+            public_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
                 surface: 100 + id,
+                public_id: None,
+                content_id: None,
                 terminal_id: None,
                 short_id: format!("t{id}"),
                 name: None,
@@ -19879,6 +20179,7 @@ mod tests {
         };
         let screen = ScreenView {
             id: 4,
+            public_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -19971,11 +20272,13 @@ mod tests {
         app.tree = TreeView {
             workspaces: vec![WorkspaceView {
                 id: 3,
+                public_id: None,
                 key: "workspace".to_string(),
                 short_id: "w".to_string(),
                 name: "workspace".to_string(),
                 screens: vec![ScreenView {
                     id: 4,
+                    public_id: None,
                     short_id: "s".to_string(),
                     name: None,
                     layout: Node::Leaf(1),
@@ -19986,10 +20289,13 @@ mod tests {
                     panes: vec![
                         PaneView {
                             id: 1,
+                            public_id: None,
                             short_id: "p1".to_string(),
                             name: None,
                             tabs: vec![TabView {
                                 surface: 11,
+                                public_id: None,
+                                content_id: None,
                                 terminal_id: None,
                                 short_id: "t1".to_string(),
                                 name: None,
@@ -20005,10 +20311,13 @@ mod tests {
                         },
                         PaneView {
                             id: 2,
+                            public_id: None,
                             short_id: "p2".to_string(),
                             name: None,
                             tabs: vec![TabView {
                                 surface: 12,
+                                public_id: None,
+                                content_id: None,
                                 terminal_id: None,
                                 short_id: "t2".to_string(),
                                 name: None,
@@ -29511,6 +29820,8 @@ mod tests {
     fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
         let tab = |surface| TabView {
             surface,
+            public_id: None,
+            content_id: None,
             terminal_id: None,
             short_id: format!("{surface:06}"),
             name: None,
@@ -29531,12 +29842,14 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                public_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
                 screens: vec![ScreenView {
                     id: 3,
+                    public_id: None,
                     short_id: "000003".to_string(),
                     name: None,
                     layout: Node::Leaf(2),
@@ -29546,6 +29859,7 @@ mod tests {
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,
+                        public_id: None,
                         short_id: "000002".to_string(),
                         name: None,
                         tabs,
@@ -33151,6 +33465,10 @@ mod tests {
             session_event_worker: None,
             session_generation: 1,
             app_events: events,
+            frontend_journal: FrontendJournalWorker::disabled(),
+            frontend_instance: "test".into(),
+            last_frontend_presentation: None,
+            outer_size: (0, 0),
             machine_action_worker: None,
             machine_action_in_flight: false,
             machine_action_request: None,
@@ -33289,12 +33607,14 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                public_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
                 screens: vec![ScreenView {
                     id: 3,
+                    public_id: None,
                     short_id: "000003".to_string(),
                     name: None,
                     layout: Node::Leaf(2),
@@ -33304,12 +33624,15 @@ mod tests {
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,
+                        public_id: None,
                         short_id: "000002".to_string(),
                         name: None,
                         active_tab: 0,
                         focused_at: 0,
                         tabs: vec![TabView {
                             surface,
+                            public_id: None,
+                            content_id: None,
                             terminal_id: None,
                             short_id: "000001".to_string(),
                             name: Some("tab".to_string()),

@@ -975,6 +975,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "local.io",
     "mutation.indeterminate",
     "operation.failed",
+    "operation.unsupported",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",
@@ -1497,6 +1498,11 @@ mod tests {
             (
                 "operation.failed",
                 json!({"operation":"workspace.close","reason":"failed","extra":{"errno":5}}),
+                false,
+            ),
+            (
+                "operation.unsupported",
+                json!({"capability":"session-journal-v1","action":"restart_session"}),
                 false,
             ),
             (

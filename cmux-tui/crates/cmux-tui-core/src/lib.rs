@@ -12,6 +12,7 @@ mod browser;
 mod event_bus;
 mod journal_checkpoint;
 mod journal_hooks;
+mod journal_ingress;
 mod journal_kernel;
 mod model;
 mod mux;
@@ -36,6 +37,7 @@ pub mod terminal_host_runtime;
 
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,

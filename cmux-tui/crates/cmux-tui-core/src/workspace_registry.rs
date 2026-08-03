@@ -50,7 +50,7 @@ pub use journal_extensions::{
 };
 pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalContentBlob, JournalHookAttempt, JournalHookDelivery,
-    JournalHookState, JournalSegmentSealCommit,
+    JournalHookScan, JournalHookState, JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -83,8 +83,9 @@ use session_journal::{
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
 // schema that requires both, and its migration probes the actual table/index
 // shape instead of assuming that a colliding development version identifies
-// one branch.
-const SCHEMA_VERSION: i64 = 11;
+// one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
+// binary content to journal rows.
+const SCHEMA_VERSION: i64 = 13;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -513,7 +514,7 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9 | 10) => {
+            Some(9 | 10 | 11 | 12) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
