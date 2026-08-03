@@ -313,6 +313,8 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
 
     for block in (crates_build, crates_preflight, crates_decisions, crates_verify):
         assert "CARGO_BOOTSTRAP_TOKEN" not in block
+    for command in ("cargo test --manifest-path", "cargo package --manifest-path"):
+        assert command in crates_build
     assert "name: crates-bootstrap" not in crates_decisions
     assert "sdk_need_publish" in crates_decisions
     assert "sidebar_need_publish" in crates_decisions
