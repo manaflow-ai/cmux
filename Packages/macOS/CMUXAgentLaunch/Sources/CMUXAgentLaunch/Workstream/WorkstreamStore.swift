@@ -49,9 +49,19 @@ public final class WorkstreamStore {
 
     /// Running task list per workstream, accumulated from the agent's
     /// per-task tool calls (`TaskCreate` / `TaskUpdate`), which report one
-    /// task at a time rather than the whole list. Each accumulator caps its
-    /// retained tasks; the entry itself is dropped when the session ends.
+    /// task at a time rather than the whole list.
+    ///
+    /// Each accumulator caps its own retained tasks and ids, and an entry is
+    /// dropped on `SessionEnd`. That hook is not guaranteed — an agent that
+    /// crashes or is killed never sends it — so the map itself is also bounded
+    /// and evicts the least recently updated workstream.
     private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
+    private var taskToolWorkstreamsByRecency: [String] = []
+
+    /// Upper bound on tracked workstreams. Well above any plausible number of
+    /// concurrently live agent sessions, so eviction only ever reaches
+    /// abandoned ones.
+    private static let maxTrackedTaskToolWorkstreams = 64
 
     /// Creates a store for Feed workstream items.
     ///
@@ -145,6 +155,39 @@ public final class WorkstreamStore {
                 try? await persistence.append(item)
             }
         }
+    }
+
+    /// Applies one completed task-tool call, keeping the per-workstream map
+    /// bounded so an agent that dies without a `SessionEnd` cannot leak its
+    /// accumulator for the life of the process.
+    private func applyTaskTool(
+        workstreamId: String,
+        toolName: String,
+        toolInputJSON: String?,
+        toolResponseJSON: String?,
+        isError: Bool
+    ) -> WorkstreamTaskToolOutcome {
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        let outcome = accumulator.apply(
+            toolName: toolName,
+            toolInputJSON: toolInputJSON,
+            toolResponseJSON: toolResponseJSON,
+            isError: isError
+        )
+        guard case .list = outcome else { return outcome }
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
+        taskToolWorkstreamsByRecency.append(workstreamId)
+        while taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams {
+            let evicted = taskToolWorkstreamsByRecency.removeFirst()
+            taskToolTodosByWorkstream[evicted] = nil
+        }
+        return outcome
+    }
+
+    private func forgetTaskTools(forWorkstream workstreamId: String) {
+        taskToolTodosByWorkstream[workstreamId] = nil
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
     }
 
     /// Every agent task id this workstream has ever owned, including tasks it
@@ -327,27 +370,23 @@ public final class WorkstreamStore {
                 )
             )
         case .preToolUse:
-            let toolName = event.toolName ?? ""
-            // Claude's task tools (and the legacy whole-list TodoWrite) reach
-            // us as ordinary PreToolUse calls; fold them into the workstream's
-            // running checklist instead of anonymous tool telemetry.
-            if isWorkstreamTaskTool(toolName) {
-                var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
-                let outcome = accumulator.apply(toolName: toolName, toolInputJSON: event.toolInputJSON)
-                taskToolTodosByWorkstream[event.sessionId] = accumulator
-                if case .list(let todos) = outcome {
-                    return (.todos, .todos(todos))
-                }
-            }
-            return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
+            // Task-tool calls are deliberately NOT applied here: a pre-execution
+            // event only states intent, and TaskCreate has no id yet. The
+            // checklist is driven from PostToolUse instead.
+            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
         case .postToolUse:
             let toolName = event.toolName ?? ""
-            // The tool result is where Claude first reports the authoritative
-            // task id, so reconcile the provisional row created at PreToolUse.
-            if toolName == "TaskCreate",
-               var accumulator = taskToolTodosByWorkstream[event.sessionId] {
-                let outcome = accumulator.adoptTaskId(fromToolResponse: event.toolResponseJSON)
-                taskToolTodosByWorkstream[event.sessionId] = accumulator
+            // Claude's task tools (and the legacy whole-list TodoWrite) reach
+            // us as ordinary tool calls; fold the completed ones into the
+            // workstream's running checklist instead of anonymous telemetry.
+            if isWorkstreamTaskTool(toolName) {
+                let outcome = applyTaskTool(
+                    workstreamId: event.sessionId,
+                    toolName: toolName,
+                    toolInputJSON: event.toolInputJSON,
+                    toolResponseJSON: event.toolResponseJSON,
+                    isError: event.isError ?? false
+                )
                 if case .list(let todos) = outcome {
                     return (.todos, .todos(todos))
                 }
@@ -382,13 +421,24 @@ public final class WorkstreamStore {
             // The agent is gone; its accumulated task list can never receive
             // another delta, so retire the entry instead of retaining it for
             // the life of the process.
-            taskToolTodosByWorkstream[event.sessionId] = nil
+            forgetTaskTools(forWorkstream: event.sessionId)
             return (.sessionEnd, .sessionEnd)
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            let todos = parseWorkstreamTodoWriteList(event.toolInputJSON)
-            taskToolTodosByWorkstream[event.sessionId] = nil
+            // Whole-list producers (the OpenCode plugin) go through the same
+            // accumulator so ownership unions across snapshots and a task
+            // dropped from a later report can still be retired.
+            let outcome = applyTaskTool(
+                workstreamId: event.sessionId,
+                toolName: "TodoWrite",
+                toolInputJSON: event.toolInputJSON,
+                toolResponseJSON: nil,
+                isError: false
+            )
+            guard case .list(let todos) = outcome else {
+                return (.todos, .todos([]))
+            }
             return (.todos, .todos(todos))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))

@@ -5,18 +5,32 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/8960.
 ///
 /// Claude Code no longer calls `TodoWrite`; it drives a task system through
-/// `TaskCreate` / `TaskUpdate`, delivered to cmux as `PreToolUse` events with
-/// matcher `""`. Those tools mutate one task per call, so the store has to
-/// accumulate a list across events rather than expecting a whole list in one
-/// payload.
+/// `TaskCreate` / `TaskUpdate`. Those tools mutate one task per call, so the
+/// store accumulates a list across events rather than expecting a whole list
+/// in one payload — and it applies only completed calls, since a `PreToolUse`
+/// event states intent and carries no task id.
 @MainActor
 @Suite("Workstream task-tool todos")
 struct WorkstreamTaskToolTodoTests {
-    private func preToolUse(
+    private func toolCall(
         _ sessionId: String,
         tool: String,
-        input: String
+        input: String,
+        response: String? = nil,
+        isError: Bool = false
     ) -> WorkstreamEvent {
+        WorkstreamEvent(
+            sessionId: sessionId,
+            hookEventName: .postToolUse,
+            source: "claude",
+            toolName: tool,
+            toolInputJSON: input,
+            isError: isError,
+            extraFieldsJSON: response.map { #"{"tool_response":\#($0)}"# }
+        )
+    }
+
+    private func preToolUse(_ sessionId: String, tool: String, input: String) -> WorkstreamEvent {
         WorkstreamEvent(
             sessionId: sessionId,
             hookEventName: .preToolUse,
@@ -26,34 +40,31 @@ struct WorkstreamTaskToolTodoTests {
         )
     }
 
-    private func postToolUse(
-        _ sessionId: String,
-        tool: String,
-        response: String
-    ) -> WorkstreamEvent {
-        WorkstreamEvent(
-            sessionId: sessionId,
-            hookEventName: .postToolUse,
-            source: "claude",
-            toolName: tool,
-            extraFieldsJSON: #"{"tool_response":\#(response)}"#
-        )
-    }
-
-    /// Drives one TaskCreate through both halves of its lifecycle: the
-    /// PreToolUse call that creates the row and the PostToolUse result that
-    /// names it.
     private func createTask(
         _ store: WorkstreamStore,
         _ sessionId: String,
         subject: String,
         id: String
     ) {
-        store.ingest(preToolUse(sessionId, tool: "TaskCreate", input: #"{"subject":"\#(subject)"}"#))
-        store.ingest(postToolUse(
+        store.ingest(toolCall(
             sessionId,
             tool: "TaskCreate",
+            input: #"{"subject":"\#(subject)"}"#,
             response: #"{"task":{"id":"\#(id)","subject":"\#(subject)"}}"#
+        ))
+    }
+
+    private func update(
+        _ store: WorkstreamStore,
+        _ sessionId: String,
+        id: String,
+        status: String
+    ) {
+        store.ingest(toolCall(
+            sessionId,
+            tool: "TaskUpdate",
+            input: #"{"taskId":"\#(id)","status":"\#(status)"}"#,
+            response: #"{"task":{"id":"\#(id)","status":"\#(status)"}}"#
         ))
     }
 
@@ -70,8 +81,8 @@ struct WorkstreamTaskToolTodoTests {
         createTask(store, "s1", subject: "Read the code", id: "1")
         createTask(store, "s1", subject: "Write the fix", id: "2")
         createTask(store, "s1", subject: "Open a PR", id: "3")
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"completed"}"#))
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"2","status":"in_progress"}"#))
+        update(store, "s1", id: "1", status: "completed")
+        update(store, "s1", id: "2", status: "in_progress")
 
         guard let todos = latestTodos(store) else {
             Issue.record("expected a todos payload from the task tools")
@@ -82,14 +93,69 @@ struct WorkstreamTaskToolTodoTests {
         #expect(todos.map(\.state) == [.completed, .inProgress, .pending])
     }
 
+    /// A pre-execution event states intent only: a create that is later denied
+    /// must not leave a phantom row, and a delete must not drop a live one.
+    @Test("PreToolUse never mutates the checklist")
+    func preToolUseIsNotApplied() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"never ran"}"#))
+        #expect(latestTodos(store) == nil)
+        #expect(store.items.last?.kind == .toolUse)
+
+        createTask(store, "s1", subject: "real", id: "1")
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"deleted"}"#))
+        #expect(latestTodos(store)?.map(\.content) == ["real"])
+    }
+
+    @Test("A failed task call never mutates the checklist")
+    func failedCallIsNotApplied() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "real", id: "1")
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"deleted"}"#,
+            response: #"{"error":"denied"}"#,
+            isError: true
+        ))
+        #expect(latestTodos(store)?.map(\.content) == ["real"])
+    }
+
+    /// The id is assigned during execution, so a result without one describes
+    /// a task nothing could ever address.
+    @Test("A create with no id in its result is ignored")
+    func createWithoutResultIdIsIgnored() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"orphan"}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store) == nil)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+    }
+
     @Test("TaskUpdate status deleted removes the item")
     func taskUpdateDeleteRemoves() {
         let store = WorkstreamStore(ringCapacity: 50)
         createTask(store, "s1", subject: "keep", id: "1")
         createTask(store, "s1", subject: "drop", id: "2")
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"2","status":"deleted"}"#))
+        update(store, "s1", id: "2", status: "deleted")
 
         #expect(latestTodos(store)?.map(\.content) == ["keep"])
+    }
+
+    @Test("Deleting the last task publishes an empty list, not telemetry")
+    func deletingLastTaskPublishesEmptyList() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "only", id: "1")
+        update(store, "s1", id: "1", status: "deleted")
+
+        #expect(store.items.last?.kind == .todos)
+        #expect(latestTodos(store)?.isEmpty == true)
+        // The id stays owned so the checklist sync can retire its row.
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
     }
 
     @Test("Task lists stay separate per workstream")
@@ -112,52 +178,50 @@ struct WorkstreamTaskToolTodoTests {
         }
     }
 
-    @Test("TodoWrite arriving as a PreToolUse tool name still fills the list")
-    func todoWriteAsToolName() {
+    /// Hooks installed mid-run, or a resumed session: the first event names a
+    /// task cmux never saw created. It is adoptable when the payload
+    /// describes it.
+    @Test("A resumed session adopts tasks it never saw created")
+    func resumedSessionAdoptsExistingTasks() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse(
+        store.ingest(toolCall(
             "s1",
-            tool: "TodoWrite",
-            input: #"{"todos":[{"id":"a","content":"first","status":"in_progress"},{"id":"b","content":"second","status":"pending"}]}"#
+            tool: "TaskUpdate",
+            input: #"{"taskId":"12","status":"in_progress"}"#,
+            response: #"{"task":{"id":"12","subject":"pre-existing task","status":"in_progress"}}"#
         ))
-
-        #expect(latestTodos(store)?.map(\.content) == ["first", "second"])
+        #expect(latestTodos(store)?.map(\.id) == ["12"])
         #expect(latestTodos(store)?.first?.state == .inProgress)
+
+        createTask(store, "s1", subject: "new work", id: "13")
+        #expect(latestTodos(store)?.map(\.id) == ["12", "13"])
     }
 
-    @Test("A create keeps a provisional id until the tool result names it")
-    func provisionalIdIsReplacedByAuthoritativeId() {
+    @Test("An unusable update claims no id")
+    func ignoredUpdateClaimsNoId() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"probe"}"#))
-        // Before the result lands the row exists but is not claiming to be
-        // Claude's "1" — nothing may guess ids from call order.
-        #expect(latestTodos(store)?.first?.id.hasPrefix("cmux-pending-") == true)
+        createTask(store, "s1", subject: "real", id: "1")
+        let before = store.ownedTaskIds(forWorkstream: "s1")
 
-        store.ingest(postToolUse(
+        // Status-only update for a task we never saw and cannot render.
+        store.ingest(toolCall(
             "s1",
-            tool: "TaskCreate",
-            response: #"{"task":{"id":"7","subject":"probe"}}"#
+            tool: "TaskUpdate",
+            input: #"{"taskId":"999","status":"in_progress"}"#,
+            response: #"{"ok":true}"#
         ))
-        #expect(latestTodos(store)?.map(\.id) == ["7"])
-        // The provisional id stays owned so the checklist row written under
-        // it is retired rather than left behind as a duplicate.
-        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["cmux-pending-1", "7"])
-
-        // An update against the authoritative id now lands on the real row.
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"7","status":"completed"}"#))
-        #expect(latestTodos(store)?.first?.state == .completed)
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == before)
     }
 
-    @Test("Deleting the last task publishes an empty list, not telemetry")
-    func deletingLastTaskPublishesEmptyList() {
+    @Test("An unknown status never clobbers a state already known")
+    func unknownStatusKeepsExistingState() {
         let store = WorkstreamStore(ringCapacity: 50)
-        createTask(store, "s1", subject: "only", id: "1")
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"deleted"}"#))
+        createTask(store, "s1", subject: "task", id: "1")
+        update(store, "s1", id: "1", status: "completed")
+        #expect(latestTodos(store)?.first?.state == .completed)
 
-        #expect(store.items.last?.kind == .todos)
-        #expect(latestTodos(store)?.isEmpty == true)
-        // The ids stay owned so the checklist sync retires their rows.
-        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["cmux-pending-1", "1"])
+        update(store, "s1", id: "1", status: "blocked")
+        #expect(latestTodos(store)?.first?.state == .completed)
     }
 
     @Test("Session end retires the accumulator")
@@ -181,53 +245,47 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1").count <= WorkstreamTaskToolTodos.maxOwnedIds)
     }
 
-    @Test("A resumed session adopts tasks it never saw created")
-    func resumedSessionAdoptsExistingTasks() {
+    /// An agent that crashes never sends SessionEnd, so the map itself must be
+    /// bounded rather than relying on that hook.
+    @Test("Abandoned workstreams are evicted")
+    func abandonedWorkstreamsAreEvicted() {
+        let store = WorkstreamStore(ringCapacity: 5_000)
+        for index in 0..<200 {
+            createTask(store, "session-\(index)", subject: "task", id: "1")
+        }
+        #expect(store.ownedTaskIds(forWorkstream: "session-0").isEmpty)
+        #expect(!store.ownedTaskIds(forWorkstream: "session-199").isEmpty)
+    }
+
+    /// Whole-list producers must accumulate ownership too, or a task dropped
+    /// from a later snapshot could never have its checklist row retired.
+    @Test("Whole-list snapshots union their ownership")
+    func todoWriteUnionsOwnership() {
         let store = WorkstreamStore(ringCapacity: 50)
-        // Hooks installed mid-run: the first thing cmux sees is an update for
-        // a task id far above anything it could have minted.
-        store.ingest(preToolUse(
+        store.ingest(toolCall(
             "s1",
-            tool: "TaskUpdate",
-            input: #"{"taskId":"12","subject":"pre-existing task","status":"in_progress"}"#
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"a","content":"first"},{"id":"b","content":"second"}]}"#,
+            response: #"{"ok":true}"#
         ))
-        #expect(latestTodos(store)?.map(\.id) == ["12"])
-        #expect(latestTodos(store)?.first?.state == .inProgress)
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["a", "b"])
 
-        // A later create still gets its own authoritative id; nothing is
-        // inferred from the counter the resumed session left behind.
-        createTask(store, "s1", subject: "new work", id: "13")
-        #expect(latestTodos(store)?.map(\.id) == ["12", "13"])
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"a","content":"first","status":"completed"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.map(\.id) == ["a"])
+        // "b" is still owned, so its checklist row is retired rather than
+        // mistaken for another producer's.
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["a", "b"])
     }
 
-    @Test("An unknown status never clobbers a state already known")
-    func unknownStatusKeepsExistingState() {
-        let store = WorkstreamStore(ringCapacity: 50)
-        createTask(store, "s1", subject: "task", id: "1")
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"completed"}"#))
-        #expect(latestTodos(store)?.first?.state == .completed)
-
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"blocked"}"#))
-        #expect(latestTodos(store)?.first?.state == .completed)
-    }
-
-    @Test("An unusable update claims no id")
-    func ignoredUpdateClaimsNoId() {
-        let store = WorkstreamStore(ringCapacity: 50)
-        createTask(store, "s1", subject: "real", id: "1")
-        let before = store.ownedTaskIds(forWorkstream: "s1")
-
-        // Status-only update for a task we never saw and cannot render.
-        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"999","status":"in_progress"}"#))
-
-        #expect(store.ownedTaskIds(forWorkstream: "s1") == before)
-        #expect(store.items.last?.kind == .toolUse)
-    }
-
-    @Test("Non-task PreToolUse events stay tool-use telemetry")
+    @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse("s1", tool: "Bash", input: #"{"command":"echo hi"}"#))
-        #expect(store.items.last?.kind == .toolUse)
+        store.ingest(toolCall("s1", tool: "Bash", input: #"{"command":"echo hi"}"#))
+        #expect(store.items.last?.kind == .toolResult)
     }
 }

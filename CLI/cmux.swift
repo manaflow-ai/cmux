@@ -34681,7 +34681,7 @@ export default CMUXSessionRestore;
         // result, so forward it alongside the request for the task tools.
         // https://github.com/manaflow-ai/cmux/issues/8960
         if hookEventName == "PostToolUse",
-           toolName == "TaskCreate" || toolName == "TaskUpdate",
+           toolName == "TaskCreate" || toolName == "TaskUpdate" || toolName == "TodoWrite",
            let postToolUseResponseInput {
             eventDict["tool_response"] = postToolUseResponseInput
         }

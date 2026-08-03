@@ -17,17 +17,21 @@ public func isWorkstreamTaskTool(_ toolName: String) -> Bool {
 /// Claude Code drives its plan through `TaskCreate` / `TaskUpdate`, which
 /// mutate **one** task per call and report only that task in the hook payload
 /// (older Claude versions, and several other agents, send the whole list in a
-/// single `TodoWrite` call instead). The cmux wrapper injects `PreToolUse`
-/// with matcher `""`, so every such call reaches us — but only as a delta, so
-/// the list has to be carried across events rather than parsed from one
-/// payload. See https://github.com/manaflow-ai/cmux/issues/8960.
+/// single `TodoWrite` call instead), so the list has to be carried across
+/// events rather than parsed from one payload.
+/// See https://github.com/manaflow-ai/cmux/issues/8960.
 ///
-/// `TaskCreate` is observed at `PreToolUse`, before Claude has assigned the
-/// task an id, so the row is created under a provisional local id. The
-/// matching `PostToolUse` carries the tool result, whose `task.id` is
-/// authoritative; ``adoptTaskId(fromToolResponse:)`` promotes the provisional
-/// row to it. Ids are never guessed from call order, so a create that fails or
-/// a session whose counter already ran ahead cannot desynchronize the list.
+/// Every mutation is applied from `PostToolUse`, never `PreToolUse`. A
+/// pre-execution event only says the agent *intends* a change: a create that
+/// is denied or errors would leave a permanent phantom row, and a speculative
+/// delete would drop a checklist row that still exists. `PostToolUse` fires
+/// only after the tool ran, and its `tool_response` carries the authoritative
+/// task id — which `TaskCreate` has no way to report beforehand, since Claude
+/// assigns it during execution. Nothing here infers an id from call order.
+///
+/// A `TaskUpdate` payload that also describes the task lets a resumed session
+/// re-adopt tasks created before cmux was watching, so the list recovers
+/// instead of silently ignoring deltas for ids it never saw.
 struct WorkstreamTaskToolTodos: Sendable {
     /// Upper bound on retained tasks, matching the workspace checklist cap so
     /// a long-lived session cannot grow this without bound. Oldest rows are
@@ -35,17 +39,15 @@ struct WorkstreamTaskToolTodos: Sendable {
     static let maxRetainedTodos = 50
 
     /// Upper bound on remembered owned ids. Larger than ``maxRetainedTodos``
-    /// because a task is owned under its provisional id as well as the
-    /// authoritative one, and deleted tasks stay owned so their checklist rows
-    /// can be retired. Oldest ids are forgotten first; forgetting one only
-    /// means a long-since-evicted row is left alone rather than retired.
+    /// because deleted tasks stay owned so their checklist rows can still be
+    /// retired. Oldest ids are forgotten first; forgetting one only means a
+    /// long-since-evicted row is left alone rather than retired.
     static let maxOwnedIds = 200
 
     private var todos: [WorkstreamTaskTodo] = []
-    private var provisionalCounter = 0
-    /// Every id this workstream owns, including deleted rows and the
-    /// provisional ids their checklist rows were first written under, so the
-    /// sync can retire exactly its own stale rows and leave rows owned by
+
+    /// Every id this workstream owns, including tasks it has since deleted, so
+    /// the sync can retire exactly its own stale rows and leave rows owned by
     /// other workstreams alone. Bounded by ``maxOwnedIds``, oldest first.
     private var ownedIdsInOrder: [String] = []
     private var ownedIdSet: Set<String> = []
@@ -53,112 +55,93 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// The ids this workstream currently owns.
     var ownedIds: Set<String> { ownedIdSet }
 
-    /// Ids of rows still awaiting their authoritative id from a tool result,
-    /// oldest first.
-    private var provisionalIds: [String] = []
-
-    /// Applies one task-tool call observed at `PreToolUse`.
-    mutating func apply(toolName: String, toolInputJSON: String?) -> WorkstreamTaskToolOutcome {
+    /// Applies one **completed** task-tool call.
+    ///
+    /// - Parameters:
+    ///   - toolName: The agent's tool name.
+    ///   - toolInputJSON: The tool's request payload.
+    ///   - toolResponseJSON: The tool's result payload, which is where an id
+    ///     assigned during execution appears.
+    ///   - isError: Whether the agent reported the call as failed. Failed calls
+    ///     never mutate the list.
+    /// - Returns: The workstream's task list, or ``WorkstreamTaskToolOutcome/ignored``
+    ///   when the payloads carried nothing usable.
+    mutating func apply(
+        toolName: String,
+        toolInputJSON: String?,
+        toolResponseJSON: String?,
+        isError: Bool
+    ) -> WorkstreamTaskToolOutcome {
+        guard !isError else { return .ignored }
         let input = jsonObject(from: toolInputJSON)
+        let response = jsonObject(from: toolResponseJSON)
+        // Claude nests the task under "task"; tolerate a flat result too.
+        let resultTask = (response?["task"] as? [String: Any]) ?? response
+
         switch toolName {
         case "TodoWrite":
             let parsed = parseWorkstreamTodoWriteList(toolInputJSON)
             guard !parsed.isEmpty else { return .ignored }
             todos = parsed
-            provisionalIds.removeAll()
+            // Ids accumulate across snapshots: a task dropped from a later
+            // whole-list report must stay owned so its row can be retired.
             for todo in parsed { claimId(todo.id) }
             trimToCap()
             return .list(todos)
+
         case "TaskCreate":
-            guard let input, let content = taskContent(in: input) else { return .ignored }
-            let id = taskId(in: input) ?? mintProvisionalId()
+            // The id exists only in the result; without it there is nothing a
+            // later TaskUpdate could ever address.
+            guard let id = resultTask.flatMap(taskId(in:)) else { return .ignored }
+            guard let content = resultTask.flatMap(taskContent(in:))
+                ?? input.flatMap(taskContent(in:)) else { return .ignored }
             claimId(id)
-            let state = taskState(in: input) ?? .pending
+            let state = resultTask.flatMap(taskState(in:))
+                ?? input.flatMap(taskState(in:))
+                ?? .pending
             upsert(WorkstreamTaskTodo(id: id, content: content, state: state))
             trimToCap()
             return .list(todos)
+
         case "TaskUpdate":
-            guard let input, let id = taskId(in: input) else { return .ignored }
-            let raw = taskRawStatus(in: input)
-            if raw == "deleted" || raw == "removed" {
+            guard let id = input.flatMap(taskId(in:)) ?? resultTask.flatMap(taskId(in:)) else {
+                return .ignored
+            }
+            let rawStatus = input.flatMap(taskRawStatus(in:))
+                ?? resultTask.flatMap(taskRawStatus(in:))
+            if rawStatus == "deleted" || rawStatus == "removed" {
                 guard todos.contains(where: { $0.id == id }) else { return .ignored }
                 todos.removeAll { $0.id == id }
-                provisionalIds.removeAll { $0 == id }
                 // Deleting the last task is a valid empty transition, not a
                 // parse failure: the caller retires this workstream's rows.
                 return .list(todos)
             }
+            let state = input.flatMap(taskState(in:)) ?? resultTask.flatMap(taskState(in:))
             guard let index = todos.firstIndex(where: { $0.id == id }) else {
-                // Update for a task we never saw created (resumed session, or
-                // hooks installed mid-run). Only adoptable with text to show;
-                // claiming an id we drop on the floor would evict real ones.
-                guard let content = taskContent(in: input) else { return .ignored }
+                // A task created before cmux was watching (resumed session, or
+                // hooks installed mid-run). Adoptable only when the payload
+                // describes it; claiming an id for a row we cannot render
+                // would evict real ids from the bounded owned set.
+                guard let content = resultTask.flatMap(taskContent(in:))
+                    ?? input.flatMap(taskContent(in:)) else { return .ignored }
                 claimId(id)
-                upsert(WorkstreamTaskTodo(
-                    id: id,
-                    content: content,
-                    state: taskState(in: input) ?? .pending
-                ))
+                upsert(WorkstreamTaskTodo(id: id, content: content, state: state ?? .pending))
                 trimToCap()
                 return .list(todos)
             }
             claimId(id)
             todos[index] = WorkstreamTaskTodo(
                 id: id,
-                content: taskContent(in: input) ?? todos[index].content,
-                state: taskState(in: input) ?? todos[index].state
+                content: resultTask.flatMap(taskContent(in:))
+                    ?? input.flatMap(taskContent(in:))
+                    ?? todos[index].content,
+                state: state ?? todos[index].state
             )
             return .list(todos)
+
         default:
             return .ignored
         }
-    }
-
-    /// Promotes the oldest provisional row to the authoritative id Claude
-    /// returned in a `TaskCreate` tool result.
-    ///
-    /// - Parameter json: The raw `tool_response` payload, whose recognized
-    ///   shape is `{"task":{"id":"1","subject":"…"}}`.
-    /// - Returns: The reconciled list, or `.ignored` when the response carried
-    ///   no id or there was no row awaiting one.
-    mutating func adoptTaskId(fromToolResponse json: String?) -> WorkstreamTaskToolOutcome {
-        guard let root = jsonObject(from: json) else { return .ignored }
-        let task = (root["task"] as? [String: Any]) ?? root
-        guard let authoritative = taskId(in: task) else { return .ignored }
-
-        if let index = todos.firstIndex(where: { $0.id == authoritative }) {
-            // Already reconciled (duplicate delivery). Refresh text if given.
-            if let content = taskContent(in: task) {
-                todos[index] = WorkstreamTaskTodo(
-                    id: authoritative,
-                    content: content,
-                    state: todos[index].state
-                )
-            }
-            claimId(authoritative)
-            return .list(todos)
-        }
-
-        let subject = taskContent(in: task)
-        let provisional = provisionalIds.first { candidate in
-            guard let subject else { return true }
-            return todos.first { $0.id == candidate }?.content == subject
-        } ?? provisionalIds.first
-        guard let provisional,
-              let index = todos.firstIndex(where: { $0.id == provisional })
-        else { return .ignored }
-
-        todos[index] = WorkstreamTaskTodo(
-            id: authoritative,
-            content: subject ?? todos[index].content,
-            state: todos[index].state
-        )
-        provisionalIds.removeAll { $0 == provisional }
-        // The provisional id stays owned: its checklist row was already
-        // written, and only an owned id may be retired, so dropping it here
-        // would strand a duplicate row alongside the renamed one.
-        claimId(authoritative)
-        return .list(todos)
     }
 
     private mutating func upsert(_ todo: WorkstreamTaskTodo) {
@@ -180,21 +163,8 @@ struct WorkstreamTaskToolTodos: Sendable {
         ownedIdsInOrder.removeFirst(overflow)
     }
 
-    private mutating func mintProvisionalId() -> String {
-        provisionalCounter += 1
-        // Namespaced so it can never collide with an authoritative Claude id
-        // (which is a bare decimal counter).
-        let id = "cmux-pending-\(provisionalCounter)"
-        provisionalIds.append(id)
-        return id
-    }
-
     private mutating func trimToCap() {
         guard todos.count > Self.maxRetainedTodos else { return }
-        let dropped = todos.prefix(todos.count - Self.maxRetainedTodos)
-        for todo in dropped {
-            provisionalIds.removeAll { $0 == todo.id }
-        }
         todos.removeFirst(todos.count - Self.maxRetainedTodos)
     }
 }

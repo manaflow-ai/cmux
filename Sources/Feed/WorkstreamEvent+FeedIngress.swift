@@ -15,14 +15,10 @@ extension WorkstreamEvent {
             // These establish authoritative session phase or needs-input state that cannot be
             // reconstructed from a later high-volume tool telemetry event.
             return .sessionCritical
-        case .preToolUse where toolName.map(isWorkstreamTaskTool) == true:
-            // Task-tool calls are deltas: a dropped TaskCreate leaves the
-            // accumulated checklist permanently wrong, so it cannot be
-            // reconstructed from later traffic.
-            return .sessionCritical
-        case .postToolUse where toolName == "TaskCreate":
-            // Carries the authoritative task id for a row created at
-            // PreToolUse; dropping it strands that row on a provisional id.
+        case .postToolUse where toolName.map(isWorkstreamTaskTool) == true:
+            // Task-tool results are deltas carrying the authoritative task id:
+            // a dropped one leaves the accumulated checklist permanently
+            // wrong, and it cannot be reconstructed from later traffic.
             return .sessionCritical
         case .preToolUse, .postToolUse, .todoWrite,
              .subagentStart, .subagentStop, .preCompact, .postCompact:
