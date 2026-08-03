@@ -9024,6 +9024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let root = ContentView(
             updateViewModel: updateViewModel,
+            tabManager: tabManager,
             windowId: windowId,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel
         )

@@ -210,6 +210,7 @@ struct SidebarHiddenPresentationTests {
         var revealRowInputProjections = 0
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
             windowId: UUID(),
             featureFlags: featureFlags
         )

@@ -242,7 +242,11 @@ final class WorkspaceContentViewVisibilityTests {
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
+            windowId: UUID()
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
@@ -315,7 +319,11 @@ final class WorkspaceContentViewVisibilityTests {
 
         let tabManager = TabManager()
         let counts = MinimalModeBodyProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
+            windowId: UUID()
+        )
             .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
@@ -396,6 +404,7 @@ final class WorkspaceContentViewVisibilityTests {
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
             windowId: UUID(),
             sidebarUnread: unread
         )

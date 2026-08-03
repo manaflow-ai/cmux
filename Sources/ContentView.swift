@@ -804,6 +804,13 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+/// Imperative portal state retained across SwiftUI value copies. Mutating this
+/// cache must not invalidate the window composition root.
+@MainActor
+private final class WorkspacePortalRenderingStateCache {
+    var statesByWorkspaceId: [UUID: Bool] = [:]
+}
+
 /// Restricts unread Observation invalidation to the subtree that reads the
 /// snapshot instead of making `ContentView` or `VerticalTabsSidebar` observers.
 private struct SidebarUnreadSnapshotReader<Content: View>: View {
@@ -840,6 +847,10 @@ struct SidebarUnreadSnapshotObserver: View {
 
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
+    /// Per-window owner used imperatively by this composition root. The same
+    /// instance remains an environment object for leaf views, so workspace-list
+    /// publications invalidate the sidebar without rebuilding terminal content.
+    let tabManager: TabManager
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
@@ -848,12 +859,14 @@ struct ContentView: View {
     @MainActor
     init(
         updateViewModel: UpdateStateModel,
+        tabManager: TabManager,
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
         titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
     ) {
         self.updateViewModel = updateViewModel
+        self.tabManager = tabManager
         self.windowId = windowId
         self.featureFlags = featureFlags ?? .shared
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
@@ -861,7 +874,6 @@ struct ContentView: View {
             ?? TitlebarControlsLayoutModel()
     }
 
-    @EnvironmentObject var tabManager: TabManager
     // Unread state is read imperatively by actions and passed to leaf observers.
     // ContentView itself must not observe it: one agent notification would
     // otherwise rebuild the terminal, sidebar, and window chrome together.
@@ -907,7 +919,7 @@ struct ContentView: View {
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
-    @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
+    @State private var portalRenderingStateCache = WorkspacePortalRenderingStateCache()
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
@@ -3014,7 +3026,10 @@ struct ContentView: View {
             }
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
-            selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
+            let retainedSelectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
+            if retainedSelectedTabIds != selectedTabIds {
+                selectedTabIds = retainedSelectedTabIds
+            }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
             }
@@ -3488,7 +3503,7 @@ struct ContentView: View {
         let selectedCount = effectiveSelectedId == nil ? 0 : 1
         let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
-        mountedWorkspaceIds = WorkspaceMountPlan(
+        let nextMountedWorkspaceIds = WorkspaceMountPlan(
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
             pinnedIds: pinnedIds,
@@ -3496,11 +3511,14 @@ struct ContentView: View {
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
         ).mountedWorkspaceIds
+        if nextMountedWorkspaceIds != mountedWorkspaceIds {
+            mountedWorkspaceIds = nextMountedWorkspaceIds
+        }
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let portalRenderingChanges = WorkspacePortalRenderingPlan(
-            previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
+            previousStatesByWorkspaceId: portalRenderingStateCache.statesByWorkspaceId,
             mountedWorkspaceIds: Set(mountedWorkspaceIds), orderedWorkspaceIds: orderedTabIds
-        ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
+        ).applying(to: &portalRenderingStateCache.statesByWorkspaceId)
         let workspacesById = Dictionary(currentTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for change in portalRenderingChanges {
             workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
@@ -3609,7 +3627,7 @@ struct ContentView: View {
         // hide portals during transient rebuilds or cancel stale layout follow-ups.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
             workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
-            lastReconciledPortalRenderingStatesByWorkspaceId[workspace.id] = false
+            portalRenderingStateCache.statesByWorkspaceId[workspace.id] = false
         }
 
         retiringWorkspaceId = nil

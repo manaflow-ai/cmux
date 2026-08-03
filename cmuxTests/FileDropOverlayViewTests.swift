@@ -17,8 +17,13 @@ struct FileDropOverlayViewTests {
     private func makeContentViewWindow(windowId: UUID = UUID()) -> NSWindow {
         _ = NSApplication.shared
 
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: windowId)
-            .environmentObject(TabManager())
+        let tabManager = TabManager()
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
+            windowId: windowId
+        )
+            .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
