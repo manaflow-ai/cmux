@@ -4029,6 +4029,7 @@ final class SidebarCreationContextTests: XCTestCase {
         second.remoteConfiguration = makeRemoteConfiguration(ownerWorkspaceID: second.id)
         let workspaceIDs = manager.tabs.map(\.id)
         let selectedWorkspaceID = manager.selectedTabId
+        let automaticChildColumn = manager.selectedSidebarChildColumn
 
         let remote = try XCTUnwrap(
             manager.sidebarCreationContextSnapshots().first { $0.kind == .remote }
@@ -4037,6 +4038,12 @@ final class SidebarCreationContextTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.map(\.id), workspaceIDs)
         XCTAssertEqual(manager.selectedTabId, selectedWorkspaceID)
+        XCTAssertNotEqual(manager.selectedSidebarChildColumn.id, automaticChildColumn.id)
+        XCTAssertEqual(
+            manager.selectedSidebarChildColumn.rendererID,
+            CmuxSidebarChildColumn.sharedWorkspacesRendererID
+        )
+        XCTAssertEqual(manager.selectedSidebarChildColumn, remote.childColumn)
         XCTAssertEqual(
             manager.sidebarCreationContextSnapshots().filter { $0.kind == .remote }.count,
             1,
@@ -4045,6 +4052,12 @@ final class SidebarCreationContextTests: XCTestCase {
         XCTAssertEqual(
             manager.sidebarCreationContextSnapshots().first { $0.id == remote.id }?.workspaceCount,
             2
+        )
+        let childColumns = manager.sidebarCreationContextSnapshots().map(\.childColumn)
+        XCTAssertEqual(Set(childColumns.map(\.id)).count, childColumns.count)
+        XCTAssertEqual(
+            Set(childColumns.map(\.rendererID)),
+            [CmuxSidebarChildColumn.sharedWorkspacesRendererID]
         )
     }
 

@@ -14,7 +14,11 @@ struct CMUXExtensionKitTests {
             systemImageName: "desktopcomputer",
             kind: .local,
             isSelected: true,
-            workspaceCount: 1
+            workspaceCount: 1,
+            childColumn: CmuxSidebarChildColumn(
+                id: "local.children",
+                rendererID: "dev.example.projects"
+            )
         )
         let snapshot = CmuxSidebarSnapshot(
             sequence: 42,
@@ -50,6 +54,25 @@ struct CMUXExtensionKitTests {
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
         #expect(decoded.creationContexts == [creationContext])
         #expect(decoded.selectedCreationContextID == creationContext.id)
+        #expect(decoded.selectedChildColumn == creationContext.childColumn)
+    }
+
+    @Test
+    func testCreationContextDecodingDefaultsLegacyChildRouteToSharedWorkspaces() throws {
+        let payload = Data("""
+        {
+          "id": "remote-a",
+          "title": "Build Mac",
+          "systemImageName": "network",
+          "kind": "remote",
+          "isSelected": true,
+          "workspaceCount": 0
+        }
+        """.utf8)
+
+        let context = try JSONDecoder().decode(CmuxSidebarCreationContext.self, from: payload)
+
+        #expect(context.childColumn == .sharedWorkspaces(parentID: "remote-a"))
     }
 
     @Test

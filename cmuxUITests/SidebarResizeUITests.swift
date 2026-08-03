@@ -74,12 +74,16 @@ final class SidebarResizeUITests: XCTestCase {
         let columnResizer = elements["SidebarColumnResizer"]
         let contextColumn = elements["SidebarContextColumn"]
         let automaticContext = elements["SidebarContextRow.automatic"]
+        let localContext = elements["SidebarContextRow.local"]
+        let automaticChildColumn = elements["SidebarChildColumn.automatic.children"]
         let workspaceColumn = elements["Sidebar"]
         let footer = elements["SidebarHelpMenuButton"]
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
         XCTAssertTrue(contextColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(automaticContext.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(localContext.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(workspaceColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
         XCTAssertLessThan(
@@ -100,6 +104,18 @@ final class SidebarResizeUITests: XCTestCase {
             contextColumn.frame.maxX + 2,
             "The shared footer should stay inside the left-most column"
         )
+
+        localContext.click()
+        XCTAssertTrue(
+            elements["SidebarChildColumn.local.children"].waitForExistence(timeout: 5.0),
+            "Each machine should activate its own child-column route"
+        )
+        XCTAssertTrue(
+            workspaceColumn.waitForExistence(timeout: 5.0),
+            "Built-in machine routes should keep rendering the shared workspace collection"
+        )
+        automaticContext.click()
+        XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
 
         let initialInnerX = columnResizer.frame.midX
         let initialOuterX = outerResizer.frame.midX

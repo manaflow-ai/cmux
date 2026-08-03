@@ -95,7 +95,11 @@ struct CustomSidebarDataContextBuilderTests {
                     isSelected: true,
                     kind: "remote",
                     workspaceCount: 2,
-                    connectionState: "connected"
+                    connectionState: "connected",
+                    childColumn: .init(
+                        id: "remote-deadbeef.children",
+                        rendererID: "dev.example.projects"
+                    )
                 )
             ],
             selectedCreationContextId: "remote-deadbeef",
@@ -110,6 +114,8 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(remote?.member("selected") == .bool(true))
         #expect(remote?.member("workspaceCount") == .int(2))
         #expect(remote?.member("connectionState") == .string("connected"))
+        #expect(remote?.member("childColumn")?.member("id") == .string("remote-deadbeef.children"))
+        #expect(remote?.member("childColumn")?.member("rendererId") == .string("dev.example.projects"))
     }
 
     @Test("Empty selection yields empty selectedId string")
