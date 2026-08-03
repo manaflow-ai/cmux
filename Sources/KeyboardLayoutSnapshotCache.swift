@@ -1,13 +1,13 @@
 import Foundation
 
-/// Main-actor coordinator for off-main keyboard-layout loads. Refresh storms
+/// Main-actor coordinator for off-main immutable snapshot loads. Refresh storms
 /// coalesce to the newest requested generation, and stale loads never publish.
 @MainActor
-final class KeyboardLayoutSnapshotCache {
-    typealias Loader = @Sendable () -> KeyboardLayoutSnapshot?
-    typealias InstallHandler = @MainActor @Sendable (KeyboardLayoutSnapshot) -> Void
+final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
+    typealias Loader = @Sendable () -> Snapshot?
+    typealias InstallHandler = @MainActor @Sendable (Snapshot) -> Void
 
-    private(set) var snapshot: KeyboardLayoutSnapshot
+    private(set) var snapshot: Snapshot
     private let loader: Loader
     private let installHandler: InstallHandler?
     private var requestedGeneration: UInt64 = 0
@@ -15,13 +15,19 @@ final class KeyboardLayoutSnapshotCache {
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
-        initialSnapshot: KeyboardLayoutSnapshot = .usBootstrap,
+        initialSnapshot: Snapshot,
         loader: @escaping Loader,
         installHandler: InstallHandler? = nil
     ) {
         snapshot = initialSnapshot
         self.loader = loader
         self.installHandler = installHandler
+    }
+
+    deinit {
+        for waiter in idleWaiters {
+            waiter.resume()
+        }
     }
 
     func requestRefresh() {
@@ -49,7 +55,7 @@ final class KeyboardLayoutSnapshotCache {
     }
 
     private func finishLoad(
-        _ replacement: KeyboardLayoutSnapshot?,
+        _ replacement: Snapshot?,
         generation: UInt64
     ) {
         guard generation == requestedGeneration else {
@@ -69,3 +75,5 @@ final class KeyboardLayoutSnapshotCache {
         }
     }
 }
+
+typealias KeyboardLayoutSnapshotCache = GenerationCoalescingSnapshotCache<KeyboardLayoutSnapshot>

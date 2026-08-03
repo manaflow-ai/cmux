@@ -469,6 +469,7 @@ class TabManager: ObservableObject {
     private(set) lazy var sidebarGitActivitySnapshotCache: SidebarGitActivitySnapshotCache = {
         let settings = self.settings
         return SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
             loader: {
                 SidebarGitActivitySnapshot.load(settings: settings)
             },

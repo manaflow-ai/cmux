@@ -73,4 +73,16 @@ if [ "$structured_status" -ne 0 ]; then
   exit 1
 fi
 
+if ! grep -Fq 'App-host socket listener evidence accepted' "$TMP_DIR/structured-output.log"; then
+  cat "$TMP_DIR/structured-output.log"
+  echo "FAIL: wrapper did not confirm structured listener evidence"
+  exit 1
+fi
+
+if grep -Fq 'FAIL: app-host xcodebuild output did not include socket listener evidence' "$TMP_DIR/structured-output.log"; then
+  cat "$TMP_DIR/structured-output.log"
+  echo "FAIL: guard rejected structured listener evidence"
+  exit 1
+fi
+
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts and recognizes structured listener evidence"

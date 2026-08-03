@@ -181,11 +181,11 @@ extension TabManager: SidebarGitHosting {
     }
 
     var cachedSidebarGitMetadataActivity: SidebarGitMetadataActivity {
-        sidebarGitActivitySnapshotCache.snapshot.gitMetadataActivity
+        gitMetadataActivity
     }
 
     var cachedSidebarPullRequestActivity: SidebarGitMetadataActivity {
-        sidebarGitActivitySnapshotCache.snapshot.pullRequestActivity
+        pullRequestActivity
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {

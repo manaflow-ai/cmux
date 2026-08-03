@@ -117,6 +117,8 @@ import Testing
         #expect(firstNSError.domain == secondNSError.domain)
         #expect(firstNSError.code == secondNSError.code)
         #expect(first.sentryFingerprint == second.sentryFingerprint)
+        #expect(first.description.contains("/tmp/cmux-a.sock"))
+        #expect(first.description.contains("errno 1"))
         #expect(!firstNSError.domain.contains("unknown context"))
         #expect(!firstNSError.domain.contains("$"))
     }

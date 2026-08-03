@@ -12,7 +12,8 @@ public struct CLISocketSentryPolicy: Sendable {
     /// Creates a policy from the CLI process environment.
     ///
     /// - Parameter environment: The process environment. Callers must not add
-    ///   `CODEX_SANDBOX` from command arguments or other untrusted input.
+    ///   `CODEX_SANDBOX`, `CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`, or
+    ///   `CMUX_CLAUDE_PID` from command arguments or other untrusted input.
     public init(
         environment: [String: String],
         command: String = "",

@@ -106,6 +106,8 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit 1
   fi
 
+  echo "App-host socket listener evidence accepted"
+
   exit 0
 done
 

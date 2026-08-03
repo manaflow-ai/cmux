@@ -505,15 +505,21 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 pullRequestActivity: .passiveReportsOnly
             )
         )
-        let cache = SidebarGitActivitySnapshotCache(loader: loader.load)
+        let cache = SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
+            loader: loader.load
+        )
 
         XCTAssertEqual(cache.snapshot, .disabled)
         cache.requestRefresh()
         var heartbeat = false
         Task { @MainActor in heartbeat = true }
-        while !heartbeat {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !heartbeat, clock.now < deadline {
             await Task.yield()
         }
+        XCTAssertTrue(heartbeat, "MainActor heartbeat did not run before the deadline")
 
         XCTAssertEqual(cache.snapshot, .disabled)
         loader.release()
@@ -532,7 +538,10 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 pullRequestActivity: .activePolling
             )
         )
-        let cache = SidebarGitActivitySnapshotCache(loader: loader.load)
+        let cache = SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
+            loader: loader.load
+        )
         cache.requestRefresh()
         loader.release()
         await cache.waitUntilIdle()

@@ -16,7 +16,16 @@ public struct CLISocketConnectError: Error, CustomNSError, CustomStringConvertib
     }
 
     public var description: String {
-        "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoCode))), errno \(errnoCode))"
+        var buffer = [CChar](repeating: 0, count: 256)
+        let result = strerror_r(errnoCode, &buffer, buffer.count)
+        let message: String
+        if result == 0 {
+            let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            message = String(decoding: bytes, as: UTF8.self)
+        } else {
+            message = "Unknown error: \(errnoCode)"
+        }
+        return "Failed to connect to socket at \(path) (\(message), errno \(errnoCode))"
     }
 
     public var errorCode: Int {

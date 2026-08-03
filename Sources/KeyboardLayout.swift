@@ -239,7 +239,7 @@ private enum KeyboardLayoutSystemLoader {
         modifierFlags: [NSEvent.ModifierFlags],
         mode: ModifierTranslationMode,
         lowercased: Bool,
-        keyCodes requestedKeyCodes: [UInt16]? = nil
+        keyCodes: [UInt16] = Self.keyCodes
     ) -> [KeyboardLayoutSnapshot.Key: String] {
         guard let layoutDataPointer = TISGetInputSourceProperty(
             source,
@@ -253,8 +253,6 @@ private enum KeyboardLayoutSystemLoader {
             .assumingMemoryBound(to: UCKeyboardLayout.self)
         let keyboardType = UInt32(LMGetKbdType())
         var result: [KeyboardLayoutSnapshot.Key: String] = [:]
-        let keyCodes = requestedKeyCodes ?? Self.keyCodes
-
         for flags in modifierFlags {
             for keyCode in keyCodes {
                 var deadKeyState: UInt32 = 0
