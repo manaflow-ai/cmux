@@ -13,8 +13,8 @@ public struct SentryNoiseFilter: Sendable {
     ///   - dataKeys: Structured context keys that can prove socket ownership.
     ///   - allowSandboxPolicyDenial: Whether a socket-connect `EPERM` has
     ///     trusted restricted-sandbox provenance. Pass
-    ///     ``CLISocketSentryPolicy/allowsSandboxPolicyDenial`` rather than
-    ///     inferring this from the error text.
+    ///     ``CLISocketSentryPolicy/shouldSuppressPolicyDenial(_:)`` rather
+    ///     than inferring this from the error text.
     /// - Returns: `true` when the failure is safe to omit from Sentry.
     public func isExpectedCLISocketTransportFailure(
         stage: String,

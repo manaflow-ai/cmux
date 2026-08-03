@@ -1043,7 +1043,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         let firstRead = expectation(description: "first git snapshot read started")
         Task {

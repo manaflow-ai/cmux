@@ -1,4 +1,3 @@
-import Carbon
 import Foundation
 import Observation
 
@@ -14,7 +13,6 @@ final class KeyboardShortcutSettingsObserver {
     private(set) var globalSearchShortcut: StoredShortcut
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
-    private let distributedNotificationCenter: DistributedNotificationCenter
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
     @ObservationIgnored
@@ -26,11 +24,9 @@ final class KeyboardShortcutSettingsObserver {
 
     init(
         notificationCenter: NotificationCenter = .default,
-        distributedNotificationCenter: DistributedNotificationCenter = .default(),
         shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
     ) {
         self.notificationCenter = notificationCenter
-        self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
@@ -54,10 +50,8 @@ final class KeyboardShortcutSettingsObserver {
                 self?.revision &+= 1
             }
         }
-        inputSourceObserver = distributedNotificationCenter.addObserver(
-            forName: Notification.Name(
-                rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String
-            ),
+        inputSourceObserver = notificationCenter.addObserver(
+            forName: KeyboardLayout.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
@@ -75,7 +69,7 @@ final class KeyboardShortcutSettingsObserver {
             notificationCenter.removeObserver(recorderObserver)
         }
         if let inputSourceObserver {
-            distributedNotificationCenter.removeObserver(inputSourceObserver)
+            notificationCenter.removeObserver(inputSourceObserver)
         }
     }
 

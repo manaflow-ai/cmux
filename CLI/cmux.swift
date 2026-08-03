@@ -1779,15 +1779,6 @@ final class SocketClient {
         let port: UInt16
     }
 
-    private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
-        let errnoValue: Int32
-
-        var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
-        }
-    }
-
     private struct RelayCredentials {
         let relayID: String
         let relayToken: Data
@@ -2185,14 +2176,14 @@ final class SocketClient {
 
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw CLISocketConnectError(path: path, errnoCode: connectErrno)
     }
 
     private static func shouldRetryConnect(_ error: Error) -> Bool {
-        guard let error = error as? SocketConnectError else {
+        guard let error = error as? CLISocketConnectError else {
             return false
         }
-        switch error.errnoValue {
+        switch error.errnoCode {
         case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
             return true
         default:

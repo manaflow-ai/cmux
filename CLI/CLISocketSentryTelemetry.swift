@@ -119,7 +119,11 @@ final class CLISocketSentryTelemetry {
             processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
         self.noiseFilter = SentryNoiseFilter()
-        self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
+        self.sentryPolicy = CLISocketSentryPolicy(
+            environment: processEnv,
+            command: self.command,
+            subcommand: self.subcommand
+        )
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -132,11 +136,13 @@ final class CLISocketSentryTelemetry {
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
         let errorDescription = String(describing: error)
+        let allowPolicyDenial = policyDenialContext(stage: stage, error: error)
+            .map(sentryPolicy.shouldSuppressPolicyDenial) ?? false
         guard !noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
             dataKeys: Set(data.keys),
-            allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
+            allowSandboxPolicyDenial: allowPolicyDenial
         ) else {
             return
         }
@@ -227,11 +233,17 @@ final class CLISocketSentryTelemetry {
 #else
         event.environment = "production-cli"
 #endif
-        event.tags = [
+        var tags = [
             "component": "cmux-cli",
             "cli_command": command,
             "cli_subcommand": subcommand
         ]
+        if let connectError = error as? CLISocketConnectError {
+            event.fingerprint = connectError.sentryFingerprint
+            tags["cli_socket_error_kind"] = "connect"
+            tags["cli_socket_errno"] = String(connectError.errnoCode)
+        }
+        event.tags = tags
         event.context = ["cli_socket": context]
         if !breadcrumbs.isEmpty {
             event.breadcrumbs = breadcrumbs
@@ -309,6 +321,26 @@ final class CLISocketSentryTelemetry {
             context["surface_id"] = surfaceId
         }
         return context
+    }
+
+    private func policyDenialContext(
+        stage: String,
+        error: Error
+    ) -> CLISocketPolicyDenialContext? {
+        guard let connectError = error as? CLISocketConnectError else { return nil }
+
+        var socketStat = stat()
+        let socketExists = lstat(connectError.path, &socketStat) == 0
+        return CLISocketPolicyDenialContext(
+            stage: stage,
+            errnoCode: connectError.errnoCode,
+            socketExists: socketExists,
+            socketIsUnixDomainSocket: socketExists &&
+                (socketStat.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK),
+            socketOwnerUID: socketExists ? socketStat.st_uid : 0,
+            processUID: getuid(),
+            effectiveUID: geteuid()
+        )
     }
 
     private func socketDiagnostics() -> [String: Any] {

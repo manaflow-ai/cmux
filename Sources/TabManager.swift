@@ -466,6 +466,17 @@ class TabManager: ObservableObject {
     /// GitHub transport state injected process-wide by the app composition root.
     /// The fallback initializer is retained for isolated `TabManager` tests.
     let pullRequestProbeService: PullRequestProbeService
+    private(set) lazy var sidebarGitActivitySnapshotCache: SidebarGitActivitySnapshotCache = {
+        let settings = self.settings
+        return SidebarGitActivitySnapshotCache(
+            loader: {
+                SidebarGitActivitySnapshot.load(settings: settings)
+            },
+            installHandler: { [weak self] _ in
+                self?.sidebarGitActivitySnapshotDidInstall()
+            }
+        )
+    }()
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -634,6 +645,7 @@ class TabManager: ObservableObject {
                 self?.refreshWindowTitle()
             }
         })
+        sidebarGitActivitySnapshotCache.requestRefresh()
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -676,9 +688,13 @@ class TabManager: ObservableObject {
     // MARK: - Sidebar git/PR forwarders (subsystem extracted to CmuxSidebarGit)
 
     private func sidebarMetadataSettingsDidChange() {
+        sidebarGitActivitySnapshotCache.requestRefresh()
+        refreshRemotePortScanningEnablement()
+    }
+
+    private func sidebarGitActivitySnapshotDidInstall() {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
-        refreshRemotePortScanningEnablement()
     }
 
     private func focusHistoryScopeSettingsDidChange() {
@@ -711,8 +727,13 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.refreshTrackedWorkspaceGitMetadata(reason: "test")
     }
 
-    func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
+    func sidebarGitMetadataWatchSettingsDidChangeForTesting() async {
         sidebarMetadataSettingsDidChange()
+        await sidebarGitActivitySnapshotCache.waitUntilIdle()
+    }
+
+    func waitForSidebarGitActivitySnapshotForTesting() async {
+        await sidebarGitActivitySnapshotCache.waitUntilIdle()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {

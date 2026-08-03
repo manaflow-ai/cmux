@@ -615,7 +615,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
+    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() async throws {
         let invocationCounter = CommandRunnerInvocationCounter()
         let gitThreadObservation = MainThreadObservationBox()
         let commandDelay: TimeInterval = 0.03
@@ -642,6 +642,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         let manager = TabManager(commandRunner: commandRunner)
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
         let workspaceCount = 45
         var workspaces = manager.tabs
@@ -691,9 +692,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             state: .promptIdle
         )
 
-        let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
+        await fulfillment(of: [finishedMonitoring], timeout: monitorDuration + 1.5)
         timer.invalidate()
-        XCTAssertEqual(result, .completed)
         XCTAssertGreaterThan(invocationCounter.value, 0)
         // Deterministic regression signal: the blocking git work must have run off
         // the main thread. This does not depend on wall-clock timing, so it cannot
@@ -768,8 +768,9 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testBranchOnlyGitReportDoesNotClearExistingDirtyState() throws {
+    func testBranchOnlyGitReportDoesNotClearExistingDirtyState() async throws {
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -794,8 +795,9 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() throws {
+    func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() async throws {
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -820,7 +822,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testTabScopedGitBranchUnknownStatusClearsDirtyWhenBranchChanges() throws {
+    func testTabScopedGitBranchUnknownStatusClearsDirtyWhenBranchChanges() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -829,6 +831,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: true)
 
@@ -850,7 +853,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testDisablingGitWatchClearsCachedPullRequestBadgesWhenPullRequestsAreShownByDefault() throws {
+    func testDisablingGitWatchClearsCachedPullRequestBadgesWhenPullRequestsAreShownByDefault() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -867,6 +870,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2722"))
@@ -888,7 +892,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertFalse(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]).isEmpty)
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertNil(workspace.gitBranch)
         XCTAssertNil(workspace.pullRequest)
@@ -931,7 +935,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testHiddenPullRequestsDoNotSchedulePullRequestPollingFromBranchReports() throws {
+    func testHiddenPullRequestsDoNotSchedulePullRequestPollingFromBranchReports() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -944,6 +948,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -961,7 +966,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() throws {
+    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -974,6 +979,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2746"))
@@ -994,7 +1000,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNotNil(workspace.panelPullRequests[panelId])
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2746)
@@ -1020,7 +1026,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2747)
@@ -1031,7 +1037,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() throws {
+    func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1050,6 +1056,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1061,7 +1068,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertTrue(
             waitForCondition {
@@ -1135,7 +1142,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     // the batched throttle + this test is a deliberate follow-up if mobile-host
     // scale needs it.
 
-    func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
+    func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() async throws {
         let defaults = UserDefaults.standard
         let unrelatedDefaultsKey = "cmux.tests.unrelated-defaults-\(UUID().uuidString)"
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1155,6 +1162,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1166,7 +1174,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         workspace.currentDirectory = workingDirectoryURL.path
         defaults.set(UUID().uuidString, forKey: unrelatedDefaultsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(
             manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id),

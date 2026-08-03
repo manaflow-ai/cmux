@@ -1,4 +1,3 @@
-import Carbon
 import AppKit
 import Foundation
 import Testing
@@ -35,7 +34,6 @@ extension GlobalSearchShortcutBehaviorTests {
         var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
-            distributedNotificationCenter: DistributedNotificationCenter(),
             shortcutProvider: { action in
                 guard action == .globalSearch else { return .unbound }
                 globalSearchLookupCount += 1
@@ -110,9 +108,8 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
     }
 
-    @Test func inputSourceChangeRefreshesGlobalSearchSnapshot() async {
+    @Test func completedKeyboardLayoutChangeRefreshesGlobalSearchSnapshot() {
         let notificationCenter = NotificationCenter()
-        let distributedNotificationCenter = DistributedNotificationCenter.default()
         var configuredShortcut = StoredShortcut(
             key: "f",
             command: true,
@@ -123,7 +120,6 @@ extension GlobalSearchShortcutBehaviorTests {
         var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
-            distributedNotificationCenter: distributedNotificationCenter,
             shortcutProvider: { action in
                 guard action == .globalSearch else { return .unbound }
                 globalSearchLookupCount += 1
@@ -139,17 +135,7 @@ extension GlobalSearchShortcutBehaviorTests {
             control: false
         )
 
-        distributedNotificationCenter.postNotificationName(
-            Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
-        var yields = 0
-        while globalSearchLookupCount == initialLookupCount, yields < 1_000 {
-            await Task.yield()
-            yields += 1
-        }
+        notificationCenter.post(name: KeyboardLayout.didChangeNotification, object: nil)
 
         #expect(observer.globalSearchShortcut == configuredShortcut)
         #expect(globalSearchLookupCount == initialLookupCount + 1)

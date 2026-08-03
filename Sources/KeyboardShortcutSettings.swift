@@ -1231,8 +1231,8 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
-        inputSourceObserver = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
+        inputSourceObserver = NotificationCenter.default.addObserver(
+            forName: KeyboardLayout.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -2004,7 +2004,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     func resolvedKeyCode(
-        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        layoutCharacterProvider: ((UInt16, NSEvent.ModifierFlags) -> String?)? = nil
     ) -> UInt16? {
         if let keyCode {
             return keyCode
@@ -2013,6 +2013,8 @@ struct ShortcutStroke: Equatable, Hashable {
         let shortcutKey = key.lowercased()
         let flags = modifierFlags
         let applyShiftNormalization = flags.contains(.shift)
+        let layoutCharacterProvider = layoutCharacterProvider
+            ?? KeyboardLayout.shortcutCharacterProvider()
 
         for candidateKeyCode in Self.supportedShortcutKeyCodes {
             let candidateCharacter = layoutCharacterProvider(candidateKeyCode, flags)
