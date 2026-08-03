@@ -123,6 +123,13 @@ struct TerminalBytesLogicTests {
                 charactersIgnoringModifiers: "c"
             ) == "ctrl+c"
         )
+        #expect(
+            terminalKeyChord(
+                keyCode: 2,
+                modifiers: [.control],
+                charactersIgnoringModifiers: "d"
+            ) == "ctrl+d"
+        )
     }
 
     @Test
