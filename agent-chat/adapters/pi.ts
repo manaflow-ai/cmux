@@ -16,6 +16,7 @@ interface PiState {
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  initializing?: Promise<void>;
   activeTurn: boolean;
   activeGeneration?: number;
 }
@@ -31,7 +32,7 @@ export const piAdapter: Adapter = {
   async send(sess, prompt, generation?: number) {
     const proc = ensureProc(sess);
     const st = state(sess);
-    await applyInitialOptions(sess);
+    await initializePi(sess);
     const type = st.activeTurn ? "steer" : "prompt";
     if (type === "prompt") {
       st.activeTurn = true;
@@ -59,6 +60,11 @@ export const piAdapter: Adapter = {
     await setPiOption(sess, id, value);
   },
   async refreshOptions(sess) {
+    const st = state(sess);
+    if (st.initializing || !st.initialApplied) {
+      await initializePi(sess);
+      return;
+    }
     await refreshPi(sess);
   },
   async listOptions(cwd) {
@@ -164,10 +170,25 @@ function rejectPending(st: PiState, message: string) {
   st.pending.clear();
 }
 
-async function applyInitialOptions(sess: SessionCtx) {
+async function initializePi(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
-  st.initialApplied = true;
+  let initializing = st.initializing;
+  if (!initializing) {
+    initializing = applyInitialOptions(sess).then(() => {
+      st.initialApplied = true;
+    });
+    st.initializing = initializing;
+  }
+  try {
+    await initializing;
+  } finally {
+    if (st.initializing === initializing) st.initializing = undefined;
+  }
+}
+
+async function applyInitialOptions(sess: SessionCtx) {
+  const st = state(sess);
   if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
   if (typeof sess.startOptions.thinking === "string") await setPiOption(sess, "thinking", st.thinking);
   if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
