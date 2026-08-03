@@ -129,7 +129,7 @@ export function createHostedSubrouterClient(options: {
     },
     deleteTenant: async (accessToken, teamId) => {
       assertTenantDeletionConfigured();
-      const response = await requestJson(
+      const upstreamResponse = await requestResponse(
         fetchImpl,
         `${baseUrl}/_subrouter/auth/stack/tenant`,
         {
@@ -141,7 +141,10 @@ export function createHostedSubrouterClient(options: {
           },
           body: JSON.stringify({ teamId }),
         },
+        [404],
       );
+      if (upstreamResponse.status === 404) return;
+      const response = await responseJson(upstreamResponse);
       if (!isRecord(response)) {
         throw new HostedSubrouterError("invalid tenant deletion response", 502);
       }
@@ -221,6 +224,10 @@ async function requestJson(
   init: RequestInit,
 ): Promise<unknown> {
   const response = await requestResponse(fetchImpl, url, init);
+  return await responseJson(response);
+}
+
+async function responseJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
@@ -232,6 +239,7 @@ async function requestResponse(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
+  allowedStatuses: readonly number[] = [],
 ): Promise<Response> {
   let response: Response;
   try {
@@ -242,7 +250,7 @@ async function requestResponse(
   } catch {
     throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
   }
-  if (!response.ok) {
+  if (!response.ok && !allowedStatuses.includes(response.status)) {
     throw new HostedSubrouterError("hosted Subrouter request failed", response.status);
   }
   return response;
@@ -280,12 +288,10 @@ function parseHostedAccount(value: unknown): SubrouterAccount {
   ) {
     throw new HostedSubrouterError("invalid hosted account", 502);
   }
-  const authMode = isString(value.auth_mode) ? value.auth_mode : "";
-  const kind = authMode === "apikey"
-    ? value.provider === "claude"
-      ? "anthropic-apikey"
-      : "openai-apikey"
-    : value.provider;
+  const kind = accountKindFromProvider(value.provider, value.auth_mode);
+  if (!kind) {
+    throw new HostedSubrouterError("invalid hosted account", 502);
+  }
   const fallbackLabel = isString(value.email) ? value.email : value.id;
   const apiKeyPrefix = `apikey:${kind}:`;
   const label = explicitLabel !== undefined
@@ -300,6 +306,17 @@ function parseHostedAccount(value: unknown): SubrouterAccount {
     ...(createdAt !== undefined ? { createdAt } : {}),
     ...parseHealth(value.health),
   };
+}
+
+function accountKindFromProvider(
+  provider: unknown,
+  authMode: unknown,
+): SubrouterAccount["kind"] | null {
+  if (provider === "codex" && authMode === "oauth") return "codex";
+  if (provider === "codex" && authMode === "apikey") return "openai-apikey";
+  if (provider === "claude" && authMode === "oauth") return "claude";
+  if (provider === "claude" && authMode === "apikey") return "anthropic-apikey";
+  return null;
 }
 
 function parseAccountEnvelope(value: Record<string, unknown>): SubrouterAccount {
