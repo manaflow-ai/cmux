@@ -326,6 +326,42 @@ struct NativeOmnibarSuggestionsBridge: NSViewRepresentable {
     }
 }
 
+struct NativeProBadgeViewBridge: NSViewRepresentable {
+    func makeNSView(context: Context) -> ProBadgeView {
+        ProBadgeView(frame: .zero)
+    }
+
+    func updateNSView(_ view: ProBadgeView, context: Context) {}
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: ProBadgeView,
+        context: Context
+    ) -> CGSize? {
+        nsView.intrinsicContentSize
+    }
+}
+
+struct NativeProBadgeLabelBridge: NSViewRepresentable {
+    let style: ProBadgeStyle
+
+    func makeNSView(context: Context) -> ProBadgeLabelView {
+        ProBadgeLabelView(style: style)
+    }
+
+    func updateNSView(_ view: ProBadgeLabelView, context: Context) {
+        view.update(style: style)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: ProBadgeLabelView,
+        context: Context
+    ) -> CGSize? {
+        nsView.intrinsicContentSize
+    }
+}
+
 @available(macOS 14.0, *)
 struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
     let identity: AppExtensionIdentity

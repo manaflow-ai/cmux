@@ -7,6 +7,6 @@ import SwiftUI
 /// footer and the DEBUG dev footer via `SidebarFooterButtons`.
 struct SidebarProBadge: View {
     var body: some View {
-        ProBadgeView()
+        NativeProBadgeViewBridge()
     }
 }

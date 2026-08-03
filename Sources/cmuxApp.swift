@@ -3137,7 +3137,7 @@ private struct SidebarFooterIconBalanceStrip: View {
                     .compositingGroup()
                     .blur(radius: CGFloat(blurRadius))
             }
-            ProBadgeLabel(style: .textPro)
+            NativeProBadgeLabelBridge(style: .textPro)
         }
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
