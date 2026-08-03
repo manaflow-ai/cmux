@@ -984,6 +984,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
+          "workspaceSpacing": "Pionowy odstęp w punktach między wierszami obszarów roboczych i grup.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

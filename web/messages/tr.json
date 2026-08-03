@@ -983,6 +983,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
+          "workspaceSpacing": "Çalışma alanı ve grup satırları arasındaki dikey boşluk (punto).",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {

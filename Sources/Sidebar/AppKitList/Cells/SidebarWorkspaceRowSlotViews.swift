@@ -22,9 +22,9 @@ extension NSTextField {
     }
 }
 
-/// Circle unread-count badge (parity with SidebarWorkspaceUnreadBadge).
-/// Draws the count directly so the glyph is optically centered — NSTextField
-/// intrinsic sizing carries asymmetric insets that shift small digits.
+/// Adaptive unread-count capsule shared by workspace and group rows.
+/// Draws directly so the glyph is optically centered without NSTextField's
+/// asymmetric cell insets.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
     private var text: NSString = ""
@@ -33,6 +33,8 @@ final class SidebarRowUnreadBadgeView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
     }
 
     required init?(coder: NSCoder) {
@@ -40,10 +42,21 @@ final class SidebarRowUnreadBadgeView: NSView {
     }
 
     func configure(count: Int, fillColor: NSColor, textColor: NSColor, font: NSFont) {
-        text = NSString(string: "\(count)")
+        text = NSString(string: count > 99 ? "99+" : "\(max(0, count))")
         textAttributes = [.font: font, .foregroundColor: textColor]
         layer?.backgroundColor = fillColor.cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = textColor.withAlphaComponent(0.22).cgColor
         needsDisplay = true
+    }
+
+    func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
+        let textSize = text.size(withAttributes: textAttributes)
+        let height = ceil(max(minimumHeight, textSize.height + 2))
+        return NSSize(
+            width: ceil(max(height, textSize.width + horizontalPadding * 2)),
+            height: height
+        )
     }
 
     override func layout() {

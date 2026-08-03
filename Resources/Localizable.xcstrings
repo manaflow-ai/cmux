@@ -190617,6 +190617,23 @@
         }
       }
     },
+    "settings.search.alias.setting.sidebarAppearance.workspace-spacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points ワークスペース 行 グループ 間隔 密度 コンパクト ポイント"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.sidebarAppearance.light-tint": {
       "extractionState": "manual",
       "localizations": {
@@ -194961,6 +194978,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "左サイドバーのワークスペースタイトル、メタデータ、バッジ、ショートカットヒントのサイズを調整します。"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.workspaceSpacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Spacing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの間隔"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.workspaceSpacing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the space between workspace and group rows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース行とグループ行の間隔を調整します。"
           }
         }
       }

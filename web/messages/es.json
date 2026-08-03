@@ -983,6 +983,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
+          "workspaceSpacing": "Espaciado vertical en puntos entre las filas de espacios de trabajo y grupos.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {

@@ -1798,6 +1798,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
+          "workspaceSpacing": "ワークスペース行とグループ行の間隔（ポイント単位）です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {

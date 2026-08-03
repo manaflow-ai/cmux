@@ -36,7 +36,50 @@ struct SidebarRowPalette {
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: font, range: fullRange)
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+        for run in source.runs {
+            let range = NSRange(run.range, in: source)
+            guard range.length > 0 else { continue }
+            if let intent = run.inlinePresentationIntent {
+                mutable.addAttribute(
+                    .font,
+                    value: markdownFont(base: font, intent: intent),
+                    range: range
+                )
+                if intent.contains(.strikethrough) {
+                    mutable.addAttribute(
+                        .strikethroughStyle,
+                        value: NSUnderlineStyle.single.rawValue,
+                        range: range
+                    )
+                }
+            }
+            if run.link != nil {
+                mutable.addAttribute(
+                    .underlineStyle,
+                    value: NSUnderlineStyle.single.rawValue,
+                    range: range
+                )
+            }
+        }
         return mutable
+    }
+
+    private static func markdownFont(
+        base: NSFont,
+        intent: InlinePresentationIntent
+    ) -> NSFont {
+        let startingFont = intent.contains(.code)
+            ? NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: .regular)
+            : base
+        var traits = startingFont.fontDescriptor.symbolicTraits
+        if intent.contains(.stronglyEmphasized) {
+            traits.insert(.bold)
+        }
+        if intent.contains(.emphasized) {
+            traits.insert(.italic)
+        }
+        let descriptor = startingFont.fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: descriptor, size: startingFont.pointSize) ?? startingFont
     }
 }
 
@@ -98,19 +141,19 @@ final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
         ]
 
         let mutable: NSMutableAttributedString
-        if let rendered = SidebarMarkdownRenderer(markdown: markdown).workspaceDescription {
-            mutable = NSMutableAttributedString(attributedString: NSAttributedString(rendered))
+        if let rendered = SidebarMarkdownRenderer(markdown: markdown).inline {
+            mutable = NSMutableAttributedString(attributedString: SidebarRowPalette.attributed(
+                rendered,
+                font: font,
+                color: color
+            ))
         } else {
-            mutable = NSMutableAttributedString(string: markdown)
+            mutable = NSMutableAttributedString(
+                string: markdown,
+                attributes: [.font: font, .foregroundColor: color]
+            )
         }
         let fullRange = NSRange(location: 0, length: mutable.length)
-        mutable.addAttributes(
-            [
-                .font: font,
-                .foregroundColor: color,
-            ],
-            range: fullRange
-        )
         if let explicitURL {
             mutable.removeAttribute(.link, range: fullRange)
             mutable.removeAttribute(.underlineStyle, range: fullRange)

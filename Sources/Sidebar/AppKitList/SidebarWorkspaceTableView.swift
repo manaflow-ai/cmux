@@ -8,6 +8,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
+    let rowSpacing: CGFloat
     let isPresented: Bool
     let unreadSource: SidebarUnreadModel
 
@@ -35,7 +36,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
             actions: actions,
             workspaceIds: workspaceIds,
             selectedWorkspaceId: selectedWorkspaceId,
-            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            rowSpacing: rowSpacing
         )
     }
 

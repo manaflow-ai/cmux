@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSettings
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
@@ -87,7 +88,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.allowsEmptySelection = true
         table.allowsMultipleSelection = false
         table.allowsTypeSelect = false
-        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.intercellSpacing = NSSize(
+            width: 0,
+            height: CGFloat(SidebarCatalogSection().workspaceSpacing.defaultValue)
+        )
         table.usesAutomaticRowHeights = false
         table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
@@ -321,7 +325,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         actions: SidebarWorkspaceTableActions,
         workspaceIds nextWorkspaceIds: [UUID],
         selectedWorkspaceId: UUID?,
-        selectedScrollTargetWorkspaceId: UUID?
+        selectedScrollTargetWorkspaceId: UUID?,
+        rowSpacing: CGFloat = CGFloat(SidebarCatalogSection().workspaceSpacing.defaultValue)
     ) {
         guard isPresentationActive else { return }
         mutationScheduler.stageApply(
@@ -330,7 +335,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 actions: actions,
                 workspaceIds: nextWorkspaceIds,
                 selectedWorkspaceId: selectedWorkspaceId,
-                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+                rowSpacing: rowSpacing
             )
         )
     }
@@ -342,6 +348,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
+        let rowSpacing = CGFloat(SidebarCatalogSection.clampedWorkspaceSpacing(Int(input.rowSpacing.rounded())))
+        if containerView.tableView.intercellSpacing.height != rowSpacing {
+            containerView.tableView.intercellSpacing.height = rowSpacing
+            containerView.tableView.needsLayout = true
+            containerView.scrollView.needsLayout = true
+        }
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1

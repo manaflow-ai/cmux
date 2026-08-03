@@ -983,6 +983,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
+          "workspaceSpacing": "Spaziatura verticale in punti tra le righe delle aree di lavoro e dei gruppi.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {

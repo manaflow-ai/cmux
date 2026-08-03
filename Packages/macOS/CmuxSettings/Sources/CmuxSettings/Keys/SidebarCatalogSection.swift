@@ -6,6 +6,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     /// Valid notification-preview line limits for settings UI and configuration parsing.
     public static let notificationMessageLineLimitRange = 1...50
 
+    /// Valid vertical spacing, in points, between workspace and group rows.
+    public static let workspaceSpacingRange = 0...8
+
+    /// Keeps runtime layout safe when legacy defaults contain an out-of-range value.
+    public static func clampedWorkspaceSpacing(_ value: Int) -> Int {
+        min(max(value, workspaceSpacingRange.lowerBound), workspaceSpacingRange.upperBound)
+    }
+
     /// Resolves the shipped legacy layout contract together with the newer
     /// branch/directory placement preference.
     public static func stacksBranchAndDirectory(
@@ -31,6 +39,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.showWorkspaceDescription",
         defaultValue: true,
         userDefaultsKey: "sidebarShowWorkspaceDescription"
+    )
+
+    public let workspaceSpacing = DefaultsKey<Int>(
+        id: "sidebar.workspaceSpacing",
+        defaultValue: 1,
+        userDefaultsKey: "sidebarWorkspaceSpacing"
     )
 
     /// Bool-backed to match the legacy in-app store. The on-disk key

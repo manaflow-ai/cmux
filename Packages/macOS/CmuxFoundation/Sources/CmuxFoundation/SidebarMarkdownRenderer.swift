@@ -7,7 +7,7 @@ public import Foundation
 /// Shared foundation utility (not sidebar-specific); used to render workspace
 /// descriptions in the sidebar and reusable anywhere a lightweight inline
 /// markdown render is needed. Construct it with the markdown source and read
-/// ``workspaceDescription``.
+/// ``inline``.
 public struct SidebarMarkdownRenderer {
     private let markdown: String
 
@@ -17,10 +17,13 @@ public struct SidebarMarkdownRenderer {
 
     /// The markdown rendered into an `AttributedString`, interpreting only
     /// inline syntax and preserving whitespace. `nil` when it cannot be parsed.
-    public var workspaceDescription: AttributedString? {
+    public var inline: AttributedString? {
         try? AttributedString(
             markdown: markdown,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )
     }
+
+    /// Compatibility name for existing workspace-description call sites.
+    public var workspaceDescription: AttributedString? { inline }
 }

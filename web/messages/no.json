@@ -983,6 +983,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
+          "workspaceSpacing": "Vertikal avstand i punkter mellom arbeidsområde- og grupperader.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
         "fileExplorer": {

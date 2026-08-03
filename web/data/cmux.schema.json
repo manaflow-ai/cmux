@@ -1044,6 +1044,14 @@
           "description": "Maximum lines shown for the latest notification below each workspace title.",
           "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
+        "workspaceSpacing": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8,
+          "default": 1,
+          "description": "Vertical spacing in points between workspace and group rows.",
+          "descriptionKey": "schemaDescriptions.sidebar.workspaceSpacing"
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,

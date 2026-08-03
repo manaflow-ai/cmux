@@ -45,11 +45,11 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     /// Pinned group glyph point size at the default sidebar font size.
     static let basePinnedIconFontSize: CGFloat = 9
     /// Group name point size at the default sidebar font size.
-    static let baseNameFontSize: CGFloat = 11
+    static let baseNameFontSize: CGFloat = 12.5
     /// Unread badge point size at the default sidebar font size.
-    static let baseUnreadFontSize: CGFloat = 10
+    static let baseUnreadFontSize: CGFloat = 8.5
     /// Unread badge horizontal padding at the default sidebar font size.
-    static let baseUnreadHorizontalPadding: CGFloat = 5
+    static let baseUnreadHorizontalPadding: CGFloat = 4
     /// Unread badge vertical padding at the default sidebar font size.
     static let baseUnreadVerticalPadding: CGFloat = 1
     /// Plus-button glyph point size at the default sidebar font size.

@@ -10628,6 +10628,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.workspaceSpacing) private var configuredWorkspaceSpacing
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -10694,7 +10695,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
     private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
-    let tabRowSpacing: CGFloat = 2
+    var tabRowSpacing: CGFloat {
+        CGFloat(SidebarCatalogSection.clampedWorkspaceSpacing(configuredWorkspaceSpacing))
+    }
     private static let extensionSidebarObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -11454,6 +11457,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            rowSpacing: tabRowSpacing,
             isPresented: isPresented,
             unreadSource: sidebarUnread
         )

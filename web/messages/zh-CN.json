@@ -983,6 +983,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
+          "workspaceSpacing": "工作区和组行之间的垂直间距（以点为单位）。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {
