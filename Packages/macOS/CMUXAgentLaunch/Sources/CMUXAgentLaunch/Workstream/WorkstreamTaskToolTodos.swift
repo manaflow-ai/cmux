@@ -80,8 +80,11 @@ struct WorkstreamTaskToolTodos: Sendable {
 
         switch toolName {
         case "TodoWrite":
-            let parsed = parseWorkstreamTodoWriteList(toolInputJSON)
-            guard !parsed.isEmpty else { return .ignored }
+            // An empty list is a real transition (the agent cleared its plan),
+            // distinct from a payload that carried no list at all.
+            guard let parsed = parseWorkstreamTodoWriteSnapshot(toolInputJSON) else {
+                return .ignored
+            }
             todos = parsed
             // Ids accumulate across snapshots: a task dropped from a later
             // whole-list report must stay owned so its row can be retired.
@@ -132,8 +135,10 @@ struct WorkstreamTaskToolTodos: Sendable {
             claimId(id)
             todos[index] = WorkstreamTaskTodo(
                 id: id,
-                content: resultTask.flatMap(taskContent(in:))
-                    ?? input.flatMap(taskContent(in:))
+                // Subject only: a details-only update must not rewrite the
+                // row's title with the new description.
+                content: resultTask.flatMap(taskSubject(in:))
+                    ?? input.flatMap(taskSubject(in:))
                     ?? todos[index].content,
                 state: state ?? todos[index].state
             )
@@ -184,12 +189,26 @@ private func taskId(in dict: [String: Any]) -> String? {
     return nil
 }
 
-private func taskContent(in dict: [String: Any]) -> String? {
-    for key in ["subject", "content", "title", "text", "description"] {
+/// The task's display title. Deliberately excludes `description`: a
+/// `TaskUpdate` may change only the task's details, and treating those as the
+/// title would silently rewrite the checklist row's text.
+private func taskSubject(in dict: [String: Any]) -> String? {
+    for key in ["subject", "content", "title", "text"] {
         if let value = dict[key] as? String {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }
+    }
+    return nil
+}
+
+/// The best available text for a task being adopted for the first time, where
+/// a description is better than dropping the row entirely.
+private func taskContent(in dict: [String: Any]) -> String? {
+    if let subject = taskSubject(in: dict) { return subject }
+    if let value = dict["description"] as? String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
     }
     return nil
 }
@@ -211,15 +230,22 @@ private func taskState(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
 }
 
 /// Parses the whole-list `TodoWrite` shape (`{"todos":[…]}` or a bare array).
-func parseWorkstreamTodoWriteList(_ json: String?) -> [WorkstreamTaskTodo] {
+///
+/// - Returns: The parsed list, or `nil` when the payload carried no list at
+///   all. An empty array parses to an empty list, which is a valid snapshot
+///   meaning the agent cleared its plan.
+func parseWorkstreamTodoWriteSnapshot(_ json: String?) -> [WorkstreamTaskTodo]? {
     guard let json, let data = json.data(using: .utf8),
           let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-    else { return [] }
+    else { return nil }
     let raw: [Any]
     if let dict = root as? [String: Any] {
-        raw = dict["todos"] as? [Any] ?? []
+        guard let todos = dict["todos"] as? [Any] else { return nil }
+        raw = todos
+    } else if let array = root as? [Any] {
+        raw = array
     } else {
-        raw = root as? [Any] ?? []
+        return nil
     }
     return raw.enumerated().compactMap { idx, element in
         guard let dict = element as? [String: Any],

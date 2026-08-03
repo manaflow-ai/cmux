@@ -51,10 +51,11 @@ public final class WorkstreamStore {
     /// per-task tool calls (`TaskCreate` / `TaskUpdate`), which report one
     /// task at a time rather than the whole list.
     ///
-    /// Each accumulator caps its own retained tasks and ids, and an entry is
-    /// dropped on `SessionEnd`. That hook is not guaranteed — an agent that
-    /// crashes or is killed never sends it — so the map itself is also bounded
-    /// and evicts the least recently updated workstream.
+    /// Each accumulator caps its own retained tasks and ids, and the map
+    /// evicts the least recently updated workstream. Entries deliberately
+    /// outlive `SessionEnd`: a session can be resumed under the same id, and
+    /// its ownership map is the only thing that says which checklist rows
+    /// belong to it.
     private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
     private var taskToolWorkstreamsByRecency: [String] = []
 
@@ -183,11 +184,6 @@ public final class WorkstreamStore {
             taskToolTodosByWorkstream[evicted] = nil
         }
         return outcome
-    }
-
-    private func forgetTaskTools(forWorkstream workstreamId: String) {
-        taskToolTodosByWorkstream[workstreamId] = nil
-        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
     }
 
     /// Every agent task id this workstream has ever owned, including tasks it
@@ -418,10 +414,13 @@ public final class WorkstreamStore {
         case .sessionStart:
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
-            // The agent is gone; its accumulated task list can never receive
-            // another delta, so retire the entry instead of retaining it for
-            // the life of the process.
-            forgetTaskTools(forWorkstream: event.sessionId)
+            // The accumulator is deliberately NOT cleared here. A Claude
+            // session can be resumed under the same id, and a resumed
+            // status-only TaskUpdate carries no subject, so discarding the
+            // ownership map would leave its checklist rows permanently stale.
+            // Delayed asynchronous PostToolUse hooks race SessionEnd for the
+            // same reason. Growth is bounded by the LRU on
+            // `taskToolTodosByWorkstream` instead.
             return (.sessionEnd, .sessionEnd)
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))

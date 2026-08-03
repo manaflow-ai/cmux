@@ -224,14 +224,54 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .completed)
     }
 
-    @Test("Session end retires the accumulator")
-    func sessionEndClearsAccumulator() {
+    /// A Claude session can be resumed under the same id, so SessionEnd must
+    /// not discard the ownership map its checklist rows depend on.
+    @Test("Ownership survives a resumable session end")
+    func sessionEndKeepsOwnershipForResume() {
         let store = WorkstreamStore(ringCapacity: 50)
         createTask(store, "s1", subject: "one", id: "1")
-        #expect(!store.ownedTaskIds(forWorkstream: "s1").isEmpty)
-
         store.ingest(WorkstreamEvent(sessionId: "s1", hookEventName: .sessionEnd, source: "claude"))
-        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+
+        // A resumed status-only update still lands on the existing row.
+        update(store, "s1", id: "1", status: "completed")
+        #expect(latestTodos(store)?.first?.state == .completed)
+    }
+
+    @Test("An empty TodoWrite snapshot clears the list")
+    func emptyTodoWriteSnapshotClearsTheList() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"a","content":"first"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.count == 1)
+
+        store.ingest(toolCall("s1", tool: "TodoWrite", input: #"{"todos":[]}"#, response: #"{"ok":true}"#))
+        #expect(store.items.last?.kind == .todos)
+        #expect(latestTodos(store)?.isEmpty == true)
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["a"])
+
+        // A payload with no list at all is still ignored.
+        store.ingest(toolCall("s1", tool: "TodoWrite", input: #"{"unrelated":1}"#, response: #"{"ok":true}"#))
+        #expect(store.items.last?.kind == .toolResult)
+    }
+
+    /// TaskUpdate can change a task's details alone; that must not overwrite
+    /// the row's displayed subject.
+    @Test("A details-only update keeps the task subject")
+    func descriptionOnlyUpdateKeepsSubject() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "Ship the fix", id: "1")
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","description":"now with more detail"}"#,
+            response: #"{"task":{"id":"1","description":"now with more detail"}}"#
+        ))
+        #expect(latestTodos(store)?.first?.content == "Ship the fix")
     }
 
     @Test("Retained tasks stay bounded")
