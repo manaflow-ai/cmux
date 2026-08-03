@@ -54,6 +54,7 @@ private struct WorkspacePanelContentHostView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
+    let customSidebarUnread: SidebarUnreadModel
     let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
@@ -75,6 +76,7 @@ private struct WorkspacePanelContentHostView: View {
             appearance: appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: customSidebarTabManager,
+            customSidebarUnread: customSidebarUnread,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
             terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
@@ -300,6 +302,7 @@ struct WorkspaceContentView: View {
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
+                        customSidebarUnread: notificationStore.sidebarUnread,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the

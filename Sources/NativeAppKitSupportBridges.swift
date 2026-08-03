@@ -337,7 +337,7 @@ struct PanelContentView: NSViewControllerRepresentable {
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
         customSidebarTabManager: TabManager?,
-        customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread,
+        customSidebarUnread: SidebarUnreadModel,
         hasUnreadNotification: Bool,
         terminalAgentContext: String,
         paneOwnershipOverride: Bool? = nil,
@@ -1798,7 +1798,7 @@ struct BonsplitView<Content: View, EmptyContent: View>: NSViewControllerRepresen
 
     @MainActor
     final class Coordinator {
-        let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
+        fileprivate let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
 
         init(
             content: @escaping (Bonsplit.Tab, PaneID) -> Content,
