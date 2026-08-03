@@ -404,6 +404,17 @@ struct SidebarWidthReader<Content: View>: View {
     }
 }
 
+struct SidebarWidthSettlingObserver: View {
+    @Bindable var layout: SidebarLayoutModel
+    let onSettle: () -> Void
+
+    var body: some View {
+        Color.clear
+            .onAppear(perform: onSettle)
+            .onChange(of: layout.width) { _, _ in onSettle() }
+    }
+}
+
 struct SidebarWidthFrameModifier: ViewModifier {
     @Bindable var layout: SidebarLayoutModel
 

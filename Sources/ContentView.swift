@@ -3225,22 +3225,15 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        // onReceive, not onChange: ContentView deliberately does not track
-        // sidebar width in its body anymore (see sidebarLayout), so onChange
-        // would never fire. Delivery hops to the main queue (Combine otherwise
-        // runs this synchronously INSIDE each width write — measured as a
-        // 7.6ms/event write-phase regression during drags; DispatchQueue.main
-        // rather than RunLoop.main so delivery survives modal panels and
-        // menu tracking, same rule as the sidebar observation pipeline), and
-        // the settle work skips mid-drag entirely: the tracking loop plus
-        // portal anchor callbacks own live geometry, and the drag-end handler
-        // below runs the full settle once.
-        view = AnyView(view.onReceive(
-            sidebarLayout.$width.removeDuplicates().receive(on: DispatchQueue.main)
-        ) { _ in
-            guard !isResizerDragging else { return }
-            settleSidebarWidth()
-        })
+        // Keep the Observation read inside a tiny child so interactive width
+        // changes do not invalidate this root. Drag-end still owns the final
+        // full geometry settle.
+        view = AnyView(view.background(
+            SidebarWidthSettlingObserver(layout: sidebarLayout) {
+                guard !isResizerDragging else { return }
+                settleSidebarWidth()
+            }
+        ))
         view = AnyView(view.onReceive(
             NotificationCenter.default.publisher(for: .cmuxInteractiveGeometryResizeDidEnd)
         ) { _ in
@@ -11461,7 +11454,7 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let environment = renderContext.environment
-        let rowSnapshot = input.rowSnapshot(list: listSnapshot)
+        let targetAggregate = listSnapshot.contextMenuTargetAggregate(for: input)
         let hintText: String? = {
             guard input.showsModifierShortcutHints || input.settings.alwaysShowShortcutHints,
                   let digit = input.workspaceShortcutDigit else { return nil }
@@ -11502,12 +11495,12 @@ struct VerticalTabsSidebar: View, Equatable {
             tabManager: tabManager,
             notificationStore: notificationStore,
             index: input.index,
-            contextMenuWorkspaceIds: rowSnapshot.contextMenu.targetWorkspaceIds,
-            remoteContextMenuWorkspaceIds: rowSnapshot.contextMenu.remoteTargetWorkspaceIds,
-            allRemoteContextMenuTargetsConnecting: rowSnapshot.contextMenu.allRemoteTargetsConnecting,
-            allRemoteContextMenuTargetsDisconnected: rowSnapshot.contextMenu.allRemoteTargetsDisconnected,
-            contextMenuPinState: rowSnapshot.contextMenu.pinState,
-            workspaceGroupMenuSnapshot: rowSnapshot.contextMenu.groupMenuSnapshot,
+            contextMenuWorkspaceIds: targetAggregate.targetWorkspaceIds,
+            remoteContextMenuWorkspaceIds: targetAggregate.remoteTargetWorkspaceIds,
+            allRemoteContextMenuTargetsConnecting: targetAggregate.allRemoteTargetsConnecting,
+            allRemoteContextMenuTargetsDisconnected: targetAggregate.allRemoteTargetsDisconnected,
+            contextMenuPinState: input.contextMenuPinState,
+            workspaceGroupMenuSnapshot: listSnapshot.workspaceGroupMenuSnapshot,
             refreshSnapshot: { [workspaceId = tab.id] in
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             },
