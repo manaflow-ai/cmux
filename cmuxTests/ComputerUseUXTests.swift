@@ -1376,6 +1376,42 @@ struct ComputerUseUXTests {
         #expect(fallbackRequests.isEmpty)
     }
 
+    @Test @MainActor
+    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+        let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
+        let staticArtwork = NSImage(
+            size: NSSize(width: 32, height: 32),
+            flipped: false
+        ) { rect in
+            NSColor.white.setFill()
+            rect.fill()
+            return true
+        }
+
+        func resolvedIcon(named appearanceName: NSAppearance.Name) throws -> NSImage {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            var resolved: NSImage?
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = ComputerUseRuntimeService.resolvePresentationIcon(
+                    helperAppURL: helperAppURL,
+                    loadArtwork: { _ in staticArtwork },
+                    loadFallbackIcon: { _ in nil }
+                )
+            }
+            return try #require(resolved)
+        }
+
+        let lightPlate = try Self.sampledIconColor(
+            try resolvedIcon(named: .aqua)
+        )
+        let darkPlate = try Self.sampledIconColor(
+            try resolvedIcon(named: .darkAqua)
+        )
+
+        #expect(lightPlate.brightnessComponent > 0.7)
+        #expect(darkPlate.brightnessComponent < 0.4)
+    }
+
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
         #expect(ComputerUseOnboardingView.initialStep == .overview)
     }
@@ -3645,6 +3681,16 @@ struct ComputerUseUXTests {
             return
         }
         appendString(value, to: &message)
+    }
+
+    private static func sampledIconColor(_ image: NSImage) throws -> NSColor {
+        let data = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        let color = try #require(bitmap.colorAt(
+            x: bitmap.pixelsWide / 2,
+            y: bitmap.pixelsHigh * 4 / 5
+        ))
+        return try #require(color.usingColorSpace(.sRGB))
     }
 
     private func runShim(
