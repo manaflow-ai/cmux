@@ -139,6 +139,30 @@ import Testing
         )
     }
 
+    @Test func pendingBoundPathVerificationRetriesWithinStartupBudget() {
+        #expect(
+            policy.shouldRetryStartupFailure(
+                stage: "verify_bound_path_pending",
+                errnoCode: EINPROGRESS,
+                consecutiveFailures: 1
+            )
+        )
+        #expect(
+            policy.shouldRetryStartupFailure(
+                stage: "verify_bound_path_pending",
+                errnoCode: EAGAIN,
+                consecutiveFailures: policy.startupFailureRetryLimit
+            )
+        )
+        #expect(
+            !policy.shouldRetryStartupFailure(
+                stage: "verify_bound_path_pending",
+                errnoCode: EINPROGRESS,
+                consecutiveFailures: policy.startupFailureRetryLimit + 1
+            )
+        )
+    }
+
     @Test func startupFailureBackoffIsExponentialAndCapped() {
         #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 0) == 0)
         #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 1) == 100)

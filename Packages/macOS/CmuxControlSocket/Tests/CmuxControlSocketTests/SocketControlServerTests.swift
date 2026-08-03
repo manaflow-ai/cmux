@@ -570,6 +570,39 @@ struct SocketControlServerStartupRecoveryTests {
         if client >= 0 { close(client) }
     }
 
+    @Test func postBindIdentityProofRetriesUntilConnectIsReady() async throws {
+        let clock = TestSocketRecoveryClock()
+        let faults = TestSocketTransportFaultInjector(
+            failuresByStage: [
+                "stat_bound_path": [EIO],
+                "verify_bound_path_connect": [EINPROGRESS],
+                "verify_bound_path_readiness": [EINPROGRESS],
+            ]
+        )
+        let harness = try ServerHarness(
+            recoveryClock: clock,
+            transport: SocketTransport(faultInjector: faults)
+        )
+        defer { harness.shutdown() }
+
+        #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        var starts = harness.recorder.listenerStarts.makeAsyncIterator()
+
+        clock.advance()
+        try #require(await waitForAsyncCondition { clock.pendingSleepCount == 1 })
+        #expect(!harness.server.isRunning)
+        #expect(faults.invocationCount(for: "verify_bound_path_readiness") == 1)
+
+        clock.advance()
+        _ = try #require(await starts.next())
+
+        #expect(harness.server.isRunning)
+        #expect(harness.recorder.failures.isEmpty)
+        let client = connect(to: harness.socketPath)
+        #expect(client >= 0)
+        if client >= 0 { close(client) }
+    }
+
     @Test func postBindIdentityRetryRejectsAReplacementSocket() async throws {
         let clock = TestSocketRecoveryClock()
         let faults = TestSocketTransportFaultInjector(
