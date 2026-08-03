@@ -174,6 +174,49 @@ import Testing
         } == 5_100)
     }
 
+    @Test func startupFailureConfigurationNormalizesUnsafeValues() {
+        let negative = SocketListenerPolicy(
+            startupFailureBaseBackoffMs: -100,
+            startupFailureMaxBackoffMs: -200,
+            startupFailureRetryLimit: -6
+        )
+        #expect(negative.startupFailureBaseBackoffMs == 0)
+        #expect(negative.startupFailureMaxBackoffMs == 0)
+        #expect(negative.startupFailureRetryLimit == 0)
+        #expect(negative.startupFailureRetryDelayMilliseconds(consecutiveFailures: 2) == 0)
+
+        let inverted = SocketListenerPolicy(
+            startupFailureBaseBackoffMs: 200,
+            startupFailureMaxBackoffMs: 100,
+            startupFailureRetryLimit: 1
+        )
+        #expect(inverted.startupFailureBaseBackoffMs == 200)
+        #expect(inverted.startupFailureMaxBackoffMs == 200)
+        #expect(inverted.startupFailureRetryDelayMilliseconds(consecutiveFailures: 2) == 200)
+    }
+
+    @Test func startupFailureBackoffHandlesZeroBaseAndIntegerOverflow() {
+        let zeroBase = SocketListenerPolicy(
+            startupFailureBaseBackoffMs: 0,
+            startupFailureMaxBackoffMs: 200
+        )
+        #expect(zeroBase.startupFailureRetryDelayMilliseconds(consecutiveFailures: 6) == 0)
+
+        let overflowAdjacentBase = Int.max / 2 + 1
+        let overflowAdjacent = SocketListenerPolicy(
+            startupFailureBaseBackoffMs: overflowAdjacentBase,
+            startupFailureMaxBackoffMs: Int.max
+        )
+        #expect(
+            overflowAdjacent.startupFailureRetryDelayMilliseconds(consecutiveFailures: 1)
+                == overflowAdjacentBase
+        )
+        #expect(
+            overflowAdjacent.startupFailureRetryDelayMilliseconds(consecutiveFailures: 2)
+                == Int.max
+        )
+    }
+
     @Test func chmodRetriesOnlyTransientErrnos() {
         #expect(policy.shouldRetryStartupFailure(
             stage: "chmod",
