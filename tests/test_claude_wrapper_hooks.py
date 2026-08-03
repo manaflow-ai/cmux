@@ -529,11 +529,12 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "StopFailure", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
         "Stop": "stop",
+        "StopFailure": "stop",
         "SessionEnd": "session-end",
         "Notification": "notification",
         "UserPromptSubmit": "prompt-submit",
@@ -623,6 +624,29 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
 
 
+def test_matcherless_turn_hooks_run_for_every_turn(failures: list[str]) -> None:
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--dangerously-skip-permissions"],
+    )
+    expect(code == 0, f"matcherless hooks: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    hooks = settings.get("hooks", {})
+
+    # Claude Code does not support matchers for these once-per-turn events.
+    # Supplying even an empty matcher can silently prevent UserPromptSubmit or
+    # StopFailure from running, stranding a turn in its previous lifecycle.
+    for event_name in ("UserPromptSubmit", "Stop", "StopFailure"):
+        groups = hooks.get(event_name, [])
+        expect(bool(groups), f"matcherless hooks: missing {event_name} hook", failures)
+        for group in groups:
+            expect(
+                "matcher" not in group,
+                f"matcherless hooks: {event_name} must omit matcher, got {group}",
+                failures,
+            )
+
+
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
     code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
@@ -641,7 +665,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
         failures,
     )
     expected_hooks = {
-        "SessionStart", "Stop", "SubagentStop", "SessionEnd",
+        "SessionStart", "Stop", "StopFailure", "SubagentStop", "SessionEnd",
         "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
     }
     expect(
@@ -1943,6 +1967,7 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_matcherless_turn_hooks_run_for_every_turn(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)

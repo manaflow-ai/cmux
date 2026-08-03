@@ -17,7 +17,8 @@ struct WorkstreamEventTests {
           "tool_input": {"file_path": "/etc/passwd", "content": "x"},
           "context": {"lastUserMessage": "write a file", "permissionMode": "plan"},
           "_opencode_request_id": "req-1",
-          "_ppid": 1234
+          "_ppid": 1234,
+          "_cmux_agent_lifecycle": "needsInput"
         }
         """.data(using: .utf8)!
         let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
@@ -30,6 +31,7 @@ struct WorkstreamEventTests {
         #expect(event.context?.permissionMode == "plan")
         #expect(event.requestId == "req-1")
         #expect(event.ppid == 1234)
+        #expect(event.cmuxAgentLifecycle == "needsInput")
         // `toolInputJSON` round-trips through JSONSerialization which may
         // escape forward slashes; parse it back rather than substring-match.
         let raw = try #require(event.toolInputJSON?.data(using: .utf8))
@@ -59,7 +61,8 @@ struct WorkstreamEventTests {
                 permissionMode: "plan"
             ),
             requestId: "plan-1",
-            ppid: 999
+            ppid: 999,
+            cmuxAgentLifecycle: "running"
         )
         let data = try JSONEncoder().encode(event)
         let back = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
@@ -67,6 +70,7 @@ struct WorkstreamEventTests {
         #expect(back.hookEventName == event.hookEventName)
         #expect(back.workspaceId == event.workspaceId)
         #expect(back.requestId == event.requestId)
+        #expect(back.cmuxAgentLifecycle == "running")
         let rawPlan = try #require(back.toolInputJSON?.data(using: .utf8))
         let planDict = try #require(
             try JSONSerialization.jsonObject(with: rawPlan) as? [String: Any]
@@ -91,6 +95,7 @@ struct WorkstreamEventTests {
         #expect(event.workspaceId == nil)
         #expect(event.requestId == nil)
         #expect(event.ppid == nil)
+        #expect(event.cmuxAgentLifecycle == nil)
     }
 
     @Test("Codex CLI lifecycle feed events decode at the app boundary")

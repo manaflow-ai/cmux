@@ -6,7 +6,8 @@ import Foundation
 /// Field names mirror Vibe Island's hook payload format exactly so existing
 /// agent payloads pass through untouched: `session_id`, `hook_event_name`,
 /// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `_source`, `_ppid`,
-/// `_opencode_request_id`. `context` is cmux-specific and optional.
+/// `_opencode_request_id`. `context` and `_cmux_agent_lifecycle` are
+/// cmux-specific and optional.
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let sessionId: String
     public let hookEventName: HookEventName
@@ -22,9 +23,29 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let context: WorkstreamContext?
     public let requestId: String?
     public let ppid: Int?
+    /// The lifecycle accepted by cmux's hook-session authority.
+    public let cmuxAgentLifecycle: String?
     public let receivedAt: Date
     public let extraFieldsJSON: String?
 
+    /// Creates a hook event.
+    ///
+    /// - Parameter sessionId: The agent session identifier.
+    /// - Parameter hookEventName: The hook event discriminator.
+    /// - Parameter source: The agent integration that emitted the event.
+    /// - Parameter workspaceId: The associated workspace identifier, when known.
+    /// - Parameter surfaceId: The associated surface identifier, when known.
+    /// - Parameter transcriptPath: The agent transcript path, when known.
+    /// - Parameter cwd: The agent's working directory, when known.
+    /// - Parameter toolName: The tool associated with the hook, when applicable.
+    /// - Parameter toolInputJSON: The tool input encoded as JSON or an opaque string.
+    /// - Parameter isError: Whether a completed tool reported failure.
+    /// - Parameter context: The normalized workstream context, when available.
+    /// - Parameter requestId: The integration's request identifier, when available.
+    /// - Parameter ppid: The process identifier reported by the integration.
+    /// - Parameter cmuxAgentLifecycle: The lifecycle accepted by cmux's hook-session authority.
+    /// - Parameter receivedAt: The time cmux received the event.
+    /// - Parameter extraFieldsJSON: Unknown wire fields preserved as a JSON object.
     public init(
         sessionId: String,
         hookEventName: HookEventName,
@@ -39,6 +60,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         context: WorkstreamContext? = nil,
         requestId: String? = nil,
         ppid: Int? = nil,
+        cmuxAgentLifecycle: String? = nil,
         receivedAt: Date = Date(),
         extraFieldsJSON: String? = nil
     ) {
@@ -55,6 +77,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.context = context
         self.requestId = requestId
         self.ppid = ppid
+        self.cmuxAgentLifecycle = cmuxAgentLifecycle
         self.receivedAt = receivedAt
         self.extraFieldsJSON = extraFieldsJSON
     }
@@ -97,6 +120,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case context
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
+        case cmuxAgentLifecycle = "_cmux_agent_lifecycle"
         case receivedAt = "_received_at"
     }
 
@@ -114,6 +138,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
+        self.cmuxAgentLifecycle = try c.decodeIfPresent(String.self, forKey: .cmuxAgentLifecycle)
         self.receivedAt = try c.decodeIfPresent(Date.self, forKey: .receivedAt) ?? Date()
         let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
         let dynamic = try decoder.container(keyedBy: JSONDynamicKey.self)
@@ -147,6 +172,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encodeIfPresent(context, forKey: .context)
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)
+        try c.encodeIfPresent(cmuxAgentLifecycle, forKey: .cmuxAgentLifecycle)
         try c.encode(receivedAt, forKey: .receivedAt)
         if let extraFieldsJSON,
            case .object(let extra) = AnyJSON(jsonString: extraFieldsJSON) {

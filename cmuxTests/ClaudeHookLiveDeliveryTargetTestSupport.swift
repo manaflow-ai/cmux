@@ -70,6 +70,7 @@ enum ClaudeHookLiveDeliveryHarness {
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -166,7 +167,11 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func resumeBindingParams(in context: Context) -> [[String: Any]] {
-        context.state.snapshot().compactMap { command -> [String: Any]? in
+        resumeBindingParams(in: context.state.snapshot())
+    }
+
+    static func resumeBindingParams(in commands: [String]) -> [[String: Any]] {
+        commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else {
                 return nil
@@ -214,11 +219,27 @@ enum ClaudeHookLiveDeliveryHarness {
         environment: [String: String],
         standardInput: String
     ) -> ProcessRunResult {
+        runHookProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 10
+        )
+    }
+
+    private static func runHookProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: context.cliPath)
+        process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.standardInput = stdinPipe
@@ -238,7 +259,7 @@ enum ClaudeHookLiveDeliveryHarness {
             process.waitUntilExit()
             exitSignal.signal()
         }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
@@ -255,6 +276,45 @@ enum ClaudeHookLiveDeliveryHarness {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    static func establishClearTransfer(
+        executablePath: String,
+        cwd: URL,
+        environment: [String: String],
+        sourceSessionId: String,
+        timeout: TimeInterval = 10
+    ) throws {
+        let start = runHookProcess(
+            executablePath: executablePath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(cwd.path)","hook_event_name":"SessionStart"}"#,
+            timeout: timeout
+        )
+        try requireSuccessfulHook(start)
+        let end = runHookProcess(
+            executablePath: executablePath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(cwd.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: timeout
+        )
+        try requireSuccessfulHook(end)
+    }
+
+    private static func requireSuccessfulHook(_ result: ProcessRunResult) throws {
+        guard !result.timedOut, result.status == 0 else {
+            throw NSError(
+                domain: "cmux.tests.claude-clear-transfer",
+                code: Int(result.status),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Hook failed (status \(result.status), timedOut \(result.timedOut)); "
+                        + "stdout=\(result.stdout) stderr=\(result.stderr)",
+                ]
+            )
+        }
     }
 
     private static func bindUnixSocket(at path: String) throws -> Int32 {

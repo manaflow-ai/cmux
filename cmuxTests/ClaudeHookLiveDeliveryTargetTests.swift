@@ -51,7 +51,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.otherWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43210"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -115,7 +115,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43211"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -167,7 +167,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43214"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -199,7 +199,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         let sessionId = "stale-tty-session"
         let ttyName = "ttys-stale-row"
 
-        let serverHandled = Harness.startDeliveryTargetServer(
+        _ = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [
                 Self.liveWorkspaceId: [Self.liveSurfaceId],
@@ -213,11 +213,23 @@ struct ClaudeHookLiveDeliveryTargetTests {
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
-        environment["CMUX_CLAUDE_PID"] = "43212"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         environment["CMUX_AGENT_LAUNCH_KIND"] = "claude"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/claude"
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
 
+        try Harness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
+        let setupCommands = context.state.snapshot()
+        let commandBaseline = setupCommands.count
+        #expect(
+            !setupCommands.isEmpty,
+            "The fixture must reproduce setup traffic that cannot satisfy clear SessionStart assertions"
+        )
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
@@ -225,12 +237,11 @@ struct ClaudeHookLiveDeliveryTargetTests {
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
-        let commands = context.state.snapshot()
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let resumeBinding = try #require(
-            Harness.resumeBindingParams(in: context).last,
+            Harness.resumeBindingParams(in: commands).last,
             "Expected SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
@@ -239,7 +250,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         )
         #expect(
             commands.contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
@@ -275,7 +286,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43213"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,

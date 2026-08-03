@@ -7,14 +7,31 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
-        let context = try makeClaudeHookContext(name: "claude-clear-running")
+    func testClaudeClearSessionStartStaysIdleUntilPromptSubmit() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-idle")
         defer { context.cleanup() }
+
+        let sessionId = "clear-session"
+        let sourceSessionId = "clear-source-session"
+        let sourceStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(sourceStart.timedOut, sourceStart.stderr)
+        XCTAssertEqual(sourceStart.status, 0, sourceStart.stderr)
+        let sourceEnd = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(sourceEnd.timedOut, sourceEnd.stderr)
+        XCTAssertEqual(sourceEnd.status, 0, sourceEnd.stderr)
 
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -26,11 +43,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "SessionStart establishes an idle session boundary; it does not begin a turn. Saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "SessionStart must not claim Claude is running before a prompt is submitted. Saw \(context.state.commands)"
+        )
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+
+        let promptCommandStart = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        let promptCommands = context.state.commands.dropFirst(promptCommandStart)
+        XCTAssertTrue(
+            promptCommands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "UserPromptSubmit begins the turn and must mark Claude running. Saw \(promptCommands)"
         )
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "running")
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -486,7 +532,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
-    func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
+    func testClaudeStopFromPreviousSessionDoesNotClobberClearIdleStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
 
@@ -497,6 +543,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+        let oldEnd = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"old-session","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(oldEnd.timedOut, oldEnd.stderr)
+        XCTAssertEqual(oldEnd.status, 0, oldEnd.stderr)
 
         let clearStart = runClaudeHook(
             context: context,
@@ -514,6 +567,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(lateOldStart.timedOut, lateOldStart.stderr)
         XCTAssertEqual(lateOldStart.status, 0, lateOldStart.stderr)
 
+        let staleStopCommandStart = context.state.commands.count
         let staleStop = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "stop"],
@@ -522,18 +576,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
+        let staleStopCommands = context.state.commands.dropFirst(staleStopCommandStart)
+        XCTAssertFalse(
+            staleStopCommands.contains { $0.hasPrefix("set_status claude_code ") },
+            "A stale Stop must not mutate the clear session's status, saw \(staleStopCommands)"
+        )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
-        )
-        XCTAssertFalse(
-            context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Idle ") && $0.contains("--tab=\(context.workspaceId)")
-            },
-            "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
+            "Expected clear SessionStart to establish an idle Claude session, saw \(context.state.commands)"
         )
         let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -767,6 +820,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -825,6 +879,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -9267,6 +9322,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",

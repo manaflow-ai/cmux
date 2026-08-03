@@ -58,11 +58,15 @@ struct ClaudeBackgroundWorkNotifyTests {
     }
 
     private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
+        sessionRecord(storeURL, sessionId: sessionId)?["hadPendingBackgroundWorkAtStop"] as? Bool
+    }
+
+    private func sessionRecord(_ storeURL: URL, sessionId: String) -> [String: Any]? {
         guard let data = try? Data(contentsOf: storeURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sessions = obj["sessions"] as? [String: Any],
               let record = sessions[sessionId] as? [String: Any] else { return nil }
-        return record["hadPendingBackgroundWorkAtStop"] as? Bool
+        return record
     }
 
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
@@ -85,6 +89,199 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(lifecycleLine(snapshot, value: "running") != nil,
                 "Pending stop must publish a running lifecycle; saw \(snapshot)")
         #expect(lifecycleLine(snapshot, value: "idle") == nil)
+    }
+
+    @Test func clearCarriesPendingBackgroundWorkUntilItDrains() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "bg-clear-carry")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let oldSession = "bg-clear-old-session"
+        let clearSession = "bg-clear-new-session"
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-bg-clear-carry",
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-bg-clear-carry",
+            storeURL: storeURL
+        )
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+
+        let promptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(promptResult)
+
+        let pendingStopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(pendingStopResult)
+
+        let clearEndCommandStart = context.state.snapshot().count
+        let clearEndResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","reason":"clear","cwd":"/tmp/x","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearEndResult)
+        let clearEndCommands = Array(context.state.snapshot().dropFirst(clearEndCommandStart))
+        #expect(
+            !clearEndCommands.contains { $0.hasPrefix("clear_agent_pid claude_code ") },
+            "SessionEnd(clear) must not erase live background activity; saw \(clearEndCommands)"
+        )
+
+        let clearCommandStart = context.state.snapshot().count
+        let clearResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","source":"clear","cwd":"/tmp/x","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearResult)
+        let clearCommands = Array(context.state.snapshot().dropFirst(clearCommandStart))
+
+        #expect(
+            statusLine(clearCommands, value: "Running") != nil,
+            "/clear must preserve the Running pill while background work survives; saw \(clearCommands)"
+        )
+        #expect(statusLine(clearCommands, value: "Idle") == nil)
+        #expect(
+            lifecycleLine(clearCommands, value: "running") != nil,
+            "/clear must keep the pane non-hibernatable while background work survives; saw \(clearCommands)"
+        )
+        #expect(lifecycleLine(clearCommands, value: "idle") == nil)
+        let clearRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(clearRecord["agentLifecycle"] as? String == "running")
+        #expect(clearRecord["hadPendingBackgroundWorkAtStop"] as? Bool == true)
+
+        let nextPromptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","turn_id":"turn-2","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(nextPromptResult)
+
+        let drainedCommandStart = context.state.snapshot().count
+        let drainedStopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","turn_id":"turn-2","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"done","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(drainedStopResult)
+        let drainedCommands = Array(context.state.snapshot().dropFirst(drainedCommandStart))
+
+        #expect(
+            statusLine(drainedCommands, value: "Idle") != nil,
+            "The first Stop that observes drained background work must restore Idle; saw \(drainedCommands)"
+        )
+        #expect(lifecycleLine(drainedCommands, value: "idle") != nil)
+        let drainedRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(drainedRecord["agentLifecycle"] as? String == "idle")
+        #expect(drainedRecord["hadPendingBackgroundWorkAtStop"] as? Bool == false)
+    }
+
+    @Test func clearDoesNotCarryPendingWorkFromSiblingPane() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "bg-clear-sibling")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let siblingSurfaceId = "77777777-7777-7777-7777-777777777777"
+        let siblingSession = "bg-sibling-session"
+        let clearSession = "bg-primary-clear-session"
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [
+                (context.surfaceId, "surface:1", true),
+                (siblingSurfaceId, "surface:2", false),
+            ],
+            ttyName: "ttys-bg-clear-sibling",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-bg-clear-sibling",
+            storeURL: storeURL
+        )
+
+        let siblingPrompt = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingPrompt)
+
+        let siblingStop = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingStop)
+
+        let siblingEnd = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","reason":"clear","cwd":"/tmp/x","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingEnd)
+
+        let clearCommandStart = context.state.snapshot().count
+        let clearResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","source":"clear","cwd":"/tmp/x","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearResult)
+        let clearCommands = Array(context.state.snapshot().dropFirst(clearCommandStart))
+
+        #expect(statusLine(clearCommands, value: "Idle") != nil)
+        #expect(
+            statusLine(clearCommands, value: "Running") == nil,
+            "A sibling pane's background work must not keep this pane Running; saw \(clearCommands)"
+        )
+        #expect(lifecycleLine(clearCommands, value: "idle") != nil)
+        #expect(lifecycleLine(clearCommands, value: "running") == nil)
+        let clearRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(clearRecord["agentLifecycle"] as? String == "idle")
+        #expect(clearRecord["hadPendingBackgroundWorkAtStop"] as? Bool != true)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -272,8 +469,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // The idle nag is an attention channel, not evidence that Claude is
+        // blocked on a decision. It must preserve the terminal Idle outcome.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle idle_prompt must not invent a Needs input pill; saw \(snapshot)")
+        #expect(snapshot.contains {
+            $0.contains(#""_cmux_agent_lifecycle":"idle""#)
+        }, "Idle idle_prompt must publish the accepted Idle lifecycle; saw \(snapshot)")
     }
 }

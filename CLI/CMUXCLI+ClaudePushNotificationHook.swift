@@ -7,8 +7,9 @@ extension CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         sessionStore: ClaudeHookSessionStore,
         routing: ClaudeHookRoutingContext,
+        observedPermissionMode: String?,
         markFeedTelemetryHandled: () -> Void,
-        sendFeedTelemetry: (String?, String?) -> Void
+        sendFeedTelemetry: (String?, String?, AgentHibernationLifecycleState?) -> Void
     ) throws {
         telemetry.breadcrumb("claude-hook.push-notification")
         // PostToolUse bridge for Claude Code's PushNotification tool. The
@@ -22,11 +23,13 @@ extension CMUXCLI {
         // (tool_response.localSent); fail open when an older client omits
         // the structured response.
         guard let pushMessage = claudePushNotificationMessage(parsedInput.rawObject) else {
+            markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.empty")
             printClaudeHookAck()
             return
         }
         guard claudePushNotificationShouldBridge(parsedInput.rawObject) else {
+            markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.skipped")
             printClaudeHookAck()
             return
@@ -45,27 +48,38 @@ extension CMUXCLI {
         let workspaceId = resolvedTarget.workspaceId
         let resolvedSurface = resolvedTarget
         let surfaceId = resolvedSurface.surfaceId
-        sendFeedTelemetry(workspaceId, surfaceId)
-        guard shouldApplyClaudeHookVisibleMutation(
-            sessionStore: sessionStore,
-            parsedInput: parsedInput,
-            workspaceId: workspaceId,
-            surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-            telemetry: telemetry
-        ) else {
-            telemetry.breadcrumb("claude-hook.push-notification.stale")
-            printClaudeHookAck()
-            return
-        }
-        let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+        let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
         guard !shouldSuppressNestedAgentVisibleMutations(
-            currentAgentPID: claudePid,
+            currentAgentPID: incomingClaudePid,
             env: ProcessInfo.processInfo.environment
         ) else {
+            markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.nested-suppressed")
             printClaudeHookAck()
             return
         }
+        guard let sessionId = parsedInput.sessionId,
+              let acceptedUpsert = try? sessionStore.upsert(
+                  sessionId: sessionId,
+                  workspaceId: workspaceId,
+                  surfaceId: surfaceId,
+                  cwd: parsedInput.cwd,
+                  transcriptPath: parsedInput.transcriptPath,
+                  pid: incomingClaudePid,
+                  lastPermissionMode: observedPermissionMode,
+                  turnId: parsedInput.turnId,
+                  authorization: .ordinaryActivity(
+                      incomingPID: incomingClaudePid,
+                      routeIsAuthoritative: resolvedSurface.isAuthoritative
+                  )
+              ) else {
+            markFeedTelemetryHandled()
+            telemetry.breadcrumb("claude-hook.push-notification.store-rejected")
+            printClaudeHookAck()
+            return
+        }
+        let acceptedRecord = acceptedUpsert.session
+        sendFeedTelemetry(workspaceId, surfaceId, acceptedRecord.agentLifecycle)
         let title = String(
             localized: "cli.claude-hook.notification.title",
             defaultValue: "Claude Code"

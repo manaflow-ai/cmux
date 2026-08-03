@@ -119,6 +119,30 @@ class CapturingSocketServer:
                 request = json.loads(line)
                 if "id" not in request:
                     return None
+                if request.get("method") == "agent.resolve_delivery_target":
+                    params = request.get("params")
+                    if not isinstance(params, dict) or params.get("pid") != os.getpid():
+                        return json.dumps(
+                            {
+                                "id": request.get("id"),
+                                "ok": False,
+                                "error": {
+                                    "code": "invalid_request",
+                                    "message": "unexpected Claude PID",
+                                },
+                            }
+                        )
+                    return json.dumps(
+                        {
+                            "id": request.get("id"),
+                            "ok": True,
+                            "result": {
+                                "source": "pid",
+                                "workspace_id": self.workspace_id,
+                                "surface_id": self.surface_id,
+                            },
+                        }
+                    )
                 if request.get("method") == "surface.list":
                     return json.dumps(
                         {
@@ -162,6 +186,7 @@ def main() -> int:
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
+        env["CMUX_CLAUDE_PID"] = str(os.getpid())
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = os.path.join(server.root.name, "state.json")
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"

@@ -25,14 +25,32 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         )
 
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let environment = context.environment(
+            workspaceID: workspaceID,
+            surfaceID: leakedSurfaceID,
+            ttyName: ttyName
+        )
+        let sourceSessionID = "claude-feed-source-session"
+        let sourceStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionID)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(sourceStart.status == 0, Comment(rawValue: sourceStart.stderr))
+        let sourceEnd = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionID)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        #expect(sourceEnd.status == 0, Comment(rawValue: sourceEnd.stderr))
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "claude", "session-start"],
-            environment: context.environment(
-                workspaceID: workspaceID,
-                surfaceID: leakedSurfaceID,
-                ttyName: ttyName
-            ),
+            environment: environment,
             standardInput: #"{"session_id":"claude-feed-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
@@ -132,6 +150,7 @@ private final class FeedTelemetryTestContext {
             "CMUX_WORKSPACE_ID": workspaceID,
             "CMUX_SURFACE_ID": surfaceID,
             "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",

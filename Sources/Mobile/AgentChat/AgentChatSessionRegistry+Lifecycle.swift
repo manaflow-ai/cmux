@@ -74,6 +74,16 @@ extension AgentChatSessionRegistry {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
             return .ended
         }
+        switch event.cmuxAgentLifecycle {
+        case "running":
+            return .working(since: event.receivedAt)
+        case "idle":
+            return .idle
+        case "needsInput":
+            return .needsInput(since: event.receivedAt)
+        default:
+            break
+        }
         switch event.hookEventName {
         case .sessionStart:
             return .idle

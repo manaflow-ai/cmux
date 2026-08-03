@@ -176,6 +176,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Whether the most recent Stop reported work that survives `/clear`.
+    /// Claude clears `session_crons` with the conversation, while running
+    /// `background_tasks` continue into the replacement session.
+    var hadSurvivingBackgroundWorkAtStop: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -198,14 +202,52 @@ private struct CodexMonitorLeaseRecord: Codable {
 }
 
 final class ClaudeHookSessionStore {
+    private enum ProcessGenerationComparison: Equatable {
+        case same
+        case newer
+        case older
+        case unavailable
+    }
+
+    enum PendingBackgroundWorkBoundary {
+        case unchanged
+        case inheritAcrossClear
+        case resumeSessionStart
+    }
+
+    enum MutationAuthorization {
+        case unrestricted
+        case ordinaryActivity(incomingPID: Int?, routeIsAuthoritative: Bool)
+        case turnStart(incomingPID: Int?, routeIsAuthoritative: Bool)
+    }
+
+    enum ConsumptionAuthorization {
+        case unrestricted
+        case claudeSessionEnd(incomingPID: Int?, routeIsAuthoritative: Bool)
+    }
+
+    struct SessionConsumption {
+        let session: ClaudeHookSessionRecord
+        let preservedPendingBackgroundWork: Bool
+    }
+
+    struct SessionUpsert {
+        let session: ClaudeHookSessionRecord
+        let supersededSessions: [ClaudeHookSessionRecord]
+    }
+
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let minimumClearBackgroundWorkTransferAgeSeconds: TimeInterval = 5 * 60
+    private static let maxConfiguredSessionEndHookBudgetSeconds: TimeInterval = 60
+    private static let clearBackgroundWorkTransferSafetyMarginSeconds: TimeInterval = 60
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
     private let fileManager: FileManager
+    private let maxClearBackgroundWorkTransferAgeSeconds: TimeInterval
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -224,6 +266,19 @@ final class ClaudeHookSessionStore {
         } else {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
+        let overrideBudgetMilliseconds = processEnv["CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"]
+            .flatMap { Int64($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let overrideBudgetSeconds = overrideBudgetMilliseconds.map {
+            TimeInterval(max(Int64(0), $0)) / 1_000
+        } ?? 0
+        let effectiveHookBudgetSeconds = max(
+            Self.maxConfiguredSessionEndHookBudgetSeconds,
+            overrideBudgetSeconds
+        )
+        self.maxClearBackgroundWorkTransferAgeSeconds = max(
+            Self.minimumClearBackgroundWorkTransferAgeSeconds,
+            effectiveHookBudgetSeconds + Self.clearBackgroundWorkTransferSafetyMarginSeconds
+        )
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
@@ -233,23 +288,6 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
-        }
-    }
-
-    /// Records the hook-observed permission mode on an existing session record.
-    /// The already-current check happens INSIDE the lock: an unlocked pre-check
-    /// can race an overlapping hook's write and skip persisting the newest mode,
-    /// leaving restore on a stale (possibly more permissive) mode. Unknown
-    /// sessions are left alone (the session-start upsert owns record creation).
-    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, !mode.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.lastPermissionMode != mode else { return }
-            record.lastPermissionMode = mode
-            state.sessions[normalized] = record
         }
     }
 
@@ -641,6 +679,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
+        lastPermissionMode: String? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String? = nil,
@@ -650,15 +689,106 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSurvivingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
+        pendingBackgroundWorkBoundary: PendingBackgroundWorkBoundary = .unchanged,
+        authorization: MutationAuthorization = .unrestricted,
         supersedesSameProcessSession: Bool = false
-    ) throws -> [ClaudeHookSessionRecord] {
+    ) throws -> SessionUpsert? {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return [] }
+        guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let normalizedSurfaceId = normalizeOptional(surfaceId)
+            switch authorization {
+            case .unrestricted:
+                break
+            case .ordinaryActivity(let incomingPID, let routeIsAuthoritative):
+                guard activityIsAuthorized(
+                    in: state,
+                    sessionId: normalized,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    turnId: turnId,
+                    incomingPID: incomingPID,
+                    routeIsAuthoritative: routeIsAuthoritative,
+                    establishesTurn: false
+                ) else {
+                    return nil
+                }
+            case .turnStart(let incomingPID, let routeIsAuthoritative):
+                guard activityIsAuthorized(
+                    in: state,
+                    sessionId: normalized,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    turnId: turnId,
+                    incomingPID: incomingPID,
+                    routeIsAuthoritative: routeIsAuthoritative,
+                    establishesTurn: true
+                ) else {
+                    return nil
+                }
+            }
+            let inheritedPendingBackgroundWork: Bool
+            switch pendingBackgroundWorkBoundary {
+            case .unchanged:
+                // The one-shot transfer is an atomic pane tombstone. Activity
+                // hooks cannot claim the owner gap; only an explicit lifecycle
+                // boundary below may consume or discard it.
+                if markActive,
+                   let normalizedSurfaceId,
+                   state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] != nil {
+                    return nil
+                }
+                inheritedPendingBackgroundWork = false
+            case .inheritAcrossClear:
+                guard let transferredPendingWork = authorizeClearSessionStart(
+                    in: &state,
+                    surfaceId: surfaceId,
+                    incomingPID: pid
+                ) else {
+                    return nil
+                }
+                inheritedPendingBackgroundWork = transferredPendingWork
+            case .resumeSessionStart:
+                inheritedPendingBackgroundWork = false
+                guard authorizeResumeSessionStart(
+                    in: &state,
+                    sessionId: normalized,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    incomingPID: pid
+                ) else {
+                    return nil
+                }
+            }
+            let effectiveAgentLifecycle =
+                inheritedPendingBackgroundWork ? .running : agentLifecycle
+            let effectivePendingBackgroundWork: Bool?
+            if inheritedPendingBackgroundWork {
+                effectivePendingBackgroundWork = true
+            } else if case .inheritAcrossClear = pendingBackgroundWorkBoundary {
+                effectivePendingBackgroundWork = false
+            } else if case .resumeSessionStart = pendingBackgroundWorkBoundary {
+                // A proven resume starts Idle in a new process generation; Stop-
+                // derived work belongs to the previous generation.
+                effectivePendingBackgroundWork = false
+            } else {
+                effectivePendingBackgroundWork = hadPendingBackgroundWorkAtStop
+            }
+            let effectiveSurvivingBackgroundWork: Bool?
+            if inheritedPendingBackgroundWork {
+                effectiveSurvivingBackgroundWork = true
+            } else if case .inheritAcrossClear = pendingBackgroundWorkBoundary {
+                effectiveSurvivingBackgroundWork = false
+            } else if case .resumeSessionStart = pendingBackgroundWorkBoundary {
+                effectiveSurvivingBackgroundWork = false
+            } else {
+                effectiveSurvivingBackgroundWork = hadSurvivingBackgroundWorkAtStop
+            }
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -692,16 +822,20 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
-                agentLifecycle: agentLifecycle,
+                agentLifecycle: effectiveAgentLifecycle,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
-                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                hadPendingBackgroundWorkAtStop: effectivePendingBackgroundWork,
+                hadSurvivingBackgroundWorkAtStop: effectiveSurvivingBackgroundWork,
                 now: now
             )
+            if let lastPermissionMode = normalizeOptional(lastPermissionMode) {
+                record.lastPermissionMode = lastPermissionMode
+            }
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
                 superseded = supersededSessionCleanupCandidates(
@@ -727,7 +861,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
-            return superseded
+            return SessionUpsert(session: record, supersededSessions: superseded)
         }
     }
 
@@ -1082,6 +1216,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSurvivingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1142,6 +1277,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let hadSurvivingBackgroundWorkAtStop {
+            record.hadSurvivingBackgroundWorkAtStop = hadSurvivingBackgroundWorkAtStop
         }
         record.updatedAt = now
     }
@@ -1305,6 +1443,8 @@ final class ClaudeHookSessionStore {
     /// It fails open when the event cannot identify a session/workspace, when no
     /// active session is registered yet, or when either side lacks a turnId so
     /// multi-turn continuations can proceed after Stop clears the active turn.
+    /// A pending clear transfer is the exception: it is a short-lived tombstone
+    /// that rejects hooks from the retired source session during the ownership gap.
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
@@ -1316,6 +1456,14 @@ final class ClaudeHookSessionStore {
             return true
         }
         return try withLockedState { state in
+            if clearBackgroundWorkTransferBlocksSourceEvent(
+                in: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizedWorkspace,
+                surfaceId: normalizeOptional(surfaceId)
+            ) {
+                return false
+            }
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
             // replaced-session races in one pane). This stays true even after a
@@ -1359,68 +1507,523 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func canReplaceActiveSession(
-        sessionId: String?,
+    private func activeSessionBoundary(
+        in state: ClaudeHookSessionStoreFile,
         workspaceId: String,
-        surfaceId: String? = nil
-    ) throws -> Bool {
-        guard let normalizedSessionId = normalizeOptional(sessionId),
-              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+        surfaceId: String?
+    ) -> ClaudeHookActiveSessionRecord? {
+        if let surfaceId {
+            if let surfaceActive = state.activeSessionsBySurface[surfaceId] {
+                return surfaceActive
+            }
+            guard let workspaceActive = state.activeSessionsByWorkspace[workspaceId],
+                  normalizeOptional(state.sessions[workspaceActive.sessionId]?.surfaceId) == surfaceId else {
+                return nil
+            }
+            return workspaceActive
+        }
+        return state.activeSessionsByWorkspace[workspaceId]
+    }
+
+    private func activeSessionRecord(
+        in state: ClaudeHookSessionStoreFile,
+        workspaceId: String,
+        surfaceId: String
+    ) -> ClaudeHookSessionRecord? {
+        let normalizedSurfaceId = normalizeOptional(surfaceId)
+        if let normalizedSurfaceId,
+           let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
+            return state.sessions[surfaceActive.sessionId]
+        }
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let workspaceActive = state.activeSessionsByWorkspace[normalizedWorkspace],
+              let record = state.sessions[workspaceActive.sessionId] else {
+            return nil
+        }
+        if let normalizedSurfaceId,
+           normalizeOptional(record.surfaceId) != normalizedSurfaceId {
+            return nil
+        }
+        return record
+    }
+
+    private func activityIsAuthorized(
+        in state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        turnId: String?,
+        incomingPID: Int?,
+        routeIsAuthoritative: Bool,
+        establishesTurn: Bool
+    ) -> Bool {
+        guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId),
+              let incomingPID,
+              processStartIdentity(pid: incomingPID) != nil else {
             return false
         }
-        return try withLockedState { state in
-            // Replacement is pane-scoped like staleness: a stopped session in
-            // THIS surface allows its own pane to start a new session even when
-            // another pane currently holds the workspace-active slot.
-            // https://github.com/manaflow-ai/cmux/issues/5908
-            if let normalizedSurfaceId = normalizeOptional(surfaceId),
-               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
-                guard surfaceActive.sessionId != normalizedSessionId else {
+        // A terminal session identity cannot be reopened by an activity hook.
+        // Only an explicit resume lifecycle boundary may prove a revival.
+        guard state.retiredSessions[sessionId] == nil else {
+            return false
+        }
+        // A pending clear transfer exclusively owns the pane gap. Every
+        // ordinary event waits for an explicit clear/resume boundary.
+        guard state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] == nil else {
+            return false
+        }
+
+        let activeOwner = activeSessionBoundary(
+            in: state,
+            workspaceId: normalizedWorkspaceId,
+            surfaceId: normalizedSurfaceId
+        )
+        if let activeOwner {
+            if activeOwner.sessionId == sessionId {
+                if let activeTurnId = normalizeOptional(activeOwner.turnId),
+                   let incomingTurnId = normalizeOptional(turnId),
+                   activeTurnId != incomingTurnId {
+                    let replacesDeadOwner = state.sessions[activeOwner.sessionId].map {
+                        incomingProcessCanReplaceDeadOwner(
+                            $0,
+                            incomingPID: incomingPID
+                        )
+                    } ?? false
+                    guard establishesTurn,
+                          activeOwner.allowsNewSessionReplacement == true
+                            || replacesDeadOwner else {
+                        return false
+                    }
+                }
+            } else {
+                guard establishesTurn,
+                      let displacedRecord = state.sessions[activeOwner.sessionId] else {
                     return false
                 }
-                return surfaceActive.allowsNewSessionReplacement == true
+                let displacedGeneration = compareProcessGeneration(
+                    recordedPID: displacedRecord.pid,
+                    recordedStartSeconds: displacedRecord.pidStartSeconds,
+                    recordedStartMicroseconds: displacedRecord.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                )
+                let replacesStoppedOwner =
+                    activeOwner.allowsNewSessionReplacement == true
+                    && (
+                        displacedGeneration == .same
+                            || displacedGeneration == .newer
+                    )
+                let replacesDeadOwner = incomingProcessCanReplaceDeadOwner(
+                    displacedRecord,
+                    incomingPID: incomingPID
+                )
+                guard replacesStoppedOwner || replacesDeadOwner else {
+                    return false
+                }
             }
-            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
-                  active.sessionId != normalizedSessionId else {
+        }
+
+        guard let existingRecord = state.sessions[sessionId] else {
+            return activeOwner?.sessionId != sessionId
+        }
+        // Stores written before process-generation capture can contain a
+        // routing-only record with no PID. Its first wrapper-authenticated
+        // hook may establish identity, but an unverified persisted PID can
+        // never be promoted to generation authority.
+        if existingRecord.pid == nil,
+           existingRecord.pidStartSeconds == nil,
+           existingRecord.pidStartMicroseconds == nil {
+            return activeOwner == nil || activeOwner?.sessionId == sessionId
+        }
+        // Legacy records can contain a numeric PID without process-generation
+        // fields. Only the current owner, routed from the hook's own live pane,
+        // may lazily upgrade that exact PID; cross-session replacement remains
+        // generation-checked below.
+        if existingRecord.pid == incomingPID,
+           existingRecord.pidStartSeconds == nil,
+           existingRecord.pidStartMicroseconds == nil {
+            return routeIsAuthoritative
+                && activeOwner?.sessionId == sessionId
+        }
+        let existingGeneration = compareProcessGeneration(
+            recordedPID: existingRecord.pid,
+            recordedStartSeconds: existingRecord.pidStartSeconds,
+            recordedStartMicroseconds: existingRecord.pidStartMicroseconds,
+            incomingPID: incomingPID
+        )
+        if existingGeneration == .same {
+            return true
+        }
+        return establishesTurn
+            && incomingProcessCanReplaceDeadOwner(
+                existingRecord,
+                incomingPID: incomingPID
+            )
+    }
+
+    /// Stop is an advisory turn boundary, not the only proof that pane
+    /// ownership ended. A newer live turn can also replace a recorded process
+    /// generation that no longer exists, covering crashes and missing hooks
+    /// without letting concurrent or late older processes steal the pane.
+    private func incomingProcessCanReplaceDeadOwner(
+        _ record: ClaudeHookSessionRecord,
+        incomingPID: Int
+    ) -> Bool {
+        guard recordedProcessGenerationIsProvablyDead(record) else {
+            return false
+        }
+        if record.pidStartSeconds != nil,
+           record.pidStartMicroseconds != nil {
+            return compareProcessGeneration(
+                recordedPID: record.pid,
+                recordedStartSeconds: record.pidStartSeconds,
+                recordedStartMicroseconds: record.pidStartMicroseconds,
+                incomingPID: incomingPID
+            ) == .newer
+        }
+        guard record.pidStartSeconds == nil,
+              record.pidStartMicroseconds == nil,
+              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+            return false
+        }
+        let incomingStartedAt =
+            TimeInterval(incomingIdentity.seconds)
+            + TimeInterval(incomingIdentity.microseconds) / 1_000_000
+        return incomingStartedAt > record.updatedAt
+    }
+
+    private func recordedProcessGenerationIsProvablyDead(
+        _ record: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard let recordedPID = record.pid else {
+            return false
+        }
+        if let currentIdentity = processStartIdentity(pid: recordedPID) {
+            guard let recordedStartSeconds = record.pidStartSeconds,
+                  let recordedStartMicroseconds = record.pidStartMicroseconds else {
                 return false
             }
-            return active.allowsNewSessionReplacement == true
+            return currentIdentity.seconds != recordedStartSeconds
+                || currentIdentity.microseconds != recordedStartMicroseconds
         }
+        return kill(pid_t(recordedPID), 0) != 0 && errno == ESRCH
+    }
+
+    private func authorizeClearSessionStart(
+        in state: inout ClaudeHookSessionStoreFile,
+        surfaceId: String,
+        incomingPID: Int?
+    ) -> Bool? {
+        guard let normalizedSurfaceId = normalizeOptional(surfaceId),
+              let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId],
+              compareProcessGeneration(
+                  recordedPID: transfer.pid,
+                  recordedStartSeconds: transfer.pidStartSeconds,
+                  recordedStartMicroseconds: transfer.pidStartMicroseconds,
+                  incomingPID: incomingPID
+              ) == .same else {
+            return nil
+        }
+        state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
+        return transfer.preservedPendingBackgroundWork ?? true
+    }
+
+    private func clearBackgroundWorkTransferBlocksSourceEvent(
+        in state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String?
+    ) -> Bool {
+        state.clearBackgroundWorkTransfersBySurface.contains { transferSurfaceId, transfer in
+            guard normalizeOptional(transfer.sourceSessionId) == sessionId else {
+                return false
+            }
+            if let surfaceId {
+                return transferSurfaceId == surfaceId
+            }
+            return normalizeOptional(transfer.workspaceId) == workspaceId
+        }
+    }
+
+    private func authorizeResumeSessionStart(
+        in state: inout ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        incomingPID: Int?
+    ) -> Bool {
+        let normalizedWorkspaceId = normalizeOptional(workspaceId)
+        let normalizedSurfaceId = normalizeOptional(surfaceId)
+        guard let normalizedSurfaceId else {
+            return false
+        }
+        let activeOwner = normalizedWorkspaceId.flatMap {
+            activeSessionBoundary(
+                in: state,
+                workspaceId: $0,
+                surfaceId: normalizedSurfaceId
+            )
+        }
+        let replacesStoppedOwnerFromNewGeneration: Bool
+        if let activeOwner,
+           activeOwner.sessionId != sessionId,
+           activeOwner.allowsNewSessionReplacement == true,
+           let stoppedSession = state.sessions[activeOwner.sessionId] {
+            let isNewerThanStoppedOwner =
+                compareProcessGeneration(
+                    recordedPID: stoppedSession.pid,
+                    recordedStartSeconds: stoppedSession.pidStartSeconds,
+                    recordedStartMicroseconds: stoppedSession.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                ) == .newer
+            let isNewerThanInactiveTarget: Bool
+            if let inactiveTarget = state.sessions[sessionId] {
+                isNewerThanInactiveTarget =
+                    compareProcessGeneration(
+                        recordedPID: inactiveTarget.pid,
+                        recordedStartSeconds: inactiveTarget.pidStartSeconds,
+                        recordedStartMicroseconds: inactiveTarget.pidStartMicroseconds,
+                        incomingPID: incomingPID
+                    ) == .newer
+            } else {
+                isNewerThanInactiveTarget = true
+            }
+            replacesStoppedOwnerFromNewGeneration =
+                isNewerThanStoppedOwner && isNewerThanInactiveTarget
+        } else {
+            replacesStoppedOwnerFromNewGeneration = false
+        }
+        let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId]
+        let transferSourceMatches =
+            normalizeOptional(transfer?.sourceSessionId) == sessionId
+        let transferGeneration = compareProcessGeneration(
+            recordedPID: transfer?.pid,
+            recordedStartSeconds: transfer?.pidStartSeconds,
+            recordedStartMicroseconds: transfer?.pidStartMicroseconds,
+            incomingPID: incomingPID
+        )
+        let resumesPendingClear =
+            transferSourceMatches && transferGeneration == .same
+        let supersedesRetiredTransfer =
+            transferSourceMatches && transferGeneration == .newer
+        if let retired = state.retiredSessions[sessionId] {
+            let retiredGeneration = compareProcessGeneration(
+                recordedPID: retired.pid,
+                recordedStartSeconds: retired.pidStartSeconds,
+                recordedStartMicroseconds: retired.pidStartMicroseconds,
+                incomingPID: incomingPID
+            )
+            guard retiredGeneration == .newer || resumesPendingClear else {
+                return false
+            }
+        }
+
+        let isAuthorized: Bool
+        if transfer == nil {
+            if let activeOwner {
+                if activeOwner.sessionId == sessionId,
+                   let activeSession = state.sessions[sessionId] {
+                    isAuthorized = compareProcessGeneration(
+                        recordedPID: activeSession.pid,
+                        recordedStartSeconds: activeSession.pidStartSeconds,
+                        recordedStartMicroseconds: activeSession.pidStartMicroseconds,
+                        incomingPID: incomingPID
+                    ) == .newer
+                } else {
+                    isAuthorized = replacesStoppedOwnerFromNewGeneration
+                }
+            } else if let existingSession = state.sessions[sessionId] {
+                isAuthorized = compareProcessGeneration(
+                    recordedPID: existingSession.pid,
+                    recordedStartSeconds: existingSession.pidStartSeconds,
+                    recordedStartMicroseconds: existingSession.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                ) == .newer
+            } else if let incomingPID {
+                isAuthorized = processStartIdentity(pid: incomingPID) != nil
+            } else {
+                isAuthorized = false
+            }
+        } else {
+            isAuthorized =
+                resumesPendingClear
+                || supersedesRetiredTransfer
+                || replacesStoppedOwnerFromNewGeneration
+        }
+        guard isAuthorized else {
+            return false
+        }
+        if resumesPendingClear || supersedesRetiredTransfer,
+           let activeOwner,
+           activeOwner.sessionId != sessionId,
+           !replacesStoppedOwnerFromNewGeneration {
+            return false
+        }
+        if transfer != nil {
+            state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
+        }
+        state.retiredSessions.removeValue(forKey: sessionId)
+        return true
+    }
+
+    private func compareProcessGeneration(
+        recordedPID: Int?,
+        recordedStartSeconds: Int64?,
+        recordedStartMicroseconds: Int64?,
+        incomingPID: Int?
+    ) -> ProcessGenerationComparison {
+        guard let recordedPID,
+              let incomingPID,
+              let recordedStartSeconds,
+              let recordedStartMicroseconds,
+              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+            return .unavailable
+        }
+        if recordedPID == incomingPID,
+           recordedStartSeconds == incomingIdentity.seconds,
+           recordedStartMicroseconds == incomingIdentity.microseconds {
+            return .same
+        }
+        if incomingIdentity.seconds > recordedStartSeconds
+            || (
+                incomingIdentity.seconds == recordedStartSeconds
+                    && incomingIdentity.microseconds > recordedStartMicroseconds
+            ) {
+            return .newer
+        }
+        if incomingIdentity.seconds < recordedStartSeconds
+            || (
+                incomingIdentity.seconds == recordedStartSeconds
+                    && incomingIdentity.microseconds < recordedStartMicroseconds
+            ) {
+            return .older
+        }
+        // Distinct PIDs with the same start timestamp are not ordered.
+        return .unavailable
     }
 
     func consume(
         sessionId: String?,
         workspaceId: String?,
         surfaceId: String?,
-        turnId: String? = nil
-    ) throws -> ClaudeHookSessionRecord? {
+        turnId: String? = nil,
+        authorization: ConsumptionAuthorization = .unrestricted,
+        preservePendingBackgroundWorkForClear: Bool = false
+    ) throws -> SessionConsumption? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
-            if let normalizedSessionId,
-               let existing = state.sessions[normalizedSessionId] {
-                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+            let record: ClaudeHookSessionRecord
+            if preservePendingBackgroundWorkForClear {
+                // A clear handoff is an ownership transfer, so it requires an
+                // exact source ID and never consumes a pane fallback.
+                guard let normalizedSessionId,
+                      let existing = state.sessions[normalizedSessionId] else {
                     return nil
                 }
-                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
-                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
-                return removed
+                record = existing
+            } else if let normalizedSessionId {
+                guard let existing = state.sessions[normalizedSessionId] else { return nil }
+                record = existing
+            } else {
+                guard let fallback = fallbackRecord(
+                    sessions: Array(state.sessions.values),
+                    workspaceId: normalizedWorkspace,
+                    surfaceId: normalizedSurface
+                ) else {
+                    return nil
+                }
+                record = fallback
             }
-
-            guard let fallback = fallbackRecord(
-                sessions: Array(state.sessions.values),
-                workspaceId: normalizedWorkspace,
-                surfaceId: normalizedSurface
-            ) else {
+            var claimedPID = record.pid
+            var claimedPIDStartSeconds = record.pidStartSeconds
+            var claimedPIDStartMicroseconds = record.pidStartMicroseconds
+            switch authorization {
+            case .unrestricted:
+                break
+            case .claudeSessionEnd(let incomingPID, let routeIsAuthoritative):
+                let hasNoStoredIdentity =
+                    record.pid == nil
+                    && record.pidStartSeconds == nil
+                    && record.pidStartMicroseconds == nil
+                let hasCompleteStoredIdentity =
+                    record.pid != nil
+                    && record.pidStartSeconds != nil
+                    && record.pidStartMicroseconds != nil
+                if hasNoStoredIdentity {
+                    guard routeIsAuthoritative,
+                          let incomingPID,
+                          let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+                        return nil
+                    }
+                    claimedPID = incomingPID
+                    claimedPIDStartSeconds = incomingIdentity.seconds
+                    claimedPIDStartMicroseconds = incomingIdentity.microseconds
+                } else {
+                    guard hasCompleteStoredIdentity,
+                          compareProcessGeneration(
+                              recordedPID: record.pid,
+                              recordedStartSeconds: record.pidStartSeconds,
+                              recordedStartMicroseconds: record.pidStartMicroseconds,
+                              incomingPID: incomingPID
+                          ) == .same else {
+                        return nil
+                    }
+                }
+                let authorizationSurfaceId =
+                    normalizedSurface ?? normalizeOptional(record.surfaceId)
+                let authorizationWorkspaceId =
+                    normalizedWorkspace ?? normalizeOptional(record.workspaceId)
+                let activeOwner = activeSessionBoundary(
+                    in: state,
+                    workspaceId: authorizationWorkspaceId ?? "",
+                    surfaceId: authorizationSurfaceId
+                )
+                if let activeOwner, activeOwner.sessionId != record.sessionId {
+                    return nil
+                }
+            }
+            guard !hasActiveTurnMismatch(state, record: record, turnId: turnId) else {
                 return nil
             }
-            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
-                return nil
+            let transferSurfaceId = normalizedSurface ?? normalizeOptional(record.surfaceId)
+            let transferWorkspaceId = normalizedWorkspace ?? normalizeOptional(record.workspaceId)
+            let createsClearOwnershipTransfer =
+                preservePendingBackgroundWorkForClear
+                && transferSurfaceId != nil
+            let preservesPendingBackgroundWork =
+                createsClearOwnershipTransfer
+                && record.hadSurvivingBackgroundWorkAtStop == true
+            if preservePendingBackgroundWorkForClear {
+                let retirementCreatedAt = Date.now.timeIntervalSince1970
+                state.retiredSessions[record.sessionId] =
+                    ClaudeHookRetiredSessionRecord(
+                        pid: claimedPID,
+                        pidStartSeconds: claimedPIDStartSeconds,
+                        pidStartMicroseconds: claimedPIDStartMicroseconds,
+                        updatedAt: retirementCreatedAt
+                    )
+                if let transferSurfaceId {
+                    state.clearBackgroundWorkTransfersBySurface[transferSurfaceId] =
+                        ClaudeHookClearBackgroundWorkTransfer(
+                            sourceSessionId: record.sessionId,
+                            workspaceId: transferWorkspaceId,
+                            pid: claimedPID,
+                            pidStartSeconds: claimedPIDStartSeconds,
+                            pidStartMicroseconds: claimedPIDStartMicroseconds,
+                            updatedAt: retirementCreatedAt,
+                            expiresAt: retirementCreatedAt + maxClearBackgroundWorkTransferAgeSeconds,
+                            preservedPendingBackgroundWork: preservesPendingBackgroundWork
+                        )
+                }
             }
-            state.sessions.removeValue(forKey: fallback.sessionId)
-            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
-            return fallback
+            state.sessions.removeValue(forKey: record.sessionId)
+            clearActiveSessionIfMatching(&state, removed: record, turnId: turnId)
+            return SessionConsumption(
+                session: record,
+                preservedPendingBackgroundWork: preservesPendingBackgroundWork
+            )
         }
     }
 
@@ -1581,6 +2184,9 @@ final class ClaudeHookSessionStore {
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
         }
+        state.retiredSessions = state.retiredSessions.filter { _, record in
+            record.updatedAt >= cutoff
+        }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
         }
@@ -1596,6 +2202,14 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
+        let clearTransferCutoff = now - maxClearBackgroundWorkTransferAgeSeconds
+        state.clearBackgroundWorkTransfersBySurface =
+            state.clearBackgroundWorkTransfersBySurface.filter { _, transfer in
+                if let expiresAt = transfer.expiresAt {
+                    return expiresAt > now
+                }
+                return transfer.updatedAt >= clearTransferCutoff
+            }
     }
 
     private func normalizeSessionId(_ value: String) -> String {
@@ -24513,13 +25127,6 @@ struct CMUXCLI {
         // https://github.com/manaflow-ai/cmux/issues/8066
         let observedHookPermissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
             ?? (parsedInput.rawObject?["permissionMode"] as? String)
-        if let hookSessionId = parsedInput.sessionId,
-           let observedHookPermissionMode {
-            try? sessionStore.updateLastPermissionMode(
-                sessionId: hookSessionId,
-                permissionMode: observedHookPermissionMode
-            )
-        }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -24530,14 +25137,20 @@ struct CMUXCLI {
             ]
         )
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(
+            workspaceId: String? = nil,
+            surfaceId: String? = nil,
+            lifecycle: AgentHibernationLifecycleState? = nil
+        ) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg, surfaceId: surfaceId,
+                workspaceId: workspaceId ?? workspaceArg,
+                surfaceId: surfaceId,
+                agentLifecycle: lifecycle,
                 socketPassword: socketPassword
             )
         }
@@ -24563,7 +25176,6 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -24587,89 +25199,177 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
-            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                telemetry: telemetry
-            )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
-                // Non-clear SessionStart can arrive late from startup/resume/compact
-                // after /clear, so only /clear or replacement of a stopped owner
-                // establishes a new active boundary.
-                _ = try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
-                    launchCommand: launchCommand,
-                    isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
-                    markActive: shouldPromoteActiveSession,
-                    turnId: parsedInput.turnId
+            let isResumeSessionStart = isClaudeResumeSessionStart(parsedInput)
+            let shouldAttemptActiveSessionBoundary =
+                !isForkSessionLaunch
+                && resolvedSurface.isAuthoritative
+                && (isClearSessionStart || isResumeSessionStart)
+            let pendingBackgroundWorkBoundary: ClaudeHookSessionStore.PendingBackgroundWorkBoundary
+            if isClearSessionStart, shouldAttemptActiveSessionBoundary {
+                pendingBackgroundWorkBoundary = .inheritAcrossClear
+            } else if isResumeSessionStart, shouldAttemptActiveSessionBoundary {
+                pendingBackgroundWorkBoundary = .resumeSessionStart
+            } else {
+                pendingBackgroundWorkBoundary = .unchanged
+            }
+            var establishedLifecycle: AgentHibernationLifecycleState?
+            var acceptedSessionStartRecord: ClaudeHookSessionRecord?
+            var sessionStoreMutationFailed = false
+            let shouldPersistSessionStart =
+                !isForkSessionLaunch
+                && (
+                    !(isClearSessionStart || isResumeSessionStart)
+                        || shouldAttemptActiveSessionBoundary
                 )
-                if shouldPromoteActiveSession {
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+            if let sessionId = parsedInput.sessionId, shouldPersistSessionStart {
+                // Only an authorized /clear or resume establishes a lifecycle
+                // boundary. Other SessionStart events update metadata without
+                // starting a turn or replacing the accepted lifecycle.
+                do {
+                    let updatedRecord = try sessionStore.upsert(
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
                         cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
                         launchCommand: launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
+                        lastPermissionMode: observedHookPermissionMode,
+                        isRestorable: false,
+                        agentLifecycle: shouldAttemptActiveSessionBoundary ? .idle : nil,
+                        markActive: shouldAttemptActiveSessionBoundary,
+                        turnId: parsedInput.turnId,
+                        pendingBackgroundWorkBoundary: pendingBackgroundWorkBoundary,
+                        authorization: shouldAttemptActiveSessionBoundary
+                            ? .unrestricted
+                            : .ordinaryActivity(
+                                incomingPID: claudePid,
+                                routeIsAuthoritative: resolvedSurface.isAuthoritative
+                            )
+                    )?.session
+                    acceptedSessionStartRecord = updatedRecord
+                    if shouldAttemptActiveSessionBoundary,
+                       let updatedRecord,
+                       let updatedLifecycle = updatedRecord.agentLifecycle {
+                        establishedLifecycle = updatedLifecycle
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: updatedRecord.cwd,
+                            launchCommand: updatedRecord.launchCommand,
+                            observedPermissionMode: observedHookPermissionMode
+                                ?? updatedRecord.lastPermissionMode
+                        )
+                    }
+                } catch {
+                    sessionStoreMutationFailed = true
+                    telemetry.breadcrumb(
+                        "claude-hook.session-start.store-error",
+                        data: [
+                            "error": String(describing: error),
+                            "session_id": sessionId,
+                            "workspace_id": workspaceId,
+                        ]
                     )
                 }
             }
+            let didEstablishActiveSession = establishedLifecycle != nil
             // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
+            // The active-session gate protects the accepted idle boundary from
+            // late pre-clear events.
             // Fork launches register their PID only with an authoritative
             // surface: the hook reports the PARENT session id (which is often
             // the workspace-active session), and the pre-prompt fork SessionEnd
             // cleanup clears only authoritative targets, so a fallback-pane
             // registration would leave a stale agent PID on a pane the fork
             // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
+            let shouldRegisterPID: Bool
+            if isForkSessionLaunch {
+                shouldRegisterPID = resolvedSurface.isAuthoritative
+            } else if sessionStoreMutationFailed {
+                shouldRegisterPID = false
+            } else if didEstablishActiveSession {
+                shouldRegisterPID = true
+            } else if isClearSessionStart || isResumeSessionStart {
+                // A guessed pane cannot own a session boundary or its PID routing.
+                shouldRegisterPID = false
+            } else if acceptedSessionStartRecord == nil {
+                shouldRegisterPID = false
+            } else if !shouldAttemptActiveSessionBoundary {
+                shouldRegisterPID = shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                    telemetry: telemetry
+                )
+            } else {
+                shouldRegisterPID = false
+            }
+            let shouldPublishSessionStartFeed =
+                !suppressVisibleMutations
+                && acceptedSessionStartRecord != nil
+                && (
+                    didEstablishActiveSession
+                        || (
+                            !(isClearSessionStart || isResumeSessionStart)
+                                && shouldRegisterPID
+                        )
+                )
+            if shouldPublishSessionStartFeed {
+                sendClaudeFeedTelemetry(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    lifecycle: acceptedSessionStartRecord?.agentLifecycle
+                )
+            } else {
+                // Rejected/guessed/nested starts must not reach Feed, where
+                // SessionStart would replace the accepted PID and lifecycle.
+                didSendFeedTelemetry = true
+            }
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+                let acceptedPID = acceptedSessionStartRecord?.pid ?? claudePid
                 _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(Self.claudeCodeStatusKey) \(acceptedPID) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            if let establishedLifecycle, !suppressVisibleMutations {
+                if isClearSessionStart {
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
+                    lifecycle: establishedLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
-                    pid: claudePid
-                )
+                if establishedLifecycle == .running {
+                    try setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: "#4C8DFF",
+                        pid: claudePid
+                    )
+                } else {
+                    try setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93",
+                        pid: claudePid
+                    )
+                }
             }
             printClaudeHookAck()
 
@@ -24692,26 +25392,14 @@ struct CMUXCLI {
                 let workspaceId = resolvedTarget.workspaceId
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                    currentAgentPID: claudePid,
+                    currentAgentPID: incomingClaudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-
-                guard shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                ) else {
-                    telemetry.breadcrumb("claude-hook.stop.stale")
-                    printClaudeHookAck()
-                    return
-                }
 
                 guard !suppressVisibleMutations else {
+                    didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
                     printClaudeHookAck()
                     return
@@ -24721,53 +25409,138 @@ struct CMUXCLI {
                 // background task or a pending cron). Cached on the session record so
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
-                let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+                let backgroundWork = claudeBackgroundWorkState(parsedInput)
+                let hasPendingBackgroundWork = backgroundWork.keepsSessionRunning
+                let hookEventName = firstString(
+                    in: parsedInput.object ?? [:],
+                    keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+                )
+                let normalizedHookEventName = normalizedHookValue(hookEventName)?
+                    .lowercased()
+                    .replacingOccurrences(of: "_", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                let isStopFailure = normalizedHookEventName == "stopfailure"
+                let claudeDisplayName = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                let failureSummary: AgentHookNotificationSummary?
+                if isStopFailure {
+                    let failureMessage = firstString(
+                        in: parsedInput.object ?? [:],
+                        keys: ["error", "message", "body", "additional_details", "additionalDetails", "description"]
+                    ) ?? parsedInput.rawFallback ?? ""
+                    failureSummary = AgentHookNotificationClassifier.classify(
+                        displayName: claudeDisplayName,
+                        signal: "StopFailure",
+                        message: failureMessage,
+                        isFallback: failureMessage.isEmpty
+                    )
+                } else {
+                    failureSummary = nil
+                }
+                let lifecycleAfterStop: AgentHibernationLifecycleState
+                if hasPendingBackgroundWork {
+                    lifecycleAfterStop = .running
+                } else if isStopFailure {
+                    lifecycleAfterStop = .needsInput
+                } else {
+                    lifecycleAfterStop = .idle
+                }
+                let runtimeStatusAfterStop: AgentHookRuntimeStatus = isStopFailure
+                    ? .error
+                    : (hasPendingBackgroundWork ? .running : .idle)
 
                 // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
-                if let sessionId = parsedInput.sessionId {
-                    _ = try? sessionStore.upsert(
-                        sessionId: sessionId,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        cwd: parsedInput.cwd,
-                        transcriptPath: parsedInput.transcriptPath,
-                        isRestorable: true,
-                        // Pending background work keeps the pane out of the
-                        // hibernatable .idle state so the planner cannot SIGTERM
-                        // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
-                        lastSubtitle: completion?.subtitle,
-                        lastBody: completion?.body,
-                        hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
-                        markActive: true,
-                        allowsNewSessionReplacement: true
+                let completion = isStopFailure
+                    ? nil
+                    : summarizeClaudeHookStop(
+                        parsedInput: parsedInput,
+                        sessionRecord: mappedSession
                     )
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
-                            ?? mappedSession?.lastPermissionMode
-                    )
+                guard let sessionId = parsedInput.sessionId,
+                      let acceptedUpsert = try? sessionStore.upsert(
+                          sessionId: sessionId,
+                          workspaceId: workspaceId,
+                          surfaceId: surfaceId,
+                          cwd: parsedInput.cwd,
+                          transcriptPath: parsedInput.transcriptPath,
+                          pid: incomingClaudePid,
+                          lastPermissionMode: observedHookPermissionMode,
+                          isRestorable: true,
+                          // Pending background work keeps the pane out of the
+                          // hibernatable .idle state so the planner cannot SIGTERM
+                          // a live task (mirrors the antigravity fullyIdle flip).
+                          agentLifecycle: lifecycleAfterStop,
+                          lastSubtitle: failureSummary?.subtitle ?? completion?.subtitle,
+                          lastBody: failureSummary?.body ?? completion?.body,
+                          lastNotificationStatus: failureSummary?.status,
+                          updateLastNotificationStatus: isStopFailure,
+                          runtimeStatus: runtimeStatusAfterStop,
+                          updateRuntimeStatus: true,
+                          hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                          hadSurvivingBackgroundWorkAtStop: backgroundWork.survivesClear,
+                          markActive: true,
+                          turnId: parsedInput.turnId,
+                          allowsNewSessionReplacement: true,
+                          authorization: .ordinaryActivity(
+                              incomingPID: incomingClaudePid,
+                              routeIsAuthoritative: resolvedSurface.isAuthoritative
+                          )
+                      ) else {
+                    didSendFeedTelemetry = true
+                    telemetry.breadcrumb("claude-hook.stop.store-rejected")
+                    printClaudeHookAck()
+                    return
                 }
+                let acceptedRecord = acceptedUpsert.session
+                let acceptedLifecycle =
+                    acceptedRecord.agentLifecycle
+                    ?? lifecycleAfterStop
+                sendClaudeFeedTelemetry(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    lifecycle: acceptedLifecycle
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: sessionId,
+                    cwd: acceptedRecord.cwd,
+                    launchCommand: acceptedRecord.launchCommand,
+                    observedPermissionMode: observedHookPermissionMode
+                        ?? acceptedRecord.lastPermissionMode
+                )
 
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
+                    lifecycle: acceptedLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                if hasPendingBackgroundWork {
+                if isStopFailure {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.generic.notification.status.error",
+                            defaultValue: "%@ error"
+                        ),
+                        claudeDisplayName
+                    )
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: statusValue,
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A",
+                        priority: 100,
+                        pid: acceptedRecord.pid
+                    )
+                } else if acceptedLifecycle == .running {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -24778,7 +25551,8 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        color: "#4C8DFF",
+                        pid: acceptedRecord.pid
                     )
                 } else {
                     try? setClaudeStatus(
@@ -24787,16 +25561,26 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                         icon: "pause.circle.fill",
-                        color: "#8E8E93"
+                        color: "#8E8E93",
+                        pid: acceptedRecord.pid
                     )
                 }
-                if let completion {
-                    let title = String(
-                        localized: "cli.claude-hook.notification.title",
-                        defaultValue: "Claude Code"
-                    )
+                if let failureSummary {
                     let payload = notificationPayload(
-                        title: title,
+                        title: claudeDisplayName,
+                        subtitle: failureSummary.subtitle,
+                        body: failureSummary.body,
+                        meta: failureSummary.notifyCategory.metaSegment(
+                            pending: hasPendingBackgroundWork
+                        )
+                    )
+                    _ = try? sendV1Command(
+                        "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+                        client: client
+                    )
+                } else if let completion {
+                    let payload = notificationPayload(
+                        title: claudeDisplayName,
                         subtitle: completion.subtitle,
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
@@ -24829,83 +25613,83 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: claudePid,
+                currentAgentPID: incomingClaudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let shouldApplyPromptSubmit =
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                ) ||
-                shouldReplaceStoppedClaudeSession(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                )
-            guard shouldApplyPromptSubmit else {
-                telemetry.breadcrumb("claude-hook.prompt-submit.stale")
-                printClaudeHookAck()
-                return
-            }
             guard !suppressVisibleMutations else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
                 printClaudeHookAck()
                 return
             }
-            if let sessionId = parsedInput.sessionId {
-                // A forked session's first hook is this prompt-submit — its
-                // SessionStart fired under the parent session id — so capture the
-                // pane's pid and launch command here the way session-start does for
-                // normal launches. Only on first sighting, so an established
-                // record's richer capture is never overwritten.
-                // https://github.com/manaflow-ai/cmux/issues/5908
-                let firstSightingLaunchCommand = mappedSession == nil
-                    ? agentLaunchCommandFromEnvironment(
-                        ProcessInfo.processInfo.environment,
-                        fallbackPID: claudePid,
-                        fallbackKind: "claude",
-                        cwd: parsedInput.cwd
-                    )
-                    : nil
-                _ = try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    pid: mappedSession == nil ? claudePid : nil,
-                    launchCommand: firstSightingLaunchCommand,
-                    isRestorable: true,
-                    agentLifecycle: .running,
-                    markActive: true,
-                    turnId: parsedInput.turnId
+            // A forked session's first hook is this prompt-submit — its
+            // SessionStart fired under the parent session id — so capture the
+            // pane's pid and launch command here the way session-start does for
+            // normal launches. Only on first sighting, so an established
+            // record's richer capture is never overwritten.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            let firstSightingLaunchCommand = mappedSession == nil
+                ? agentLaunchCommandFromEnvironment(
+                    ProcessInfo.processInfo.environment,
+                    fallbackPID: incomingClaudePid,
+                    fallbackKind: "claude",
+                    cwd: parsedInput.cwd
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: sessionId,
-                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
-                    observedPermissionMode: observedHookPermissionMode
-                        ?? mappedSession?.lastPermissionMode
-                )
+                : nil
+            guard let sessionId = parsedInput.sessionId,
+                  let acceptedUpsert = try? sessionStore.upsert(
+                      sessionId: sessionId,
+                      workspaceId: workspaceId,
+                      surfaceId: surfaceId,
+                      cwd: parsedInput.cwd,
+                      transcriptPath: parsedInput.transcriptPath,
+                      pid: incomingClaudePid,
+                      launchCommand: firstSightingLaunchCommand,
+                      lastPermissionMode: observedHookPermissionMode,
+                      isRestorable: true,
+                      agentLifecycle: .running,
+                      lastNotificationStatus: nil,
+                      updateLastNotificationStatus: true,
+                      runtimeStatus: .running,
+                      updateRuntimeStatus: true,
+                      markActive: true,
+                      turnId: parsedInput.turnId,
+                      authorization: .turnStart(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
+                  ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.prompt-submit.store-rejected")
+                printClaudeHookAck()
+                return
             }
+            let acceptedRecord = acceptedUpsert.session
+            let acceptedLifecycle = acceptedRecord.agentLifecycle ?? .running
+            sendClaudeFeedTelemetry(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lifecycle: acceptedLifecycle
+            )
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: "claude",
+                displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                sessionId: sessionId,
+                cwd: acceptedRecord.cwd,
+                launchCommand: acceptedRecord.launchCommand,
+                observedPermissionMode: observedHookPermissionMode
+                    ?? acceptedRecord.lastPermissionMode
+            )
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: .running,
+                lifecycle: acceptedLifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
@@ -24915,7 +25699,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                pid: acceptedRecord.pid
             )
             printClaudeHookAck()
 
@@ -24962,12 +25747,6 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
-            // The classifier's subtitle is a stable internal literal ("Permission",
-            // "Waiting", "Error", "Completed", "Attention" — see
-            // classifyClaudeNotification). Capture it before the saved-body swap
-            // below so payloads without a notification_type field (older claude
-            // clients, nested payloads) can still gate under the right setting.
-            let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
@@ -24981,26 +25760,15 @@ struct CMUXCLI {
                 return
             }
             let workspaceId = resolvedTarget.workspaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: claudePid,
+                currentAgentPID: incomingClaudePid,
                 env: ProcessInfo.processInfo.environment
             )
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                telemetry: telemetry
-            ) else {
-                telemetry.breadcrumb("claude-hook.notification.stale")
-                printClaudeHookAck()
-                return
-            }
             guard !suppressVisibleMutations else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
                 printClaudeHookAck()
                 return
@@ -25008,7 +25776,13 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                summary = AgentHookNotificationSummary(
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    status: summary.status,
+                    isFallback: summary.isFallback,
+                    notifyCategory: summary.notifyCategory
+                )
             }
 
             let title = String(
@@ -25016,60 +25790,26 @@ struct CMUXCLI {
                 defaultValue: "Claude Code"
             )
 
-            // Classify the Notification so the app can gate it by user config.
-            // `permission_prompt` = Claude is blocked on the user (always worth a
-            // ping); `idle_prompt` = the ~60s idle nag, which fires even while a
-            // background task runs — its payload lacks `background_tasks`, so read
-            // the pending flag cached by the most recent Stop.
+            // Notification is an attention channel, not a turn boundary.
+            // Only an explicitly blocking notification may change lifecycle;
+            // idle reminders and completion pings preserve the latest accepted
+            // terminal outcome. Errors retain their own runtime outcome instead
+            // of being mislabeled as either Running or Needs input.
+            let notifyCategory = summary.notifyCategory
             let notificationType = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["notification_type"])
-            }
-            let notifyCategory: AgentHookNotifyCategory
+            }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let notifyPending: Bool
-            switch notificationType {
-            case "permission_prompt":
-                notifyCategory = .needsPermission
-                notifyPending = false
-            case "idle_prompt":
-                notifyCategory = .idleReminder
-                // The cached Stop-time flag is not stale in practice: a completed
-                // background task re-invokes claude (new turn -> fresh Stop with
-                // empty background_tasks refreshes the cache before any later
-                // idle_prompt), and no fresh Stop means the work is still running,
-                // so pending=true is correct. Deliberately no freshness heuristic;
-                // permission_prompt is never gated by this flag.
+            switch notifyCategory {
+            case .idleReminder, .turnComplete:
                 notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-            default:
-                // No (or unknown) notification_type: fall back to the summarizer's
-                // cue classification so older clients still gate under the right
-                // setting. Unclassified alerts stay .other and always deliver.
-                switch classifiedSubtitle {
-                case "Permission":
-                    notifyCategory = .needsPermission
-                    notifyPending = false
-                case "Waiting":
-                    notifyCategory = .idleReminder
-                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-                case "Completed":
-                    notifyCategory = .turnComplete
-                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-                default:
-                    notifyCategory = .other
-                    notifyPending = false
-                }
+            case .needsPermission, .other:
+                notifyPending = false
             }
 
-            // An idle reminder while background work is still pending is not a
-            // real "waiting for input" state: the pane is still running (the Stop
-            // hook set it to Running) and the app suppresses this banner. Skip the
-            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
-            // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
-
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            let preservesTerminalOutcome =
+                notificationType == "idle_prompt" || notifyCategory == .turnComplete
+            let reportsError = summary.status == .error
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
@@ -25077,41 +25817,96 @@ struct CMUXCLI {
                 meta: notifyCategory.metaSegment(pending: notifyPending)
             )
 
-            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
-                _ = try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
-                )
+            guard let sessionId = parsedInput.sessionId,
+                  let acceptedUpsert = try? sessionStore.upsert(
+                      sessionId: sessionId,
+                      workspaceId: workspaceId,
+                      surfaceId: surfaceId,
+                      cwd: parsedInput.cwd,
+                      transcriptPath: parsedInput.transcriptPath,
+                      pid: incomingClaudePid,
+                      lastPermissionMode: observedHookPermissionMode,
+                      agentLifecycle: preservesTerminalOutcome ? nil : .needsInput,
+                      lastSubtitle: preservesTerminalOutcome ? nil : summary.subtitle,
+                      lastBody: preservesTerminalOutcome ? nil : summary.body,
+                      lastNotificationStatus: reportsError ? .error : nil,
+                      updateLastNotificationStatus: reportsError,
+                      runtimeStatus: reportsError ? .error : nil,
+                      updateRuntimeStatus: reportsError,
+                      turnId: parsedInput.turnId,
+                      authorization: .ordinaryActivity(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
+                  ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.notification.store-rejected")
+                printClaudeHookAck()
+                return
             }
+            let acceptedRecord = acceptedUpsert.session
+            let acceptedLifecycle = acceptedRecord.agentLifecycle
+                ?? (preservesTerminalOutcome ? .idle : .needsInput)
+            sendClaudeFeedTelemetry(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lifecycle: acceptedLifecycle
+            )
 
-            if !suppressNeedsInputState {
+            if !preservesTerminalOutcome {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: acceptedLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                _ = try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Needs input",
-                    icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
-                )
+                if reportsError {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.generic.notification.status.error",
+                            defaultValue: "%@ error"
+                        ),
+                        title
+                    )
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: statusValue,
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A",
+                        priority: 100,
+                        pid: acceptedRecord.pid
+                    )
+                } else {
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: "Needs input",
+                        icon: "bell.fill",
+                        color: "#4C8DFF",
+                        pid: acceptedRecord.pid
+                    )
+                }
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             printClaudeHookAck()
-        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "push-notification":
+            try runClaudePushNotificationHook(
+                client: client,
+                telemetry: telemetry,
+                parsedInput: parsedInput,
+                sessionStore: sessionStore,
+                routing: hookRouting,
+                observedPermissionMode: observedHookPermissionMode,
+                markFeedTelemetryHandled: { didSendFeedTelemetry = true },
+                sendFeedTelemetry: sendClaudeFeedTelemetry
+            )
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
+            let isClearSessionEnd = isClaudeClearSessionEnd(parsedInput)
             // A fork launch that exits before its first prompt fires SessionEnd
             // with the PARENT session id (the forked id is only minted at the
             // first UserPromptSubmit). Consuming it would delete the parent
@@ -25159,6 +25954,7 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             // Resolve the pane's CURRENT owner before consuming the record:
             // SessionEnd can be the only hook after a pane move (Ctrl-C exit
             // with no later Stop/Notification to heal the record), and cleanup
@@ -25166,35 +25962,48 @@ struct CMUXCLI {
             // Clearing the record's stale workspace instead leaves the moved
             // pane stuck and `clear_notifications --tab=` would wipe unrelated
             // panes' notifications in the old workspace.
-            guard let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
+            let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            ) else {
-                // Keep the persisted route so a later authoritative cleanup
-                // can still clear the visible state this attempt could not.
+            )
+            guard liveEndTarget != nil || (isClearSessionEnd && mappedSession != nil) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-end.unresolved")
                 printClaudeHookAck()
                 return
             }
-            let consumedSession = try? sessionStore.consume(
+            let liveRouteIsAuthoritative = liveEndTarget?.isAuthoritative == true
+            let consumeStoredRoute = isClearSessionEnd && !liveRouteIsAuthoritative
+            let consumption = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
-                workspaceId: liveEndTarget.workspaceId,
-                surfaceId: liveEndTarget.surfaceId,
-                turnId: parsedInput.turnId
+                workspaceId: consumeStoredRoute ? nil : liveEndTarget?.workspaceId,
+                surfaceId: consumeStoredRoute ? nil : liveEndTarget?.surfaceId,
+                turnId: parsedInput.turnId,
+                authorization: .claudeSessionEnd(
+                    incomingPID: incomingClaudePid,
+                    routeIsAuthoritative: liveRouteIsAuthoritative
+                ),
+                preservePendingBackgroundWorkForClear: isClearSessionEnd
             )
-            // consume() calls clearActiveSessionIfMatching before returning
+            guard consumption != nil else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-end.store-rejected")
+                printClaudeHookAck()
+                return
+            }
+            // consume() clears the active slot before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
-            if let consumedSession {
+            if let consumption {
+                let consumedSession = consumption.session
                 // App-visible cleanup targets the live owner of the session's
                 // pane when the resolver answered authoritatively; the
                 // consumed record's address is the fallback. Store-side calls
                 // keep the record's own address.
                 let workspaceId: String
                 let cleanupSurfaceId: String
-                if liveEndTarget.isAuthoritative {
+                if let liveEndTarget, liveEndTarget.isAuthoritative {
                     workspaceId = liveEndTarget.workspaceId
                     cleanupSurfaceId = liveEndTarget.surfaceId
                 } else {
@@ -25225,7 +26034,7 @@ struct CMUXCLI {
                 // Staleness is judged on the pane being CLEANED: gating on a
                 // polluted record surface (#7391) could false-skip cleanup of
                 // the real pane, stranding its ring/status after exit.
-                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
+                let shouldClearVisibleState = liveRouteIsAuthoritative && shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
@@ -25238,7 +26047,9 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                if shouldClearVisibleState, !suppressVisibleMutations {
+                if shouldClearVisibleState,
+                   !suppressVisibleMutations,
+                   !consumption.preservedPendingBackgroundWork {
                     _ = try? sendV1Command(
                         "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
                         client: client
@@ -25254,6 +26065,8 @@ struct CMUXCLI {
                         "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
                         client: client
                     )
+                } else if consumption.preservedPendingBackgroundWork {
+                    telemetry.breadcrumb("claude-hook.session-end.clear-background-work-preserved")
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -25291,24 +26104,13 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: claudePid,
+                currentAgentPID: incomingClaudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                telemetry: telemetry
-            ) else {
-                telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
-                printClaudeHookAck()
-                return
-            }
             guard !suppressVisibleMutations else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
                 printClaudeHookAck()
                 return
@@ -25353,22 +26155,43 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                _ = try? sessionStore.upsert(
-                    sessionId: sessionId,
+                guard let acceptedUpsert = try? sessionStore.upsert(
+                          sessionId: sessionId,
+                          workspaceId: workspaceId,
+                          surfaceId: existingSurfaceId,
+                          cwd: parsedInput.cwd,
+                          transcriptPath: parsedInput.transcriptPath,
+                          pid: incomingClaudePid,
+                          lastPermissionMode: observedHookPermissionMode,
+                          agentLifecycle: .needsInput,
+                          lastSubtitle: waitingSubtitle,
+                          lastBody: needsInputBody,
+                          turnId: parsedInput.turnId,
+                          authorization: .ordinaryActivity(
+                              incomingPID: incomingClaudePid,
+                              routeIsAuthoritative: resolvedSurface.isAuthoritative
+                          )
+                      ) else {
+                    didSendFeedTelemetry = true
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.store-rejected")
+                    printClaudeHookAck()
+                    return
+                }
+                let acceptedRecord = acceptedUpsert.session
+                let acceptedSurfaceId =
+                    nonEmptyClaudeHookIdentifier(acceptedRecord.surfaceId) ?? existingSurfaceId
+                let acceptedLifecycle = acceptedRecord.agentLifecycle ?? .needsInput
+                sendClaudeFeedTelemetry(
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: waitingSubtitle,
-                    lastBody: needsInputBody
+                    surfaceId: acceptedSurfaceId,
+                    lifecycle: acceptedLifecycle
                 )
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: acceptedLifecycle,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
+                    surfaceId: acceptedSurfaceId
                 )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
                 // PermissionRequest or Notification hook follows, so this handler must
@@ -25389,11 +26212,11 @@ struct CMUXCLI {
                     _ = try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
-                        surfaceId: existingSurfaceId,
+                        surfaceId: acceptedSurfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
                         color: "#4C8DFF",
-                        pid: claudePid
+                        pid: acceptedRecord.pid
                     )
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
@@ -25409,7 +26232,7 @@ struct CMUXCLI {
                         meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
                     )
                     _ = try? sendV1Command(
-                        "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
+                        "notify_target_async \(workspaceId) \(acceptedSurfaceId) \(payload)",
                         client: client
                     )
                 }
@@ -25417,21 +26240,39 @@ struct CMUXCLI {
                 return
             }
 
-            if let sessionId = parsedInput.sessionId {
-                _ = try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .running
-                )
+            guard let sessionId = parsedInput.sessionId,
+                  let acceptedUpsert = try? sessionStore.upsert(
+                      sessionId: sessionId,
+                      workspaceId: workspaceId,
+                      surfaceId: surfaceId,
+                      cwd: parsedInput.cwd,
+                      transcriptPath: parsedInput.transcriptPath,
+                      pid: incomingClaudePid,
+                      lastPermissionMode: observedHookPermissionMode,
+                      agentLifecycle: .running,
+                      turnId: parsedInput.turnId,
+                      authorization: .ordinaryActivity(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
+                  ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.pre-tool-use.store-rejected")
+                printClaudeHookAck()
+                return
             }
+            let acceptedRecord = acceptedUpsert.session
+            let acceptedLifecycle = acceptedRecord.agentLifecycle ?? .running
+            sendClaudeFeedTelemetry(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lifecycle: acceptedLifecycle
+            )
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: .running,
+                lifecycle: acceptedLifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
@@ -25450,7 +26291,7 @@ struct CMUXCLI {
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: acceptedRecord.pid
             )
             printClaudeHookAck()
 
@@ -25509,9 +26350,14 @@ struct CMUXCLI {
         value: String,
         icon: String,
         color: String,
+        priority: Int? = nil,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color)"
+        if let priority {
+            cmd += " --priority=\(priority)"
+        }
+        cmd += " --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid {
             cmd += " --pid=\(pid)"
         }
@@ -25615,37 +26461,25 @@ struct CMUXCLI {
         }
     }
 
-    private func shouldReplaceStoppedClaudeSession(
-        sessionStore: ClaudeHookSessionStore,
-        parsedInput: ClaudeHookParsedInput,
-        workspaceId: String,
-        surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
-    ) -> Bool {
-        do {
-            return try sessionStore.canReplaceActiveSession(
-                sessionId: parsedInput.sessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-        } catch {
-            telemetry.breadcrumb(
-                "claude-hook.can-replace-active.error",
-                data: [
-                    "error": String(describing: error),
-                    "session_id": parsedInput.sessionId ?? "",
-                    "workspace_id": workspaceId,
-                ]
-            )
-            return false
-        }
-    }
-
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
         guard let source = parsedInput.object?["source"] as? String else {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeResumeSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "resume"
+    }
+
+    private func isClaudeClearSessionEnd(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let reason = parsedInput.object?["reason"] as? String else {
+            return false
+        }
+        return reason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
@@ -27427,12 +28261,31 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> AgentHookNotificationSummary {
+        let displayName = String(
+            localized: "cli.claude-hook.notification.title",
+            defaultValue: "Claude Code"
+        )
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                return AgentHookNotificationClassifier.classify(
+                    displayName: displayName,
+                    signal: fallback,
+                    message: fallback,
+                    isFallback: false
+                )
             }
-            return ("Waiting", "Claude is waiting for your input")
+            return AgentHookNotificationClassifier.classify(
+                displayName: displayName,
+                signal: "idle_prompt",
+                message: String(
+                    localized: "agent.generic.notification.body.waitingForInput",
+                    defaultValue: "Waiting for input"
+                ),
+                isFallback: true
+            )
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -27445,13 +28298,22 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let matchedMessage = messageCandidates.compactMap { $0 }.first
+        let message = matchedMessage ?? String.localizedStringWithFormat(
+            String(
+                localized: "agent.generic.notification.body.needsAttention",
+                defaultValue: "%@ needs your attention"
+            ),
+            displayName
+        )
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
-
-        classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return AgentHookNotificationClassifier.classify(
+            displayName: displayName,
+            signal: signal,
+            message: normalizedMessage,
+            isFallback: matchedMessage == nil
+        )
     }
 
     private func summarizeAgentHookNotification(
@@ -27757,31 +28619,6 @@ struct CMUXCLI {
         )
     }
 
-    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
-        let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
-        }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
-        }
-        if AgentHookNotificationClassifier.containsCompletionCue(lower) {
-            let body = message.isEmpty ? "Task completed" : message
-            return ("Completed", body)
-        }
-        if AgentHookNotificationClassifier.containsWaitingCue(lower) {
-            let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
-        }
-        // Use the message directly if it's meaningful (not a generic placeholder).
-        if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
-        }
-        return ("Attention", "Claude needs your attention")
-    }
-
     private func sanitizeNotificationField(_ value: String) -> String {
         return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
@@ -27801,19 +28638,27 @@ struct CMUXCLI {
         return base + "|" + meta
     }
 
-    /// True when a Claude `Stop`/`Notification` payload reports unfinished
-    /// background work: any `background_tasks` entry still `running`, or a
-    /// non-empty `session_crons`. A `nil` rawObject or absent keys (claude
-    /// < 2.1.145) yield `false`, so older clients behave exactly as before.
-    /// Pure over `rawObject` so both the notify gate and the hibernation
-    /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
-    func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
-        guard let obj = parsedInput.rawObject else { return false }
-        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
-        if let tasks = obj["background_tasks"] as? [[String: Any]] {
-            return tasks.contains { ($0["status"] as? String) == "running" }
+    /// Separates current-session activity from work that survives `/clear`.
+    /// A `nil` rawObject or absent keys (Claude < 2.1.145) yields no work, so
+    /// older clients behave exactly as before.
+    func claudeBackgroundWorkState(
+        _ parsedInput: ClaudeHookParsedInput
+    ) -> (keepsSessionRunning: Bool, survivesClear: Bool) {
+        guard let obj = parsedInput.rawObject else {
+            return (
+                keepsSessionRunning: false,
+                survivesClear: false
+            )
         }
-        return false
+        let hasSessionCrons = (obj["session_crons"] as? [Any])?.isEmpty == false
+        let hasRunningBackgroundTasks =
+            (obj["background_tasks"] as? [[String: Any]])?.contains {
+                ($0["status"] as? String) == "running"
+            } == true
+        return (
+            keepsSessionRunning: hasSessionCrons || hasRunningBackgroundTasks,
+            survivesClear: hasRunningBackgroundTasks
+        )
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
@@ -30860,7 +31705,12 @@ export default CMUXSessionRestore;
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
-            } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+            } else if let consumption = try? store.consume(
+                sessionId: sessionId,
+                workspaceId: nil,
+                surfaceId: nil
+            ) {
+                let consumed = consumption.session
                 if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
@@ -31184,7 +32034,7 @@ export default CMUXSessionRestore;
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
                         supersedesSameProcessSession: def.name == "omp"
-                    )) ?? []
+                    ))?.supersededSessions ?? []
                     acceptedSessionStart = true
                 }
                 if !acceptedSessionStart {
@@ -32423,6 +33273,7 @@ export default CMUXSessionRestore;
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String? = nil,
         surfaceId: String? = nil,
+        agentLifecycle: AgentHibernationLifecycleState? = nil,
         socketPassword: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
@@ -32448,6 +33299,9 @@ export default CMUXSessionRestore;
         }
         if let surfaceId, !surfaceId.isEmpty {
             event["surface_id"] = surfaceId
+        }
+        if let agentLifecycle, agentLifecycle != .unknown {
+            event["_cmux_agent_lifecycle"] = agentLifecycle.rawValue
         }
         if let transcriptPath = parsedInput.transcriptPath, !transcriptPath.isEmpty {
             event["transcript_path"] = transcriptPath
