@@ -108,7 +108,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   // Legal pages are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
-  const englishOnly = new Set(["/terms-of-service", "/eula"]);
+  const englishOnly = new Set([
+    "/terms-of-service",
+    "/eula",
+  ]);
 
   const entries: MetadataRoute.Sitemap = [];
 

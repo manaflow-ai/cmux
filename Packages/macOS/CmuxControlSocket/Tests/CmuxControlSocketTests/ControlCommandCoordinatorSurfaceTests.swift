@@ -94,6 +94,35 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["type"] == .string("terminal"))
     }
 
+    @Test func paneBreakRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.break",
+            params: ["surface_id": .null]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func paneJoinRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.join",
+            params: [
+                "target_pane_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
     @Test func surfaceCreateRemotePayloadIdentifiesTmuxNewWindow() throws {
         let workspaceID = UUID()
         let (coordinator, context) = coordinator(createResolution: .routedToRemote(
@@ -143,6 +172,82 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(code == "invalid_params")
         #expect(message == "Dock placement supports only terminal and browser surfaces")
         #expect(data == .object(["type": .string("agentSession")]))
+    }
+
+    @Test func surfaceCloseRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceCloseRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceRespawnRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
+    }
+
+    @Test func surfaceRespawnRejectsExplicitNullSurfaceID() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .null,
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
     }
 
     @Test func surfaceListIncludesLiveSimulatorIdentity() throws {
@@ -211,6 +316,146 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test func surfaceResumeSetKeepsStructuredLaunchDataStructured() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeResolution = .setFailed
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume legacy"),
+                "kind": .string("codex"),
+                "permission_mode": .string("never"),
+                "launch_command": .object([
+                    "launcher": .string("codex"),
+                    "executable_path": .string("/opt/Codex Tools/codex"),
+                    "arguments": .array([
+                        .string("/opt/Codex Tools/codex"),
+                        .string("space value"),
+                        .string("引用"),
+                    ]),
+                    "working_directory": .string("/tmp/项目"),
+                    "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "captured_at": .double(42.5),
+                    "source": .string("test"),
+                ]),
+            ]
+        ))
+
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.permissionMode == "never")
+        #expect(inputs.launchCommand == ControlAgentLaunchCommand(
+            launcher: "codex",
+            executablePath: "/opt/Codex Tools/codex",
+            arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
+            workingDirectory: "/tmp/项目",
+            environment: ["CODEX_HOME": "/tmp/配置"],
+            capturedAt: 42.5,
+            source: "test"
+        ))
+    }
+
+    @Test(
+        "surface resume set rejects malformed structured launch data",
+        arguments: [
+            JSONValue.string("codex"),
+            .object([:]),
+            .object(["arguments": .array([])]),
+            .object(["arguments": .array([.string("codex"), .int(1)])]),
+            .object([
+                "arguments": .array([.string("codex")]),
+                "environment": .object(["CODEX_HOME": .int(1)]),
+            ]),
+            .object([
+                "arguments": .array([.string("codex")]),
+                "captured_at": .string("now"),
+            ]),
+        ]
+    )
+    func surfaceResumeSetRejectsMalformedStructuredLaunchData(
+        launchCommand: JSONValue
+    ) {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeStrings = ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            launchCommandMustBeValid: "localized launch-command validation"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume legacy"),
+                "launch_command": launchCommand,
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "localized launch-command validation",
+            data: nil
+        ))
+        #expect(context.resumeSetInputs == nil)
+    }
+
+    @Test func surfaceResumeGetEmitsStructuredRestoreRecord() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let surfaceID = UUID()
+        let command = ControlAgentLaunchCommand(
+            launcher: nil,
+            executablePath: "/usr/bin/printf",
+            arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
+            workingDirectory: "/tmp/日本語",
+            environment: ["RESTORE_VALUE": "space value"],
+            capturedAt: 21,
+            source: "test"
+        )
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: surfaceID,
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "direct",
+                kind: "custom",
+                checkpointID: "checkpoint",
+                source: "test",
+                workingDirectory: "/tmp/日本語",
+                environment: ["RESTORE_VALUE": "space value"],
+                launchCommand: command,
+                preparedArguments: command.arguments,
+                preparedArgumentsWorkingDirectory: "/tmp/日本語",
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: [:]
+        ))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+
+        #expect(record["mode"] == .string("direct"))
+        #expect(record["working_directory"] == .string("/tmp/日本語"))
+        #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
+        #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
+        #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(record["legacy_command"] == .null)
+    }
+
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -237,7 +482,8 @@ struct ControlCommandCoordinatorSurfaceTests {
     func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
         let context = FakeSurfaceControlCommandContext()
         context.resumeStrings = ControlSurfaceResumeStrings(
-            agentSessionEndedMustBeBoolean: "localized boolean validation"
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            launchCommandMustBeValid: "localized launch-command validation"
         )
         let coordinator = ControlCommandCoordinator(context: context)
 

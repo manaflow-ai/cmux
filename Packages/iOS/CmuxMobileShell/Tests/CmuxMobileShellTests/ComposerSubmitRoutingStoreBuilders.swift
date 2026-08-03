@@ -160,7 +160,7 @@ func installSecondaryClient(
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-    store.secondaryMacSubscriptions[macDeviceID] = SecondaryMacSubscription(
+    store.secondaryMacSubscriptions[macDeviceID.pairingKey] = SecondaryMacSubscription(
         macDeviceID: macDeviceID,
         client: client,
         route: route,

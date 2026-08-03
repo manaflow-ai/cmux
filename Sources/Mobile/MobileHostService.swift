@@ -345,6 +345,7 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -357,7 +358,17 @@ final class MobileHostService {
         MobileHostIrohRuntime.shared.configure(auth: auth)
     }
 
-    func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {
+    func updateIrohRoute(
+        identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
+        MobileHostPublicStatusCache.update(
+            irohIdentity: identity,
+            pathHints: pathHints
+        )
+    }
+
+    func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
         MobileHostPublicStatusCache.update(irohBinding: binding)
     }
 
@@ -1238,6 +1249,7 @@ final class MobileHostService {
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
                     executionContext: MobileHostRPCExecutionContext(
+                        connectionID: id,
                         authorization: authorization,
                         artifactTransfers: artifactTransfers
                     )
@@ -1249,6 +1261,7 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
@@ -1540,14 +1553,17 @@ final class MobileHostService {
     }
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
-        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
-        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || request.method == "workspace.group.create" || createsWorkspaceInGroup
+        // The Stack same-account gate already authorized this request; an
+        // attach ticket only narrows scope while it is current (a workspace-
+        // pinned ticket must not mutate Mac-wide state). A missing, unknown,
+        // or expired token therefore leaves the account gate as the sole
+        // authority, including Mac-scoped mutations, so paired phones keep
+        // move/group affordances after the pairing ticket's TTL elapses.
+        // Advertised to clients as `workspace.mutations.account_auth.v1`.
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !attachToken.isEmpty else {
-            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
-        }
-        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
-            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+              !attachToken.isEmpty,
+              let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return nil
         }
         if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
         return nil
@@ -1827,11 +1843,32 @@ actor MobileHostConnection {
     private struct EventSubscription: Sendable {
         let topics: Set<String>
         let transport: MobileHostEventTransport
+        let clientID: String?
     }
 
     private struct ResponseTask: Sendable {
         let frameByteCount: Int
         let task: Task<Void, Never>
+    }
+
+    private enum UsableSessionReadinessContribution: Sendable {
+        case workspaceList(count: Int)
+        case eventSubscription(
+            streamID: String,
+            clientID: String,
+            transport: String
+        )
+    }
+
+    private struct PreparedResponse: Sendable {
+        let data: Data
+        let readinessContribution: UsableSessionReadinessContribution?
+    }
+
+    private struct UsableEventSubscription: Sendable {
+        let streamID: String
+        let clientID: String
+        let transport: String
     }
 
     private let id: UUID
@@ -1879,6 +1916,9 @@ actor MobileHostConnection {
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
+    private var usableWorkspaceCount: Int?
+    private var usableEventSubscription: UsableEventSubscription?
+    private var didPublishUsableSession = false
 
     init(
         id: UUID,
@@ -2184,15 +2224,20 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseSendTask(_ response: Data) {
+    private func startResponseSendTask(_ response: PreparedResponse) {
         guard !isClosed else { return }
         let taskID = UUID()
         let task = Task { [weak self] in
-            _ = await self?.sendResponse(response)
-            await self?.finishResponseTask(taskID)
+            guard let self else { return }
+            if await self.sendResponse(response.data) {
+                await self.recordReadinessContribution(
+                    response.readinessContribution
+                )
+            }
+            await self.finishResponseTask(taskID)
         }
         responseTasks[taskID] = ResponseTask(
-            frameByteCount: response.count,
+            frameByteCount: response.data.count,
             task: task
         )
     }
@@ -2280,7 +2325,9 @@ actor MobileHostConnection {
             guard let response = await successResponsePayload(for: request) else {
                 return
             }
-            _ = await sendResponse(response)
+            if await sendResponse(response.data) {
+                recordReadinessContribution(response.readinessContribution)
+            }
         case let .failure(error):
             guard !isClosed, !Task.isCancelled else {
                 return
@@ -2301,7 +2348,7 @@ actor MobileHostConnection {
     /// cancelled before a response could be produced.
     private func successResponsePayload(
         for request: MobileHostRPCRequest
-    ) async -> Data? {
+    ) async -> PreparedResponse? {
         guard !isClosed, !Task.isCancelled else {
             return nil
         }
@@ -2318,7 +2365,13 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return nil
             }
-            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error)
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: error
+                ),
+                readinessContribution: nil
+            )
         }
         guard !isClosed, !Task.isCancelled else {
             return nil
@@ -2328,17 +2381,53 @@ actor MobileHostConnection {
             return nil
         }
         if let intercepted = await handleSubscriptionRPC(request) {
-            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted)
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: intercepted
+                ),
+                readinessContribution: Self.readinessContribution(
+                    for: request,
+                    result: intercepted
+                )
+            )
         }
         let result = await handleRequest(request)
         guard !isClosed, !Task.isCancelled else {
             return nil
         }
-        return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
+        return PreparedResponse(
+            data: MobileHostRPCEnvelope.encodeResponse(
+                id: request.id,
+                result: result
+            ),
+            readinessContribution: Self.readinessContribution(
+                for: request,
+                result: result
+            )
+        )
     }
 
     private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         switch request.method {
+        case "mobile.events.probe":
+            let streamID = request.params["stream_id"] as? String ?? ""
+            guard !streamID.isEmpty else {
+                return .failure(
+                    MobileHostRPCError(
+                        code: "invalid_params",
+                        message: "stream_id is required"
+                    )
+                )
+            }
+            let subscription = subscriptions[streamID]
+            return .ok([
+                "stream_id": streamID,
+                "subscribed": subscription != nil,
+                "event_transport":
+                    subscription?.transport.rawValue
+                    ?? MobileHostEventTransport.control.rawValue,
+            ])
         case "mobile.events.subscribe":
             let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
             let topicsArray = (request.params["topics"] as? [String]) ?? []
@@ -2376,7 +2465,8 @@ actor MobileHostConnection {
             subscribe(
                 streamID: streamID,
                 topics: topics,
-                transport: selectedTransport
+                transport: selectedTransport,
+                clientID: request.params["client_id"] as? String
             )
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
@@ -2410,6 +2500,88 @@ actor MobileHostConnection {
         }
     }
 
+    private static func readinessContribution(
+        for request: MobileHostRPCRequest,
+        result: MobileHostRPCResult
+    ) -> UsableSessionReadinessContribution? {
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else {
+            return nil
+        }
+        if request.method == "workspace.list"
+            || request.method == "mobile.workspace.list" {
+            let workspaceCount = (object["workspaces"] as? [Any])?.count ?? 0
+            return .workspaceList(count: workspaceCount)
+        }
+        guard request.method == "mobile.events.subscribe",
+              let topicsArray = request.params["topics"] as? [String] else {
+            return nil
+        }
+        let topics = Set(topicsArray)
+        let includesWorkspaceState =
+            topics.contains("workspace.updated")
+            && topics.contains("mobile.sync.delta")
+        let includesTerminalOutput =
+            topics.contains("terminal.render_grid")
+            || topics.contains("terminal.bytes")
+        guard includesWorkspaceState,
+              includesTerminalOutput,
+              let streamID = object["stream_id"] as? String,
+              !streamID.isEmpty,
+              let clientID = request.params["client_id"] as? String,
+              !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let transport = object["event_transport"] as? String,
+              !transport.isEmpty else {
+            return nil
+        }
+        return .eventSubscription(
+            streamID: streamID,
+            clientID: clientID,
+            transport: transport
+        )
+    }
+
+    private func recordReadinessContribution(
+        _ contribution: UsableSessionReadinessContribution?
+    ) {
+        guard let contribution, !isClosed else { return }
+        switch contribution {
+        case .workspaceList(let count):
+            usableWorkspaceCount = count > 0 ? count : nil
+        case .eventSubscription(let streamID, let clientID, let transport):
+            let candidate = UsableEventSubscription(
+                streamID: streamID,
+                clientID: clientID,
+                transport: transport
+            )
+            usableEventSubscription = isLive(candidate) ? candidate : nil
+        }
+        publishUsableSessionIfReady()
+    }
+
+    private func publishUsableSessionIfReady() {
+        guard let workspaceCount = usableWorkspaceCount,
+              let subscription = usableEventSubscription,
+              isLive(subscription),
+              !didPublishUsableSession,
+              !isClosed else {
+            return
+        }
+        didPublishUsableSession = true
+        CmuxEventBus.shared.publish(
+            name: "mobile.rpc.ready",
+            category: "mobile",
+            source: "mobile.host",
+            payload: [
+                "connection_id": id.uuidString,
+                "workspace_count": workspaceCount,
+                "stream_id": subscription.streamID,
+                "client_id": subscription.clientID,
+                "transport": subscription.transport,
+            ]
+        )
+    }
+
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
         case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
@@ -2418,7 +2590,8 @@ actor MobileHostConnection {
              // subscription on every silence window (~9s when idle), and
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
-             "mobile.events.subscribe", "mobile.events.unsubscribe":
+             "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "mobile.events.probe":
             return false
         default:
             return true
@@ -2429,13 +2602,20 @@ actor MobileHostConnection {
     func subscribe(
         streamID: String,
         topics: Set<String>,
-        transport: MobileHostEventTransport = .control
+        transport: MobileHostEventTransport = .control,
+        clientID: String? = nil
     ) {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
-            transport: transport
+            transport: transport,
+            clientID: clientID
         )
+        if let usableEventSubscription,
+           usableEventSubscription.streamID == streamID,
+           !isLive(usableEventSubscription) {
+            self.usableEventSubscription = nil
+        }
         eventQueue.updateSubscribedTopics(currentSubscribedTopics())
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
@@ -2450,6 +2630,9 @@ actor MobileHostConnection {
     func unsubscribe(streamID: String) async -> Bool {
         let previousSubscription = subscriptions.removeValue(forKey: streamID)
         let removed = previousSubscription != nil
+        if usableEventSubscription?.streamID == streamID {
+            usableEventSubscription = nil
+        }
         eventQueue.updateSubscribedTopics(currentSubscribedTopics())
         if let previousSubscription {
             MobileHostEventSubscriptionTracker.replace(
@@ -2696,9 +2879,26 @@ actor MobileHostConnection {
         where subscription.transport == .irohServerEvents {
             subscriptions[streamID] = EventSubscription(
                 topics: subscription.topics,
-                transport: .control
+                transport: .control,
+                clientID: subscription.clientID
             )
         }
+        if let usableEventSubscription,
+           !isLive(usableEventSubscription) {
+            self.usableEventSubscription = nil
+        }
+    }
+
+    private func isLive(_ subscription: UsableEventSubscription) -> Bool {
+        guard let current = subscriptions[subscription.streamID],
+              current.clientID == subscription.clientID,
+              current.transport.rawValue == subscription.transport else {
+            return false
+        }
+        return current.topics.contains("workspace.updated")
+            && current.topics.contains("mobile.sync.delta")
+            && (current.topics.contains("terminal.render_grid")
+                || current.topics.contains("terminal.bytes"))
     }
 
     private func resetIndependentEventWriter() async {

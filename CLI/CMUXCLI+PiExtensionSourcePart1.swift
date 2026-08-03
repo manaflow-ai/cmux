@@ -466,16 +466,26 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-function warn(ctx: PiExtensionContextSnapshot | null, message: string, details: Record<string, unknown> = {}): void {
+function warn(
+  ctx: PiExtensionContextSnapshot | null,
+  message: string,
+  details: Record<string, unknown> = {},
+  notifyUser = false,
+): void {
   const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
   try {
     console.warn(JSON.stringify(payload));
   } catch (_) {
     console.warn(`[cmux-pi-extension] ${message}`);
   }
-  try {
-    ctx?.notifyWarning?.();
-  } catch (_) {}
+  // Hook transport is best-effort telemetry. Keep routine command failures in
+  // the terminal instead of interrupting Pi with a generic toast; reserve the
+  // UI warning for an unexpected extension-task exception.
+  if (notifyUser) {
+    try {
+      ctx?.notifyWarning?.();
+    } catch (_) {}
+  }
 }
 
 function cmuxExecutable(): string {

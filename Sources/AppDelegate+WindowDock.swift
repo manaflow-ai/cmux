@@ -20,6 +20,10 @@ extension AppDelegate.MainWindowContext {
         _ snapshot: SessionWindowSnapshot?,
         excludingStableIdentities: Set<UUID> = []
     ) {
+        let promptBatch = SurfaceResumeRunPromptBatch.shared
+        promptBatch.beginRestorePass()
+        defer { promptBatch.endRestorePass() }
+
         guard let dockSnapshot = snapshot?.dock, let tabManagerSnapshot = snapshot?.tabManager else { return }
         windowDockStore().restoreSessionSnapshot(
             dockSnapshot,

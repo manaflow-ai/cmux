@@ -3524,7 +3524,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
+    "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
+    "signedOutSignIn": "Prijavite se"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3603,37 @@
       "primaryCta": "Preuzmite .deb",
       "requirements": "Debian ili Ubuntu · x64",
       "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Dobro došli u cmux Pro 🎉",
+      "fallbackName": "prijatelju",
+      "greeting": "Zdravo {name},",
+      "thanks": "Hvala što ste se pridružili cmux Pro! Još uvijek dovršavamo cijelo Pro iskustvo, a pristup oblaku stiže uskoro.",
+      "cloudStatus": "Kada pokrenemo pristup oblaku, dodat ćemo na vaš račun kredite za korištenje prema broju mjeseci pretplate.",
+      "currentBenefit": "Do tada je vaša Pro pogodnost rani pristup cmuxu na iOS-u. Prijavite se putem poveznice ispod, a Apple će vam poslati TestFlight pozivnicu nakon registracije.",
+      "testflightLink": "Prijavite se za TestFlight: {url}",
+      "testflightLinkLabel": "Prijavite se za TestFlight",
+      "signoff": "Drago nam je što ste ovdje!\ncmux tim"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro je aktivan",
+    "title": "Dobro došli u cmux Pro",
+    "body": "Pro funkcije su još u razvoju. Pristup oblaku stiže uskoro, uz kredite za korištenje koji se prikupljaju za svaki mjesec pretplate. Pro trenutno uključuje pristup cmux iOS aplikaciji putem TestFlighta.",
+    "done": "Idi na kontrolnu ploču",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS aplikacija",
+        "body": "Koristite cmux na svom telefonu.",
+        "action": "Pridružite se iOS beti"
+      },
+      "billing": {
+        "title": "Upravljajte planom",
+        "body": "Pregledajte plan, račune i mogućnosti otkazivanja.",
+        "action": "Upravljaj planom"
+      }
     }
   }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 @testable import CMUXMobileCore
 
 @Suite struct DiagnosticLogTests {
@@ -271,6 +272,7 @@ import Testing
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -286,7 +288,7 @@ import Testing
         #expect(DiagnosticSessionLifecycleKind.runtimeDeactivated.rawValue == 8)
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
-
+        #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)
         #expect(DiagnosticPathKind(.privateNetwork) == .privateNetwork)
@@ -437,6 +439,59 @@ import Testing
             #expect(report.lastFailureKind == .protocolViolation)
             #expect(report.lastFailureDate != nil)
         }
+    }
+
+    @Test func cancelledDialOutcomesDoNotCountAsFailures() {
+        let realFailure = DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 2,
+            b: DiagnosticFailureKind.protocolViolation.rawValue
+        )
+        let abandonedDial = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 3,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.cancelled.rawValue,
+            c: 7
+        )
+
+        let onlyAbandoned = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [abandonedDial]
+        )
+        #expect(onlyAbandoned.lastFailureEvent == nil)
+        #expect(onlyAbandoned.lastFailureKind == nil)
+        #expect(onlyAbandoned.lastFailureDate == nil)
+
+        let abandonedAfterRealFailure = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [realFailure, abandonedDial]
+        )
+        #expect(abandonedAfterRealFailure.lastFailureEvent == realFailure)
+        #expect(abandonedAfterRealFailure.lastFailureKind == .protocolViolation)
+    }
+
+    @Test func gatedDialRefusalsReportRouteGatedNotTimedOut() {
+        // A connect-registry gate refusal is instantaneous and never touched
+        // the network. It used to be classified as `.timedOut`, fabricating
+        // sub-30ms timeout failures that poisoned `lastFailureEvent`.
+        let gatedRefusal = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 2,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.routeGated.rawValue,
+            c: 7
+        )
+        let report = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [gatedRefusal]
+        )
+        #expect(report.lastFailureKind == .routeGated)
+        #expect(report.lastFailureKind != .timedOut)
+        #expect(report.lastFailureEvent == gatedRefusal)
     }
 
     @Test func clearStartsFreshBoundedSessionAndResetsAnchors() async {
@@ -595,5 +650,91 @@ import Testing
         #expect(report.events.first?.tNanos == 1)
         #expect(report.events.last?.tNanos == UInt64(maximum))
         #expect(!report.events.contains(where: { $0.tNanos == 99_999 || $0.tNanos == 88_888 }))
+    }
+
+    @Test func eventTapDeliversRetainedEventsInOrder() async {
+        let log = DiagnosticLog(capacity: 8)
+        let received = OSAllocatedUnfairLock<[DiagnosticEvent]>(initialState: [])
+        log.setEventTap { event in
+            received.withLock { $0.append(event) }
+        }
+
+        let first = DiagnosticEvent(code: .connect, tNanos: 1)
+        let second = DiagnosticEvent(code: .pairOk, tNanos: 2)
+        log.record(first)
+        log.record(second)
+        await waitForProcessed(log, 2)
+
+        #expect(received.withLock { $0 } == [first, second])
+    }
+
+    @Test func eventTapSkipsDedupedSelectedPathRepeats() async {
+        let log = DiagnosticLog(capacity: 8)
+        let received = OSAllocatedUnfairLock<[DiagnosticEvent]>(initialState: [])
+        log.setEventTap { event in
+            received.withLock { $0.append(event) }
+        }
+
+        let relay = DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 1,
+            a: DiagnosticPathKind.relay.rawValue
+        )
+        let repeatRelay = DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 2,
+            a: DiagnosticPathKind.relay.rawValue
+        )
+        log.record(relay)
+        log.record(repeatRelay)
+        await waitForProcessed(log, 2)
+
+        #expect(received.withLock { $0 } == [relay])
+    }
+
+    @Test func eventTapNeverDeliversEventsQueuedBeforeInstallation() async {
+        // Regression: record() admits events onto the drain stream before the
+        // drain task delivers them. Installing the tap in that window must not
+        // deliver the already-admitted events: the tap floor is the ingress
+        // admission sequence, not the drain position. Recording a burst and
+        // installing the tap immediately (no drain sync) makes the pre-fix
+        // race overwhelmingly likely to deliver stale events.
+        let log = DiagnosticLog(capacity: 4096)
+        let burst = 500
+        for index in 1...burst {
+            log.record(DiagnosticEvent(code: .connect, tNanos: UInt64(index)))
+        }
+        let received = OSAllocatedUnfairLock<[DiagnosticEvent]>(initialState: [])
+        log.setEventTap { event in
+            received.withLock { $0.append(event) }
+        }
+        await waitForProcessed(log, burst)
+        #expect(received.withLock { $0.isEmpty })
+
+        // Events admitted after installation still flow.
+        let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
+        log.record(live)
+        await waitForProcessed(log, burst + 1)
+        #expect(received.withLock { $0 } == [live])
+    }
+
+    @Test func eventTapDoesNotReplayHistoryAndCanBeRemoved() async {
+        let log = DiagnosticLog(capacity: 8)
+        log.record(DiagnosticEvent(code: .connect, tNanos: 1))
+        await waitForProcessed(log, 1)
+
+        let received = OSAllocatedUnfairLock<[DiagnosticEvent]>(initialState: [])
+        log.setEventTap { event in
+            received.withLock { $0.append(event) }
+        }
+        let live = DiagnosticEvent(code: .pairOk, tNanos: 2)
+        log.record(live)
+        await waitForProcessed(log, 2)
+        #expect(received.withLock { $0 } == [live])
+
+        log.setEventTap(nil)
+        log.record(DiagnosticEvent(code: .pairFail, tNanos: 3))
+        await waitForProcessed(log, 3)
+        #expect(received.withLock { $0 } == [live])
     }
 }

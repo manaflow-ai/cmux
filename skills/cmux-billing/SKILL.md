@@ -26,7 +26,7 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 
 ## Test-mode resources
 
-Product `prod_UpIQRE6cj0nFjs`. Lookup keys `cmux-pro-monthly` ($30/mo) and `cmux-pro-yearly` ($240/yr). Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
+Product `prod_UpIQRE6cj0nFjs`. New checkouts use `cmux-pro-monthly` ($30/mo) and `cmux-pro-yearly-288` ($288/yr, equivalent to $24/mo). Keep `cmux-pro-yearly` ($240/yr) active for grandfathered subscriptions. Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
 
 ## Feature flags
 
