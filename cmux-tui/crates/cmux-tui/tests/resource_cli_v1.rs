@@ -824,6 +824,77 @@ fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     assert!(!transport.stderr.is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope() {
+    let dir = unique_temp_dir("journal-stale-session");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut requests = Vec::new();
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap() != 0 {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            requests.push(request.clone());
+            let response = if request.get("cmd").and_then(Value::as_str) == Some("identify") {
+                json!({
+                    "id":request["id"],
+                    "ok":true,
+                    "data":{
+                        "app":"cmux-tui",
+                        "protocol":10,
+                        "capabilities":["workspace-registry-v1"],
+                        "session":"journal-v1"
+                    }
+                })
+            } else {
+                json!({
+                    "protocol":"cmux.protocol/1",
+                    "type":"response",
+                    "id":request["id"],
+                    "ok":false,
+                    "error":{
+                        "code":"validation.invalid",
+                        "message":"invalid request envelope",
+                        "details":{"reason":"invalid request envelope"},
+                        "retryable":false
+                    }
+                })
+            };
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+        }
+        line.clear();
+        if reader.read_line(&mut line).is_ok() && !line.is_empty() {
+            requests.push(serde_json::from_str(&line).unwrap());
+        }
+        requests
+    });
+
+    let output = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "journal", "subscribe"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error = parse_single_json(&output.stderr);
+    assert_eq!(error["code"], "operation.unsupported");
+    assert_eq!(error["details"]["capability"], "session-journal-v1");
+    assert_eq!(requests.len(), 1, "new request reached a stale server: {requests:?}");
+    assert_eq!(requests[0]["cmd"], "identify");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
 struct RequestCase {
     args: &'static [&'static str],
     operation: &'static str,
