@@ -38,7 +38,9 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
-`sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id` and a `levels` path. A one-level path renders a list, while `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
+`sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
+
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
@@ -51,6 +53,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
 | `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
 | `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
+| `sidebar.views[].actions` | array of action IDs | resource preset | Ordered native actions pinned below the resource rows; `[]` hides them |
 | `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |

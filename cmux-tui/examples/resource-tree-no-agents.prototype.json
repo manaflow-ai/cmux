@@ -5,6 +5,7 @@
       {
         "id": "workspace-tabs",
         "levels": ["workspaces", "panes", "tabs"],
+        "actions": ["new-workspace"],
         "width": 32
       }
     ]

@@ -33,7 +33,12 @@
 //!     "max_width": 0,
 //!     "views": [
 //!       {"id": "machines", "levels": ["machines"], "width": 18},
-//!       {"id": "workspace-agents", "levels": ["workspaces", "agents"], "width": 28}
+//!       {
+//!         "id": "workspace-agents",
+//!         "levels": ["workspaces", "agents"],
+//!         "actions": ["new-workspace"],
+//!         "width": 28
+//!       }
 //!     ],
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
@@ -446,6 +451,7 @@ struct RawSidebar {
 struct RawSidebarView {
     id: String,
     levels: Vec<String>,
+    actions: Option<Vec<String>>,
     width: Option<u16>,
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
@@ -797,6 +803,8 @@ pub enum SidebarResourceKind {
 pub struct SidebarViewSpec {
     pub id: String,
     pub levels: Vec<SidebarResourceKind>,
+    /// Canonical native commands pinned below this view's resource rows.
+    pub actions: Vec<Action>,
     pub width: u16,
     pub max_width: u16,
     /// Lower values collapse first when pane space becomes constrained.
@@ -810,14 +818,16 @@ impl SidebarViewSpec {
             SidebarColumnKind::Workspaces => ("workspaces", SidebarResourceKind::Workspaces, 30),
             SidebarColumnKind::Tabs => ("tabs", SidebarResourceKind::Tabs, 20),
         };
-        Self { id: id.to_string(), levels: vec![level], width, max_width, collapse_priority }
+        let levels = vec![level];
+        let actions = default_sidebar_actions(&levels);
+        Self { id: id.to_string(), levels, actions, width, max_width, collapse_priority }
     }
 
     pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
         match self.levels.as_slice() {
             [SidebarResourceKind::Machines] => Some(SidebarColumnKind::Machines),
             [SidebarResourceKind::Workspaces] => Some(SidebarColumnKind::Workspaces),
-            [SidebarResourceKind::Tabs] => Some(SidebarColumnKind::Tabs),
+            [SidebarResourceKind::Tabs] if self.actions.is_empty() => Some(SidebarColumnKind::Tabs),
             _ => None,
         }
     }
@@ -993,6 +1003,22 @@ fn default_sidebar_collapse_priority(levels: &[SidebarResourceKind]) -> u16 {
         [SidebarResourceKind::Workspaces] => 30,
         _ => 20,
     }
+}
+
+fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<Action> {
+    if levels.first() == Some(&SidebarResourceKind::Workspaces) {
+        vec![Action::NewWorkspace]
+    } else {
+        Vec::new()
+    }
+}
+
+fn parse_sidebar_action(value: &str) -> Result<Action, String> {
+    action_definitions()
+        .iter()
+        .find(|definition| definition.config_key == value)
+        .map(|definition| definition.action)
+        .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
 }
 
 #[derive(Debug, Clone)]
@@ -2651,6 +2677,7 @@ pub fn load() -> Config {
             let legacy_kind = SidebarViewSpec {
                 id: id.to_string(),
                 levels: levels.clone(),
+                actions: Vec::new(),
                 width: 0,
                 max_width: 0,
                 collapse_priority: 0,
@@ -2672,12 +2699,42 @@ pub fn load() -> Config {
                 }
                 Some(SidebarColumnKind::Tabs) | None => (22, 0),
             };
+            let actions = if levels == [SidebarResourceKind::Machines]
+                && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
+            {
+                eprintln!(
+                    "cmux-tui: ignoring sidebar actions in machine view {id:?}; machine actions come from provider capabilities"
+                );
+                Vec::new()
+            } else if let Some(raw_actions) = view.actions.as_ref() {
+                let mut seen = HashSet::new();
+                raw_actions
+                    .iter()
+                    .filter_map(|raw_action| match parse_sidebar_action(raw_action.trim()) {
+                        Ok(action) if seen.insert(action) => Some(action),
+                        Ok(_) => {
+                            eprintln!(
+                                "cmux-tui: ignoring duplicate sidebar action {:?} in view {id:?}",
+                                raw_action.trim()
+                            );
+                            None
+                        }
+                        Err(warning) => {
+                            eprintln!("{warning} in view {id:?}");
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                default_sidebar_actions(&levels)
+            };
             resolved.push(SidebarViewSpec {
                 id: id.to_string(),
                 collapse_priority: view
                     .collapse_priority
                     .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
                 levels,
+                actions,
                 width: view.width.unwrap_or(default_width).clamp(10, 60),
                 max_width: view.max_width.unwrap_or(default_max_width),
             });
@@ -3956,11 +4013,13 @@ mod tests {
                         {
                             "id": "workspace-agents",
                             "levels": ["workspaces", "agents"],
+                            "actions": ["new-workspace", "new-tab"],
                             "width": 28
                         },
                         {
                             "id": "workspace-pane-tabs",
                             "levels": ["workspaces", "panes", "tabs"],
+                            "actions": [],
                             "width": 32,
                             "max_width": 44
                         }
@@ -3988,6 +4047,7 @@ mod tests {
             vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]
         );
         assert_eq!(config.sidebar.views[1].collapse_priority, 20);
+        assert_eq!(config.sidebar.views[1].actions, vec![Action::NewWorkspace, Action::NewTab]);
         assert_eq!(
             config.sidebar.views[2].levels,
             vec![
@@ -3997,6 +4057,7 @@ mod tests {
             ]
         );
         assert_eq!(config.sidebar.views[2].max_width, 44);
+        assert!(config.sidebar.views[2].actions.is_empty());
         assert_eq!(
             config.sidebar.columns,
             vec![SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 0 }]
@@ -4007,6 +4068,7 @@ mod tests {
     fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
         let sidebar = Sidebar::default();
         assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
+        assert_eq!(sidebar.views[1].actions, vec![Action::NewWorkspace]);
     }
 
     #[test]

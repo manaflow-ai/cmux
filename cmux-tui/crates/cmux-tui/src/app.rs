@@ -2980,36 +2980,24 @@ pub(crate) enum WorkspaceRailSelection {
     #[default]
     Workspace,
     Recoverable,
-    SessionCreation,
-    ManagedCreation(WorkspaceCreationMode),
+    Action(SidebarActionTarget),
 }
 
 impl WorkspaceRailSelection {
-    pub(crate) fn matches_mode(self, mode: Option<WorkspaceCreationMode>) -> bool {
-        matches!(
-            (self, mode),
-            (Self::SessionCreation, None)
-                | (
-                    Self::ManagedCreation(WorkspaceCreationMode::Isolated),
-                    Some(WorkspaceCreationMode::Isolated)
-                )
-                | (
-                    Self::ManagedCreation(WorkspaceCreationMode::Host),
-                    Some(WorkspaceCreationMode::Host)
-                )
-        )
+    pub(crate) fn matches_action(self, target: SidebarActionTarget) -> bool {
+        self == Self::Action(target)
     }
 }
 
 fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> WorkspaceRailSelection {
-    mode.map_or(WorkspaceRailSelection::SessionCreation, WorkspaceRailSelection::ManagedCreation)
+    WorkspaceRailSelection::Action(SidebarActionTarget::CreateWorkspace(mode))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
-    Create(Option<WorkspaceCreationMode>),
+    Action(SidebarActionTarget),
 }
 
 fn rail_page_size(area: Option<Rect>) -> usize {
@@ -3082,6 +3070,10 @@ pub enum Hit {
     ProjectionRail {
         view: usize,
     },
+    SidebarAction {
+        view: usize,
+        action: SidebarActionTarget,
+    },
     RecoverableWorkspace {
         index: usize,
     },
@@ -3139,6 +3131,18 @@ pub enum Hit {
         pane: PaneId,
         delta: isize,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SidebarActionTarget {
+    Run(Action),
+    CreateWorkspace(Option<WorkspaceCreationMode>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SidebarActionRow {
+    pub label: String,
+    pub target: SidebarActionTarget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7413,19 +7417,21 @@ impl App {
     }
 
     fn reconcile_workspace_rail_selection(&mut self) {
-        let modes = self.workspace_creation_modes();
+        let actions = self.workspace_sidebar_action_rows();
         let selection_is_valid = match self.workspace_rail_selection {
             WorkspaceRailSelection::Workspace => true,
             WorkspaceRailSelection::Recoverable => self.machine_ui.as_ref().is_some_and(|ui| {
                 self.sidebar_recoverable_workspace_selection < ui.recoverable_workspaces().len()
             }),
-            _ => modes.iter().copied().any(|mode| self.workspace_rail_selection.matches_mode(mode)),
+            WorkspaceRailSelection::Action(target) => {
+                actions.iter().any(|action| action.target == target)
+            }
         };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
         {
-            self.workspace_rail_selection = self
-                .default_workspace_creation_mode()
-                .map(workspace_creation_selection)
+            self.workspace_rail_selection = actions
+                .first()
+                .map(|action| WorkspaceRailSelection::Action(action.target))
                 .unwrap_or(WorkspaceRailSelection::Workspace);
         }
     }
@@ -7523,6 +7529,42 @@ impl App {
         )
     }
 
+    pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
+        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
+        let messages = &localization::catalog().sidebar;
+        spec.actions
+            .iter()
+            .copied()
+            .flat_map(|action| {
+                if action == Action::NewWorkspace {
+                    return self
+                        .workspace_creation_modes()
+                        .into_iter()
+                        .map(|mode| SidebarActionRow {
+                            label: match mode {
+                                None => messages.new_workspace.to_string(),
+                                Some(WorkspaceCreationMode::Isolated) => {
+                                    messages.new_isolated_workspace.to_string()
+                                }
+                                Some(WorkspaceCreationMode::Host) => {
+                                    messages.new_shared_workspace.to_string()
+                                }
+                            },
+                            target: SidebarActionTarget::CreateWorkspace(mode),
+                        })
+                        .collect::<Vec<_>>();
+                }
+                self.action_available(action)
+                    .then(|| SidebarActionRow {
+                        label: localization::catalog().action_label(action).to_string(),
+                        target: SidebarActionTarget::Run(action),
+                    })
+                    .into_iter()
+                    .collect()
+            })
+            .collect()
+    }
+
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
         let id = self
             .config
@@ -7532,6 +7574,19 @@ impl App {
             .map(|view| view.id.clone())
             .unwrap_or_else(|| format!("missing-{index}"));
         self.projection_rails.entry(id).or_default()
+    }
+
+    fn invoke_sidebar_action(
+        &mut self,
+        target: SidebarActionTarget,
+    ) -> anyhow::Result<RenderAction> {
+        match target {
+            SidebarActionTarget::Run(action) => self.run_action(action),
+            SidebarActionTarget::CreateWorkspace(mode) => {
+                self.create_workspace(mode)?;
+                Ok(RenderAction::Draw)
+            }
+        }
     }
 
     pub(crate) fn sidebar_tab_targets(&self) -> Vec<SidebarTabTarget> {
@@ -7663,6 +7718,36 @@ impl App {
 
     fn visible_rail_order(&self) -> Vec<RailKind> {
         self.sidebar_layout.ordered.iter().map(|placement| placement.kind).collect()
+    }
+
+    fn rail_kind_for_view(&self, index: usize) -> RailKind {
+        self.config.sidebar.views.get(index).and_then(|view| view.legacy_kind()).map_or(
+            RailKind::Projection(index),
+            |kind| match kind {
+                SidebarColumnKind::Machines => RailKind::Machine,
+                SidebarColumnKind::Workspaces => RailKind::Workspace,
+                SidebarColumnKind::Tabs => RailKind::Tabs,
+            },
+        )
+    }
+
+    pub(crate) fn view_index_for_rail(&self, kind: RailKind) -> Option<usize> {
+        self.sidebar_layout
+            .ordered
+            .iter()
+            .find(|placement| placement.kind == kind)
+            .map(|placement| placement.view_index)
+            .or_else(|| {
+                self.config.sidebar.views.iter().enumerate().find_map(|(index, _)| {
+                    (self.rail_kind_for_view(index) == kind).then_some(index)
+                })
+            })
+    }
+
+    pub(crate) fn workspace_sidebar_action_rows(&self) -> Vec<SidebarActionRow> {
+        self.view_index_for_rail(RailKind::Workspace)
+            .map(|index| self.sidebar_action_rows(index))
+            .unwrap_or_default()
     }
 
     fn focus_rail(&mut self, kind: RailKind) {
@@ -8585,7 +8670,8 @@ impl App {
             | Hit::ConnectMachine
             | Hit::ProviderScope
             | Hit::ProviderActions
-            | Hit::CreateWorkspace { .. } => {
+            | Hit::CreateWorkspace { .. }
+            | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(_), .. } => {
                 machine_context.cloned().map(PointerHitIdentity::MachineContext)
             }
             Hit::Machine { key, .. } => machine_context.cloned().map(|context| {
@@ -8628,6 +8714,7 @@ impl App {
             | Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
             | Hit::ProjectionRail { .. }
+            | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::NewTab { .. }
             | Hit::Clients { .. }
@@ -12819,8 +12906,11 @@ impl App {
                 .flat_map(MachineUiState::recoverable_workspaces)
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
         );
-        targets
-            .extend(self.workspace_creation_modes().into_iter().map(WorkspaceRailTarget::Create));
+        targets.extend(
+            self.workspace_sidebar_action_rows()
+                .into_iter()
+                .map(|action| WorkspaceRailTarget::Action(action.target)),
+        );
         targets
     }
 
@@ -12840,10 +12930,7 @@ impl App {
                         .copied()
                 })
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
-            WorkspaceRailSelection::SessionCreation => Some(WorkspaceRailTarget::Create(None)),
-            WorkspaceRailSelection::ManagedCreation(mode) => {
-                Some(WorkspaceRailTarget::Create(Some(mode)))
-            }
+            WorkspaceRailSelection::Action(action) => Some(WorkspaceRailTarget::Action(action)),
         }
     }
 
@@ -12869,8 +12956,8 @@ impl App {
                     self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
                 }
             }
-            WorkspaceRailTarget::Create(mode) => {
-                self.workspace_rail_selection = workspace_creation_selection(mode);
+            WorkspaceRailTarget::Action(action) => {
+                self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
             }
         }
     }
@@ -13114,13 +13201,21 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         let rows = self.projection_rows(view_index);
+        let actions = self.sidebar_action_rows(view_index);
+        let selectable_rows = rows.len().saturating_add(actions.len());
         let current = self
             .config
             .sidebar
             .views
             .get(view_index)
             .and_then(|view| self.projection_rails.get(&view.id))
-            .map_or(0, |state| state.selected.min(rows.len().saturating_sub(1)));
+            .map_or(0, |state| {
+                state
+                    .selected_action
+                    .filter(|index| *index < actions.len())
+                    .map(|index| rows.len().saturating_add(index))
+                    .unwrap_or_else(|| state.selected.min(selectable_rows.saturating_sub(1)))
+            });
         let selected = rows.get(current).cloned();
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             if let Some(branch) = selected.as_ref().and_then(|row| row.branch)
@@ -13145,9 +13240,14 @@ impl App {
         let page = self
             .projection_sidebar_area(view_index)
             .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
-        if let Some(next) = rail_navigation_index(key, current, rows.len(), page) {
+        if let Some(next) = rail_navigation_index(key, current, selectable_rows, page) {
             let state = self.projection_rail_state_mut(view_index);
-            state.selected = next;
+            if next < rows.len() {
+                state.selected = next;
+                state.selected_action = None;
+            } else {
+                state.selected_action = Some(next.saturating_sub(rows.len()));
+            }
             state.follow_selection = true;
             return Ok(RenderAction::Draw);
         }
@@ -13160,10 +13260,16 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if key.code == KeyCode::Enter
-            && let Some(row) = selected
-        {
-            self.activate_projection_target(row.target)?;
+        if key.code == KeyCode::Enter {
+            if let Some(row) = selected {
+                self.activate_projection_target(row.target)?;
+            } else if let Some(action) = current
+                .checked_sub(rows.len())
+                .and_then(|index| actions.get(index))
+                .map(|action| action.target)
+            {
+                return self.invoke_sidebar_action(action);
+            }
         }
         Ok(RenderAction::Draw)
     }
@@ -13457,8 +13563,8 @@ impl App {
                                 self.select_workspace_for_client(Some(index), None);
                             }
                         }
-                        Some(WorkspaceRailTarget::Create(mode)) => {
-                            self.create_workspace(mode)?;
+                        Some(WorkspaceRailTarget::Action(action)) => {
+                            return self.invoke_sidebar_action(action);
                         }
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
@@ -16666,11 +16772,34 @@ impl App {
                     self.focus = FocusTarget::ProjectionRail(view);
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
+                    state.selected_action = None;
                     state.follow_selection = true;
                     self.activate_projection_target(target)?;
                 }
                 Hit::ProjectionRail { view } => {
                     self.focus = FocusTarget::ProjectionRail(view);
+                }
+                Hit::SidebarAction { view, action } => {
+                    let kind = self.rail_kind_for_view(view);
+                    self.focus_rail(kind);
+                    match kind {
+                        RailKind::Workspace => {
+                            self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
+                            self.workspace_rail_follow_selection = true;
+                        }
+                        RailKind::Projection(_) => {
+                            let action_index = self
+                                .sidebar_action_rows(view)
+                                .iter()
+                                .position(|candidate| candidate.target == action)
+                                .unwrap_or_default();
+                            let state = self.projection_rail_state_mut(view);
+                            state.selected_action = Some(action_index);
+                            state.follow_selection = true;
+                        }
+                        RailKind::Machine | RailKind::Tabs => {}
+                    }
+                    return self.invoke_sidebar_action(action);
                 }
                 Hit::RecoverableWorkspace { index } => {
                     self.focus = FocusTarget::WorkspaceRail;
@@ -17863,7 +17992,7 @@ impl App {
             .flatten()
             .filter(|area| area.contains(x, y))
         {
-            let footer_rows = self.workspace_creation_modes().len();
+            let footer_rows = self.workspace_sidebar_action_rows().len();
             let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
             if footer_is_clipped {
                 self.workspace_footer_scroll = if down {
@@ -17899,9 +18028,24 @@ impl App {
                 .filter(|(_, area)| area.contains(x, y))
                 .map(|(view_index, _)| view_index)
         }) {
+            let footer_rows = self.sidebar_action_rows(view_index).len();
+            let footer_is_clipped = self
+                .projection_sidebar_area(view_index)
+                .is_some_and(|area| footer_rows > usize::from(area.height.saturating_sub(2)));
             let state = self.projection_rail_state_mut(view_index);
-            state.scroll =
-                if down { state.scroll.saturating_add(3) } else { state.scroll.saturating_sub(3) };
+            if footer_is_clipped {
+                state.footer_scroll = if down {
+                    state.footer_scroll.saturating_add(1)
+                } else {
+                    state.footer_scroll.saturating_sub(1)
+                };
+            } else {
+                state.scroll = if down {
+                    state.scroll.saturating_add(3)
+                } else {
+                    state.scroll.saturating_sub(3)
+                };
+            }
             state.follow_selection = false;
             return Ok(RenderAction::Draw);
         }
@@ -32330,7 +32474,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.workspace_rail_selection,
-            WorkspaceRailSelection::ManagedCreation(WorkspaceCreationMode::Host)
+            workspace_creation_selection(Some(WorkspaceCreationMode::Host))
         );
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -32342,7 +32486,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.workspace_rail_selection,
-            WorkspaceRailSelection::ManagedCreation(WorkspaceCreationMode::Isolated)
+            workspace_creation_selection(Some(WorkspaceCreationMode::Isolated))
         );
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -32774,6 +32918,7 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: vec![Action::NewWorkspace],
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -32791,6 +32936,13 @@ mod tests {
             rendered.contains("new workspace"),
             "a configured workspace representation must preserve its native creation action: {rendered}"
         );
+        assert!(app.hits.iter().any(|(_, hit)| matches!(
+            hit,
+            super::Hit::SidebarAction {
+                view: 0,
+                action: SidebarActionTarget::CreateWorkspace(None),
+            }
+        )));
         let surface_row = app
             .hits
             .iter()
@@ -32846,6 +32998,68 @@ mod tests {
         )));
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn workspace_projection_actions_expand_provider_capabilities_and_can_be_hidden() {
+        let mux = Mux::new("workspace-projection-action-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: vec![Action::NewWorkspace],
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("new isolated"), "{rendered}");
+        assert!(rendered.contains("new shared"), "{rendered}");
+        let isolated = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::SidebarAction {
+                        action: SidebarActionTarget::CreateWorkspace(Some(
+                            WorkspaceCreationMode::Isolated
+                        )),
+                        ..
+                    }
+                )
+                .then_some(*rect)
+            })
+            .expect("isolated action hit");
+
+        app.handle_left_down(isolated.x, isolated.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedIsolatedWorkspace(MachineKey(41)))
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
+        app.focus = FocusTarget::ProjectionRail(0);
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::CreateManagedHostWorkspace(MachineKey(41)))
+        );
+
+        app.config.sidebar.views[0].actions.clear();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(!rendered.contains("new isolated"), "{rendered}");
+        assert!(!rendered.contains("new shared"), "{rendered}");
+        assert!(!app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::SidebarAction { .. })));
     }
 
     #[test]

@@ -49,15 +49,26 @@ pub(crate) struct ProjectionRow {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProjectionRailState {
+    /// Selected resource-row index. Action selection is tracked separately so
+    /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    pub selected_action: Option<usize>,
     pub scroll: usize,
+    pub footer_scroll: usize,
     pub follow_selection: bool,
     pub collapsed: HashSet<ProjectionBranch>,
 }
 
 impl Default for ProjectionRailState {
     fn default() -> Self {
-        Self { selected: 0, scroll: 0, follow_selection: true, collapsed: HashSet::new() }
+        Self {
+            selected: 0,
+            selected_action: None,
+            scroll: 0,
+            footer_scroll: 0,
+            follow_selection: true,
+            collapsed: HashSet::new(),
+        }
     }
 }
 
@@ -319,6 +330,7 @@ mod tests {
         SidebarViewSpec {
             id: "test".into(),
             levels,
+            actions: Vec::new(),
             width: 22,
             max_width: 0,
             collapse_priority: 20,

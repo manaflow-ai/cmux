@@ -3,7 +3,12 @@
     "view": "workspaces",
     "views": [
       { "id": "machines", "levels": ["machines"], "width": 18 },
-      { "id": "workspaces", "levels": ["workspaces"], "width": 22 },
+      {
+        "id": "workspaces",
+        "levels": ["workspaces"],
+        "actions": ["new-workspace"],
+        "width": 22
+      },
       { "id": "tabs", "levels": ["tabs"], "width": 24 }
     ]
   },

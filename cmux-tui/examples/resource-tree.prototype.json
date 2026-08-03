@@ -10,6 +10,7 @@
       {
         "id": "workspace-agents",
         "levels": ["workspaces", "agents"],
+        "actions": ["new-workspace"],
         "width": 30,
         "collapse_priority": 30
       }

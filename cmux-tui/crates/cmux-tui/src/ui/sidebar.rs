@@ -13,9 +13,7 @@ use super::{
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
-use crate::machine::{
-    MachineRailSelection, MachineStatus, ProviderScopeKind, WorkspaceCreationMode,
-};
+use crate::machine::{MachineRailSelection, MachineStatus, ProviderScopeKind};
 
 fn projection_resource_label(resource: SidebarResourceKind) -> &'static str {
     let messages = &localization::catalog().sidebar;
@@ -365,6 +363,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let Some(area) = app.projection_sidebar_area(view_index) else { return };
     let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
     let rows = app.projection_rows(view_index);
+    let actions = app.sidebar_action_rows(view_index);
     let focused = app.projection_sidebar_focused(view_index);
     let palette = rail::RailPalette::for_app(app, focused);
     rail::prepare(frame, area, palette);
@@ -372,29 +371,46 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         spec.levels.iter().copied().map(projection_resource_label).collect::<Vec<_>>().join(" › ");
     rail::header(frame, area, &header, palette);
 
-    let visible = usize::from(area.height.saturating_sub(2));
-    let (selected, scroll) = {
+    let selectable_rows = rows.len().saturating_add(actions.len());
+    let (selected, viewport) = {
         let state = app.projection_rail_state_mut(view_index);
         state.selected = state.selected.min(rows.len().saturating_sub(1));
-        state.scroll = state.scroll.min(rows.len().saturating_sub(visible));
-        if focused && state.follow_selection && visible > 0 {
-            if state.selected < state.scroll {
-                state.scroll = state.selected;
-            } else if state.selected >= state.scroll.saturating_add(visible) {
-                state.scroll = state.selected.saturating_add(1).saturating_sub(visible);
-            }
-        }
-        (state.selected, state.scroll)
+        state.selected_action = state
+            .selected_action
+            .map(|index| index.min(actions.len().saturating_sub(1)))
+            .filter(|_| !actions.is_empty());
+        let selected = state
+            .selected_action
+            .map(|index| rows.len().saturating_add(index))
+            .unwrap_or_else(|| state.selected.min(selectable_rows.saturating_sub(1)));
+        let selected_body = (focused
+            && state.follow_selection
+            && state.selected_action.is_none()
+            && !rows.is_empty())
+        .then(|| rail::RowSpan::new(state.selected, 1));
+        let selected_footer = (focused && state.follow_selection)
+            .then_some(state.selected_action)
+            .flatten()
+            .map(|index| rail::RowSpan::new(index, 1));
+        let viewport = rail::viewport(
+            area,
+            rows.len().max(usize::from(rows.is_empty())),
+            actions.len(),
+            &mut state.scroll,
+            &mut state.footer_scroll,
+            selected_body,
+            selected_footer,
+        );
+        (selected, viewport)
     };
-    let body_y = area.y.saturating_add(2);
-    if rows.is_empty() && visible > 0 {
-        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
-        rail::button(frame, area, body_y, projection_empty_label(resource), false, palette);
-    }
-    for (visible_index, (row_index, row)) in
-        rows.iter().enumerate().skip(scroll).take(visible).enumerate()
+    if rows.is_empty()
+        && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        let y = body_y.saturating_add(visible_index as u16);
+        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
+        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
+    }
+    for (row_index, row) in rows.iter().enumerate() {
+        let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };
         let highlighted = row.active || (focused && selected == row_index);
         let detail = projection_detail(row);
         let disclosure = rail::tree_row(
@@ -415,6 +431,21 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         app.hits.push((
             rail::row(area, y),
             Hit::ProjectionRow { view: view_index, row: row_index, target: row.target },
+        ));
+    }
+    for (action_index, action) in actions.iter().enumerate() {
+        let Some(y) = viewport.footer_y(rail::RowSpan::new(action_index, 1)) else { continue };
+        rail::action(
+            frame,
+            area,
+            y,
+            &action.label,
+            focused && selected == rows.len().saturating_add(action_index),
+            palette,
+        );
+        app.hits.push((
+            rail::row(area, y),
+            Hit::SidebarAction { view: view_index, action: action.target },
         ));
     }
     app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
@@ -499,7 +530,8 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     rail::prepare(frame, area, palette);
     rail::header(frame, area, messages.workspaces, palette);
 
-    let creation_modes = app.workspace_creation_modes();
+    let actions = app.workspace_sidebar_action_rows();
+    let view_index = app.view_index_for_rail(RailKind::Workspace);
     let recoverable = app
         .machine_ui
         .as_ref()
@@ -530,9 +562,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .flatten();
     let selected_footer = if app.workspace_sidebar_focused() && app.workspace_rail_follow_selection
     {
-        creation_modes
+        actions
             .iter()
-            .position(|mode| app.workspace_rail_selection.matches_mode(*mode))
+            .position(|action| app.workspace_rail_selection.matches_action(action.target))
             .map(|row| rail::RowSpan::new(row, 1))
     } else {
         None
@@ -540,7 +572,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let viewport = rail::viewport(
         area,
         body_rows,
-        creation_modes.len(),
+        actions.len(),
         &mut app.workspace_rail_scroll,
         &mut app.workspace_footer_scroll,
         selected_body,
@@ -643,22 +675,30 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    for (row, mode) in creation_modes.iter().copied().enumerate() {
+    for (row, action) in actions.iter().enumerate() {
         let Some(y) = viewport.footer_y(rail::RowSpan::new(row, 1)) else { continue };
-        let label = match mode {
-            None => messages.new_workspace,
-            Some(WorkspaceCreationMode::Isolated) => messages.new_isolated_workspace,
-            Some(WorkspaceCreationMode::Host) => messages.new_shared_workspace,
-        };
         rail::action(
             frame,
             area,
             y,
-            label,
-            app.workspace_sidebar_focused() && app.workspace_rail_selection.matches_mode(mode),
+            &action.label,
+            app.workspace_sidebar_focused()
+                && app.workspace_rail_selection.matches_action(action.target),
             palette,
         );
-        hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+        match action.target {
+            crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+            }
+            crate::app::SidebarActionTarget::Run(_) => {
+                if let Some(view) = view_index {
+                    hits.push((
+                        rail::row(area, y),
+                        Hit::SidebarAction { view, action: action.target },
+                    ));
+                }
+            }
+        }
     }
     if scrollbar_track.height > 0 {
         let (thumb_y, thumb_height) = viewport_thumb_geometry(
