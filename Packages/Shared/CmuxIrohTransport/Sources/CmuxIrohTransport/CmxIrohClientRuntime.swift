@@ -376,7 +376,10 @@ public actor CmxIrohClientRuntime {
             guard published else {
                 return .failed(.superseded)
             }
-            await connectivityEngine.didInstallRouteRevision(discoveredRevision)
+            await connectivityEngine.didInstallRouteRevision(
+                discoveredRevision,
+                routes: discovery
+            )
             liveDiscoveryGeneration &+= 1
             return .refreshed
         } catch {
@@ -520,7 +523,8 @@ public actor CmxIrohClientRuntime {
                 if published {
                     if let routeRevision = discovery.revision {
                         await connectivityEngine.didInstallRouteRevision(
-                            routeRevision
+                            routeRevision,
+                            routes: discovery
                         )
                     }
                     liveDiscoveryGeneration &+= 1

@@ -18,12 +18,17 @@ public struct CmxConnectivitySyncResponse: Decodable, Equatable, Sendable {
     /// Complete authoritative discovery state when `changed` is true.
     public let snapshot: CmxIrohDiscoveryResponse?
 
+    /// True only when the server proves `snapshot` covers every active binding.
+    /// Older servers omit this field, so clients fetch paginated discovery.
+    public let snapshotComplete: Bool?
+
     private enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
         case revision
         case changed
         case reset
         case snapshot
+        case snapshotComplete = "snapshot_complete"
     }
 
     /// Decodes and validates one atomic reconciliation response.
@@ -37,9 +42,14 @@ public struct CmxConnectivitySyncResponse: Decodable, Equatable, Sendable {
             CmxIrohDiscoveryResponse.self,
             forKey: .snapshot
         )
+        let snapshotComplete = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .snapshotComplete
+        )
         guard protocolVersion == Self.protocolVersion,
               changed == (snapshot != nil),
               !reset || changed,
+              snapshot != nil || snapshotComplete == nil,
               (snapshot?.routeContractVersion ?? 1) == 1,
               (snapshot?.revision ?? revision) == revision else {
             throw DecodingError.dataCorrupted(
@@ -54,16 +64,19 @@ public struct CmxConnectivitySyncResponse: Decodable, Equatable, Sendable {
         self.changed = changed
         self.reset = reset
         self.snapshot = snapshot
+        self.snapshotComplete = snapshotComplete
     }
 
     init(
         legacySnapshot: CmxIrohDiscoveryResponse,
-        knownRevision: UInt64?
+        knownRevision: UInt64?,
+        snapshotComplete: Bool? = true
     ) {
         protocolVersion = Self.protocolVersion
         revision = legacySnapshot.revision ?? (knownRevision ?? 0) &+ 1
         changed = true
         reset = false
         snapshot = legacySnapshot
+        self.snapshotComplete = snapshotComplete
     }
 }

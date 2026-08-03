@@ -276,6 +276,8 @@ extension DockSplitStore {
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
             ttyName: preservedTransfer?.ttyName,
+            ttyNameWasReportedByCurrentRuntime: preservedTransfer?.ttyNameWasReportedByCurrentRuntime ?? false,
+            ttyReportRuntimeSurfaceGeneration: preservedTransfer?.ttyReportRuntimeSurfaceGeneration,
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,
@@ -295,6 +297,7 @@ extension DockSplitStore {
             remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
             remoteTerminalAttemptID: preservedTransfer?.remoteTerminalAttemptID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remoteRelayNamespaceConfiguration: preservedTransfer?.remoteRelayNamespaceConfiguration,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )

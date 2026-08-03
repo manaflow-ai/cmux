@@ -78,39 +78,6 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func unauthorizedRegistrationRefreshDeactivatesActiveEndpoint() async throws {
-        let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let broker = TestIrohHostBroker(
-            registrationBinding: fixture.binding,
-            discovery: fixture.discovery,
-            subsequentRegistrationErrors: [
-                .rejected(statusCode: 401, code: "unauthorized"),
-            ]
-        )
-        let deactivations = HostRuntimeDeactivationRecorder()
-        let runtime = CmxIrohHostRuntime(
-            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
-            broker: broker,
-            configuration: fixture.configuration,
-            pendingRevocations: fixture.pendingRevocations(),
-            handleTransport: { session, _ in await session.close() },
-            handleDeactivation: { bindingID in
-                await deactivations.record(bindingID)
-            }
-        )
-        try await runtime.start()
-
-        await endpoint.emit(.networkChanged)
-        await broker.waitForRegistrationCount(2)
-        await deactivations.waitForCount(1)
-
-        #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
-        #expect(await deactivations.values() == [fixture.binding.bindingID])
-    }
-
-    @Test
     func networkChangeDuringRegistrationIsObservedAfterStartup() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)

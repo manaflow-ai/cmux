@@ -109,7 +109,7 @@ extension CmxIrohClientRuntime {
                 registration = nil
             } else {
                 guard !prefetchedDiscoveryRejectedCachedBinding,
-                      Self.isConnectivity(error),
+                      Self.recoversWithCachedPolicy(error),
                       let cached = try await offlineBootstrap(
                           expectation: offlineExpectation,
                           confirmedLocalBinding: nil
@@ -131,7 +131,8 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration?.discovery {
+            if let embedded = registration?.discovery,
+               registration?.discoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,
                       snapshotRevision == registrationRevision,
@@ -147,7 +148,7 @@ extension CmxIrohClientRuntime {
             }
         } catch {
             guard let registration,
-                  Self.isConnectivity(error),
+                  Self.recoversWithCachedPolicy(error),
                   let cached = try await offlineBootstrap(
                       expectation: offlineExpectation,
                       confirmedLocalBinding: registration.binding

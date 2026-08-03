@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e";
+pub const ir_sha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -112,6 +112,12 @@ pub const CellPixelResize = struct {
     reservation_id: u64,
     rows: u16,
     surface: Id,
+};
+
+pub const CellPixelSurface = struct {
+    height_px: u16,
+    surface: Id,
+    width_px: u16,
 };
 
 pub const ClientInfo = struct {
@@ -295,6 +301,12 @@ pub const FrontendProjection = struct {
     };
 };
 
+pub const GetCellPixelsResult = struct {
+    height_px: u16,
+    surfaces: []const CellPixelSurface,
+    width_px: u16,
+};
+
 pub const Id = u64;
 
 pub const IdMappingKind = enum {
@@ -353,6 +365,23 @@ pub const IdsResult = struct {
 
 /// The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document.
 pub const JsonValue = wire.Value;
+
+pub const KittyGraphicsState = struct {
+    alternate_next_image_id: u32,
+    alternate_replay_next_image_id: u32,
+    image_bytes: u64,
+    images: u64,
+    inflight_bytes: u64,
+    placements: u64,
+    primary_next_image_id: u32,
+    primary_replay_next_image_id: u32,
+    replay_cursor_offset: u32,
+};
+
+pub const KittyImageAlias = struct {
+    image_id: u32,
+    image_number: u32,
+};
 
 pub const LayoutLeaf = struct {
     pane: Id,
@@ -600,6 +629,7 @@ pub const ReadScreenResult = struct {
 };
 
 pub const ReadScrollbackResult = struct {
+    epoch: u64,
     rows: []const RenderRow,
     start: u32,
     total: u32,
@@ -612,6 +642,87 @@ pub const RenderCursor = struct {
     visible: bool,
     x: u16,
     y: u16,
+};
+
+pub const RenderGraphicFormat = enum {
+    rgb,
+    rgba,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "rgb")) return .rgb;
+        if (std.mem.eql(u8, value, "rgba")) return .rgba;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .rgb => "rgb",
+            .rgba => "rgba",
+        };
+    }
+};
+
+pub const RenderGraphicImage = struct {
+    data: Base64,
+    format: RenderGraphicFormat,
+    generation: u64,
+    height: u32,
+    id: u32,
+    width: u32,
+};
+
+pub const RenderGraphicPlacement = struct {
+    anchor_col: ?u16 = null,
+    anchor_row: ?u32 = null,
+    columns: u32,
+    grid_cols: u32,
+    grid_rows: u32,
+    image_id: u32,
+    ordinal: u32,
+    pixel_height: u32,
+    pixel_width: u32,
+    placement_id: u32,
+    rows: u32,
+    source_height: u32,
+    source_width: u32,
+    source_x: u32,
+    source_y: u32,
+    viewport_col: i32,
+    viewport_row: i32,
+    viewport_visible: bool,
+    x_offset: u32,
+    y_offset: u32,
+    z: i32,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "anchor_col",
+        "anchor_row",
+    };
+};
+
+pub const RenderGraphics = struct {
+    generation: u64,
+    images: ?[]const RenderGraphicImage = null,
+    placements: []const RenderGraphicPlacement,
+    removed_image_ids: ?[]const u32 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "images",
+        "removed_image_ids",
+    };
+};
+
+pub const RenderGraphicsDelta = struct {
+    generation: u64,
+    images: ?[]const RenderGraphicImage = null,
+    placements: ?[]const RenderGraphicPlacement = null,
+    removed_image_ids: ?[]const u32 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "images",
+        "placements",
+        "removed_image_ids",
+    };
 };
 
 pub const RenderRow = struct {
@@ -1337,7 +1448,14 @@ pub const Tree = struct {
 pub const VtStateResult = struct {
     cols: u16,
     data: Base64,
+    kitty_graphics_state: ?KittyGraphicsState = null,
+    kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "kitty_graphics_state",
+        "kitty_image_aliases",
+    };
 };
 
 pub const WaitForResult = struct {
@@ -2123,6 +2241,21 @@ pub fn focusPane(client: anytype, request: FocusPaneRequest) !wire.Decoded(Focus
             .name = "focus-pane",
             .authority = "control",
             .since = 5,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const GetCellPixelsRequest = struct {};
+
+pub fn getCellPixels(client: anytype, request: GetCellPixelsRequest) !wire.Decoded(GetCellPixelsResult) {
+    return client.callTyped(
+        GetCellPixelsResult,
+        .{
+            .name = "get-cell-pixels",
+            .authority = "frontend",
+            .since = 6,
             .capability = null,
         },
         request,
@@ -3627,6 +3760,49 @@ pub const FrontendProjectionChangedEvent = struct {
     subject_key: []const u8,
 };
 
+pub const GraphicsStatusEventKind = enum {
+    kitty_image_budget_worker_start_failed,
+    kitty_image_budget_update_failed,
+    cell_pixel_update_retries_exhausted,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "kitty-image-budget-worker-start-failed")) return .kitty_image_budget_worker_start_failed;
+        if (std.mem.eql(u8, value, "kitty-image-budget-update-failed")) return .kitty_image_budget_update_failed;
+        if (std.mem.eql(u8, value, "cell-pixel-update-retries-exhausted")) return .cell_pixel_update_retries_exhausted;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .kitty_image_budget_worker_start_failed => "kitty-image-budget-worker-start-failed",
+            .kitty_image_budget_update_failed => "kitty-image-budget-update-failed",
+            .cell_pixel_update_retries_exhausted => "cell-pixel-update-retries-exhausted",
+        };
+    }
+};
+
+pub const GraphicsStatusEvent = struct {
+    attempts: ?u16 = null,
+    cell_height: ?u16 = null,
+    cell_width: ?u16 = null,
+    @"error": ?[]const u8 = null,
+    event: []const u8,
+    kind: GraphicsStatusEventKind,
+    remaining: ?u64 = null,
+    retry_exhausted: ?bool = null,
+    summary: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "attempts",
+        "cell_height",
+        "cell_width",
+        "error",
+        "remaining",
+        "retry_exhausted",
+        "summary",
+    };
+};
+
 pub const LayoutChangedEvent = struct {
     event: []const u8,
     screen: Id,
@@ -3701,6 +3877,8 @@ pub const RenderDeltaEvent = struct {
     default_fg: ?ColorHex = null,
     event: []const u8,
     full: bool,
+    graphics: ?RenderGraphicsDelta = null,
+    history_epoch: ?u64 = null,
     rows: []const RenderRow,
     scrollback_rows: ?u32 = null,
     size: ?Size = null,
@@ -3709,6 +3887,8 @@ pub const RenderDeltaEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "default_bg",
         "default_fg",
+        "graphics",
+        "history_epoch",
         "scrollback_rows",
         "size",
     };
@@ -3719,10 +3899,16 @@ pub const RenderStateEvent = struct {
     default_bg: ColorHex,
     default_fg: ColorHex,
     event: []const u8,
+    graphics: ?RenderGraphics = null,
+    history_epoch: u64,
     rows: []const RenderRow,
     scrollback_rows: u32,
     size: Size,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "graphics",
+    };
 };
 
 pub const ResizedEvent = struct {
@@ -3731,6 +3917,8 @@ pub const ResizedEvent = struct {
     /// Protocol 6 compatibility field.
     data: ?Base64 = null,
     event: []const u8,
+    kitty_graphics_state: ?KittyGraphicsState = null,
+    kitty_image_aliases: ?[]const KittyImageAlias = null,
     replay: ?Base64 = null,
     rows: u16,
     surface: Id,
@@ -3738,6 +3926,8 @@ pub const ResizedEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "data",
+        "kitty_graphics_state",
+        "kitty_image_aliases",
         "replay",
     };
 };
@@ -3861,11 +4051,15 @@ pub const VtStateEvent = struct {
     cols: u16,
     data: Base64,
     event: []const u8,
+    kitty_graphics_state: ?KittyGraphicsState = null,
+    kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
     surface: Id,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
+        "kitty_graphics_state",
+        "kitty_image_aliases",
     };
 };
 
@@ -3959,6 +4153,7 @@ pub const Event = union(enum) {
     empty: EmptyEvent,
     frame: FrameEvent,
     frontend_projection_changed: FrontendProjectionChangedEvent,
+    graphics_status: GraphicsStatusEvent,
     layout_changed: LayoutChangedEvent,
     notification: NotificationEvent,
     output: OutputEvent,
@@ -4008,6 +4203,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .empty => "empty",
         .frame => "frame",
         .frontend_projection_changed => "frontend-projection-changed",
+        .graphics_status => "graphics-status",
         .layout_changed => "layout-changed",
         .notification => "notification",
         .output => "output",
@@ -4105,6 +4301,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "frontend-projection-changed")) {
         const decoded = try wire.decodeLeaky(FrontendProjectionChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .frontend_projection_changed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "graphics-status")) {
+        const decoded = try wire.decodeLeaky(GraphicsStatusEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .graphics_status = decoded } };
     }
     if (std.mem.eql(u8, name, "layout-changed")) {
         const decoded = try wire.decodeLeaky(LayoutChangedEvent, arena.allocator(), value);
@@ -4259,7 +4459,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 91;
+pub const command_count: usize = 92;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4291,6 +4491,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -4374,39 +4575,40 @@ const event_streams_9 = [_][]const u8{"subscribe"};
 const event_streams_10 = [_][]const u8{"attach-browser"};
 const event_streams_11 = [_][]const u8{"subscribe"};
 const event_streams_12 = [_][]const u8{"subscribe"};
-const event_streams_13 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
-const event_streams_14 = [_][]const u8{"attach-byte"};
-const event_streams_15 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_16 = [_][]const u8{"subscribe"};
+const event_streams_13 = [_][]const u8{"subscribe"};
+const event_streams_14 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
+const event_streams_15 = [_][]const u8{"attach-byte"};
+const event_streams_16 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
 const event_streams_17 = [_][]const u8{"subscribe"};
-const event_streams_18 = [_][]const u8{"subscribe-deltas"};
+const event_streams_18 = [_][]const u8{"subscribe"};
 const event_streams_19 = [_][]const u8{"subscribe-deltas"};
-const event_streams_20 = [_][]const u8{"attach-render"};
+const event_streams_20 = [_][]const u8{"subscribe-deltas"};
 const event_streams_21 = [_][]const u8{"attach-render"};
-const event_streams_22 = [_][]const u8{"attach-byte"};
-const event_streams_23 = [_][]const u8{"subscribe-deltas"};
+const event_streams_22 = [_][]const u8{"attach-render"};
+const event_streams_23 = [_][]const u8{"attach-byte"};
 const event_streams_24 = [_][]const u8{"subscribe-deltas"};
 const event_streams_25 = [_][]const u8{"subscribe-deltas"};
-const event_streams_26 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_27 = [_][]const u8{"subscribe"};
+const event_streams_26 = [_][]const u8{"subscribe-deltas"};
+const event_streams_27 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
 const event_streams_28 = [_][]const u8{"subscribe"};
 const event_streams_29 = [_][]const u8{"subscribe"};
 const event_streams_30 = [_][]const u8{"subscribe"};
 const event_streams_31 = [_][]const u8{"subscribe"};
-const event_streams_32 = [_][]const u8{"subscribe-deltas"};
+const event_streams_32 = [_][]const u8{"subscribe"};
 const event_streams_33 = [_][]const u8{"subscribe-deltas"};
 const event_streams_34 = [_][]const u8{"subscribe-deltas"};
-const event_streams_35 = [_][]const u8{"subscribe"};
+const event_streams_35 = [_][]const u8{"subscribe-deltas"};
 const event_streams_36 = [_][]const u8{"subscribe"};
 const event_streams_37 = [_][]const u8{"subscribe"};
-const event_streams_38 = [_][]const u8{"attach-byte"};
-const event_streams_39 = [_][]const u8{"subscribe"};
-const event_streams_40 = [_][]const u8{"subscribe-deltas"};
+const event_streams_38 = [_][]const u8{"subscribe"};
+const event_streams_39 = [_][]const u8{"attach-byte"};
+const event_streams_40 = [_][]const u8{"subscribe"};
 const event_streams_41 = [_][]const u8{"subscribe-deltas"};
 const event_streams_42 = [_][]const u8{"subscribe-deltas"};
 const event_streams_43 = [_][]const u8{"subscribe-deltas"};
+const event_streams_44 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 44;
+pub const event_count: usize = 45;
 pub const events = [_]EventDescriptor{
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_0 },
     .{ .name = "browser-state", .since = 6, .capability = null, .streams = &event_streams_1 },
@@ -4420,36 +4622,37 @@ pub const events = [_]EventDescriptor{
     .{ .name = "empty", .since = 5, .capability = null, .streams = &event_streams_9 },
     .{ .name = "frame", .since = 6, .capability = null, .streams = &event_streams_10 },
     .{ .name = "frontend-projection-changed", .since = 7, .capability = null, .streams = &event_streams_11 },
-    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_12 },
-    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_13 },
-    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_14 },
-    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_15 },
-    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_16 },
-    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_17 },
-    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_18 },
-    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_19 },
-    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_20 },
-    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_21 },
-    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_22 },
-    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_23 },
-    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_24 },
-    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_25 },
-    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_26 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_27 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_28 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_29 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_30 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_31 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_32 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_33 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_34 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_35 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_36 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_37 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_38 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_39 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "graphics-status", .since = 10, .capability = null, .streams = &event_streams_12 },
+    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_13 },
+    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_14 },
+    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_15 },
+    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_16 },
+    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_17 },
+    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_18 },
+    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_19 },
+    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_20 },
+    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_21 },
+    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_22 },
+    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_23 },
+    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_24 },
+    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_25 },
+    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_26 },
+    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_27 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_28 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_29 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_30 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_31 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_32 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_33 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_34 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_35 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_36 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_37 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_38 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_39 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_40 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_41 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_44 },
 };

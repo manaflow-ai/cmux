@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e. */
+/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e" as const;
+export const SDK_IR_SHA256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -409,6 +409,14 @@ export const COMMAND_METADATA = {
   "focus-pane": {
     "authority": "control",
     "since": 5,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": []
+  },
+  "get-cell-pixels": {
+    "authority": "frontend",
+    "since": 6,
     "capability": null,
     "fields": {},
     "stream": null,
@@ -1232,6 +1240,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "graphics-status": {
+    "since": 10,
+    "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "layout-changed": {
     "since": 6,
     "capability": null,
@@ -1721,6 +1737,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "CellPixelSurface": {
+    "additional_properties": false,
+    "fields": {
+      "height_px": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "width_px": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },
@@ -2245,6 +2291,39 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "GetCellPixelsResult": {
+    "additional_properties": false,
+    "fields": {
+      "height_px": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "surfaces": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "CellPixelSurface"
+          },
+          "kind": "array"
+        }
+      },
+      "width_px": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "Id": {
     "kind": "alias",
     "target": {
@@ -2431,6 +2510,106 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "JsonValue": {
     "kind": "opaque_json",
     "reason": "The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document."
+  },
+  "KittyGraphicsState": {
+    "additional_properties": false,
+    "fields": {
+      "alternate_next_image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "alternate_replay_next_image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "image_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "images": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "inflight_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "placements": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "primary_next_image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "primary_replay_next_image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "replay_cursor_offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "KittyImageAlias": {
+    "additional_properties": false,
+    "fields": {
+      "image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "image_number": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
   },
   "Layout": {
     "kind": "tagged_union",
@@ -3162,6 +3341,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ReadScrollbackResult": {
     "additional_properties": false,
     "fields": {
+      "epoch": {
+        "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "rows": {
         "nullable": false,
         "presence": "required",
@@ -3241,6 +3429,335 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RenderGraphicFormat": {
+    "kind": "enum",
+    "values": [
+      "rgb",
+      "rgba"
+    ]
+  },
+  "RenderGraphicImage": {
+    "additional_properties": false,
+    "fields": {
+      "data": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Base64"
+        }
+      },
+      "format": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "RenderGraphicFormat"
+        }
+      },
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "height": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RenderGraphicPlacement": {
+    "additional_properties": false,
+    "fields": {
+      "anchor_col": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "anchor_row": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "columns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "grid_cols": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "grid_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "image_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "ordinal": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "pixel_height": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "pixel_width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "placement_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "source_height": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "source_width": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "source_x": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "source_y": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "viewport_col": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "viewport_row": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "viewport_visible": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "x_offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "y_offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "z": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RenderGraphics": {
+    "additional_properties": false,
+    "fields": {
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "images": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "RenderGraphicImage"
+          },
+          "kind": "array"
+        }
+      },
+      "placements": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "RenderGraphicPlacement"
+          },
+          "kind": "array"
+        }
+      },
+      "removed_image_ids": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint32"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RenderGraphicsDelta": {
+    "additional_properties": false,
+    "fields": {
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "images": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "RenderGraphicImage"
+          },
+          "kind": "array"
+        }
+      },
+      "placements": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "RenderGraphicPlacement"
+          },
+          "kind": "array"
+        }
+      },
+      "removed_image_ids": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint32"
+          },
+          "kind": "array"
         }
       }
     },
@@ -4666,6 +5183,27 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Base64"
+        }
+      },
+      "kitty_graphics_state": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "KittyGraphicsState"
+        }
+      },
+      "kitty_image_aliases": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 9,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "KittyImageAlias"
+          },
+          "kind": "array"
         }
       },
       "rows": {
@@ -6186,6 +6724,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "get-cell-pixels": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GetCellPixelsResult"
     }
   },
   "get-frontend-projection": {
@@ -9162,6 +9711,93 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "graphics-status": {
+    "additional_properties": false,
+    "constraints": [
+      "kitty-image-budget-worker-start-failed carries error.",
+      "kitty-image-budget-update-failed carries retry_exhausted and summary.",
+      "cell-pixel-update-retries-exhausted carries attempts, remaining, cell_width, and cell_height."
+    ],
+    "fields": {
+      "attempts": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cell_height": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "cell_width": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "error": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "graphics-status"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "kitty-image-budget-worker-start-failed",
+            "kitty-image-budget-update-failed",
+            "cell-pixel-update-retries-exhausted"
+          ]
+        }
+      },
+      "remaining": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "retry_exhausted": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "summary": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "layout-changed": {
     "additional_properties": false,
     "fields": {
@@ -9540,6 +10176,23 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "graphics": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "RenderGraphicsDelta"
+        }
+      },
+      "history_epoch": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "rows": {
         "nullable": false,
         "presence": "required",
@@ -9611,6 +10264,23 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "render-state"
+        }
+      },
+      "graphics": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "RenderGraphics"
+        }
+      },
+      "history_epoch": {
+        "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "rows": {
@@ -9689,6 +10359,27 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "resized"
+        }
+      },
+      "kitty_graphics_state": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "KittyGraphicsState"
+        }
+      },
+      "kitty_image_aliases": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 9,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "KittyImageAlias"
+          },
+          "kind": "array"
         }
       },
       "replay": {
@@ -10365,6 +11056,27 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "vt-state"
+        }
+      },
+      "kitty_graphics_state": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "KittyGraphicsState"
+        }
+      },
+      "kitty_image_aliases": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 9,
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "KittyImageAlias"
+          },
+          "kind": "array"
         }
       },
       "rows": {
