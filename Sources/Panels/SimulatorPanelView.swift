@@ -1,79 +1,59 @@
 import AppKit
 import CmuxSimulatorUI
-import SwiftUI
 
-/// Transitional host for the native AppKit Simulator pane while the parent
-/// panel tree is being moved to AppKit.
-struct SimulatorPanelView: NSViewControllerRepresentable {
-    let panel: SimulatorPanel
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let allowsPointerInput: Bool
-    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
+@MainActor
+final class SimulatorPanelLifecycleHost {
+    private let visibilityHostID = UUID()
+    private let focusOwnershipView = SimulatorFocusOwnershipView()
+    private weak var panel: SimulatorPanel?
 
-    @MainActor
-    final class Coordinator {
-        let visibilityHostID = UUID()
-        let focusOwnershipView = SimulatorFocusOwnershipView()
-        weak var panel: SimulatorPanel?
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSViewController(context: Context) -> SimulatorPaneView {
-        let controller = SimulatorPaneView(
-            coordinator: panel.coordinator,
-            backgroundColor: appearance.contentBackgroundColor,
-            allowsPointerInput: allowsPointerInput,
-            pointerEntryEventFilter: pointerEntryEventFilter,
-            onRequestPanelFocus: onRequestPanelFocus
-        )
+    func installFocusOwnershipView(in controller: SimulatorPaneView) {
         _ = controller.view
-        let focusView = context.coordinator.focusOwnershipView
-        focusView.translatesAutoresizingMaskIntoConstraints = false
-        controller.view.addSubview(focusView)
+        guard focusOwnershipView.superview == nil else { return }
+        focusOwnershipView.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(focusOwnershipView)
         NSLayoutConstraint.activate([
-            focusView.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
-            focusView.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
-            focusView.topAnchor.constraint(equalTo: controller.view.topAnchor),
-            focusView.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+            focusOwnershipView.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            focusOwnershipView.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            focusOwnershipView.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            focusOwnershipView.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
         ])
-        focusView.update(panel: panel)
-        context.coordinator.panel = panel
-        updateLifecycle(context.coordinator)
-        return controller
     }
 
-    func updateNSViewController(_ controller: SimulatorPaneView, context: Context) {
+    func update(
+        controller: SimulatorPaneView,
+        panel: SimulatorPanel,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        allowsPointerInput: Bool,
+        pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?,
+        backgroundColor: NSColor,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
         controller.update(
-            backgroundColor: appearance.contentBackgroundColor,
+            backgroundColor: backgroundColor,
             allowsPointerInput: allowsPointerInput,
             pointerEntryEventFilter: pointerEntryEventFilter,
             onRequestPanelFocus: onRequestPanelFocus
         )
-        context.coordinator.focusOwnershipView.update(panel: panel)
-        context.coordinator.panel = panel
-        updateLifecycle(context.coordinator)
-    }
-
-    static func dismantleNSViewController(
-        _ controller: SimulatorPaneView,
-        coordinator: Coordinator
-    ) {
-        controller.teardown()
-        coordinator.panel?.coordinator.releaseInputs()
-        coordinator.panel?.setVisibleInUI(false, hostID: coordinator.visibilityHostID)
-        coordinator.focusOwnershipView.teardown()
-        coordinator.panel = nil
-    }
-
-    private func updateLifecycle(_ context: Coordinator) {
+        if self.panel !== panel {
+            self.panel?.coordinator.releaseInputs()
+            self.panel?.setVisibleInUI(false, hostID: visibilityHostID)
+            self.panel = panel
+        }
+        focusOwnershipView.update(panel: panel)
         panel.coordinator.setActive(isFocused)
-        if !isVisibleInUI { panel.coordinator.releaseInputs() }
-        panel.setVisibleInUI(isVisibleInUI, hostID: context.visibilityHostID)
+        if !isVisibleInUI {
+            panel.coordinator.releaseInputs()
+        }
+        panel.setVisibleInUI(isVisibleInUI, hostID: visibilityHostID)
+    }
+
+    func teardown(controller: SimulatorPaneView) {
+        controller.teardown()
+        panel?.coordinator.releaseInputs()
+        panel?.setVisibleInUI(false, hostID: visibilityHostID)
+        focusOwnershipView.teardown()
+        panel = nil
     }
 }

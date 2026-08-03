@@ -5,6 +5,7 @@ import CmuxFeedback
 import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
+import CmuxSimulatorUI
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -988,21 +989,57 @@ struct SidebarProBadge: View {
     var body: some View { NativeProBadgeViewBridge() }
 }
 
-struct SimulatorFocusOwnershipBridge: NSViewRepresentable {
+struct SimulatorPanelView: NSViewControllerRepresentable {
     let panel: SimulatorPanel
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
+    let appearance: PanelAppearance
+    let onRequestPanelFocus: () -> Void
 
-    func makeNSView(context: Context) -> SimulatorFocusOwnershipView {
-        let view = SimulatorFocusOwnershipView()
-        view.update(panel: panel)
-        return view
+    func makeCoordinator() -> SimulatorPanelLifecycleHost {
+        SimulatorPanelLifecycleHost()
     }
 
-    func updateNSView(_ view: SimulatorFocusOwnershipView, context: Context) {
-        view.update(panel: panel)
+    func makeNSViewController(context: Context) -> SimulatorPaneView {
+        let controller = SimulatorPaneView(
+            coordinator: panel.coordinator,
+            backgroundColor: appearance.contentBackgroundColor,
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: pointerEntryEventFilter,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+        context.coordinator.installFocusOwnershipView(in: controller)
+        update(controller, lifecycle: context.coordinator)
+        return controller
     }
 
-    static func dismantleNSView(_ view: SimulatorFocusOwnershipView, coordinator: Void) {
-        view.teardown()
+    func updateNSViewController(_ controller: SimulatorPaneView, context: Context) {
+        update(controller, lifecycle: context.coordinator)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SimulatorPaneView,
+        coordinator: SimulatorPanelLifecycleHost
+    ) {
+        coordinator.teardown(controller: controller)
+    }
+
+    private func update(
+        _ controller: SimulatorPaneView,
+        lifecycle: SimulatorPanelLifecycleHost
+    ) {
+        lifecycle.update(
+            controller: controller,
+            panel: panel,
+            isFocused: isFocused,
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: pointerEntryEventFilter,
+            backgroundColor: appearance.contentBackgroundColor,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
     }
 }
 
