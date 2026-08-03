@@ -1595,6 +1595,39 @@ struct ApplicationSurfaceTests {
         #expect(ClosedItemHistoryStore.title(for: renamedSnapshot) == "Pinned app")
     }
 
+    @Test func applicationSnapshotOmitsCapturedWorkspaceProcessTitle() throws {
+        let privateTitle = "Private quarterly plan"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(workspace.processTitle == privateTitle)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        #expect(
+            snapshot.processTitle
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
     @Test func pickerFailuresDoNotExposeRawHelperDiagnostics() async throws {
         let privateDiagnostic =
             "Failed to map /Users/private/Library/Application Support/cmux/frame"
