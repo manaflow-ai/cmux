@@ -145,6 +145,45 @@ import Testing
         )
     }
 
+    @Test func structuredClaudeRestoreMarksSecureStorageConfigDirAsAuthSelection() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                executablePath: "/opt/claude",
+                arguments: ["/opt/claude"],
+                workingDirectory: "/tmp/work",
+                environment: [
+                    "ANTHROPIC_AUTH_TOKEN": "token-should-not-persist",
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+                    "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/claude-secure-storage",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/claude" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: ["CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude"]
+        ))
+
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
+        #expect(invocation.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == "/tmp/claude-secure-storage")
+        #expect(invocation.environment["ANTHROPIC_AUTH_TOKEN"] == nil)
+        #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1")
+        #expect(
+            invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"]
+                == "CLAUDE_CONFIG_DIR,CLAUDE_SECURESTORAGE_CONFIG_DIR"
+        )
+    }
+
     @Test func managedRestoreUsesCapturedExecutableWhenWrapperShimIsUnavailable() throws {
         let executable = "/opt/custom tools/codex"
         let request = AgentRestoreRequest(

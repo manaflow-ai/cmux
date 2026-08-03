@@ -20,6 +20,30 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Preserves Claude secure storage config dir for Claude without persisting secrets")
+    func preservesClaudeSecureStorageConfigDirForClaudeWithoutPersistingSecrets() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "AMP_API_KEY": "amp-secret-should-not-persist",
+                "ANTHROPIC_AUTH_TOKEN": "anthropic-secret-should-not-persist",
+                "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/claude-secure-storage",
+            ],
+            kind: "claude"
+        )
+
+        #expect(selected["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
+        #expect(selected["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == "/tmp/claude-secure-storage")
+        #expect(selected["AMP_API_KEY"] == nil)
+        #expect(selected["ANTHROPIC_AUTH_TOKEN"] == nil)
+
+        let codexSelected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/claude-secure-storage"],
+            kind: "codex"
+        )
+        #expect(codexSelected["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == nil)
+    }
+
     @Test("Restore transport keeps Pi PATH without crossing secrets")
     func restoreTransportKeepsPiPathWithoutSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
