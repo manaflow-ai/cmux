@@ -10,6 +10,18 @@ private let handleTargetParamNouns: [(key: String, noun: String)] = [
     ("terminal_id", "Surface"),
     ("tab_id", "Surface"),
     ("pane_id", "Pane"),
+    ("target_surface_id", "Surface"),
+    ("target_pane_id", "Pane"),
+    // Relative selectors: a stale one here is silently dropped and the
+    // mutation (reorder, move) still runs, at a position the caller did not
+    // ask for.
+    ("before_surface_id", "Surface"),
+    ("after_surface_id", "Surface"),
+    ("before_workspace_id", "Workspace"),
+    ("after_workspace_id", "Workspace"),
+    ("reference_workspace_id", "Workspace"),
+    ("before_group_id", "Workspace group"),
+    ("after_group_id", "Workspace group"),
 ]
 
 /// Whether a method resolves its own target instead of going through the
@@ -113,6 +125,13 @@ extension ControlCommandCoordinator {
     /// checks run on the calling socket-worker thread, and the registry lookup
     /// takes the same `controlResolveOnMain` hop (and known-ref refresh) the
     /// worker-lane bodies use — only when a target actually needs it.
+    ///
+    /// A ref-carrying worker request therefore costs one hop more than the
+    /// body's documented single hop. That is deliberate: the alternative is
+    /// threading validation through every worker-lane body's own hop, and the
+    /// typing-latency paths (`surface.send_text` / `send_key` from shell
+    /// integration and hooks) carry UUID targets, which skip the hop
+    /// entirely.
     ///
     /// - Parameters:
     ///   - request: The decoded request envelope.
