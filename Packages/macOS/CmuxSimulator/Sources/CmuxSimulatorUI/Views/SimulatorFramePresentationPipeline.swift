@@ -107,14 +107,14 @@ final class SimulatorFramePresentationPipeline {
     private func framePublicationDidFire() {
         guard isActive, framePublicationHandlerIsInstalled else { return }
         guard !reportSourceFailureIfNeeded() else { return }
+        if copyIsInFlight {
+            publicationArrivedWhileCopying = true
+        }
         if let framePublicationDidArrive {
             framePublicationDidArrive()
             return
         }
-        if copyIsInFlight {
-            publicationArrivedWhileCopying = true
-            return
-        }
+        guard !copyIsInFlight else { return }
         requestCopy()
     }
 
@@ -150,7 +150,11 @@ final class SimulatorFramePresentationPipeline {
             presentationDidComplete()
         }
         if shouldRetry {
-            requestCopy()
+            if let framePublicationDidArrive {
+                framePublicationDidArrive()
+            } else {
+                requestCopy()
+            }
         }
     }
 
