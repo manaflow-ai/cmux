@@ -392,6 +392,60 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
     }
 
     @Test
+    func parkingAccessoryStaysBesideLiveOwnerWhenRenameChangesItsWidth() async {
+        _ = NSApplication.shared
+        let visibleFrame = NSScreen.main?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let initialOwnerFrame = CGRect(
+            x: visibleFrame.midX - 80,
+            y: visibleFrame.midY - 190,
+            width: 520,
+            height: 380
+        )
+        let owner = NSWindow(
+            contentRect: initialOwnerFrame,
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WorkspaceFloatingDockParkingAccessoryController(
+            dockID: UUID(),
+            onRestore: {},
+            onRename: { _ in true },
+            onDrag: { _, _ in },
+            onEditingEnded: {}
+        )
+        defer {
+            controller.teardown()
+            owner.orderOut(nil)
+            owner.close()
+        }
+
+        owner.orderFront(nil)
+        controller.show(
+            attachedTo: owner,
+            title: "Build Notes",
+            anchorFrame: owner.frame,
+            parkingEdge: .trailing,
+            appearance: .raycast(backgroundColor: .windowBackgroundColor),
+            animated: false
+        )
+        owner.setFrame(
+            owner.frame.offsetBy(dx: -120, dy: 64),
+            display: true
+        )
+
+        controller.beginRenaming()
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        #expect(
+            controller.window.frame.maxX
+                == owner.frame.minX - WorkspaceFloatingDockParkingAccessoryController.gap
+        )
+        #expect(controller.window.frame.midY == owner.frame.midY)
+    }
+
+    @Test
     func doubleClickingParkingAccessoryBeginsRenameWithoutRestoring() throws {
         _ = NSApplication.shared
         let noteURL = FileManager.default.temporaryDirectory
