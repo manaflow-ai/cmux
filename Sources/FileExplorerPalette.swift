@@ -1,4 +1,5 @@
 import AppKit
+import CmuxGit
 
 /// Immutable, appearance-aware colors for one file explorer style.
 struct FileExplorerPalette {

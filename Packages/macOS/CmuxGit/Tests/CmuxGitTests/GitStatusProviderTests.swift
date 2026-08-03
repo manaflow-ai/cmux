@@ -2,14 +2,10 @@ import CmuxFoundation
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxGit
 
 @Suite(.serialized)
-struct FileExplorerGitStatusProviderTests {
+struct GitStatusProviderTests {
     @Test
     func statusQueryDoesNotRefreshGitIndex() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
@@ -146,19 +142,15 @@ struct FileExplorerGitStatusProviderTests {
             environment: environment
         ).fetchStatus(directory: repoURL.path)
 
-        #expect(
-            status[repoURL.appendingPathComponent("type-change.txt").path] == .some(.modified)
-        )
-        #expect(
-            status[repoURL.appendingPathComponent("conflicted.txt").path] == .some(.modified)
-        )
+        #expect(status[repoURL.appendingPathComponent("type-change.txt").path] == .some(.modified))
+        #expect(status[repoURL.appendingPathComponent("conflicted.txt").path] == .some(.modified))
     }
 
     @Test
     func statusQueriesForwardTheBoundedProcessDeadline() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
-        let runner = RecordingGitCommandRunner(
+        let runner = RecordingGitStatusCommandRunner(
             results: [
                 CommandResult(
                     stdout: "\(repoURL.path)\n",
@@ -225,21 +217,15 @@ struct FileExplorerGitStatusProviderTests {
             sshOptions: []
         )
 
-        #expect(
-            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
-        )
+        #expect(status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified))
     }
 
     @Test
     func sshStatusQueryOverridesHostConfiguredRemoteCommand() async throws {
-        // The remote git status runs as an ssh command-line command, which
-        // OpenSSH refuses while a host-configured RemoteCommand is in effect
-        // (issue #7246) — the argv must carry `-o RemoteCommand=none` before
-        // the destination.
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
-        let argvLog = repoURL.appendingPathComponent("ssh-argv.txt")
+        let argumentLog = repoURL.appendingPathComponent("ssh-argv.txt")
         let fakeSSHURL = try Self.writeExecutableScript(
             #"""
             #!/bin/sh
@@ -251,7 +237,7 @@ struct FileExplorerGitStatusProviderTests {
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
-        environment["CMUX_TEST_SSH_ARGV_LOG"] = argvLog.path
+        environment["CMUX_TEST_SSH_ARGV_LOG"] = argumentLog.path
 
         let status = await GitStatusProvider(
             sshExecutableURL: fakeSSHURL,
@@ -264,18 +250,16 @@ struct FileExplorerGitStatusProviderTests {
             sshOptions: []
         )
 
-        #expect(
-            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
-        )
-        let argv = try String(contentsOf: argvLog, encoding: .utf8)
+        #expect(status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified))
+        let arguments = try String(contentsOf: argumentLog, encoding: .utf8)
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
-        let overrideIndex = argv.indices.dropLast().first {
-            argv[$0] == "-o" && argv[$0 + 1] == "RemoteCommand=none"
+        let overrideIndex = arguments.indices.dropLast().first {
+            arguments[$0] == "-o" && arguments[$0 + 1] == "RemoteCommand=none"
         }
-        let destinationIndex = argv.firstIndex(of: "example.invalid")
-        #expect(overrideIndex != nil, "\(argv)")
-        #expect(destinationIndex != nil, "\(argv)")
+        let destinationIndex = arguments.firstIndex(of: "example.invalid")
+        #expect(overrideIndex != nil, "\(arguments)")
+        #expect(destinationIndex != nil, "\(arguments)")
         if let overrideIndex, let destinationIndex {
             #expect(overrideIndex < destinationIndex)
         }
@@ -283,13 +267,15 @@ struct FileExplorerGitStatusProviderTests {
 
     private static func makeTemporaryDirectory() throws -> URL {
         let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-file-explorer-git-status-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-git-status-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return rootURL
     }
 
     private static func writeExecutableScript(
-        _ contents: String, named name: String, in directory: URL
+        _ contents: String,
+        named name: String,
+        in directory: URL
     ) throws -> URL {
         let scriptURL = directory.appendingPathComponent(name)
         try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
@@ -316,5 +302,43 @@ struct FileExplorerGitStatusProviderTests {
         process.waitUntilExit()
 
         try #require(process.terminationStatus == 0, "git \(arguments.joined(separator: " ")) failed")
+    }
+}
+
+private actor RecordingGitStatusCommandRunner: CommandRunning {
+    private var results: [CommandResult]
+    private var arguments: [[String]] = []
+    private var timeouts: [TimeInterval?] = []
+
+    init(results: [CommandResult]) {
+        self.results = results
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        self.arguments.append(arguments)
+        timeouts.append(timeout)
+        guard !results.isEmpty else {
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: "missing stub result"
+            )
+        }
+        return results.removeFirst()
+    }
+
+    func recordedArguments() -> [[String]] {
+        arguments
+    }
+
+    func recordedTimeouts() -> [TimeInterval?] {
+        timeouts
     }
 }

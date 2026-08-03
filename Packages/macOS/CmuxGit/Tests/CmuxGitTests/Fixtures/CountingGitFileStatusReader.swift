@@ -7,9 +7,9 @@ final class CountingGitFileStatusReader: GitFileStatusReading, @unchecked Sendab
     private let lock = NSLock()
     private let systemReader = SystemGitFileStatusReader()
     private var callsByPath: [String: Int] = [:]
-    private var overridesByPath: [String: GitFileStatus] = [:]
+    private var overridesByPath: [String: GitIndexFileStatus] = [:]
 
-    func status(atPath path: String) -> GitFileStatus? {
+    func status(atPath path: String) -> GitIndexFileStatus? {
         lock.lock()
         callsByPath[path, default: 0] += 1
         let override = overridesByPath[path]
@@ -27,11 +27,11 @@ final class CountingGitFileStatusReader: GitFileStatusReading, @unchecked Sendab
         return callsByPath[path] ?? 0
     }
 
-    func statusWithoutRecording(atPath path: String) -> GitFileStatus? {
+    func statusWithoutRecording(atPath path: String) -> GitIndexFileStatus? {
         systemReader.status(atPath: path)
     }
 
-    func overrideStatus(_ status: GitFileStatus, atPath path: String) {
+    func overrideStatus(_ status: GitIndexFileStatus, atPath path: String) {
         lock.lock()
         overridesByPath[path] = status
         lock.unlock()

@@ -1,3 +1,5 @@
+import CmuxGit
+
 struct FileExplorerGitStatusRefreshRequest: Sendable {
     let generation: Int
     let source: FileExplorerGitStatusRefreshSource

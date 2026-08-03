@@ -1,6 +1,7 @@
-import CmuxFoundation
 import AppKit
 import Combine
+import CmuxFoundation
+import CmuxGit
 import Foundation
 import QuartzCore
 import SwiftUI

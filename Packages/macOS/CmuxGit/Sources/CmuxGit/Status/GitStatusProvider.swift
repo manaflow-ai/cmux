@@ -1,18 +1,30 @@
-import CmuxFoundation
-import Foundation
+public import CmuxFoundation
+public import Foundation
 
-/// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
-struct GitStatusProvider: Sendable {
+/// A working-tree status reported by `git status --porcelain`.
+public enum GitFileStatus: Equatable, Sendable {
+    case modified
+    case added
+    case deleted
+    case renamed
+    case untracked
+}
+
+/// Runs non-locking `git status --porcelain` queries and maps their results to
+/// absolute paths rooted at the requested file-explorer directory.
+public struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
-    private static let nonLockingRemoteGitCommand = "env \(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
+    private static let nonLockingRemoteGitCommand =
+        "env \(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
 
     private let gitExecutableURL: URL
     private let sshExecutableURL: URL
     private let commandRunner: any CommandRunning
     private let processTimeout: TimeInterval
 
-    init(
+    /// Creates a provider with injectable process dependencies.
+    public init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         sshExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -35,14 +47,16 @@ struct GitStatusProvider: Sendable {
         self.processTimeout = max(0, processTimeout)
     }
 
-    func fetchStatus(
+    /// Fetches local working-tree status, preserving the prior snapshot when
+    /// repository discovery or `git status` fails transiently.
+    public func fetchStatus(
         directory: String,
         preserving previousStatus: [String: GitFileStatus] = [:]
     ) async -> [String: GitFileStatus] {
         guard let repoRoot = await gitRepoRoot(for: directory),
               let output = await runGit(
-                in: repoRoot,
-                arguments: ["status", "--porcelain=v1", "-z"]
+                  in: repoRoot,
+                  arguments: ["status", "--porcelain=v1", "-z"]
               ) else {
             return previousStatus
         }
@@ -54,26 +68,36 @@ struct GitStatusProvider: Sendable {
         )
     }
 
-    func fetchStatusSSH(
-        directory: String, destination: String, port: Int?,
-        identityFile: String?, sshOptions: [String],
+    /// Fetches working-tree status over SSH, preserving the prior snapshot
+    /// when the remote command or response framing fails transiently.
+    public func fetchStatusSSH(
+        directory: String,
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
         preserving previousStatus: [String: GitFileStatus] = [:]
     ) async -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = [
+        let command = [
             "cd '\(escapedDir)' 2>/dev/null",
             "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
             "echo '---GIT_STATUS---'",
             "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = await runSSH(
-            command: cmd, destination: destination,
-            port: port, identityFile: identityFile, sshOptions: sshOptions
-        ) else { return previousStatus }
+            command: command,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions
+        ) else {
+            return previousStatus
+        }
 
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
         guard parts.count == 2 else { return previousStatus }
-        let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let repoRoot = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
         return parseGitStatus(
             output: parts[1],
             repoRoot: repoRoot,
@@ -114,7 +138,9 @@ struct GitStatusProvider: Sendable {
             let path = String(entry.dropFirst(3))
             let usesSecondPath = Self.statusUsesSecondPath(index: indexStatus, workTree: workTreeStatus)
             entryIndex += usesSecondPath ? 2 : 1
-            guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
+            guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else {
+                continue
+            }
 
             let comparisonAbsolutePath = Self.absolutePath(
                 base: comparisonRepoRoot,
@@ -155,14 +181,16 @@ struct GitStatusProvider: Sendable {
     }
 
     private func markParentDirectories(
-        absolutePath: String, explorerRoot: String,
-        status: GitFileStatus, in map: inout [String: GitFileStatus]
+        absolutePath: String,
+        explorerRoot: String,
+        status: GitFileStatus,
+        in map: inout [String: GitFileStatus]
     ) {
-        let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
+        let directoryStatus: GitFileStatus = status == .untracked ? .untracked : .modified
         var current = (absolutePath as NSString).deletingLastPathComponent
-        while Self.path(current, isContainedIn: explorerRoot) && current != explorerRoot {
+        while Self.path(current, isContainedIn: explorerRoot), current != explorerRoot {
             if map[current] == nil {
-                map[current] = dirStatus
+                map[current] = directoryStatus
             }
             current = (current as NSString).deletingLastPathComponent
         }
@@ -195,9 +223,7 @@ struct GitStatusProvider: Sendable {
     }
 
     private static func standardizedPath(_ path: String) -> String {
-        pathWithoutTrailingSlashes(
-            URL(fileURLWithPath: path).standardizedFileURL.path
-        )
+        pathWithoutTrailingSlashes(URL(fileURLWithPath: path).standardizedFileURL.path)
     }
 
     private static func resolvedPath(_ path: String) -> String {
@@ -211,7 +237,7 @@ struct GitStatusProvider: Sendable {
 
     private static func pathWithoutTrailingSlashes(_ path: String) -> String {
         var result = path
-        while result.count > 1 && result.hasSuffix("/") {
+        while result.count > 1, result.hasSuffix("/") {
             result.removeLast()
         }
         return result
@@ -232,21 +258,23 @@ struct GitStatusProvider: Sendable {
     }
 
     private func runSSH(
-        command: String, destination: String,
-        port: Int?, identityFile: String?, sshOptions: [String]
+        command: String,
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String]
     ) async -> String? {
-        // The positional command conflicts with a host-configured
-        // RemoteCommand unless overridden (issue #7246).
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port { args += ["-p", String(port)] }
-        if let identityFile { args += ["-i", identityFile] }
-        for option in sshOptions { args += ["-o", option] }
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [destination, command]
+        // A positional command conflicts with a host-configured RemoteCommand.
+        var arguments = SSHHostConfiguredRemoteCommand().overrideArguments
+        if let port { arguments += ["-p", String(port)] }
+        if let identityFile { arguments += ["-i", identityFile] }
+        for option in sshOptions { arguments += ["-o", option] }
+        arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        arguments += [destination, command]
         return await commandRunner.runStandardOutput(
             directory: "/",
             executable: sshExecutableURL.path,
-            arguments: args,
+            arguments: arguments,
             timeout: processTimeout
         )
     }

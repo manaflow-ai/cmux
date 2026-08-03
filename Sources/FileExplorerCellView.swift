@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxGit
 import UniformTypeIdentifiers
 
 @MainActor

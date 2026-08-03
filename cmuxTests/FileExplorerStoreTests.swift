@@ -1,4 +1,5 @@
 import AppKit
+import CmuxGit
 import Testing
 
 #if canImport(cmux_DEV)
