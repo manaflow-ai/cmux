@@ -1,10 +1,1 @@
-import SwiftUI
-
-#if DEBUG
-extension EnvironmentValues {
-    var sidebarLazyContractProbe: SidebarLazyContractProbe {
-        get { self[SidebarLazyContractProbeKey.self] }
-        set { self[SidebarLazyContractProbeKey.self] = newValue }
-    }
-}
-#endif
+// Transitional environment adapter is centralized with the remaining parent boundary.

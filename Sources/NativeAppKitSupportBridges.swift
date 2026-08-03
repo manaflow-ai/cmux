@@ -13,6 +13,28 @@ import ExtensionFoundation
 import SwiftUI
 import WebKit
 
+#if DEBUG
+private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
+    static let defaultValue = MinimalModeInvalidationProbe()
+}
+
+private struct SidebarLazyContractProbeKey: EnvironmentKey {
+    static let defaultValue = SidebarLazyContractProbe()
+}
+
+extension EnvironmentValues {
+    var minimalModeInvalidationProbe: MinimalModeInvalidationProbe {
+        get { self[MinimalModeInvalidationProbeKey.self] }
+        set { self[MinimalModeInvalidationProbeKey.self] = newValue }
+    }
+
+    var sidebarLazyContractProbe: SidebarLazyContractProbe {
+        get { self[SidebarLazyContractProbeKey.self] }
+        set { self[SidebarLazyContractProbeKey.self] = newValue }
+    }
+}
+#endif
+
 /// Transitional mounts for native support views while their parent surfaces
 /// are still being moved to AppKit controllers.
 

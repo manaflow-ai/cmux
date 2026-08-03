@@ -1,7 +1,1 @@
-import SwiftUI
-
-#if DEBUG
-struct MinimalModeInvalidationProbeKey: EnvironmentKey {
-    static let defaultValue = MinimalModeInvalidationProbe()
-}
-#endif
+// Transitional environment adapter is centralized with the remaining parent boundary.
