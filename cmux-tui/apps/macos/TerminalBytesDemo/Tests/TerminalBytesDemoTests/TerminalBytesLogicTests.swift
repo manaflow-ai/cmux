@@ -60,6 +60,44 @@ private final class LockedInputs: @unchecked Sendable {
     }
 }
 
+@MainActor
+private func makeBlockingInputHarness() -> (
+    model: TerminalModel,
+    firstStarted: LockedFlag,
+    releaseFirst: DispatchSemaphore
+) {
+    let firstStarted = LockedFlag()
+    let calls = LockedCounter()
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let handle = TerminalClientHandle(
+        rawAddress: 8,
+        attachClient: { _, _, _, _ in true },
+        destroyClient: { _ in },
+        detachClient: { _ in },
+        setUpdateCallback: { _, _, _ in },
+        sendClient: { _, _, _ in
+            calls.increment()
+            if calls.value == 1 {
+                firstStarted.set()
+                releaseFirst.wait()
+            }
+            return true
+        },
+        copyFrameClient: { _, _, _ in 0 },
+        copyDiagnosticsClient: { _, _, _ in 0 }
+    )
+    let model = TerminalModel(
+        configuration: DemoLaunchConfiguration(
+            invitation: "",
+            terminalID: "term_0123456789abcdef0123456789abcdef",
+            autoConnect: false
+        ),
+        retainedClient: handle,
+        initiallyConnected: true
+    )
+    return (model, firstStarted, releaseFirst)
+}
+
 private final class LockedClientCalls: @unchecked Sendable {
     // NSLock protects all mutable storage. Pointers are recorded as integer
     // addresses so snapshots only contain Sendable values.
@@ -462,6 +500,35 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
+    func terminalInputRejectsAnOversizedPayloadBeforeTheEntryLimit() async throws {
+        let harness = makeBlockingInputHarness()
+        harness.model.submit(.bytes(Data("blocked".utf8)))
+        #expect(await waitUntil { harness.firstStarted.value })
+
+        harness.model.submit(.bytes(Data(repeating: 0x61, count: 1_048_577)))
+        #expect(!harness.model.errorMessage.isEmpty)
+
+        harness.releaseFirst.signal()
+        harness.model.shutdown()
+    }
+
+    @Test @MainActor
+    func terminalInputRejectsAggregateBytesBeforeTheEntryLimit() async throws {
+        let harness = makeBlockingInputHarness()
+        harness.model.submit(.bytes(Data("blocked".utf8)))
+        #expect(await waitUntil { harness.firstStarted.value })
+
+        let chunk = Data(repeating: 0x61, count: 1_048_576)
+        for _ in 0..<5 {
+            harness.model.submit(.bytes(chunk))
+        }
+        #expect(!harness.model.errorMessage.isEmpty)
+
+        harness.releaseFirst.signal()
+        harness.model.shutdown()
+    }
+
+    @Test @MainActor
     func reconnectDoesNotBlockTheMainActor() async throws {
         let attachStarted = LockedFlag()
         let releaseAttach = DispatchSemaphore(value: 0)
@@ -595,8 +662,8 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
-    func exitedDiagnosticsCloseTheAttachmentWithoutAnInputError() async throws {
-        let exitedDiagnostics = #"{"status":"exited","ready":false}"#
+    func structuredExitStateClosesTheAttachmentWithoutParsingDiagnostics() async throws {
+        let exitedDiagnostics = "not-json"
         let handle = TerminalClientHandle(
             rawAddress: 4,
             attachClient: { _, _, _, _ in true },
@@ -617,7 +684,8 @@ struct TerminalBytesLogicTests {
                     buffer[copied] = 0
                 }
                 return bytes.count
-            }
+            },
+            hasExitedClient: { _ in true }
         )
         let model = TerminalModel(
             configuration: DemoLaunchConfiguration(
