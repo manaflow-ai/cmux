@@ -172,28 +172,17 @@ final class AutomationSocketUITests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let app = configuredApp(mode: "password")
-        app.launchEnvironment["HOME"] = isolatedHome.path
-        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
-        app.launchEnvironment["XDG_CONFIG_HOME"] = isolatedHome
-            .appendingPathComponent(".config", isDirectory: true).path
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        // The test is socket-driven, so a headless runner leaving the app in
-        // Running Background is harmless. XCUIApplication still reports that
-        // activation miss as a failure from launch(), so tolerate only that
-        // established CI condition and verify below that the process is alive.
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
-            app.launch()
-        }
-        defer { app.terminate() }
+        let appProcess = try launchBundledAppProcess(
+            mode: "password",
+            isolatedHome: isolatedHome
+        )
+        defer { terminateBundledAppProcess(appProcess) }
 
         XCTAssertTrue(
-            ensureRunningAfterLaunch(app, timeout: 12.0),
-            "Expected app to launch for password persistence test. state=\(app.state.rawValue)"
+            appProcess.isRunning,
+            "Expected app process to launch for password persistence test"
         )
-        guard let resolvedPath = resolveSocketPath(timeout: 8.0, allowTmpFallback: false) else {
+        guard let resolvedPath = resolveSocketPath(timeout: 15.0, allowTmpFallback: false) else {
             XCTFail("Expected password-protected control socket to exist")
             return
         }
@@ -498,6 +487,53 @@ final class AutomationSocketUITests: XCTestCase {
             encoding: .utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func launchBundledAppProcess(
+        mode: String,
+        isolatedHome: URL
+    ) throws -> Process {
+        let cliURL = try XCTUnwrap(
+            bundledCLIURL(),
+            "Expected the UI test host's bundled cmux CLI"
+        )
+        let appURL = cliURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let executableURL = try XCTUnwrap(
+            Bundle(url: appURL)?.executableURL,
+            "Expected a runnable app bundle at \(appURL.path)"
+        )
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = [
+            "-\(modeKey)", mode,
+            "-NSAppSleepDisabled", "YES",
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = isolatedHome.path
+        environment["CFFIXED_USER_HOME"] = isolatedHome.path
+        environment["XDG_CONFIG_HOME"] = isolatedHome
+            .appendingPathComponent(".config", isDirectory: true).path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        environment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        environment["CMUX_TAG"] = launchTag
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        return process
+    }
+
+    private func terminateBundledAppProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
     }
 
     private func bundledCLIURL() -> URL? {
