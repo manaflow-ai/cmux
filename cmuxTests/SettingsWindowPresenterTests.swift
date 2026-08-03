@@ -231,7 +231,7 @@ extension SettingsWindowSharedStateSuites {
                 window.toolbar = window.sidebarToolbarController.makeToolbar()
                 return window
             })
-            let toggleRecorder = SettingsSidebarToggleRecorder()
+            let toggleRecorder = SettingsLifecycleSidebarToggleRecorder()
             defer { toggleRecorder.stopObserving() }
             var seenFactoryTokens: Set<Int> = []
             var expectedRestoredFrame: NSRect?
@@ -743,7 +743,7 @@ private final class ReopenSettingsOnWillClose: NSObject {
 }
 
 @MainActor
-private final class SettingsSidebarToggleRecorder: NSObject {
+private final class SettingsLifecycleSidebarToggleRecorder: NSObject {
     private(set) var receivedCount = 0
 
     override init() {
