@@ -13,6 +13,21 @@ import ExtensionFoundation
 import SwiftUI
 import WebKit
 
+extension StoredShortcut {
+    var swiftUIKeyEquivalent: KeyEquivalent? {
+        keyEquivalent.map(KeyEquivalent.init)
+    }
+
+    var swiftUIEventModifiers: SwiftUI.EventModifiers {
+        var result: SwiftUI.EventModifiers = []
+        if eventModifiers.contains(.command) { result.insert(.command) }
+        if eventModifiers.contains(.shift) { result.insert(.shift) }
+        if eventModifiers.contains(.option) { result.insert(.option) }
+        if eventModifiers.contains(.control) { result.insert(.control) }
+        return result
+    }
+}
+
 #if DEBUG
 private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
     static let defaultValue = MinimalModeInvalidationProbe()

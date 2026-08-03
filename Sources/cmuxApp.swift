@@ -1090,7 +1090,7 @@ struct cmuxApp: App {
                     }
                     .keyboardShortcut(
                         KeyEquivalent(Character("\(number)")),
-                        modifiers: selectWorkspaceByNumberShortcut.eventModifiers
+                        modifiers: selectWorkspaceByNumberShortcut.swiftUIEventModifiers
                     )
                 }
             }
@@ -1372,9 +1372,9 @@ struct cmuxApp: App {
 
     @ViewBuilder
     func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
-        if let key = shortcut.keyEquivalent {
+        if let key = shortcut.swiftUIKeyEquivalent {
             Button(title, action: action)
-                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+                .keyboardShortcut(key, modifiers: shortcut.swiftUIEventModifiers)
         } else {
             Button(title, action: action)
         }

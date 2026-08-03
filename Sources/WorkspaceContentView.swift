@@ -831,8 +831,8 @@ struct EmptyPanelView: View {
         }
         .buttonStyle(.borderedProminent)
 
-        if let key = shortcut.keyEquivalent {
-            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        if let key = shortcut.swiftUIKeyEquivalent {
+            button.keyboardShortcut(key, modifiers: shortcut.swiftUIEventModifiers)
         } else {
             button
         }

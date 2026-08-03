@@ -383,8 +383,8 @@ private struct WorkspaceTodoPaneContent: View {
 
     private func toggleChecklistItemCompleteShortcutMatches(_ press: KeyPress) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleChecklistItemComplete)
-        guard let key = shortcut.keyEquivalent else { return false }
-        return press.key == key && press.modifiers == shortcut.eventModifiers
+        guard let key = shortcut.swiftUIKeyEquivalent else { return false }
+        return press.key == key && press.modifiers == shortcut.swiftUIEventModifiers
     }
 
     /// Resolves a reorder drop: move the dragged item to the dropped-on row's

@@ -3,7 +3,6 @@ import Bonsplit
 import Carbon
 import CmuxSettings
 import CmuxSettingsUI
-import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
@@ -1475,9 +1474,9 @@ struct ShortcutStroke: Equatable, Hashable {
         command || option || control
     }
 
-    var keyEquivalent: KeyEquivalent? {
-        if key == "space" { return KeyEquivalent(Character(" ")) }
-        if key == "\t" { return .tab }
+    var keyEquivalent: Character? {
+        if key == "space" { return Character(" ") }
+        if key == "\t" { return Character("\t") }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1485,38 +1484,23 @@ struct ShortcutStroke: Equatable, Hashable {
 
         switch key {
         case "←":
-            return .leftArrow
+            return UnicodeScalar(NSLeftArrowFunctionKey).map(Character.init)
         case "→":
-            return .rightArrow
+            return UnicodeScalar(NSRightArrowFunctionKey).map(Character.init)
         case "↑":
-            return .upArrow
+            return UnicodeScalar(NSUpArrowFunctionKey).map(Character.init)
         case "↓":
-            return .downArrow
+            return UnicodeScalar(NSDownArrowFunctionKey).map(Character.init)
         case "\r":
-            return KeyEquivalent(Character("\r"))
+            return Character("\r")
         default:
             let lowered = key.lowercased()
             guard lowered.count == 1, let character = lowered.first else { return nil }
-            return KeyEquivalent(character)
+            return character
         }
     }
 
-    var eventModifiers: SwiftUI.EventModifiers {
-        var modifiers: SwiftUI.EventModifiers = []
-        if command {
-            modifiers.insert(.command)
-        }
-        if shift {
-            modifiers.insert(.shift)
-        }
-        if option {
-            modifiers.insert(.option)
-        }
-        if control {
-            modifiers.insert(.control)
-        }
-        return modifiers
-    }
+    var eventModifiers: NSEvent.ModifierFlags { modifierFlags }
 
     var menuItemKeyEquivalent: String? {
         if key == "space" { return " " }
@@ -2220,12 +2204,12 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         return firstStroke.hasPrimaryModifier
     }
 
-    var keyEquivalent: KeyEquivalent? {
+    var keyEquivalent: Character? {
         guard !isUnbound, !hasChord else { return nil }
         return firstStroke.keyEquivalent
     }
 
-    var eventModifiers: SwiftUI.EventModifiers {
+    var eventModifiers: NSEvent.ModifierFlags {
         firstStroke.eventModifiers
     }
 

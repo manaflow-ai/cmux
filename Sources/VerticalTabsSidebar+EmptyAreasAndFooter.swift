@@ -643,11 +643,11 @@ private extension View {
                 localized: "contextMenu.workspaceGroup.newEmpty",
                 defaultValue: "New Empty Workspace Group"
             )
-            if let key = newWorkspaceGroupShortcut.keyEquivalent {
+            if let key = newWorkspaceGroupShortcut.swiftUIKeyEquivalent {
                 Button(newWorkspaceGroupLabel) {
                     _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
                 }
-                .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+                .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.swiftUIEventModifiers)
             } else {
                 Button(newWorkspaceGroupLabel) {
                     _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)

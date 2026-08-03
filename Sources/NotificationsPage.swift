@@ -184,7 +184,7 @@ struct NotificationsPage: View {
 
     @ViewBuilder
     private var jumpToUnreadButton: some View {
-        if let key = jumpToUnreadShortcut.keyEquivalent {
+        if let key = jumpToUnreadShortcut.swiftUIKeyEquivalent {
             Button(action: {
                 AppDelegate.shared?.jumpToLatestUnread()
             }) {
@@ -194,7 +194,7 @@ struct NotificationsPage: View {
                 }
             }
             .buttonStyle(.bordered)
-            .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
+            .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.swiftUIEventModifiers)
             .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         } else {
