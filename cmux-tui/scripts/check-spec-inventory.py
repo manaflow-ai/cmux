@@ -820,6 +820,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "external-protocol",
         "route": "machine-provider invoke_action",
     },
+    "CreateMachineFrom": {
+        "classification": "composite",
+        "route": "native source picker + client-local machine catalog",
+    },
 }
 
 
