@@ -134,12 +134,17 @@ final class TerminalBytesDemoTests: XCTestCase {
         var delivered: [TerminalInput] = []
         terminal.submit = { delivered.append($0) }
         terminal.isInputReady = true
+        terminal.string = "prompt> "
+        terminal.setSelectedRange(NSRange(location: 8, length: 0))
         terminal.setMarkedText(
             "かな",
             selectedRange: NSRange(location: 2, length: 0),
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
         XCTAssertTrue(terminal.hasMarkedText())
+        XCTAssertEqual(terminal.string, "prompt> かな")
+        XCTAssertEqual(terminal.markedRange(), NSRange(location: 8, length: 2))
+        XCTAssertEqual(terminal.selectedRange(), NSRange(location: 10, length: 0))
 
         let backspace = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -157,6 +162,21 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.keyDown(with: backspace)
 
         XCTAssertTrue(delivered.isEmpty)
+    }
+
+    func testLauncherUsesAnInvocationOwnedSwiftBuildDirectory() throws {
+        let demoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: demoRoot.appendingPathComponent("run-demo.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("swift-package clean"))
+        XCTAssertTrue(source.contains("--scratch-path \"$SWIFT_BUILD_ROOT\""))
+        XCTAssertFalse(source.contains("$SCRIPT_DIR/.build/debug"))
     }
 
     @MainActor
