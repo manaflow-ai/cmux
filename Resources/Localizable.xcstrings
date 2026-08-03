@@ -190620,16 +190620,124 @@
     "settings.search.alias.setting.sidebarAppearance.workspace-spacing": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points تباعد مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Razmak radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Afstand mellem arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Arbeitsbereichsabstand"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.workspaceSpacing workspace row group gap density compact points"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Espaciado de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Espacement des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Spaziatura delle aree di lavoro"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.workspaceSpacing workspace row group gap density compact points ワークスペース 行 グループ 間隔 密度 コンパクト ポイント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points គម្លាតកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points 작업 공간 간격"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Arbeidsområdeavstand"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Odstępy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Espaçamento dos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Интервал рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points ระยะห่างพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Çalışma Alanı Aralığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points Інтервал робочих просторів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points 工作区间距"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.workspaceSpacing workspace row group gap density compact points 工作區間距"
           }
         }
       }
@@ -194985,10 +195093,52 @@
     "settings.sidebarAppearance.workspaceSpacing": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تباعد مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razmak radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afstand mellem arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichsabstand"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Workspace Spacing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaciado de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacement des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaziatura delle aree di lavoro"
           }
         },
         "ja": {
@@ -194996,22 +195146,196 @@
             "state": "translated",
             "value": "ワークスペースの間隔"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្លាតកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 간격"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområdeavstand"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstępy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaçamento dos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интервал рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะห่างพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma Alanı Aralığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтервал робочих просторів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区间距"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區間距"
+          }
         }
       }
     },
     "settings.sidebarAppearance.workspaceSpacing.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التباعد الرأسي بالنقاط بين صفوف مساحات العمل والمجموعات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okomiti razmak u tačkama između redova radnih prostora i grupa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lodret afstand i punkter mellem rækker med arbejdsområder og grupper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertikaler Abstand in Punkten zwischen Workspace- und Gruppenzeilen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Controls the space between workspace and group rows."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaciado vertical en puntos entre las filas de espacios de trabajo y grupos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacement vertical en points entre les lignes d’espaces de travail et de groupes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaziatura verticale in punti tra le righe delle aree di lavoro e dei gruppi."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース行とグループ行の間隔を調整します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្លាតបញ្ឈរគិតជាពិន្ទុរវាងជួរកន្លែងធ្វើការ និងជួរក្រុម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 및 그룹 행 사이의 세로 간격(포인트)입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertikal avstand i punkter mellom arbeidsområde- og grupperader."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pionowy odstęp w punktach między wierszami obszarów roboczych i grup."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaçamento vertical em pontos entre as linhas de espaços de trabalho e grupos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальный интервал в пунктах между строками рабочих пространств и групп."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะห่างแนวตั้งเป็นจุดระหว่างแถวพื้นที่ทำงานและแถวกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı ve grup satırları arasındaki dikey boşluk (punto)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальний інтервал у пунктах між рядками робочих просторів і груп."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区和组行之间的垂直间距（以点为单位）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區和群組列之間的垂直間距（以點為單位）。"
           }
         }
       }
@@ -235318,7 +235642,7 @@
         }
       }
     },
-    "statusMenu.unreadCount.one": {
+    "notification.unreadCount.one": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -235373,6 +235697,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未読通知 1件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងមិនទាន់អាន 1"
           }
         },
         "ko": {
@@ -235437,7 +235767,7 @@
         }
       }
     },
-    "statusMenu.unreadCount.other": {
+    "notification.unreadCount.other": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -235492,6 +235822,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未読通知 %lld件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងមិនទាន់អាន %lld"
           }
         },
         "ko": {

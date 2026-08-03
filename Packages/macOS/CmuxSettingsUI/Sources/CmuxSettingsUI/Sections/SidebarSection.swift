@@ -13,7 +13,7 @@ public struct SidebarSection: View {
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
-    @State var workspaceSpacing: DefaultsValueModel<Int>
+    @State private var workspaceSpacing: DefaultsValueModel<Int>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
@@ -488,6 +488,40 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+        }
+    }
+
+    private var workspaceSpacingRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.workspaceSpacing"),
+            String(
+                localized: "settings.sidebarAppearance.workspaceSpacing",
+                defaultValue: "Workspace Spacing"
+            ),
+            subtitle: String(
+                localized: "settings.sidebarAppearance.workspaceSpacing.subtitle",
+                defaultValue: "Controls the space between workspace and group rows."
+            ),
+            controlWidth: 100
+        ) {
+            Stepper(
+                String.localizedStringWithFormat(
+                    String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"),
+                    String(workspaceSpacing.current)
+                ),
+                value: Binding(
+                    get: { workspaceSpacing.current },
+                    set: { workspaceSpacing.set($0) }
+                ),
+                in: SidebarCatalogSection.workspaceSpacingRange
+            )
+            .accessibilityIdentifier("SettingsSidebarWorkspaceSpacingStepper")
+            .accessibilityLabel(
+                String(
+                    localized: "settings.sidebarAppearance.workspaceSpacing",
+                    defaultValue: "Workspace Spacing"
+                )
+            )
         }
     }
 

@@ -192,10 +192,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 textColor: .white,
                 font: unreadBadgeFont
             )
-            unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
-                String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                model.anchorUnreadCount
-            ))
+            unreadBadgeView.setAccessibilityLabel(
+                SidebarRowUnreadBadgeView.accessibilityLabel(
+                    forUnreadCount: model.anchorUnreadCount
+                )
+            )
         }
 
         plusButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(

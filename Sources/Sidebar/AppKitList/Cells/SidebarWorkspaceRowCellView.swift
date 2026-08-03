@@ -444,7 +444,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if titleView.stringValue != displayTitle {
             cmuxDebugLog(
                 "sidebar.row.titlePaint workspace=\(model.workspaceId.uuidString.prefix(8)) " +
-                "title=\"\(displayTitle.prefix(40))\""
+                "titleUTF8Bytes=\(displayTitle.utf8.count)"
             )
         }
 #endif
@@ -615,9 +615,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(8.5), weight: .semibold)
-        let unreadAccessibilityLabel = String.localizedStringWithFormat(
-            String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-            model.unreadCount
+        let unreadAccessibilityLabel = SidebarRowUnreadBadgeView.accessibilityLabel(
+            forUnreadCount: model.unreadCount
         )
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading

@@ -41,6 +41,22 @@ final class SidebarRowUnreadBadgeView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    static func accessibilityLabel(forUnreadCount count: Int) -> String {
+        if count == 1 {
+            return String(
+                localized: "notification.unreadCount.one",
+                defaultValue: "1 unread notification"
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "notification.unreadCount.other",
+                defaultValue: "%lld unread notifications"
+            ),
+            count
+        )
+    }
+
     func configure(count: Int, fillColor: NSColor, textColor: NSColor, font: NSFont) {
         text = NSString(string: count > 99 ? "99+" : "\(max(0, count))")
         textAttributes = [.font: font, .foregroundColor: textColor]
