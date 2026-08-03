@@ -6707,6 +6707,7 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
+            self.emit(MuxEvent::TreeChanged);
         }
         Ok((commit, Some(record)))
     }
