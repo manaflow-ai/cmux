@@ -1,4 +1,4 @@
-/// What a `GhosttyTerminalView` update may do to the hosted view's immediate
+/// What a ``GhosttyTerminalView`` update may do to the hosted view's immediate
 /// visible/active state.
 enum GhosttyTerminalImmediateHostedStateAction: Equatable {
     /// The owner with a live binding applies both flags.

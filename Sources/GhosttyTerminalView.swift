@@ -7,7 +7,6 @@ import CmuxTerminalCore
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
-import SwiftUI
 import AppKit
 import Metal
 import QuartzCore
@@ -3530,7 +3529,7 @@ class GhosttyApp {
         // The writer captures cheap timing values here and performs all string
         // formatting + the file append on a dedicated serial queue against a single
         // long-lived handle, so emitting a line never blocks the calling thread —
-        // frequently the main thread, inside SwiftUI appearance updates. See
+        // frequently the main thread, inside appearance updates. See
         // https://github.com/manaflow-ai/cmux/issues/5833.
         backgroundLogWriter.log(message, isMainThread: Thread.isMainThread)
     }
@@ -5324,7 +5323,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
 
-            // During programmatic splits, SwiftUI reparents the old NSView which triggers
+            // During programmatic splits, the layout reparents the old NSView which triggers
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
@@ -5392,7 +5391,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
-            // During rapid split close / SwiftUI reparenting, the view can reattach to a window
+            // During rapid split close and view reparenting, the view can reattach to a window
             // and get its display id set *before* it becomes first responder; in that case, the
             // renderer can remain stuck until some later screen/focus transition. Reassert the
             // display id now that we're focused to ensure the renderer is running.
@@ -9629,7 +9628,7 @@ final class GhosttySurfaceScrollView: NSView {
         let mutationGeneration = searchOverlayMutationGeneration
 
         // Layering contract: keep terminal Cmd+F UI inside this portal-hosted AppKit view.
-        // SwiftUI panel-level overlays can fall behind portal-hosted terminal surfaces.
+        // Panel-level overlays can fall behind portal-hosted terminal surfaces.
         guard let terminalSurface = surfaceView.terminalSurface,
               let searchState else {
             let hadOverlay = searchOverlayHostingView != nil
@@ -10020,7 +10019,7 @@ final class GhosttySurfaceScrollView: NSView {
             // Workspace/sidebar selection can make an already-sized terminal visible again
             // without a portal frame delta or a focus handoff. Nudge the Metal layer with
             // the portal refresh path — but on the next main-queue turn: reveals arrive
-            // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+            // from inside an update/layout callback (viewDidMoveToWindow or the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
             scheduleVisibilityRevealRefresh()
@@ -10556,7 +10555,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
-    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
+    /// programmatic split reparenting. Call clearSuppressReparentFocus() after layout settles.
     func suppressReparentFocus() {
         surfaceView.suppressingReparentFocus = true
     }
@@ -12209,27 +12208,29 @@ extension GhosttyNSView: NSTextInputClient {
     }
 }
 
-// MARK: - SwiftUI Wrapper
+// MARK: - Native terminal host
 
-struct GhosttyTerminalView: NSViewRepresentable {
-    @Environment(\.paneDropZone) var paneDropZone
-
-    let terminalSurface: TerminalSurface
-    let paneId: PaneID
-    var isActive: Bool = true
-    var isVisibleInUI: Bool = true
-    var ownershipGeneration: UInt64 = 0
-    var isCurrentPaneOwner: @MainActor () -> Bool = { true }
-    var portalZPriority: Int = 0
-    var showsInactiveOverlay: Bool = false
-    var showsUnreadNotificationRing: Bool = false
-    var inactiveOverlayColor: NSColor = .clear
-    var inactiveOverlayOpacity: Double = 0
-    var searchState: TerminalSurface.SearchState? = nil
-    var reattachToken: UInt64 = 0
-    var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
-    var onFocus: ((UUID) -> Void)? = nil
-    var onTriggerFlash: (() -> Void)? = nil
+/// Stable AppKit anchor for a terminal surface. The rendered terminal remains
+/// owned by ``TerminalWindowPortalRegistry`` so it can survive pane and window
+/// reparenting without recreating Ghostty's Metal-backed view.
+@MainActor
+final class GhosttyTerminalView: NSView {
+    private var terminalSurface: TerminalSurface
+    private var paneId: PaneID
+    private var isActive: Bool
+    private var isVisibleInUI: Bool
+    private var ownershipGeneration: UInt64
+    private var isCurrentPaneOwner: @MainActor () -> Bool
+    private var portalZPriority: Int
+    private var showsInactiveOverlay: Bool
+    private var showsUnreadNotificationRing: Bool
+    private var inactiveOverlayColor: NSColor
+    private var inactiveOverlayOpacity: Double
+    private var searchState: TerminalSurface.SearchState?
+    private var sessionContentWidthPresentation: SessionContentWidthPresentation
+    private var paneDropZone: DropZone?
+    private var onFocus: ((UUID) -> Void)?
+    private var onTriggerFlash: (() -> Void)?
 
     private final class HostContainerView: NSView {
         private static var nextInstanceSerial: UInt64 = 0
@@ -12309,7 +12310,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
     }
 
-    final class Coordinator {
+    private final class Coordinator {
         var attachGeneration: Int = 0
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
@@ -12330,7 +12331,110 @@ struct GhosttyTerminalView: NSViewRepresentable {
         weak var vacancyParkedSurface: TerminalSurface?
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    private let hostContainer = HostContainerView(frame: .zero)
+    private let coordinator = Coordinator()
+    private var isTornDown = false
+
+    init(
+        terminalSurface: TerminalSurface,
+        paneId: PaneID,
+        isActive: Bool = true,
+        isVisibleInUI: Bool = true,
+        ownershipGeneration: UInt64 = 0,
+        isCurrentPaneOwner: @escaping @MainActor () -> Bool = { true },
+        portalZPriority: Int = 0,
+        showsInactiveOverlay: Bool = false,
+        showsUnreadNotificationRing: Bool = false,
+        inactiveOverlayColor: NSColor = .clear,
+        inactiveOverlayOpacity: Double = 0,
+        searchState: TerminalSurface.SearchState? = nil,
+        sessionContentWidthPresentation: SessionContentWidthPresentation = .disabled,
+        paneDropZone: DropZone? = nil,
+        onFocus: ((UUID) -> Void)? = nil,
+        onTriggerFlash: (() -> Void)? = nil
+    ) {
+        self.terminalSurface = terminalSurface
+        self.paneId = paneId
+        self.isActive = isActive
+        self.isVisibleInUI = isVisibleInUI
+        self.ownershipGeneration = ownershipGeneration
+        self.isCurrentPaneOwner = isCurrentPaneOwner
+        self.portalZPriority = portalZPriority
+        self.showsInactiveOverlay = showsInactiveOverlay
+        self.showsUnreadNotificationRing = showsUnreadNotificationRing
+        self.inactiveOverlayColor = inactiveOverlayColor
+        self.inactiveOverlayOpacity = inactiveOverlayOpacity
+        self.searchState = searchState
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        self.paneDropZone = paneDropZone
+        self.onFocus = onFocus
+        self.onTriggerFlash = onTriggerFlash
+        super.init(frame: .zero)
+
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+
+        hostContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hostContainer)
+        NSLayoutConstraint.activate([
+            hostContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hostContainer.topAnchor.constraint(equalTo: topAnchor),
+            hostContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        apply()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    func update(
+        terminalSurface: TerminalSurface,
+        paneId: PaneID,
+        isActive: Bool,
+        isVisibleInUI: Bool,
+        ownershipGeneration: UInt64,
+        isCurrentPaneOwner: @escaping @MainActor () -> Bool,
+        portalZPriority: Int,
+        showsInactiveOverlay: Bool,
+        showsUnreadNotificationRing: Bool,
+        inactiveOverlayColor: NSColor,
+        inactiveOverlayOpacity: Double,
+        searchState: TerminalSurface.SearchState?,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        paneDropZone: DropZone?,
+        onFocus: ((UUID) -> Void)?,
+        onTriggerFlash: (() -> Void)?
+    ) {
+        self.terminalSurface = terminalSurface
+        self.paneId = paneId
+        self.isActive = isActive
+        self.isVisibleInUI = isVisibleInUI
+        self.ownershipGeneration = ownershipGeneration
+        self.isCurrentPaneOwner = isCurrentPaneOwner
+        self.portalZPriority = portalZPriority
+        self.showsInactiveOverlay = showsInactiveOverlay
+        self.showsUnreadNotificationRing = showsUnreadNotificationRing
+        self.inactiveOverlayColor = inactiveOverlayColor
+        self.inactiveOverlayOpacity = inactiveOverlayOpacity
+        self.searchState = searchState
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        self.paneDropZone = paneDropZone
+        self.onFocus = onFocus
+        self.onTriggerFlash = onTriggerFlash
+        isTornDown = false
+        apply()
+    }
 
     static func shouldApplyImmediateHostedStateUpdate(
         desiredVisibleInUI: Bool, hostedViewHasSuperview: Bool, isBoundToCurrentHost: Bool
@@ -12377,9 +12481,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
     static func hostCallbackPortalGeometrySynchronizationAction<Window>(
         window: Window?
     ) -> HostCallbackPortalGeometrySynchronizationAction<Window> {
-        // HostContainerView callbacks can fire while SwiftUI/AppKit is already
-        // rendering or laying out the representable. Keep the immediate path,
-        // but forbid ancestor layout flushes from this callback.
+        // HostContainerView callbacks can fire while AppKit is already
+        // rendering or laying out the pane. Keep the immediate path, but
+        // forbid ancestor layout flushes from this callback.
         guard let window else { return .skip }
         return .synchronizeWithoutLayoutFlush(window)
     }
@@ -12391,8 +12495,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        // Avoid forcing ancestor AppKit layout while SwiftUI is still inside
-        // the current update/layout turn. Reconcile the portal against the
+        // Avoid forcing ancestor AppKit layout from inside the current
+        // update/layout turn. Reconcile the portal against the
         // already-current host geometry so terminal content tracks resize
         // without reopening the CATransaction display-link reentry path.
         guard case .synchronizeWithoutLayoutFlush = hostCallbackPortalGeometrySynchronizationAction(
@@ -12400,19 +12504,27 @@ struct GhosttyTerminalView: NSViewRepresentable {
         ) else { return }
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
-    func makeNSView(context: Context) -> NSView {
-        let container = HostContainerView(frame: .zero)
-        container.wantsLayer = false
-        // The actual terminal surface lives in the AppKit portal layer above SwiftUI.
-        // This empty placeholder should not be walked by the accessibility subsystem.
-        container.setAccessibilityRole(.none)
-        container.setAccessibilityElement(false)
-        return container
-    }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    private func apply() {
+        let nsView = hostContainer
+        let terminalSurface = self.terminalSurface
+        let paneId = self.paneId
+        let isActive = self.isActive
+        let isVisibleInUI = self.isVisibleInUI
+        let ownershipGeneration = self.ownershipGeneration
+        let isCurrentPaneOwner = self.isCurrentPaneOwner
+        let portalZPriority = self.portalZPriority
+        let showsInactiveOverlay = self.showsInactiveOverlay
+        let showsUnreadNotificationRing = self.showsUnreadNotificationRing
+        let inactiveOverlayColor = self.inactiveOverlayColor
+        let inactiveOverlayOpacity = self.inactiveOverlayOpacity
+        let searchState = self.searchState
+        let sessionContentWidthPresentation = self.sessionContentWidthPresentation
+        let paneDropZone = self.paneDropZone
+        let onFocus = self.onFocus
+        let onTriggerFlash = self.onTriggerFlash
         let hostedView = terminalSurface.hostedView
-        let coordinator = context.coordinator
+        let coordinator = self.coordinator
         let previousDesiredIsActive = coordinator.desiredIsActive
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
@@ -12430,7 +12542,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.swiftui.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "ws.appkit.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
                     "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) " +
                     "active=\(isActive ? 1 : 0) z=\(portalZPriority) " +
                     "hostWindow=\(nsView.window != nil ? 1 : 0) hostedWindow=\(hostedView.window != nil ? 1 : 0) " +
@@ -12438,7 +12550,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.swiftui.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "ws.appkit.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
                     "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0) z=\(portalZPriority) " +
                     "hostWindow=\(nsView.window != nil ? 1 : 0) hostedWindow=\(hostedView.window != nil ? 1 : 0) " +
                     "hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
@@ -12554,7 +12666,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // The owner-death wake. Every claim above runs on this host's own
             // edges; the lease owner dying fires none of them, and a pane whose
             // owner dismantled can otherwise wait a full settle budget for an
-            // unrelated SwiftUI update before it re-anchors. Parked only while
+            // unrelated presentation update before it re-anchors. Parked only while
             // this host owns its pane AND its content is presented; the wake
             // re-checks both live and never writes visible/active state, so it
             // can re-anchor on-screen content but can never reveal a hidden
@@ -12717,7 +12829,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 let geometryRevision = host.geometryRevision
                 let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
                 // Notification rings are hosted inside GhosttySurfaceScrollView and update in place.
-                // A ring-only state change must not resynchronize the window portal while SwiftUI is
+                // A ring-only state change must not resynchronize the window portal while AppKit is
                 // invalidating notification UI, or the terminal can be hidden until the next tab switch.
                 let shouldBindNow =
                     coordinator.lastBoundHostId != hostId ||
@@ -12796,7 +12908,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
             hostedView.setVisibleInUI(false)
         case .deferred:
-            // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
+            // Preserve portal entry visibility while a stale host is still receiving updates.
             // The currently bound host remains authoritative for immediate visible/active state.
 #if DEBUG
             if desiredStateChanged {
@@ -12812,7 +12924,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+    func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+        let nsView = hostContainer
+        let coordinator = coordinator
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
@@ -12825,36 +12941,38 @@ struct GhosttyTerminalView: NSViewRepresentable {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.swiftui.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "ws.appkit.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
                     "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
                     "inWindow=\(hostedView.window != nil ? 1 : 0)"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+                    "ws.appkit.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
                     "inWindow=\(hostedView.window != nil ? 1 : 0)"
                 )
             }
         }
 #endif
 
-        if let host = nsView as? HostContainerView {
-            host.onDidMoveToWindow = nil
-            host.onGeometryChanged = nil
-            // The owner's vacate path drops its own wake-up; a candidate that
-            // never owned has no vacate path, so drop it here — through the
-            // coordinator's reference, since hostedView can already be gone.
-            coordinator.vacancyRetry = nil
-            coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host), instanceSerial: host.instanceSerial)
-            coordinator.vacancyParkedSurface = nil
-            hostedView?.prepareOwnedPortalHostForTransientReattach(
-                hostId: ObjectIdentifier(host),
-                instanceSerial: host.instanceSerial,
-                reason: "dismantle"
-            )
-        }
+        let host = hostContainer
+        host.onDidMoveToWindow = nil
+        host.onGeometryChanged = nil
+        // The owner's vacate path drops its own wake-up; a candidate that
+        // never owned has no vacate path, so drop it here through the
+        // coordinator's reference, since hostedView can already be gone.
+        coordinator.vacancyRetry = nil
+        coordinator.vacancyParkedSurface?.removePortalVacancyRetry(
+            hostId: ObjectIdentifier(host),
+            instanceSerial: host.instanceSerial
+        )
+        coordinator.vacancyParkedSurface = nil
+        hostedView?.prepareOwnedPortalHostForTransientReattach(
+            hostId: ObjectIdentifier(host),
+            instanceSerial: host.instanceSerial,
+            reason: "dismantle"
+        )
 
-        // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
+        // AppKit can transiently dismantle and rebuild pane anchors during split
         // tree updates. Do not drop the portal lease or force visible/active false here; that
         // causes avoidable blackouts when the same hosted view is rebound moments later.
         hostedView?.setFocusHandler(nil)
@@ -12862,6 +12980,5 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView?.setDropZoneOverlay(zone: nil)
         coordinator.hostedView = nil
 
-        nsView.subviews.forEach { $0.removeFromSuperview() }
     }
 }

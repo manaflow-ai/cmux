@@ -85,8 +85,8 @@ final class TerminalPanel: Panel, ObservableObject {
         }
     }
 
-    /// Bump this token to force SwiftUI to call `updateNSView` on `GhosttyTerminalView`,
-    /// which re-attaches the hosted view after bonsplit close/reparent operations.
+    /// Bump this token to refresh ``GhosttyTerminalView`` and reattach its
+    /// hosted surface after Bonsplit close and reparent operations.
     ///
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
@@ -136,7 +136,7 @@ final class TerminalPanel: Panel, ObservableObject {
         false
     }
 
-    /// The hosted NSView for embedding in SwiftUI
+    /// The hosted terminal view used by the AppKit pane compositor.
     var hostedView: GhosttySurfaceScrollView {
         surface.hostedView
     }

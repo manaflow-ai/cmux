@@ -8,6 +8,83 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxSettings
 
+private struct TerminalSurfaceHostBridge: NSViewRepresentable {
+    @Environment(\.paneDropZone) private var paneDropZone
+
+    let terminalSurface: TerminalSurface
+    let paneId: PaneID
+    let isActive: Bool
+    let isVisibleInUI: Bool
+    let ownershipGeneration: UInt64
+    let isCurrentPaneOwner: @MainActor () -> Bool
+    let portalZPriority: Int
+    let showsInactiveOverlay: Bool
+    let showsUnreadNotificationRing: Bool
+    let inactiveOverlayColor: NSColor
+    let inactiveOverlayOpacity: Double
+    let searchState: TerminalSurface.SearchState?
+    let sessionContentWidthPresentation: SessionContentWidthPresentation
+    let onFocus: ((UUID) -> Void)?
+    let onTriggerFlash: (() -> Void)?
+
+    func makeNSView(context: Context) -> GhosttyTerminalView {
+        GhosttyTerminalView(
+            terminalSurface: terminalSurface,
+            paneId: paneId,
+            isActive: isActive,
+            isVisibleInUI: isVisibleInUI,
+            ownershipGeneration: ownershipGeneration,
+            isCurrentPaneOwner: isCurrentPaneOwner,
+            portalZPriority: portalZPriority,
+            showsInactiveOverlay: showsInactiveOverlay,
+            showsUnreadNotificationRing: showsUnreadNotificationRing,
+            inactiveOverlayColor: inactiveOverlayColor,
+            inactiveOverlayOpacity: inactiveOverlayOpacity,
+            searchState: searchState,
+            sessionContentWidthPresentation: sessionContentWidthPresentation,
+            paneDropZone: paneDropZone,
+            onFocus: onFocus,
+            onTriggerFlash: onTriggerFlash
+        )
+    }
+
+    func updateNSView(_ view: GhosttyTerminalView, context: Context) {
+        view.update(
+            terminalSurface: terminalSurface,
+            paneId: paneId,
+            isActive: isActive,
+            isVisibleInUI: isVisibleInUI,
+            ownershipGeneration: ownershipGeneration,
+            isCurrentPaneOwner: isCurrentPaneOwner,
+            portalZPriority: portalZPriority,
+            showsInactiveOverlay: showsInactiveOverlay,
+            showsUnreadNotificationRing: showsUnreadNotificationRing,
+            inactiveOverlayColor: inactiveOverlayColor,
+            inactiveOverlayOpacity: inactiveOverlayOpacity,
+            searchState: searchState,
+            sessionContentWidthPresentation: sessionContentWidthPresentation,
+            paneDropZone: paneDropZone,
+            onFocus: onFocus,
+            onTriggerFlash: onTriggerFlash
+        )
+    }
+
+    static func dismantleNSView(_ view: GhosttyTerminalView, coordinator: ()) {
+        view.teardown()
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: GhosttyTerminalView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? max(1, nsView.bounds.width),
+            height: proposal.height ?? max(1, nsView.bounds.height)
+        )
+    }
+}
+
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
@@ -96,7 +173,7 @@ struct TerminalPanelView: View {
         return VStack(spacing: 0) {
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
-            GhosttyTerminalView(
+            TerminalSurfaceHostBridge(
                 terminalSurface: panel.surface,
                 paneId: paneId,
                 isActive: isFocused,
@@ -109,7 +186,6 @@ struct TerminalPanelView: View {
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 searchState: panel.searchState,
-                reattachToken: panel.viewReattachToken,
                 sessionContentWidthPresentation: sessionContentWidthPresentation,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
@@ -423,14 +499,14 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
-    let dividerColor: Color
+    let dividerColor: NSColor
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
     init(
         backgroundColor: NSColor,
         foregroundColor: NSColor,
-        dividerColor: Color,
+        dividerColor: NSColor,
         unfocusedOverlayNSColor: NSColor,
         unfocusedOverlayOpacity: Double,
         usesClearContentBackground: Bool
@@ -470,7 +546,7 @@ struct PanelAppearance {
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
-            dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
+            dividerColor: config.resolvedSplitDividerColor,
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
             usesClearContentBackground: shouldUseClearContentBackground(

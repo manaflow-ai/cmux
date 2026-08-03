@@ -97,7 +97,7 @@ struct SimulatorPanelVisibilityTests {
             appearance: PanelAppearance(
                 backgroundColor: background,
                 foregroundColor: cmuxReadableForegroundNSColor(on: background, opacity: 1),
-                dividerColor: Color(nsColor: .separatorColor),
+                dividerColor: .separatorColor,
                 unfocusedOverlayNSColor: .clear,
                 unfocusedOverlayOpacity: 0,
                 usesClearContentBackground: false
@@ -168,7 +168,7 @@ struct SimulatorPanelThemeTests {
             appearance: PanelAppearance(
                 backgroundColor: background,
                 foregroundColor: cmuxReadableForegroundNSColor(on: background, opacity: 1),
-                dividerColor: Color(nsColor: .separatorColor),
+                dividerColor: .separatorColor,
                 unfocusedOverlayNSColor: .clear,
                 unfocusedOverlayOpacity: 0,
                 usesClearContentBackground: false
