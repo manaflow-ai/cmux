@@ -91,12 +91,11 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.vertical, 18)
                 .focused($isPromptFocused)
                 .disabled(isDisabled)
-                // .interactively resizes the editor on every drag frame while
-                // the keyboard tracks the finger; UITextView then re-scrolls
-                // to keep the caret visible, yanking long text back down as
-                // the user tries to scroll up. One immediate dismissal keeps
-                // manual scrolling stable.
-                .scrollDismissesKeyboard(.immediately)
+                // The prompt owns drags that begin in its text canvas. Keeping
+                // keyboard geometry stable avoids both the caret snap-back of
+                // interactive dismissal and the abrupt resize of immediate
+                // dismissal while a long prompt is being scrolled.
+                .scrollDismissesKeyboard(.never)
                 .accessibilityLabel(L10n.string(
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"

@@ -324,6 +324,10 @@ struct TaskComposerSheet: View {
             }
         }
         .presentationDetents([.large])
+        // Swipes inside the prompt belong to its scroll view. The drag
+        // indicator remains the explicit affordance for moving or dismissing
+        // the sheet, so the two vertical gestures no longer compete.
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
         .background(TaskComposerInitialFocusCoordinator(
