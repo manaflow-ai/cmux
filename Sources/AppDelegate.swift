@@ -781,6 +781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -871,6 +872,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
+    /// App-owned computer-use graph; all runtime dependencies are injected here.
+    private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
+        guard let computerUseRuntimeService else {
+            preconditionFailure("ComputerUseRuntimeService must be injected before coordinator use")
+        }
+        let catalog = settingsRuntime?.catalog ?? SettingCatalog()
+        let configStore = settingsRuntime?.jsonStore
+            ?? JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        return ComputerUseUXCoordinator(
+            liveAgentIndex: SharedLiveAgentIndex.shared,
+            stateRepository: ComputerUseStateRepository(
+                authenticationKey: computerUseRuntimeService.stateAuthenticationKey
+            ),
+            stateDirectoryURL: computerUseRuntimeService.stateDirectoryURL,
+            configStore: configStore,
+            enabledKey: catalog.computerUse.enabled,
+            showInMenuBarKey: catalog.computerUse.showInMenuBar,
+            liveSettingRepository: ComputerUseLiveSettingRepository(
+                fileURL: TerminalSurface.computerUseLiveSettingFileURL(
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                )
+            ),
+            runtimeService: computerUseRuntimeService,
+            userDefaults: .standard,
+            workspaceTitle: { [weak self] workspaceID in
+                self?.tabTitle(for: workspaceID)
+            },
+            featureEnabled: {
+                CmuxFeatureFlags.shared.isComputerUseUXEnabled
+            }
+        )
+    }()
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -2021,6 +2054,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
+        computerUseUXCoordinator.teardownForTermination()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         // The hard AppKit watchdog is armed immediately before the terminate
@@ -2149,6 +2183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        computerUseUXCoordinator.teardownForTermination()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -2197,7 +2232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        computerUseRuntimeService: ComputerUseRuntimeService
     ) {
         self.tabManager = tabManager
         // SwiftUI constructs the initial TabManager before this delegate is
@@ -2207,6 +2243,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.computerUseRuntimeService = computerUseRuntimeService
+        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
+            self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
+        }
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -9467,6 +9507,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
+        computerUseUXCoordinator.install {
+            [weak self] workspaceID, surfaceID, effectIsCurrent in
+            _ = self?.focusTerminal(
+                tabId: workspaceID,
+                surfaceId: surfaceID,
+                while: effectIsCurrent
+            )
+        }
     }
 
     private func installMobileHostSettingsObserver() {

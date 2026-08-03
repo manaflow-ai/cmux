@@ -438,6 +438,11 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Whether an agent-index refresh has been scheduled and has not completed yet.
+    var hasScheduledRefresh: Bool {
+        refreshTask != nil || forkAvailabilityRefreshTask != nil
+    }
+
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()

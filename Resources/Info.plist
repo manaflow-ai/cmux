@@ -6,14 +6,6 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CMUXSidebarExtensionPointIdentifier</key>
-	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -53,35 +45,18 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>NSDockTilePlugIn</key>
-	<string>CmuxDockTilePlugin.plugin</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.developer-tools</string>
-	<key>LSArchitecturePriority</key>
-	<array>
-		<string>arm64</string>
-		<string>x86_64</string>
-	</array>
-	<key>NSHumanReadableCopyright</key>
-	<string></string>
-	<key>NSMainStoryboardFile</key>
-	<string></string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within cmux would like to use your microphone.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>A program running within cmux would like to use your camera.</string>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -89,45 +64,102 @@
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER).web</string>
-			<key>LSHandlerRank</key>
-			<string>Default</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>http</string>
 				<string>https</string>
 			</array>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER).auth</string>
-			<key>LSHandlerRank</key>
-			<string>Default</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
 			</array>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
 			<string>SSH URL</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>ssh</string>
 			</array>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
 		</dict>
 	</array>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CMUXIrohRelayPolicyKeyID</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+	<key>CMUXIrohRelayPolicyTrustKeys</key>
+	<array>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+		</dict>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
+		</dict>
+	</array>
+	<key>CMUXSidebarExtensionPointIdentifier</key>
+	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+		<string>x86_64</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>cmux-loopback.localtest.me</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
-	<key>OSAScriptingDefinition</key>
-	<string>cmux.sdef</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSDockTilePlugIn</key>
+	<string>CmuxDockTilePlugin.plugin</string>
+	<key>NSHumanReadableCopyright</key>
+	<string></string>
+	<key>NSMainStoryboardFile</key>
+	<string></string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within cmux would like to use your microphone.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
@@ -169,17 +201,64 @@
 			</array>
 		</dict>
 	</array>
+	<key>OSAScriptingDefinition</key>
+	<string>cmux.sdef</string>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_KEY)</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUSendProfileInfo</key>
+	<false/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Bonsplit Tab Transfer</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.splittabbar.tabtransfer</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>cmux Sidebar Tab Reorder</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.sidebar-tab-reorder</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>cmux File Preview Transfer</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.filepreview.transfer</string>
+		</dict>
+	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.apple.terminal.shell-script</string>
-			<key>UTTypeDescription</key>
-			<string>Terminal shell script</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.shell-script</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>Terminal shell script</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.terminal.shell-script</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -188,85 +267,6 @@
 					<string>tool</string>
 				</array>
 			</dict>
-		</dict>
-	</array>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.sidebar-tab-reorder</string>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.filepreview.transfer</string>
-			<key>UTTypeDescription</key>
-			<string>cmux File Preview Transfer</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>cmux-loopback.localtest.me</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
-		</dict>
-	</dict>
-	<key>SUAutomaticallyUpdate</key>
-	<false/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
-	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
-	<key>SUSendProfileInfo</key>
-	<false/>
-	<key>SUPublicEDKey</key>
-	<string>$(SPARKLE_PUBLIC_KEY)</string>
-	<key>CMUXIrohRelayPolicyKeyID</key>
-	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
-	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
-	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
-	<key>CMUXIrohRelayPolicyTrustKeys</key>
-	<array>
-		<dict>
-			<key>keyID</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
-			<key>publicKeyBase64</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
-		</dict>
-		<dict>
-			<key>keyID</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
-			<key>publicKeyBase64</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
 		</dict>
 	</array>
 </dict>
