@@ -148,6 +148,113 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testLaunchRewritePreservesSocketPasswordForCLIAuthentication() throws {
+        let fileManager = FileManager.default
+        let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ui-test-password-launch-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        temporaryRoots.append(isolatedHome)
+
+        let configDirectory = isolatedHome.appendingPathComponent(".config/cmux", isDirectory: true)
+        let configURL = configDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let passwordFileURL = isolatedHome
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
+            .appendingPathComponent("socket-control-password", isDirectory: false)
+        let debugLogURL = isolatedHome.appendingPathComponent("cmux-debug.log", isDirectory: false)
+        let password = "launch-rewrite-secret"
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "automation": {
+            "socketControlMode": "password",
+            "socketPassword": "\(password)"
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let app = configuredApp(mode: "password")
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["HOME"] = isolatedHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = isolatedHome
+            .appendingPathComponent(".config", isDirectory: true).path
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = debugLogURL.path
+
+        // XCUIApplication requires activation even though this test is entirely
+        // socket-driven. Headless runners can leave a healthy app backgrounded;
+        // keep executing after that one known launch issue so the persistence
+        // assertions below still run against the live process.
+        let previousContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
+        defer { continueAfterFailure = previousContinueAfterFailure }
+        let activationOptions = XCTExpectedFailure.Options()
+        activationOptions.isStrict = false
+        activationOptions.issueMatcher = { issue in
+            issue.compactDescription.contains("Failed to activate application")
+                && issue.compactDescription.contains("current state: Running Background")
+        }
+        XCTExpectFailure(
+            "Headless runners can leave the socket-driven app in Running Background",
+            options: activationOptions
+        ) {
+            app.launch()
+        }
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app process to remain running. state=\(app.state.rawValue)"
+        )
+
+        guard let resolvedPath = resolveSocketPath(timeout: 15.0, allowTmpFallback: false) else {
+            XCTFail(
+                "Expected password-protected control socket to exist. "
+                    + "state=\(app.state.rawValue) diagnostics=\(loadDiagnostics()) "
+                    + "debugLog=\(loadTextFile(at: debugLogURL))"
+            )
+            return
+        }
+        socketPath = resolvedPath
+
+        XCTAssertTrue(
+            waitForConfigPasswordScrub(at: configURL, timeout: 5.0),
+            "Expected launch migration to remove the plaintext socketPassword from cmux.json"
+        )
+
+        let reload = try runBundledCLI(
+            arguments: ["--socket", socketPath, "reload-config"],
+            isolatedHome: isolatedHome
+        )
+        XCTAssertEqual(
+            reload.status,
+            0,
+            "Expected reload-config to authenticate with the migrated password. stdout=\(reload.stdout) stderr=\(reload.stderr)"
+        )
+
+        XCTAssertEqual(
+            try? String(contentsOf: passwordFileURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            password,
+            "The launch rewrite must leave the socket credential in the shared password store"
+        )
+
+        let listWindows = try runBundledCLI(
+            arguments: ["--socket", socketPath, "list-windows"],
+            isolatedHome: isolatedHome
+        )
+        XCTAssertEqual(
+            listWindows.status,
+            0,
+            "Expected list-windows to reuse the migrated password without an explicit --password. stdout=\(listWindows.stdout) stderr=\(listWindows.stderr)"
+        )
+        XCTAssertFalse(
+            listWindows.stderr.localizedCaseInsensitiveContains("authentication required"),
+            "CLI should authenticate from the migrated credential file"
+        )
+    }
+
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
         let skillRoot = try makeSkillFixtureRoot(
             skillNames: [
@@ -356,6 +463,117 @@ final class AutomationSocketUITests: XCTestCase {
             object: NSObject()
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForConfigPasswordScrub(at configURL: URL, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let data = try? Data(contentsOf: configURL),
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let automation = root["automation"] as? [String: Any] else {
+                    return false
+                }
+                return automation["socketPassword"] == nil
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func runBundledCLI(
+        arguments: [String],
+        isolatedHome: URL
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let cliURL = try XCTUnwrap(
+            bundledCLIURL(),
+            "Expected the UI test host's bundled cmux CLI"
+        )
+        let process = Process()
+        process.executableURL = cliURL
+        process.arguments = arguments
+        var environment = [
+            "HOME": isolatedHome.path,
+            "CFFIXED_USER_HOME": isolatedHome.path,
+            "XDG_CONFIG_HOME": isolatedHome
+                .appendingPathComponent(".config", isDirectory: true).path,
+            "CMUX_TAG": launchTag,
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "10",
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            environment["PATH"] = path
+        }
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func loadTextFile(at url: URL) -> String {
+        (try? String(contentsOf: url, encoding: .utf8)) ?? "<missing>"
+    }
+
+    private func bundledCLIURL() -> URL? {
+        let fileManager = FileManager.default
+        let environment = ProcessInfo.processInfo.environment
+        var productDirectories: [URL] = []
+        if let builtProductsDirectory = environment["BUILT_PRODUCTS_DIR"],
+           !builtProductsDirectory.isEmpty {
+            productDirectories.append(URL(fileURLWithPath: builtProductsDirectory, isDirectory: true))
+        }
+        if let testHost = environment["TEST_HOST"], !testHost.isEmpty {
+            var productsDirectory = URL(fileURLWithPath: testHost)
+            for _ in 0..<4 {
+                productsDirectory.deleteLastPathComponent()
+            }
+            productDirectories.append(productsDirectory)
+        }
+        for bundleURL in [Bundle.main.bundleURL, Bundle(for: Self.self).bundleURL] {
+            let components = bundleURL.standardizedFileURL.path.split(separator: "/")
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                continue
+            }
+            let productsPath = "/" + components
+                .prefix(productsIndex + 2)
+                .joined(separator: "/")
+            productDirectories.append(URL(fileURLWithPath: productsPath, isDirectory: true))
+        }
+
+        var candidates: [URL] = []
+        for directory in productDirectories {
+            for appName in ["cmux DEV.app", "cmux.app"] {
+                candidates.append(
+                    directory
+                        .appendingPathComponent(appName, isDirectory: true)
+                        .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+                )
+            }
+            if let entries = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) {
+                candidates.append(contentsOf: entries
+                    .filter { $0.pathExtension == "app" }
+                    .map {
+                        $0.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+                    })
+            }
+        }
+        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
     }
 
     private func socketCommand(_ command: String) -> String? {
