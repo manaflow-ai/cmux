@@ -5,6 +5,7 @@ import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSimulatorUI
+import Combine
 
 @MainActor
 struct PanelContentConfiguration {
@@ -59,6 +60,7 @@ final class PanelContentViewController: NSViewController {
         case customSidebar
         case markdown
         case filePreview
+        case cloudVMLoading
         case transitional(String)
     }
 
@@ -146,6 +148,8 @@ final class PanelContentViewController: NSViewController {
             return .markdown
         case .filePreview:
             return .filePreview
+        case .cloudVMLoading:
+            return .cloudVMLoading
         default:
             return .transitional(configuration.panel.panelType.rawValue)
         }
@@ -176,6 +180,8 @@ final class PanelContentViewController: NSViewController {
             return MarkdownPanelNativeViewController(configuration: configuration)
         case .filePreview:
             return FilePreviewPanelNativeViewController(configuration: configuration)
+        case .cloudVMLoading:
+            return CloudVMLoadingPanelNativeViewController(configuration: configuration)
         case .transitional:
             return TransitionalPanelLeafHostingController(configuration: configuration)
         }
@@ -462,5 +468,348 @@ private final class AccountSignInPanelScrollView: NSScrollView {
         guard let documentView else { return }
         documentView.frame.size.width = max(0, contentSize.width - 48)
         documentView.frame.size.height = max(240, contentSize.height - 48)
+    }
+}
+
+@MainActor
+private final class CloudVMLoadingPanelNativeViewController: NSViewController,
+    PanelContentControllerUpdating
+{
+    private var configuration: PanelContentConfiguration
+    private weak var panel: CloudVMLoadingPanel?
+    private var panelCancellable: AnyCancellable?
+    private var refreshTask: Task<Void, Never>?
+    private var tickerTask: Task<Void, Never>?
+
+    private let contentStack = NSStackView()
+    private let spinner = NSProgressIndicator()
+    private let warningIcon = NSImageView()
+    private let headline = NSTextField(labelWithString: "")
+    private let loadingStatus = NSStackView()
+    private let elapsedLabel = NSTextField(labelWithString: "")
+    private let workspaceRow = CloudVMLoadingStatusNativeRow()
+    private let activeRow = CloudVMLoadingStatusNativeRow()
+    private let terminalRow = CloudVMLoadingStatusNativeRow()
+    private let failureMessage = NSTextField(wrappingLabelWithString: "")
+    private let actionStack = NSStackView()
+    private let retryButton = CloudVMLoadingActionButton(
+        title: String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+        systemName: "arrow.clockwise"
+    )
+    private let feedbackButton = CloudVMLoadingActionButton(
+        title: String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
+        systemName: "bubble.left.and.text.bubble.right"
+    )
+    private let failureElapsed = NSTextField(labelWithString: "")
+
+    init(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.orientation = .vertical
+        contentStack.alignment = .centerX
+        contentStack.spacing = 14
+
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+        warningIcon.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "exclamationmark.triangle.fill",
+            pointSize: 18,
+            weight: .regular
+        )
+        warningIcon.contentTintColor = .systemOrange
+        headline.font = .systemFont(ofSize: 14, weight: .semibold)
+        headline.alignment = .center
+
+        elapsedLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        elapsedLabel.textColor = .secondaryLabelColor
+        elapsedLabel.alignment = .center
+        loadingStatus.orientation = .vertical
+        loadingStatus.alignment = .leading
+        loadingStatus.spacing = 10
+        let rows = NSStackView(views: [workspaceRow, activeRow, terminalRow])
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 6
+        loadingStatus.addArrangedSubview(elapsedLabel)
+        loadingStatus.addArrangedSubview(rows)
+        rows.widthAnchor.constraint(lessThanOrEqualToConstant: 420).isActive = true
+
+        failureMessage.font = .systemFont(ofSize: 12)
+        failureMessage.textColor = .secondaryLabelColor
+        failureMessage.alignment = .center
+        failureMessage.maximumNumberOfLines = 0
+        failureMessage.widthAnchor.constraint(lessThanOrEqualToConstant: 460).isActive = true
+        actionStack.orientation = .horizontal
+        actionStack.alignment = .centerY
+        actionStack.spacing = 8
+        actionStack.addArrangedSubview(retryButton)
+        actionStack.addArrangedSubview(feedbackButton)
+        retryButton.keyEquivalent = "\r"
+        retryButton.bezelColor = .controlAccentColor
+        failureElapsed.font = .systemFont(ofSize: 11)
+        failureElapsed.textColor = .tertiaryLabelColor
+        failureElapsed.alignment = .center
+
+        [
+            spinner,
+            warningIcon,
+            headline,
+            loadingStatus,
+            failureMessage,
+            actionStack,
+            failureElapsed,
+        ].forEach(contentStack.addArrangedSubview)
+        root.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 32),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -32),
+        ])
+        retryButton.onClick = {
+            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+        }
+        feedbackButton.onClick = {
+            FeedbackComposerBridge().openComposer()
+        }
+        root.setAccessibilityIdentifier("CloudVMLoadingPanel")
+        view = root
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        loadViewIfNeeded()
+        guard let panel = configuration.panel as? CloudVMLoadingPanel else { return }
+        observe(panel)
+        render(panel: panel, now: Date())
+        reconcileTicker(panel: panel)
+    }
+
+    func teardownPanelContent() {
+        panelCancellable = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        tickerTask?.cancel()
+        tickerTask = nil
+        retryButton.onClick = nil
+        feedbackButton.onClick = nil
+        panel = nil
+    }
+
+    isolated deinit {
+        refreshTask?.cancel()
+        tickerTask?.cancel()
+    }
+
+    private func observe(_ panel: CloudVMLoadingPanel) {
+        guard self.panel !== panel else { return }
+        panelCancellable = panel.objectWillChange.sink { [weak self] in
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.scheduleRefresh()
+            }
+        }
+        self.panel = panel
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let panel = self.panel else { return }
+            self.render(panel: panel, now: Date())
+            self.reconcileTicker(panel: panel)
+        }
+    }
+
+    private func reconcileTicker(panel: CloudVMLoadingPanel) {
+        guard configuration.isVisibleInUI, panel.isLoading else {
+            tickerTask?.cancel()
+            tickerTask = nil
+            return
+        }
+        guard tickerTask == nil else { return }
+        tickerTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                guard let self, let panel = self.panel else { return }
+                self.render(panel: panel, now: Date())
+                do {
+                    try await clock.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func render(panel: CloudVMLoadingPanel, now: Date) {
+        view.layer?.backgroundColor = GhosttyApp.shared.defaultBackgroundColor.cgColor
+        switch panel.phase {
+        case .loading:
+            let elapsed = max(0, Int(now.timeIntervalSince(panel.startedAt).rounded(.down)))
+            spinner.isHidden = false
+            warningIcon.isHidden = true
+            headline.stringValue = String(
+                localized: "panel.cloudVM.loading.headline",
+                defaultValue: "Opening Base"
+            )
+            loadingStatus.isHidden = false
+            failureMessage.isHidden = true
+            actionStack.isHidden = true
+            failureElapsed.isHidden = true
+            elapsedLabel.stringValue = String(format: String(
+                localized: "panel.cloudVM.loading.elapsed",
+                defaultValue: "%ds elapsed"
+            ), elapsed)
+            workspaceRow.update(
+                icon: "checkmark.circle.fill",
+                text: String(
+                    localized: "panel.cloudVM.loading.step.workspace",
+                    defaultValue: "Pinned workspace created"
+                ),
+                isActive: false
+            )
+            activeRow.update(icon: loadingStatusIcon(elapsed), text: loadingStatusText(elapsed), isActive: true)
+            terminalRow.update(
+                icon: elapsed >= 6 ? "arrow.triangle.2.circlepath" : "circle",
+                text: String(
+                    localized: "panel.cloudVM.loading.step.terminal",
+                    defaultValue: "Terminal will open automatically when ready"
+                ),
+                isActive: elapsed >= 6
+            )
+        case .failed(let message, let elapsed):
+            spinner.isHidden = true
+            warningIcon.isHidden = false
+            headline.stringValue = String(
+                localized: "panel.cloudVM.loading.failed.headline",
+                defaultValue: "Base unavailable"
+            )
+            loadingStatus.isHidden = true
+            failureMessage.isHidden = false
+            failureMessage.stringValue = message
+            actionStack.isHidden = false
+            failureElapsed.isHidden = false
+            failureElapsed.stringValue = String(format: String(
+                localized: "panel.cloudVM.loading.failed.elapsed",
+                defaultValue: "Waited %ds before stopping."
+            ), elapsed)
+        }
+    }
+
+    private func loadingStatusText(_ elapsed: Int) -> String {
+        switch elapsed {
+        case 0..<3:
+            String(
+                localized: "panel.cloudVM.loading.step.request",
+                defaultValue: "Requesting your persistent VM"
+            )
+        case 3..<8:
+            String(
+                localized: "panel.cloudVM.loading.step.resume",
+                defaultValue: "Starting or resuming the VM"
+            )
+        case 8..<18:
+            String(
+                localized: "panel.cloudVM.loading.step.endpoint",
+                defaultValue: "Waiting for a secure terminal endpoint"
+            )
+        default:
+            String(
+                localized: "panel.cloudVM.loading.step.retrying",
+                defaultValue: "Still waiting; retrying in the background"
+            )
+        }
+    }
+
+    private func loadingStatusIcon(_ elapsed: Int) -> String {
+        (0..<6).contains(elapsed) ? "arrow.triangle.2.circlepath" : "checkmark.circle.fill"
+    }
+}
+
+@MainActor
+private final class CloudVMLoadingStatusNativeRow: NSView {
+    private let iconView = NSImageView()
+    private let textLabel = NSTextField(wrappingLabelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.font = .systemFont(ofSize: 12)
+        textLabel.maximumNumberOfLines = 2
+        addSubview(iconView)
+        addSubview(textLabel)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            iconView.widthAnchor.constraint(equalToConstant: 14),
+            iconView.heightAnchor.constraint(equalToConstant: 14),
+            textLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textLabel.topAnchor.constraint(equalTo: topAnchor),
+            textLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(icon: String, text: String, isActive: Bool) {
+        iconView.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: icon,
+            pointSize: 12,
+            weight: .regular
+        )
+        let color = isActive ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor
+        iconView.contentTintColor = color
+        textLabel.textColor = color
+        textLabel.stringValue = text
+    }
+}
+
+@MainActor
+private final class CloudVMLoadingActionButton: NSButton {
+    var onClick: (() -> Void)?
+
+    init(title: String, systemName: String) {
+        super.init(frame: .zero)
+        self.title = title
+        image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: systemName,
+            pointSize: 12,
+            weight: .semibold
+        )
+        imagePosition = .imageLeading
+        font = .systemFont(ofSize: 12, weight: .semibold)
+        bezelStyle = .rounded
+        controlSize = .small
+        target = self
+        action = #selector(invoke)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func invoke() {
+        onClick?()
     }
 }
