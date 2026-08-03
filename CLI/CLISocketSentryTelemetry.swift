@@ -157,13 +157,13 @@ final class CLISocketSentryTelemetry {
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
+        for (key, value) in data {
+            context[key] = value
+        }
         if let connectError = error as? CLISocketConnectError {
             for (key, value) in connectError.telemetryContext {
                 context[key] = value
             }
-        }
-        for (key, value) in data {
-            context[key] = value
         }
         let subcommand = self.subcommand
         let command = self.command
@@ -335,7 +335,7 @@ final class CLISocketSentryTelemetry {
         guard let connectError = error as? CLISocketConnectError else { return nil }
 
         var socketStat = stat()
-        let socketExists = lstat(connectError.path, &socketStat) == 0
+        let socketExists = stat(connectError.path, &socketStat) == 0
         return CLISocketPolicyDenialContext(
             stage: stage,
             errnoCode: connectError.errnoCode,
