@@ -1,6 +1,5 @@
 #if DEBUG
 import AppKit
-import SwiftUI
 
 /// Debug-only spinner comparison window (Debug → Debug Windows → Spinner
 /// Gallery…). Strings are English-only by design: the file is `#if DEBUG`,
@@ -23,7 +22,7 @@ final class SpinnerGalleryDebugWindowController: ReleasingWindowController {
         // the restored terminal window would otherwise win as main).
         window.level = .floating
         window.center()
-        window.contentView = NSHostingView(rootView: SpinnerGalleryRootView())
+        window.contentView = SpinnerGalleryRootView()
         return window
     }
 

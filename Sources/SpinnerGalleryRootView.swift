@@ -1,87 +1,75 @@
 #if DEBUG
 import AppKit
-import SwiftUI
 
-struct SpinnerGalleryRootView: View {
-    private let tint = NSColor.secondaryLabelColor
-    private let size: CGFloat = 22
+@MainActor
+final class SpinnerGalleryRootView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let header = NSTextField(labelWithString: "Indeterminate spinners · energy characteristics")
+        header.font = .systemFont(ofSize: 12, weight: .semibold)
+        header.textColor = .secondaryLabelColor
 
-    private var specs: [SpinnerSpec] {
-        let color = tint
-        let dim = size
+        let content = NSStackView()
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 10
+        content.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        content.addArrangedSubview(OverlayComparison())
+        for spec in Self.specs {
+            content.addArrangedSubview(SpinnerCard(spec: spec))
+        }
+        let footnote = NSTextField(wrappingLabelWithString: "Ratings are mechanism-based (GPU transform vs CPU per-frame redraw, main-thread vs off-thread), not live measurements. Confirm with Activity Monitor → Energy or Instruments → Energy Log while this window is frontmost.")
+        footnote.font = .systemFont(ofSize: 10)
+        footnote.textColor = .secondaryLabelColor
+        content.addArrangedSubview(footnote)
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.documentView = content
+        for child in [header, scroll] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
+        }
+        content.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            header.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            content.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            content.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            content.arrangedSubviews[0].widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+        ])
+        for view in content.arrangedSubviews.dropFirst() {
+            view.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28).isActive = true
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private static var specs: [SpinnerSpec] {
+        let tint = NSColor.secondaryLabelColor
         return [
-            SpinnerSpec(
-                title: "GPU spokes (shipping)",
-                mechanism: "Core Animation transform.rotation.z, discrete steps. Render server animates on the GPU; 0 main-thread work per frame. Pauses when occluded, off-screen, or Reduce Motion is on. Native macOS spokes look.",
-                energy: .low,
-                shipping: true,
-                makeView: { AnyView(GPUSpinner(style: .macOSSpokes, color: color).frame(width: dim, height: dim)) }
-            ),
-            SpinnerSpec(
-                title: "GPU arc (legacy cmux)",
-                mechanism: "Core Animation transform.rotation.z, continuous linear. GPU-composited, 0 main-thread work per frame. Same energy profile as spokes, different look.",
-                energy: .low,
-                shipping: false,
-                makeView: { AnyView(GPUSpinner(style: .arc, color: color).frame(width: dim, height: dim)) }
-            ),
-            SpinnerSpec(
-                title: "NSProgressIndicator (default)",
-                mechanism: "AppKit system spinner. Timer-driven; redraws every frame on the CPU on the main thread. Highest energy and competes with UI work on the main run loop.",
-                energy: .high,
-                shipping: false,
-                makeView: { AnyView(NativeSpinner(threaded: false).frame(width: dim, height: dim)) }
-            ),
-            SpinnerSpec(
-                title: "NSProgressIndicator (threaded)",
-                mechanism: "Same AppKit spinner with usesThreadedAnimation = true. Per-frame redraw moves off the main thread, but it is still CPU drawing every frame, not GPU.",
-                energy: .mediumHigh,
-                shipping: false,
-                makeView: { AnyView(NativeSpinner(threaded: true).frame(width: dim, height: dim)) }
-            ),
-            SpinnerSpec(
-                title: "SwiftUI ProgressView",
-                mechanism: "System indeterminate ProgressView. Bridges to the AppKit spinner under the hood; CPU per-frame redraw managed by the framework.",
-                energy: .mediumHigh,
-                shipping: false,
-                makeView: { AnyView(ProgressView().controlSize(.small).frame(width: dim, height: dim)) }
-            ),
+            SpinnerSpec(title: "GPU spokes (shipping)", mechanism: "Core Animation transform.rotation.z, discrete steps. Render server animation with no main-thread work per frame.", energy: .low, shipping: true) {
+                let view = GPUSpinnerNSView(frame: .zero); view.style = .macOSSpokes; view.color = tint; return view
+            },
+            SpinnerSpec(title: "GPU arc (legacy cmux)", mechanism: "Core Animation continuous rotation, composited by the render server.", energy: .low, shipping: false) {
+                let view = GPUSpinnerNSView(frame: .zero); view.style = .arc; view.color = tint; return view
+            },
+            SpinnerSpec(title: "NSProgressIndicator (default)", mechanism: "AppKit system spinner using main-thread redraws.", energy: .high, shipping: false) {
+                NativeSpinner(threaded: false)
+            },
+            SpinnerSpec(title: "NSProgressIndicator (threaded)", mechanism: "AppKit system spinner with threaded animation.", energy: .mediumHigh, shipping: false) {
+                NativeSpinner(threaded: true)
+            },
         ]
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    OverlayComparison()
-                    ForEach(specs) { spec in
-                        SpinnerCard(spec: spec)
-                    }
-                    footnote
-                }
-                .padding(14)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text("Indeterminate spinners · energy characteristics")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-        .padding(12)
-    }
-
-    private var footnote: some View {
-        Text("Ratings are mechanism-based (GPU transform vs CPU per-frame redraw, main-thread vs off-thread), not live measurements. Confirm with Activity Monitor → Energy or Instruments → Energy Log while this window is frontmost.")
-            .font(.system(size: 10))
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 6)
     }
 }
 #endif

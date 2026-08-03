@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxSettings
 import SwiftUI
 
@@ -159,6 +160,18 @@ enum WorkspaceTabColorSettings {
             return brightenedForDarkAppearance(baseColor)
         }
         return baseColor
+    }
+
+    static func displayNSColor(
+        hex: String,
+        colorScheme: WindowChromeColorScheme,
+        forceBright: Bool = false
+    ) -> NSColor? {
+        displayNSColor(
+            hex: hex,
+            colorScheme: colorScheme == .dark ? ColorScheme.dark : .light,
+            forceBright: forceBright
+        )
     }
 
     private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {

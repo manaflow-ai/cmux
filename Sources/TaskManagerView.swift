@@ -1,482 +1,431 @@
-import CmuxAppKitSupportUI
-import CmuxFoundation
+import AppKit
 import Observation
-import SwiftUI
 
-struct CmuxTaskManagerView: View {
-    @Bindable var model: CmuxTaskManagerModel
-
-    var body: some View {
-        // Outer view observes the model so the toolbar/summary/sort
-        // header repaint on snapshot or sort changes. The lazy list
-        // subtree is intentionally isolated below this boundary: it
-        // receives value-typed snapshots and a closure action bundle so
-        // row body re-evaluation can't be triggered by orthogonal model
-        // mutations. See repo/CLAUDE.md "Snapshot boundary for list
-        // subtrees" rule and issues #2586 / #4529.
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            summary
-            Divider()
-            tableHeader
-            Divider()
-            CmuxTaskManagerListView(
-                errorMessage: model.errorMessage,
-                isInitialLoading: model.isInitialLoading,
-                rows: model.sortedRows,
-                agentRows: model.sortedAgentRows,
-                aggregateRows: model.sortedAggregateRows,
-                childMemoryRows: model.sortedChildMemoryRows,
-                actions: CmuxTaskManagerRowActions.bound(to: model)
-            )
-        }
-        .frame(minWidth: 820, minHeight: 480)
-        .onAppear {
-            model.start()
-        }
-        .onDisappear {
-            model.stop()
-        }
+/// Native Task Manager surface backed by a recycled AppKit table.
+@MainActor
+final class CmuxTaskManagerView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+    private enum Item {
+        case section(String)
+        case row(CmuxTaskManagerRow)
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 12) {
-            Text(String(localized: "taskManager.title", defaultValue: "Task Manager"))
-                .cmuxFont(.title3, weight: .semibold)
+    private let model: CmuxTaskManagerModel
+    private let tableView = CmuxTaskManagerTableView()
+    private let scrollView = NSScrollView()
+    private let progress = NSProgressIndicator()
+    private let processToggle = NSButton(checkboxWithTitle: String(
+        localized: "taskManager.showProcesses",
+        defaultValue: "Processes"
+    ), target: nil, action: nil)
+    private let statusContainer = NSView()
+    private let statusTitle = NSTextField(labelWithString: "")
+    private let statusDetail = NSTextField(wrappingLabelWithString: "")
+    private var metricValues: [String: NSTextField] = [:]
+    private var items: [Item] = []
+    private var contextRow: CmuxTaskManagerRow?
 
-            if model.isRefreshing || model.isInitialLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel(String(localized: "taskManager.refreshing", defaultValue: "Refreshing"))
-            }
-
-            Spacer()
-
-            Toggle(
-                String(localized: "taskManager.showProcesses", defaultValue: "Processes"),
-                isOn: $model.includesProcesses
-            )
-            .toggleStyle(.checkbox)
-
-            Button {
-                model.refresh(force: true)
-            } label: {
-                Label(String(localized: "taskManager.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+    init(model: CmuxTaskManagerModel) {
+        self.model = model
+        super.init(frame: .zero)
+        setupView()
+        refreshFromModel()
     }
 
-    private var summary: some View {
-        HStack(spacing: 24) {
-            metric(
-                title: String(localized: "taskManager.summary.cpu", defaultValue: "CPU"),
-                value: CmuxTaskManagerFormat.cpu(model.snapshot.total.cpuPercent)
-            )
-            metric(
-                title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
-                value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
-            )
-            if let memoryDiagnostic = model.snapshot.memoryDiagnostic {
-                metric(
-                    title: String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint"),
-                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.appFootprintBytes)
-                )
-                metric(
-                    title: String(localized: "taskManager.summary.childRSS", defaultValue: "Child RSS"),
-                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.childRSSBytes)
-                )
-            }
-            metric(
-                title: String(localized: "taskManager.summary.processes", defaultValue: "Processes"),
-                value: "\(model.snapshot.total.processCount)"
-            )
-            metric(
-                title: String(localized: "taskManager.summary.updated", defaultValue: "Updated"),
-                value: model.snapshot.updatedText
-            )
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func metric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .cmuxFont(.body, weight: .semibold, design: .monospaced)
-                .monospacedDigit()
-        }
-    }
+    private func setupView() {
+        let title = NSTextField(labelWithString: String(localized: "taskManager.title", defaultValue: "Task Manager"))
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        progress.style = .spinning
+        progress.controlSize = .small
+        progress.isDisplayedWhenStopped = false
+        progress.setAccessibilityLabel(String(localized: "taskManager.refreshing", defaultValue: "Refreshing"))
 
-    private var tableHeader: some View {
-        HStack(spacing: 8) {
-            sortHeader(
-                title: String(localized: "taskManager.column.name", defaultValue: "Name"),
-                column: .name,
-                maxWidth: .infinity,
-                alignment: .leading
-            )
-            sortHeader(
-                title: String(localized: "taskManager.column.cpu", defaultValue: "CPU"),
-                column: .cpu,
-                width: 82,
-                alignment: .trailing
-            )
-            sortHeader(
-                title: String(localized: "taskManager.column.memory", defaultValue: "Memory"),
-                column: .memory,
-                width: 96,
-                alignment: .trailing
-            )
-            sortHeader(
-                title: String(localized: "taskManager.column.processes", defaultValue: "Proc"),
-                column: .processes,
-                width: 70,
-                alignment: .trailing
-            )
-        }
-        .cmuxFont(size: 11, weight: .semibold)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 5)
-    }
-
-    private func sortHeader(
-        title: String,
-        column: CmuxTaskManagerSortOrder.Column,
-        width: CGFloat? = nil,
-        maxWidth: CGFloat? = nil,
-        alignment: Alignment
-    ) -> some View {
-        Button {
-            model.sort(by: column)
-        } label: {
-            HStack(spacing: 3) {
-                Text(title)
-                    .lineLimit(1)
-                sortIndicator(for: column)
-            }
-            .frame(maxWidth: .infinity, alignment: alignment)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(model.sortOrder.column == column ? .primary : .secondary)
-        .frame(width: width, alignment: alignment)
-        .frame(maxWidth: maxWidth, alignment: alignment)
-        .accessibilityLabel(title)
-    }
-
-    private func sortIndicator(for column: CmuxTaskManagerSortOrder.Column) -> some View {
-        let isActive = model.sortOrder.column == column
-        let imageName = model.sortOrder.direction == .ascending ? "chevron.up" : "chevron.down"
-        return Image(systemName: imageName)
-            .cmuxFont(size: 8, weight: .bold)
-            .opacity(isActive ? 1 : 0)
-            .frame(width: 8)
-            .accessibilityHidden(true)
-    }
-}
-
-/// Closure bundle handed down to row views so they never reference the
-/// `@Observable` `CmuxTaskManagerModel`. Matches the
-/// `IndexSectionActions` / `SectionGapActions` reference pattern in
-/// `Sources/SessionIndexView.swift`. See repo/CLAUDE.md
-/// "Snapshot boundary for list subtrees" rule and issues #2586 / #4529.
-struct CmuxTaskManagerRowActions {
-    let viewWorkspace: @MainActor (CmuxTaskManagerRow) -> Void
-    let viewTerminal: @MainActor (CmuxTaskManagerRow) -> Void
-    let killProcess: @MainActor (CmuxTaskManagerRow) -> Void
-    let activate: @MainActor (CmuxTaskManagerRow) -> Void
-
-    @MainActor
-    static func bound(to model: CmuxTaskManagerModel) -> CmuxTaskManagerRowActions {
-        CmuxTaskManagerRowActions(
-            viewWorkspace: { row in model.viewWorkspace(for: row) },
-            viewTerminal: { row in model.viewTerminal(for: row) },
-            killProcess: { row in model.killProcess(for: row) },
-            activate: { row in model.viewBestTarget(for: row) }
+        processToggle.target = self
+        processToggle.action = #selector(toggleProcesses)
+        let refreshButton = NSButton(
+            title: String(localized: "taskManager.refresh", defaultValue: "Refresh"),
+            target: self,
+            action: #selector(refresh)
         )
-    }
-}
+        refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        refreshButton.imagePosition = .imageLeading
+        refreshButton.bezelStyle = .rounded
 
-/// Lazy list subtree. Receives value-typed row arrays plus a closure
-/// action bundle so SwiftUI can prove rows never observe the
-/// `CmuxTaskManagerModel`. Combined with the `Equatable` conformance on
-/// `CmuxTaskManagerRowView`, this stops the 3 s refresh timer from
-/// invalidating every row on every tick.
-struct CmuxTaskManagerListView: View {
-    let errorMessage: String?
-    let isInitialLoading: Bool
-    let rows: [CmuxTaskManagerRow]
-    let agentRows: [CmuxTaskManagerRow]
-    let aggregateRows: [CmuxTaskManagerRow]
-    let childMemoryRows: [CmuxTaskManagerRow]
-    let actions: CmuxTaskManagerRowActions
+        let toolbar = NSStackView(views: [title, progress, NSView(), processToggle, refreshButton])
+        toolbar.orientation = .horizontal
+        toolbar.spacing = 12
+        toolbar.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        toolbar.setHuggingPriority(.defaultLow, for: .horizontal)
+        toolbar.arrangedSubviews[2].setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-    var body: some View {
-        if let errorMessage {
-            CmuxTaskManagerMessageView(
-                title: String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage"),
-                detail: errorMessage
-            )
-        } else if isInitialLoading {
-            CmuxTaskManagerLoadingView()
-        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty && childMemoryRows.isEmpty {
-            CmuxTaskManagerMessageView(
-                title: String(localized: "taskManager.empty.title", defaultValue: "No resource usage"),
-                detail: String(localized: "taskManager.empty.detail", defaultValue: "Open a workspace, terminal, or browser surface to see it here.")
-            )
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !agentRows.isEmpty {
-                        CmuxTaskManagerSectionHeaderView(
-                            title: String(localized: "taskManager.section.codingAgents", defaultValue: "Coding Agents")
-                        ).equatable()
-                        ForEach(agentRows) { row in
-                            CmuxTaskManagerRowView(
-                                row: row,
-                                onViewWorkspace: {},
-                                onViewTerminal: {},
-                                onKillProcess: { actions.killProcess(row) },
-                                onActivate: {}
-                            ).equatable()
-                            Divider()
-                                .padding(.leading, 16)
-                        }
-                    }
-                    if !aggregateRows.isEmpty {
-                        CmuxTaskManagerSectionHeaderView(
-                            title: String(localized: "taskManager.section.programTotals", defaultValue: "Program Totals")
-                        ).equatable()
-                        ForEach(aggregateRows) { row in
-                            CmuxTaskManagerRowView(
-                                row: row,
-                                onViewWorkspace: {},
-                                onViewTerminal: {},
-                                onKillProcess: { actions.killProcess(row) },
-                                onActivate: {}
-                            ).equatable()
-                            Divider()
-                                .padding(.leading, 16)
-                        }
-                    }
-                    if !childMemoryRows.isEmpty {
-                        CmuxTaskManagerSectionHeaderView(
-                            title: String(localized: "taskManager.section.childProcessRSS", defaultValue: "Child Process RSS")
-                        ).equatable()
-                        ForEach(childMemoryRows) { row in
-                            CmuxTaskManagerRowView(
-                                row: row,
-                                onViewWorkspace: { actions.viewWorkspace(row) },
-                                onViewTerminal: { actions.viewTerminal(row) },
-                                onKillProcess: { actions.killProcess(row) },
-                                onActivate: { actions.activate(row) }
-                            ).equatable()
-                            Divider()
-                                .padding(.leading, 16)
-                        }
-                    }
-                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty || !childMemoryRows.isEmpty) {
-                        CmuxTaskManagerSectionHeaderView(
-                            title: String(localized: "taskManager.section.hierarchy", defaultValue: "Hierarchy")
-                        ).equatable()
-                    }
-                    ForEach(rows) { row in
-                        CmuxTaskManagerRowView(
-                            row: row,
-                            onViewWorkspace: { actions.viewWorkspace(row) },
-                            onViewTerminal: { actions.viewTerminal(row) },
-                            onKillProcess: { actions.killProcess(row) },
-                            onActivate: { actions.activate(row) }
-                        ).equatable()
-                        Divider()
-                            .padding(.leading, 16)
-                    }
-                }
-            }
+        let summary = makeSummaryView()
+
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.headerView = NSTableHeaderView()
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.intercellSpacing = NSSize(width: 8, height: 0)
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        tableView.target = self
+        tableView.action = #selector(activateSelectedRow)
+        tableView.menuProvider = { [weak self] row in self?.menu(for: row) }
+        addColumn("name", title: String(localized: "taskManager.column.name", defaultValue: "Name"), width: 540)
+        addColumn("cpu", title: String(localized: "taskManager.column.cpu", defaultValue: "CPU"), width: 82)
+        addColumn("memory", title: String(localized: "taskManager.column.memory", defaultValue: "Memory"), width: 96)
+        addColumn("processes", title: String(localized: "taskManager.column.processes", defaultValue: "Proc"), width: 70)
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+
+        statusTitle.font = .systemFont(ofSize: 14, weight: .semibold)
+        statusTitle.alignment = .center
+        statusDetail.font = .systemFont(ofSize: 12)
+        statusDetail.textColor = .secondaryLabelColor
+        statusDetail.alignment = .center
+        statusDetail.maximumNumberOfLines = 0
+        let statusStack = NSStackView(views: [statusTitle, statusDetail])
+        statusStack.orientation = .vertical
+        statusStack.alignment = .centerX
+        statusStack.spacing = 8
+        statusStack.translatesAutoresizingMaskIntoConstraints = false
+        statusContainer.addSubview(statusStack)
+        NSLayoutConstraint.activate([
+            statusStack.centerXAnchor.constraint(equalTo: statusContainer.centerXAnchor),
+            statusStack.centerYAnchor.constraint(equalTo: statusContainer.centerYAnchor),
+            statusStack.widthAnchor.constraint(lessThanOrEqualTo: statusContainer.widthAnchor, constant: -64),
+        ])
+
+        let separator1 = NSBox(); separator1.boxType = .separator
+        let separator2 = NSBox(); separator2.boxType = .separator
+        let root = NSStackView(views: [toolbar, separator1, summary, separator2])
+        root.orientation = .vertical
+        root.spacing = 0
+        root.translatesAutoresizingMaskIntoConstraints = false
+        for child in [root, scrollView, statusContainer] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
         }
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 820),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 480),
+            root.leadingAnchor.constraint(equalTo: leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: trailingAnchor),
+            root.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: root.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            statusContainer.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            statusContainer.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            statusContainer.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            statusContainer.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+        ])
     }
-}
 
-private struct CmuxTaskManagerSectionHeaderView: View, Equatable {
-    let title: String
-
-    static func == (lhs: CmuxTaskManagerSectionHeaderView, rhs: CmuxTaskManagerSectionHeaderView) -> Bool {
-        lhs.title == rhs.title
-    }
-
-    var body: some View {
-        Text(title)
-            .cmuxFont(size: 11, weight: .semibold)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-    }
-}
-
-private struct CmuxTaskManagerLoadingView: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.regular)
-                .accessibilityLabel(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
-            Text(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
-                .cmuxFont(.headline)
-                .foregroundStyle(.primary)
+    private func makeSummaryView() -> NSView {
+        let metrics = [
+            ("cpu", String(localized: "taskManager.summary.cpu", defaultValue: "CPU")),
+            ("memory", String(localized: "taskManager.summary.memory", defaultValue: "Memory")),
+            ("appFootprint", String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint")),
+            ("childRSS", String(localized: "taskManager.summary.childRSS", defaultValue: "Child RSS")),
+            ("processes", String(localized: "taskManager.summary.processes", defaultValue: "Processes")),
+            ("updated", String(localized: "taskManager.summary.updated", defaultValue: "Updated")),
+        ]
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 24
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        for (key, label) in metrics {
+            let title = NSTextField(labelWithString: label)
+            title.font = .systemFont(ofSize: 11)
+            title.textColor = .secondaryLabelColor
+            let value = NSTextField(labelWithString: "")
+            value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+            metricValues[key] = value
+            let stack = NSStackView(views: [title, value])
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 2
+            row.addArrangedSubview(stack)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(32)
-    }
-}
-
-private struct CmuxTaskManagerMessageView: View {
-    let title: String
-    let detail: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .cmuxFont(.headline)
-            Text(detail)
-                .cmuxFont(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(32)
-    }
-}
-
-/// Row view rendered inside the lazy list subtree. Conforms to
-/// `Equatable` so SwiftUI can skip body re-evaluation when the `row`
-/// snapshot is unchanged, even if the parent rebuilt the closure
-/// bundle on a refresh tick. Closures are intentionally excluded from
-/// `==`; they're expected to be stable in semantics (capture the same
-/// model above the snapshot boundary) but their identity changes every
-/// render. Comparing closure identity would defeat the optimization
-/// and re-introduce the 0.64.8 memory leak (issue #4529).
-struct CmuxTaskManagerRowView: View, Equatable {
-    let row: CmuxTaskManagerRow
-    let onViewWorkspace: @MainActor () -> Void
-    let onViewTerminal: @MainActor () -> Void
-    let onKillProcess: @MainActor () -> Void
-    let onActivate: @MainActor () -> Void
-
-    static func == (lhs: CmuxTaskManagerRowView, rhs: CmuxTaskManagerRowView) -> Bool {
-        // Closures excluded on purpose: the parent rebuilds the action
-        // bundle on every render tick, but the row payload is what
-        // actually drives visible state. Comparing closure identity
-        // would defeat `.equatable()` at the ForEach call site and
-        // re-introduce the 0.64.8 memory leak.
-        lhs.row == rhs.row
+        row.addArrangedSubview(NSView())
+        return row
     }
 
-    var body: some View {
-        Group {
-            if row.canViewWorkspace || row.canViewTerminal {
-                Button(action: onActivate) {
-                    rowContent
-                }
-                .buttonStyle(.plain)
+    private func addColumn(_ identifier: String, title: String, width: CGFloat) {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
+        column.title = title
+        column.width = width
+        column.minWidth = identifier == "name" ? 260 : width
+        column.maxWidth = identifier == "name" ? .greatestFiniteMagnitude : width
+        column.resizingMask = identifier == "name" ? .autoresizingMask : []
+        tableView.addTableColumn(column)
+    }
+
+    private func refreshFromModel() {
+        withObservationTracking {
+            processToggle.state = model.includesProcesses ? .on : .off
+            if model.isRefreshing || model.isInitialLoading {
+                progress.startAnimation(nil)
             } else {
-                rowContent
+                progress.stopAnimation(nil)
             }
-        }
-        .contextMenu {
-            if row.canViewWorkspace {
-                Button {
-                    onViewWorkspace()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
-                        systemImage: "rectangle.stack"
-                    )
-                }
-            }
-            if row.canViewTerminal {
-                Button {
-                    onViewTerminal()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
-                        systemImage: "terminal"
-                    )
-                }
-            }
-            if row.canKillProcess {
-                if row.canViewWorkspace || row.canViewTerminal {
-                    Divider()
-                }
-                Button {
-                    onKillProcess()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
-                        systemImage: "xmark.octagon"
-                    )
-                }
-            }
+            updateSummary()
+            rebuildItems()
+            updateStatus()
+            updateSortIndicator()
+            tableView.reloadData()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.refreshFromModel() }
         }
     }
 
-    private var rowContent: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 5) {
-                Color.clear
-                    .frame(width: CGFloat(row.level) * 14)
-                rowIcon
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(row.title)
-                        .cmuxFont(size: 12.5)
-                        .lineLimit(1)
-                    if !row.detail.isEmpty {
-                        Text(row.detail)
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(CmuxTaskManagerFormat.cpu(row.resources.cpuPercent))
-                .frame(width: 82, alignment: .trailing)
-            Text(CmuxTaskManagerFormat.bytes(row.resources.memoryBytes))
-                .frame(width: 96, alignment: .trailing)
-            Text("\(row.resources.processCount)")
-                .frame(width: 70, alignment: .trailing)
-        }
-        .cmuxFont(size: 12.5, design: .default)
-        .monospacedDigit()
-        .padding(.horizontal, 16)
-        .padding(.vertical, 3)
-        .opacity(row.isDimmed ? 0.68 : 1)
-        .contentShape(Rectangle())
+    private func updateSummary() {
+        metricValues["cpu"]?.stringValue = CmuxTaskManagerFormat.cpu(model.snapshot.total.cpuPercent)
+        metricValues["memory"]?.stringValue = CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
+        metricValues["processes"]?.stringValue = "\(model.snapshot.total.processCount)"
+        metricValues["updated"]?.stringValue = model.snapshot.updatedText
+        let diagnostic = model.snapshot.memoryDiagnostic
+        metricValues["appFootprint"]?.stringValue = diagnostic.map { CmuxTaskManagerFormat.bytes($0.appFootprintBytes) } ?? "–"
+        metricValues["childRSS"]?.stringValue = diagnostic.map { CmuxTaskManagerFormat.bytes($0.childRSSBytes) } ?? "–"
     }
 
-    @ViewBuilder
-    private var rowIcon: some View {
-        if let agentAssetName = row.agentAssetName {
-            NativeResolvedIconImage(request: CmuxResolvedIconRequest(
-                source: .asset(name: agentAssetName, bundle: .main),
-                size: NSSize(width: 14, height: 14)
-            ))
-            .frame(width: 14, height: 14)
+    private func rebuildItems() {
+        var next: [Item] = []
+        append(model.sortedAgentRows, title: String(localized: "taskManager.section.codingAgents", defaultValue: "Coding Agents"), to: &next)
+        append(model.sortedAggregateRows, title: String(localized: "taskManager.section.programTotals", defaultValue: "Program Totals"), to: &next)
+        append(model.sortedChildMemoryRows, title: String(localized: "taskManager.section.childProcessRSS", defaultValue: "Child Process RSS"), to: &next)
+        if !model.sortedRows.isEmpty,
+           (!model.sortedAgentRows.isEmpty || !model.sortedAggregateRows.isEmpty || !model.sortedChildMemoryRows.isEmpty) {
+            next.append(.section(String(localized: "taskManager.section.hierarchy", defaultValue: "Hierarchy")))
+        }
+        next.append(contentsOf: model.sortedRows.map(Item.row))
+        items = next
+    }
+
+    private func append(_ rows: [CmuxTaskManagerRow], title: String, to items: inout [Item]) {
+        guard !rows.isEmpty else { return }
+        items.append(.section(title))
+        items.append(contentsOf: rows.map(Item.row))
+    }
+
+    private func updateStatus() {
+        if let error = model.errorMessage {
+            statusTitle.stringValue = String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage")
+            statusDetail.stringValue = error
+            statusContainer.isHidden = false
+            scrollView.isHidden = true
+        } else if model.isInitialLoading {
+            statusTitle.stringValue = String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage")
+            statusDetail.stringValue = ""
+            statusContainer.isHidden = false
+            scrollView.isHidden = true
+        } else if items.isEmpty {
+            statusTitle.stringValue = String(localized: "taskManager.empty.title", defaultValue: "No resource usage")
+            statusDetail.stringValue = String(localized: "taskManager.empty.detail", defaultValue: "Open a workspace, terminal, or browser surface to see it here.")
+            statusContainer.isHidden = false
+            scrollView.isHidden = true
         } else {
-            Image(systemName: row.kind.systemImage)
-                .foregroundStyle(row.kind.tint)
-                .cmuxFont(size: 12)
-                .frame(width: 14)
+            statusContainer.isHidden = true
+            scrollView.isHidden = false
         }
+    }
+
+    private func updateSortIndicator() {
+        for column in tableView.tableColumns {
+            tableView.setIndicatorImage(nil, in: column)
+        }
+        let identifier: String
+        switch model.sortOrder.column {
+        case .name: identifier = "name"
+        case .cpu: identifier = "cpu"
+        case .memory: identifier = "memory"
+        case .processes: identifier = "processes"
+        }
+        guard let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == identifier }) else { return }
+        let symbol = model.sortOrder.direction == .ascending ? "chevron.up" : "chevron.down"
+        tableView.setIndicatorImage(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), in: column)
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        guard items.indices.contains(row), case .section = items[row] else { return false }
+        return true
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard items.indices.contains(row) else { return 32 }
+        if case .section = items[row] { return 28 }
+        return 38
+    }
+
+    func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
+        let column: CmuxTaskManagerSortOrder.Column
+        switch tableColumn.identifier.rawValue {
+        case "cpu": column = .cpu
+        case "memory": column = .memory
+        case "processes": column = .processes
+        default: column = .name
+        }
+        model.sort(by: column)
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard items.indices.contains(row), let tableColumn else { return nil }
+        switch items[row] {
+        case .section(let title):
+            guard tableColumn.identifier.rawValue == "name" else { return NSView() }
+            let cell = reusableTextCell(identifier: "section", tableView: tableView)
+            cell.textField?.stringValue = title
+            cell.textField?.font = .systemFont(ofSize: 11, weight: .semibold)
+            cell.textField?.textColor = .secondaryLabelColor
+            return cell
+        case .row(let taskRow):
+            if tableColumn.identifier.rawValue == "name" {
+                let id = NSUserInterfaceItemIdentifier("nameCell")
+                let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CmuxTaskManagerNameCell) ?? {
+                    let made = CmuxTaskManagerNameCell(); made.identifier = id; return made
+                }()
+                cell.configure(taskRow)
+                return cell
+            }
+            let cell = reusableTextCell(identifier: tableColumn.identifier.rawValue, tableView: tableView)
+            cell.textField?.alignment = .right
+            cell.textField?.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .regular)
+            switch tableColumn.identifier.rawValue {
+            case "cpu": cell.textField?.stringValue = CmuxTaskManagerFormat.cpu(taskRow.resources.cpuPercent)
+            case "memory": cell.textField?.stringValue = CmuxTaskManagerFormat.bytes(taskRow.resources.memoryBytes)
+            default: cell.textField?.stringValue = "\(taskRow.resources.processCount)"
+            }
+            cell.alphaValue = taskRow.isDimmed ? 0.68 : 1
+            return cell
+        }
+    }
+
+    private func reusableTextCell(identifier: String, tableView: NSTableView) -> NSTableCellView {
+        let id = NSUserInterfaceItemIdentifier(identifier)
+        if let cell = tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView { return cell }
+        let cell = NSTableCellView()
+        cell.identifier = id
+        let label = NSTextField(labelWithString: "")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.lineBreakMode = .byTruncatingTail
+        cell.textField = label
+        cell.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
+    }
+
+    @objc private func toggleProcesses() { model.includesProcesses = processToggle.state == .on }
+    @objc private func refresh() { model.refresh(force: true) }
+    @objc private func activateSelectedRow() {
+        guard case let .row(row)? = item(at: tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow) else { return }
+        model.viewBestTarget(for: row)
+    }
+
+    private func item(at index: Int) -> Item? { items.indices.contains(index) ? items[index] : nil }
+
+    private func menu(for index: Int) -> NSMenu? {
+        guard case let .row(row)? = item(at: index) else { return nil }
+        contextRow = row
+        let menu = NSMenu()
+        if row.canViewWorkspace {
+            menu.addItem(menuItem(String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"), action: #selector(viewWorkspace)))
+        }
+        if row.canViewTerminal {
+            menu.addItem(menuItem(String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"), action: #selector(viewTerminal)))
+        }
+        if row.canKillProcess {
+            if row.canViewWorkspace || row.canViewTerminal { menu.addItem(.separator()) }
+            menu.addItem(menuItem(String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."), action: #selector(killProcess)))
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    @objc private func viewWorkspace() {
+        guard let contextRow else { return }
+        model.viewWorkspace(for: contextRow)
+    }
+    @objc private func viewTerminal() {
+        guard let contextRow else { return }
+        model.viewTerminal(for: contextRow)
+    }
+    @objc private func killProcess() {
+        guard let contextRow else { return }
+        model.killProcess(for: contextRow)
+    }
+}
+
+@MainActor
+private final class CmuxTaskManagerTableView: NSTableView {
+    var menuProvider: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0 else { return nil }
+        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        return menuProvider?(row)
+    }
+}
+
+@MainActor
+private final class CmuxTaskManagerNameCell: NSTableCellView {
+    private let icon = NSImageView()
+    private let title = NSTextField(labelWithString: "")
+    private let detail = NSTextField(labelWithString: "")
+    private var row: CmuxTaskManagerRow?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        icon.imageScaling = .scaleProportionallyDown
+        title.font = .systemFont(ofSize: 12.5)
+        title.lineBreakMode = .byTruncatingTail
+        detail.font = .systemFont(ofSize: 11)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byTruncatingTail
+        addSubview(icon); addSubview(title); addSubview(detail)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(_ row: CmuxTaskManagerRow) {
+        self.row = row
+        title.stringValue = row.title
+        detail.stringValue = row.detail
+        if let asset = row.agentAssetName {
+            icon.image = NSImage(named: NSImage.Name(asset))
+            icon.contentTintColor = nil
+        } else {
+            icon.image = NSImage(systemSymbolName: row.kind.systemImage, accessibilityDescription: nil)
+            icon.contentTintColor = row.kind.tint
+        }
+        detail.isHidden = row.detail.isEmpty
+        alphaValue = row.isDimmed ? 0.68 : 1
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard let row else { return }
+        let x = CGFloat(row.level) * 14 + 4
+        icon.frame = NSRect(x: x, y: max(0, (bounds.height - 14) / 2), width: 14, height: 14)
+        title.frame = NSRect(x: x + 19, y: row.detail.isEmpty ? max(0, (bounds.height - 16) / 2) : 18, width: max(0, bounds.width - x - 23), height: 16)
+        detail.frame = NSRect(x: x + 19, y: 3, width: max(0, bounds.width - x - 23), height: 14)
     }
 }

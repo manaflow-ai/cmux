@@ -1,7 +1,6 @@
 import AppKit
 import Darwin
 import Observation
-import SwiftUI
 
 @MainActor
 final class TaskManagerWindowController: ReleasingWindowController {
@@ -28,7 +27,7 @@ final class TaskManagerWindowController: ReleasingWindowController {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.taskManager")
         window.title = String(localized: "taskManager.windowTitle", defaultValue: "Task Manager")
         window.center()
-        window.contentView = NSHostingView(rootView: CmuxTaskManagerView(model: model))
+        window.contentView = CmuxTaskManagerView(model: model)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -67,11 +66,9 @@ final class CmuxTaskManagerModel {
         }
     }
 
-    @ObservationIgnored private var refreshTimer: Timer?
+    @ObservationIgnored private var refreshLoopTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var terminationTimers: [UUID: Timer] = [:]
-    private let refreshInterval: TimeInterval = 3.0
-    private let terminationGraceInterval: TimeInterval = 2.0
+    @ObservationIgnored private var terminationTasks: [UUID: Task<Void, Never>] = [:]
 
     private(set) var sortedRows: [CmuxTaskManagerRow] = []
     private(set) var sortedAgentRows: [CmuxTaskManagerRow] = []
@@ -95,25 +92,32 @@ final class CmuxTaskManagerModel {
     }
 
     func start() {
-        guard refreshTimer == nil else {
+        guard refreshLoopTask == nil else {
             refresh(force: true, showIndicator: false)
             return
         }
         refresh(force: true, showIndicator: !hasLoadedSnapshot)
-        let timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refresh(showIndicator: false)
+        refreshLoopTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                do {
+                    try await clock.sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                self.refresh(showIndicator: false)
             }
         }
-        timer.tolerance = 0.75
-        refreshTimer = timer
     }
 
     func stop() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+        refreshLoopTask?.cancel()
+        refreshLoopTask = nil
         refreshTask?.cancel()
         refreshTask = nil
+        for task in terminationTasks.values { task.cancel() }
+        terminationTasks.removeAll()
         isRefreshing = false
     }
 
@@ -313,14 +317,17 @@ final class CmuxTaskManagerModel {
 
     private func scheduleForceKillIfNeeded(processIds: [Int]) {
         let operationId = UUID()
-        let timer = Timer.scheduledTimer(withTimeInterval: terminationGraceInterval, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.terminationTimers.removeValue(forKey: operationId)
-                self?.forceKillSurvivors(processIds: processIds)
+        terminationTasks[operationId] = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            do {
+                try await clock.sleep(for: .seconds(2))
+            } catch {
+                return
             }
+            guard let self else { return }
+            self.terminationTasks.removeValue(forKey: operationId)
+            self.forceKillSurvivors(processIds: processIds)
         }
-        timer.tolerance = 0.25
-        terminationTimers[operationId] = timer
         refresh(force: true)
     }
 

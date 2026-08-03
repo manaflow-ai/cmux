@@ -1129,17 +1129,11 @@ enum SessionTranscriptLoader {
     static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
             let sessionId = entry.sessionId
-            // OpenCode is SQLite-backed. Keep its synchronous query work off
-            // the main actor so presenting the popover only flips UI state.
-            return try await Task.detached(priority: .userInitiated) {
-                try loadOpenCodeSynchronously(sessionId: sessionId)
-            }.value
+            return try await loadOpenCode(sessionId: sessionId)
         }
         if entry.agent == .hermesAgent {
             let sessionId = entry.sessionId
-            return try await Task.detached(priority: .userInitiated) {
-                try loadHermesAgentSynchronously(sessionId: sessionId)
-            }.value
+            return try await loadHermesAgent(sessionId: sessionId)
         }
         guard let url = entry.fileURL else {
             throw SessionTranscriptLoadError.missingFile
@@ -1147,18 +1141,45 @@ enum SessionTranscriptLoader {
         let agent = entry.agent
         let sessionId = entry.sessionId
         if agent.id == "antigravity" {
-            return try await Task.detached(priority: .userInitiated) {
-                try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
-            }.value
+            return try await loadAntigravityHistory(from: url, sessionId: sessionId)
         }
         let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
-        return try await Task.detached(priority: .userInitiated) {
-            try loadSynchronously(
-                from: url,
-                agent: agent,
-                usesGrokTranscriptLayout: usesGrokTranscriptLayout
-            )
-        }.value
+        return try await loadFile(
+            from: url,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout
+        )
+    }
+
+    @concurrent
+    private static func loadOpenCode(sessionId: String) async throws -> [SessionTranscriptTurn] {
+        try loadOpenCodeSynchronously(sessionId: sessionId)
+    }
+
+    @concurrent
+    private static func loadHermesAgent(sessionId: String) async throws -> [SessionTranscriptTurn] {
+        try loadHermesAgentSynchronously(sessionId: sessionId)
+    }
+
+    @concurrent
+    private static func loadAntigravityHistory(
+        from url: URL,
+        sessionId: String
+    ) async throws -> [SessionTranscriptTurn] {
+        try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
+    }
+
+    @concurrent
+    private static func loadFile(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) async throws -> [SessionTranscriptTurn] {
+        try loadSynchronously(
+            from: url,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout
+        )
     }
 
     private static func loadSynchronously(
@@ -2401,7 +2422,7 @@ private struct MirrorTabTransferData: Codable {
 }
 
 /// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
+func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
     let mirror = MirrorTabTransferData(
         tab: MirrorTabItem(
             id: dragId,

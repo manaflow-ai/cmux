@@ -1,50 +1,72 @@
 #if DEBUG
-import SwiftUI
+import AppKit
 
-struct SpinnerCard: View {
-    let spec: SpinnerSpec
+@MainActor
+final class SpinnerCard: NSView {
+    init(spec: SpinnerSpec) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.03).cgColor
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
-                spec.makeView()
-            }
-            .frame(width: 56, height: 56)
+        let well = NSView()
+        well.wantsLayer = true
+        well.layer?.cornerRadius = 8
+        well.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        let spinner = spec.makeView()
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        well.addSubview(spinner)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(spec.title)
-                        .font(.system(size: 12, weight: .semibold))
-                    if spec.shipping {
-                        Text("IN SIDEBAR")
-                            .font(.system(size: 9, weight: .heavy))
-                            .tracking(0.6)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.accentColor))
-                    }
-                    Spacer()
-                    Text(spec.energy.rawValue)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(spec.energy.color)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(spec.energy.color.opacity(0.15)))
-                }
-                Text(spec.mechanism)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        let title = NSTextField(labelWithString: spec.title)
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        let mechanism = NSTextField(wrappingLabelWithString: spec.mechanism)
+        mechanism.font = .systemFont(ofSize: 11)
+        mechanism.textColor = .secondaryLabelColor
+
+        let energy = NSTextField(labelWithString: spec.energy.rawValue)
+        energy.font = .systemFont(ofSize: 10, weight: .bold)
+        energy.textColor = spec.energy.color
+
+        let titleRow = NSStackView(views: [title])
+        titleRow.orientation = .horizontal
+        titleRow.spacing = 8
+        if spec.shipping {
+            let shipping = NSTextField(labelWithString: "IN SIDEBAR")
+            shipping.font = .systemFont(ofSize: 9, weight: .heavy)
+            shipping.textColor = .controlAccentColor
+            titleRow.addArrangedSubview(shipping)
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
-        )
+        titleRow.addArrangedSubview(NSView())
+        titleRow.addArrangedSubview(energy)
+
+        let textStack = NSStackView(views: [titleRow, mechanism])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 4
+
+        for child in [well, textStack] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
+        }
+        NSLayoutConstraint.activate([
+            well.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            well.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            well.widthAnchor.constraint(equalToConstant: 56),
+            well.heightAnchor.constraint(equalToConstant: 56),
+            spinner.centerXAnchor.constraint(equalTo: well.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: well.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 22),
+            spinner.heightAnchor.constraint(equalToConstant: 22),
+            textStack.leadingAnchor.constraint(equalTo: well.trailingAnchor, constant: 14),
+            textStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
+            titleRow.widthAnchor.constraint(equalTo: textStack.widthAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 76),
+        ])
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 #endif

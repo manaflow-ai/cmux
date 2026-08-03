@@ -1,25 +1,18 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
-import SwiftUI
 
-/// Value-only SwiftUI environment forwarded into each independently hosted Vault row.
+/// Value-only appearance state forwarded into each native Vault row.
 struct SessionIndexTableEnvironmentSnapshot {
     static let fallback = SessionIndexTableEnvironmentSnapshot(
         colorScheme: .light,
         globalFontMagnificationPercent: GlobalFontMagnification.defaultPercent
     )
 
-    let colorScheme: ColorScheme
+    let colorScheme: WindowChromeColorScheme
     let globalFontMagnificationPercent: Int
 
     func hasEquivalentPresentation(to other: Self) -> Bool {
         colorScheme == other.colorScheme
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
-    }
-
-    @ViewBuilder
-    func apply<Content: View>(to content: Content) -> some View {
-        content
-            .environment(\.colorScheme, colorScheme)
-            .environment(\.cmuxGlobalFontMagnificationPercent, globalFontMagnificationPercent)
     }
 }

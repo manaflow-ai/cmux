@@ -1,7 +1,7 @@
+import AppKit
 import Darwin
 import CmuxTerminalCore
 import Foundation
-import SwiftUI
 
 struct CmuxTaskManagerRow: Identifiable, Equatable {
     enum Kind: String, Equatable {
@@ -33,19 +33,19 @@ struct CmuxTaskManagerRow: Identifiable, Equatable {
             }
         }
 
-        var tint: Color {
+        var tint: NSColor {
             switch self {
-            case .window: return .secondary
-            case .workspace: return .accentColor
-            case .tag: return .orange
-            case .pane: return .secondary
-            case .terminalSurface: return .green
-            case .browserSurface: return .blue
-            case .webview: return .purple
-            case .process: return .secondary
-            case .programAggregate: return .accentColor
-            case .codingAgentAggregate: return .accentColor
-            case .childMemoryAggregate: return .pink
+            case .window: return .secondaryLabelColor
+            case .workspace: return .controlAccentColor
+            case .tag: return .systemOrange
+            case .pane: return .secondaryLabelColor
+            case .terminalSurface: return .systemGreen
+            case .browserSurface: return .systemBlue
+            case .webview: return .systemPurple
+            case .process: return .secondaryLabelColor
+            case .programAggregate: return .controlAccentColor
+            case .codingAgentAggregate: return .controlAccentColor
+            case .childMemoryAggregate: return .systemPink
             }
         }
     }
@@ -68,8 +68,8 @@ struct CmuxTaskManagerRow: Identifiable, Equatable {
     /// Replaces the synthesized memberwise init so the PID arrays are
     /// stored in a canonical (deduped + ascending) order. The snapshot
     /// producers happen to sort today, but this guarantees the synthesized
-    /// `Equatable` stays stable across reorderings so `.equatable()` keeps
-    /// suppressing row re-renders even if a future producer forgets.
+    /// `Equatable` stays stable across reorderings so the native table can
+    /// reuse unchanged row snapshots even if a future producer forgets.
     /// Issue #4529.
     init(
         id: String,

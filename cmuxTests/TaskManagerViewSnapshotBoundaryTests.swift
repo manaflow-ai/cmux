@@ -1,4 +1,3 @@
-import SwiftUI
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -21,65 +20,25 @@ import XCTest
 /// orthogonal mutation invalidates every row and thrashes the
 /// `LazyLayoutViewCache`, leaking AttributeGraph nodes.
 ///
-/// The behavioral invariant that keeps that cache stable: the row view
-/// must be `Equatable`, and equality must depend only on the value-typed
-/// `row` snapshot, not on the closure identities the parent rebuilds on
-/// every render. If `==` ever returns false for two row instances that
-/// carry the same `row` payload, `.equatable()` cannot suppress body
-/// re-evaluation and the leak is back.
+/// The native table now consumes immutable value rows directly. These tests
+/// keep the snapshot equality contract that lets recycled cells skip unchanged
+/// presentations without retaining model or action closures.
 @MainActor
 final class TaskManagerViewSnapshotBoundaryTests: XCTestCase {
-    func testTaskManagerRowViewEqualityIgnoresClosureIdentity() {
-        let row = Self.makeRow()
-        let leftView = CmuxTaskManagerRowView(
-            row: row,
-            onViewWorkspace: {},
-            onViewTerminal: {},
-            onKillProcess: {},
-            onActivate: {}
-        )
-        // Distinct closures simulate the parent rebuilding the action
-        // bundle on every render tick (a side-effect of the snapshot
-        // mutation). Closure identity must be excluded from `==` so the
-        // lazy list cache does not invalidate.
-        let rightView = CmuxTaskManagerRowView(
-            row: row,
-            onViewWorkspace: { _ = 1 },
-            onViewTerminal: { _ = 2 },
-            onKillProcess: { _ = 3 },
-            onActivate: { _ = 4 }
-        )
-
-        XCTAssertEqual(
-            leftView,
-            rightView,
-            "Row views with identical row snapshots must compare equal even when the parent rebuilds closure bundles each render; otherwise .equatable() cannot suppress body re-eval and LazyVStack thrashes its layout cache (issue #2586 / #4529)."
-        )
+    func testTaskManagerNativeRowsUseValueSnapshotEquality() {
+        let left = Self.makeRow()
+        let right = Self.makeRow()
+        XCTAssertEqual(left, right)
     }
 
     func testTaskManagerRowViewEqualityDetectsRowChanges() {
         let baseRow = Self.makeRow()
         let bumpedRow = Self.makeRow(memoryBytes: baseRow.resources.memoryBytes + 1)
 
-        let left = CmuxTaskManagerRowView(
-            row: baseRow,
-            onViewWorkspace: {},
-            onViewTerminal: {},
-            onKillProcess: {},
-            onActivate: {}
-        )
-        let right = CmuxTaskManagerRowView(
-            row: bumpedRow,
-            onViewWorkspace: {},
-            onViewTerminal: {},
-            onKillProcess: {},
-            onActivate: {}
-        )
-
         XCTAssertNotEqual(
-            left,
-            right,
-            "Row view equality must still detect changes to the underlying row snapshot, otherwise updated CPU/memory values would never repaint."
+            baseRow,
+            bumpedRow,
+            "Native row equality must detect updated CPU or memory values so recycled cells repaint."
         )
     }
 

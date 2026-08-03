@@ -1,13 +1,11 @@
 #if DEBUG
-import Foundation
-import SwiftUI
+import AppKit
 
-struct SpinnerSpec: Identifiable {
-    let id = UUID()
+struct SpinnerSpec {
     let title: String
     let mechanism: String
     let energy: SpinnerEnergy
     let shipping: Bool
-    let makeView: () -> AnyView
+    let makeView: @MainActor () -> NSView
 }
 #endif

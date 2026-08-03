@@ -483,7 +483,7 @@ struct BrowserPanelView: View {
         return BrowserPortalOmnibarSuggestionsConfiguration(
             panelId: panel.id,
             popupFrame: frame,
-            colorScheme: browserChromeColorScheme,
+            colorScheme: browserChromeColorScheme == .dark ? .dark : .light,
             engineName: searchConfiguration.displayName,
             items: omnibarState.suggestions,
             selectedIndex: omnibarState.selectedSuggestionIndex,

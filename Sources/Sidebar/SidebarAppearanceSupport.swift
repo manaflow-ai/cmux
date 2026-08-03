@@ -94,6 +94,10 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     }
 }
 
+func cmuxAccentNSColor(for colorScheme: WindowChromeColorScheme) -> NSColor {
+    cmuxAccentNSColor(for: colorScheme == .dark ? ColorScheme.dark : .light)
+}
+
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
     let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
     let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
@@ -246,6 +250,16 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     return cmuxAccentNSColor(for: colorScheme)
 }
 
+func sidebarSelectedWorkspaceBackgroundNSColor(
+    for colorScheme: WindowChromeColorScheme,
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+) -> NSColor {
+    sidebarSelectedWorkspaceBackgroundNSColor(
+        for: colorScheme == .dark ? ColorScheme.dark : .light,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
+}
+
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
     sidebarSelectedWorkspaceForegroundNSColor(
         on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
@@ -285,6 +299,18 @@ func sidebarWorkspaceRowExplicitRailNSColor(
         hex: customColorHex,
         colorScheme: colorScheme,
         forceBright: true
+    )
+}
+
+func sidebarWorkspaceRowExplicitRailNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    customColorHex: String?,
+    colorScheme: WindowChromeColorScheme
+) -> NSColor? {
+    sidebarWorkspaceRowExplicitRailNSColor(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        customColorHex: customColorHex,
+        colorScheme: colorScheme == .dark ? ColorScheme.dark : .light
     )
 }
 
@@ -340,4 +366,23 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         return .clear
     }
+}
+
+
+func sidebarWorkspaceRowBackgroundStyle(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    isActive: Bool,
+    isMultiSelected: Bool,
+    customColorHex: String?,
+    colorScheme: WindowChromeColorScheme,
+    sidebarSelectionColorHex: String?
+) -> SidebarWorkspaceRowBackgroundStyle {
+    sidebarWorkspaceRowBackgroundStyle(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        isActive: isActive,
+        isMultiSelected: isMultiSelected,
+        customColorHex: customColorHex,
+        colorScheme: colorScheme == .dark ? ColorScheme.dark : .light,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
 }

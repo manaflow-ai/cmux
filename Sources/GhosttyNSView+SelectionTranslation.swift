@@ -1,10 +1,9 @@
 import AppKit
 import GhosttyKit
-import SwiftUI
 
 extension GhosttyNSView {
     func addTranslateSelectionMenuItem(to menu: NSMenu, surface: ghostty_surface_t) {
-        guard #available(macOS 15.0, *),
+        guard #available(macOS 26.0, *),
               TerminalSelectionTranslation.isSupported,
               let selectionText = readSelectionSnapshot(surface: surface)?.string,
               !selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -20,7 +19,7 @@ extension GhosttyNSView {
     }
 
     /// Presents the system Translation popover for the current selection.
-    @available(macOS 15.0, *)
+    @available(macOS 26.0, *)
     @objc func translateCurrentSelection(_ sender: Any?) {
         #if canImport(Translation)
         guard let snapshot = readSelectionSnapshot(),
@@ -36,17 +35,13 @@ extension GhosttyNSView {
             x: min(max(0, snapshot.topLeft.x), bounds.width - 1),
             y: min(max(0, bounds.height - snapshot.topLeft.y - anchorHeight), bounds.height - 1)
         )
-        weak var hostRef: NSView?
-        let host = NSHostingView(rootView: TerminalSelectionTranslationAnchorView(
-            text: snapshot.string,
-            onDismiss: { [weak self] in
-                self?.removeSelectionTranslationHost(hostRef)
-            }
-        ))
-        hostRef = host
+        let host = TerminalSelectionTranslationAnchorView()
         host.frame = NSRect(x: anchor.x, y: anchor.y, width: 2, height: anchorHeight)
         addSubview(host)
         selectionTranslationHostView = host
+        host.present(text: snapshot.string) { [weak self, weak host] in
+            self?.removeSelectionTranslationHost(host)
+        }
         #endif
     }
 

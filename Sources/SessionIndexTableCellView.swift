@@ -1,25 +1,10 @@
 import AppKit
-import SwiftUI
 
-/// Recycled AppKit cell containing one stable Vault row hosting view.
+/// Recycled AppKit cell containing one stable native Vault row root.
 @MainActor
 final class SessionIndexTableCellView: NSTableCellView {
-    private let highlightProjection = SessionIndexTableCellHighlightProjection()
     private var popoverAnchorRects: [SessionIndexTablePopoverIdentity: NSRect] = [:]
-    private lazy var hostingView = NSHostingView(
-        rootView: SessionIndexTableCellRootView(
-            row: .gap(beforeKey: nil, isValidDrop: true, actions: SectionGapActions(
-                currentDraggedKey: { nil },
-                moveSection: { _, _ in },
-                clearDraggedKey: {}
-            )),
-            environment: .fallback,
-            highlight: highlightProjection,
-            onPopoverAnchorChange: { [weak self] identity, rect in
-                self?.updatePopoverAnchor(identity, rect: rect)
-            }
-        )
-    )
+    private let rootView = SessionIndexTableCellRootView()
     private var configuredRow: SessionIndexTableRow?
     private var configuredEnvironment: SessionIndexTableEnvironmentSnapshot?
     var onPopoverAnchorChange: (() -> Void)?
@@ -27,17 +12,14 @@ final class SessionIndexTableCellView: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        hostingView.wantsLayer = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        // The controller owns row heights, so visible cells never negotiate
-        // intrinsic SwiftUI size during an AppKit table layout pass.
-        hostingView.sizingOptions = []
-        addSubview(hostingView)
+        rootView.wantsLayer = true
+        rootView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rootView)
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            rootView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rootView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rootView.topAnchor.constraint(equalTo: topAnchor),
+            rootView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -50,7 +32,7 @@ final class SessionIndexTableCellView: NSTableCellView {
         row: SessionIndexTableRow,
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
-        highlightProjection.sync(from: row)
+        rootView.updatePresentation(from: row)
         if let configuredRow,
            let configuredEnvironment,
            configuredRow.hasEquivalentContent(to: row),
@@ -60,10 +42,9 @@ final class SessionIndexTableCellView: NSTableCellView {
         popoverAnchorRects.removeAll()
         configuredRow = row
         configuredEnvironment = environment
-        hostingView.rootView = SessionIndexTableCellRootView(
+        rootView.configure(
             row: row,
             environment: environment,
-            highlight: highlightProjection,
             onPopoverAnchorChange: { [weak self] identity, rect in
                 self?.updatePopoverAnchor(identity, rect: rect)
             }
@@ -71,7 +52,7 @@ final class SessionIndexTableCellView: NSTableCellView {
     }
 
     func updatePresentation(from row: SessionIndexTableRow) {
-        highlightProjection.sync(from: row)
+        rootView.updatePresentation(from: row)
     }
 
     func popoverAnchorRect(for identity: SessionIndexTablePopoverIdentity) -> NSRect? {

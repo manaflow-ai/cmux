@@ -1,171 +1,150 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
 
-struct TmuxWorkspacePaneOverlayView: View {
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let activePaneBorderRect: CGRect?
-    let activePaneBorderColorHex: String?
-    let flashStartedAt: Date?
-    let flashReason: WorkspaceAttentionFlashReason?
-    @State private var completedFlashStartedAt: Date?
+/// Native, input-transparent pane attention overlay.
+@MainActor
+final class TmuxWorkspacePaneOverlayView: NSView {
+    private var unreadRects: [CGRect] = []
+    private var flashRect: CGRect?
+    private var activePaneBorderRect: CGRect?
+    private var activePaneBorderColorHex: String?
+    private var flashStartedAt: Date?
+    private var flashReason: WorkspaceAttentionFlashReason?
+    private var animationTask: Task<Void, Never>?
 
-    var body: some View {
-        overlayContent
-            .allowsHitTesting(false)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
     }
 
-    @ViewBuilder
-    private var overlayContent: some View {
-        if shouldAnimateFlash, let flashStartedAt {
-            TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: flashStartedAt)) { timeline in
-                overlayCanvas(timelineDate: timeline.date)
-                    .onChange(of: timeline.date) { _, date in
-                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.duration {
-                            completedFlashStartedAt = flashStartedAt
-                        }
-                    }
-            }
-        } else if !unreadRects.isEmpty || activePaneBorderRect != nil {
-            overlayCanvas(timelineDate: nil)
-        } else {
-            Color.clear
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func apply(
+        unreadRects: [CGRect],
+        flashRect: CGRect?,
+        activePaneBorderRect: CGRect?,
+        activePaneBorderColorHex: String?,
+        flashStartedAt: Date?,
+        flashReason: WorkspaceAttentionFlashReason?
+    ) {
+        self.unreadRects = unreadRects
+        self.flashRect = flashRect
+        self.activePaneBorderRect = activePaneBorderRect
+        self.activePaneBorderColorHex = activePaneBorderColorHex
+        self.flashStartedAt = flashStartedAt
+        self.flashReason = flashReason
+        restartAnimationIfNeeded()
+        needsDisplay = true
+    }
+
+    func clear() {
+        animationTask?.cancel()
+        animationTask = nil
+        unreadRects = []
+        flashRect = nil
+        activePaneBorderRect = nil
+        activePaneBorderColorHex = nil
+        flashStartedAt = nil
+        flashReason = nil
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if let activePaneBorderRect,
+           let colorHex = activePaneBorderColorHex,
+           let color = NSColor(hex: colorHex) {
+            stroke(
+                rect: activePaneBorderRect,
+                color: color,
+                width: CGFloat(PaneChromeSettings.activeBorderLineWidth)
+            )
         }
-    }
 
-    private var shouldAnimateFlash: Bool {
+        let unreadStyle = WorkspaceAttentionCoordinator.notificationRingStyle
+        for rect in unreadRects {
+            stroke(
+                rect: rect,
+                color: unreadStyle.accent.strokeColor,
+                width: PanelOverlayRingMetrics.lineWidth,
+                glowOpacity: unreadStyle.glowOpacity,
+                glowRadius: unreadStyle.glowRadius
+            )
+        }
+
         guard let flashRect,
-              let flashStartedAt else { return false }
-        guard completedFlashStartedAt != flashStartedAt,
-              ringPath(for: flashRect) != nil else { return false }
-        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+              let flashStartedAt else { return }
+        let opacity = FocusFlashPattern.opacity(at: Date().timeIntervalSince(flashStartedAt))
+        guard opacity > 0.001 else { return }
+        let style = WorkspaceAttentionCoordinator.flashStyle(for: flashReason ?? .notificationArrival)
+        stroke(
+            rect: flashRect,
+            color: style.accent.strokeColor.withAlphaComponent(opacity),
+            width: PanelOverlayRingMetrics.lineWidth,
+            glowOpacity: opacity * style.glowOpacity,
+            glowRadius: style.glowRadius
+        )
     }
 
-    private func overlayCanvas(timelineDate: Date?) -> some View {
-        Canvas { context, _ in
-            if let activePaneBorderRect,
-               let activePaneBorderColorHex {
-                drawActivePaneBorder(
-                    in: &context,
-                    rect: activePaneBorderRect,
-                    colorHex: activePaneBorderColorHex
-                )
-            }
-
-            for rect in unreadRects {
-                drawUnreadRing(in: &context, rect: rect)
-            }
-
-            guard let flashRect,
-                  let flashStartedAt,
-                  let timelineDate else { return }
-            let elapsed = timelineDate.timeIntervalSince(flashStartedAt)
-            let opacity = FocusFlashPattern.opacity(at: elapsed)
-            guard opacity > 0.001 else { return }
-            drawFlashRing(
-                in: &context,
-                rect: flashRect,
-                opacity: opacity,
-                reason: flashReason ?? .notificationArrival
-            )
-        }
-    }
-
-    private func drawActivePaneBorder(
-        in context: inout GraphicsContext,
+    private func stroke(
         rect: CGRect,
-        colorHex: String
+        color: NSColor,
+        width: CGFloat,
+        glowOpacity: Double = 0,
+        glowRadius: CGFloat = 0
     ) {
-        guard let path = ringPath(for: rect),
-              let color = NSColor(hex: colorHex) else { return }
-        context.stroke(
-            path,
-            with: .color(Color(nsColor: color)),
-            style: StrokeStyle(
-                lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth),
-                lineJoin: .round
-            )
-        )
-    }
-
-    private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
-        guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.notificationRingStyle
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
-
-        var glowContext = context
-        glowContext.addFilter(
-            .shadow(
-                color: strokeColor.opacity(presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-        )
-        glowContext.stroke(
-            path,
-            with: .color(strokeColor),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func drawFlashRing(
-        in context: inout GraphicsContext,
-        rect: CGRect,
-        opacity: Double,
-        reason: WorkspaceAttentionFlashReason
-    ) {
-        guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
-
-        var glowContext = context
-        glowContext.addFilter(
-            .shadow(
-                color: strokeColor.opacity(opacity * presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-        )
-        glowContext.stroke(
-            path,
-            with: .color(strokeColor.opacity(opacity)),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func ringPath(for rect: CGRect) -> Path? {
         guard rect.width > PanelOverlayRingMetrics.inset * 2,
-              rect.height > PanelOverlayRingMetrics.inset * 2 else { return nil }
-        return Path(
+              rect.height > PanelOverlayRingMetrics.inset * 2 else { return }
+        let path = NSBezierPath(
             roundedRect: PanelOverlayRingMetrics.pathRect(in: rect),
-            cornerRadius: PanelOverlayRingMetrics.cornerRadius
+            xRadius: PanelOverlayRingMetrics.cornerRadius,
+            yRadius: PanelOverlayRingMetrics.cornerRadius
         )
-    }
-}
-
-struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
-    let startDate: Date
-
-    func entries(from requestedStartDate: Date, mode: Mode) -> Entries {
-        let firstDate = requestedStartDate > startDate ? requestedStartDate : startDate
-        let interval = mode == .lowFrequency ? 1.0 / 10.0 : 1.0 / 60.0
-        return Entries(
-            nextDate: firstDate,
-            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
-            interval: interval
-        )
-    }
-
-    struct Entries: Sequence, IteratorProtocol {
-        var nextDate: Date
-        let endDate: Date
-        let interval: TimeInterval
-
-        mutating func next() -> Date? {
-            guard nextDate <= endDate else { return nil }
-            let date = nextDate
-            nextDate = nextDate.addingTimeInterval(interval)
-            return date
+        path.lineWidth = width
+        path.lineJoinStyle = .round
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        if glowOpacity > 0 {
+            context.setShadow(
+                offset: .zero,
+                blur: glowRadius,
+                color: color.withAlphaComponent(glowOpacity).cgColor
+            )
         }
+        color.setStroke()
+        path.stroke()
+        context.restoreGState()
+    }
+
+    private func restartAnimationIfNeeded() {
+        animationTask?.cancel()
+        animationTask = nil
+        guard let flashRect,
+              let flashStartedAt,
+              flashRect.width > PanelOverlayRingMetrics.inset * 2,
+              flashRect.height > PanelOverlayRingMetrics.inset * 2,
+              Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration) else { return }
+        animationTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                guard let self,
+                      let startedAt = self.flashStartedAt,
+                      Date().timeIntervalSince(startedAt) < FocusFlashPattern.duration else { return }
+                self.needsDisplay = true
+                try? await clock.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    deinit {
+        animationTask?.cancel()
     }
 }

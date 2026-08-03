@@ -19,7 +19,7 @@ struct SessionIndexTableView: NSViewRepresentable {
         context.coordinator.apply(
             rows: rows,
             environment: SessionIndexTableEnvironmentSnapshot(
-                colorScheme: colorScheme,
+                colorScheme: colorScheme == .dark ? .dark : .light,
                 globalFontMagnificationPercent: globalFontMagnificationPercent
             )
         )

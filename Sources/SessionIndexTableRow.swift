@@ -52,7 +52,7 @@ enum SessionIndexTableRow {
         ):
             // Popover and preview selection are presentation state owned by
             // SessionIndexTableController. They must not replace this row's
-            // NSHostingView root while AppKit is applying or laying out rows.
+            // native cell root while AppKit is applying or laying out rows.
             return lhsSection == rhsSection
                 && lhsLimit == rhsLimit
                 && lhsDragged == rhsDragged

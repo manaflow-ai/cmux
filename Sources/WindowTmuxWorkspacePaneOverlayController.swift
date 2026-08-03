@@ -1,6 +1,5 @@
 import AppKit
 import ObjectiveC
-import SwiftUI
 
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 private let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
@@ -10,7 +9,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
+    private let overlayView = TmuxWorkspacePaneOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
@@ -33,16 +32,6 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
 
     init(window: NSWindow) {
         self.window = window
-        self.hostingView = NSHostingView(
-            rootView: TmuxWorkspacePaneOverlayView(
-                unreadRects: [],
-                flashRect: nil,
-                activePaneBorderRect: nil,
-                activePaneBorderColorHex: nil,
-                flashStartedAt: nil,
-                flashReason: nil
-            )
-        )
         super.init()
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.wantsLayer = true
@@ -50,15 +39,13 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         containerView.isHidden = true
         containerView.alphaValue = 0
         containerView.identifier = tmuxWorkspacePaneOverlayContainerIdentifier
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.addSubview(hostingView)
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(overlayView)
         NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            overlayView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
         _ = ensureInstalled()
     }
@@ -101,7 +88,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         if let state {
             lastRenderState = state
             model.apply(state)
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
+            overlayView.apply(
                 unreadRects: model.unreadRects,
                 flashRect: model.flashRect,
                 activePaneBorderRect: model.activePaneBorderRect,
@@ -114,14 +101,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         } else {
             lastRenderState = nil
             model.clear()
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
-                unreadRects: [],
-                flashRect: nil,
-                activePaneBorderRect: nil,
-                activePaneBorderColorHex: nil,
-                flashStartedAt: nil,
-                flashReason: nil
-            )
+            overlayView.clear()
             containerView.alphaValue = 0
             containerView.isHidden = true
         }

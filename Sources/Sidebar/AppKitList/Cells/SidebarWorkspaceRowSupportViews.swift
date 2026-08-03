@@ -1,8 +1,8 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
 import CmuxWorkspaces
-import SwiftUI
 
 /// Resolved color helpers for one row render (parity with the SwiftUI
 /// active/inactive foreground rules in SidebarAppearanceSupport).
@@ -10,7 +10,7 @@ import SwiftUI
 struct SidebarRowPalette {
     let model: SidebarWorkspaceRowModel
 
-    var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
+    var colorScheme: WindowChromeColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(

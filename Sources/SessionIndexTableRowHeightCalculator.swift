@@ -1,7 +1,7 @@
 import AppKit
 import CmuxFoundation
 
-/// Computes Vault table heights without instantiating offscreen SwiftUI rows.
+/// Computes Vault table heights without instantiating offscreen native rows.
 @MainActor
 final class SessionIndexTableRowHeightCalculator {
     private var fontHeightByPointSize: [CGFloat: CGFloat] = [:]

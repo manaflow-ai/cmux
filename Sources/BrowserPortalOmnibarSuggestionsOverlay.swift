@@ -17,7 +17,10 @@ struct BrowserPortalOmnibarSuggestionsOverlay: View {
                 )
                 .frame(width: configuration.popupFrame.width)
                 .offset(x: configuration.popupFrame.minX, y: configuration.popupFrame.minY)
-                .environment(\.colorScheme, configuration.colorScheme)
+                .environment(
+                    \.colorScheme,
+                    configuration.colorScheme == .dark ? ColorScheme.dark : .light
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

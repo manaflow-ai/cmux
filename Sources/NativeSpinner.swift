@@ -1,27 +1,19 @@
 #if DEBUG
 import AppKit
-import SwiftUI
 
-/// AppKit `NSProgressIndicator` wrapped for the gallery comparison.
-struct NativeSpinner: NSViewRepresentable {
-    let threaded: Bool
-    var controlSize: NSControl.ControlSize = .small
-
-    func makeNSView(context: Context) -> NSProgressIndicator {
-        let view = NSProgressIndicator()
-        view.style = .spinning
-        view.controlSize = controlSize
-        view.isIndeterminate = true
-        view.isDisplayedWhenStopped = false
-        view.usesThreadedAnimation = threaded
-        view.startAnimation(nil)
-        return view
+@MainActor
+final class NativeSpinner: NSProgressIndicator {
+    init(threaded: Bool, controlSize: NSControl.ControlSize = .small) {
+        super.init(frame: .zero)
+        style = .spinning
+        self.controlSize = controlSize
+        isIndeterminate = true
+        isDisplayedWhenStopped = false
+        usesThreadedAnimation = threaded
+        startAnimation(nil)
     }
 
-    func updateNSView(_ view: NSProgressIndicator, context: Context) {
-        view.controlSize = controlSize
-        view.usesThreadedAnimation = threaded
-        view.startAnimation(nil)
-    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 #endif

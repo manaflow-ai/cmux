@@ -1,16 +1,16 @@
 #if DEBUG
-import SwiftUI
+import AppKit
 
 enum SpinnerEnergy: String {
     case low = "Low"
     case mediumHigh = "Medium-High"
     case high = "High"
 
-    var color: Color {
+    var color: NSColor {
         switch self {
-        case .low: return .green
-        case .mediumHigh: return .orange
-        case .high: return .red
+        case .low: .systemGreen
+        case .mediumHigh: .systemOrange
+        case .high: .systemRed
         }
     }
 }
