@@ -819,7 +819,7 @@ struct TextBoxSubmitActionTests {
 
     @Test
     func testTerminalPanelViewAddsPendingTextBoxLaunchContext() {
-        let context = TerminalPanelView.effectiveTerminalAgentContext(
+        let context = TerminalPanel.effectiveTerminalAgentContext(
             "restoredAgent:claude",
             pendingLaunchCommand: "codex"
         )

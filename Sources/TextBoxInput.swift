@@ -3,6 +3,8 @@ import CmuxWorkspaces
 import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
+import Combine
+import CmuxSettings
 import CmuxSettingsUI
 import Observation
 import SwiftUI
@@ -2882,6 +2884,180 @@ struct TextBoxInputContainer: View {
     private func insertText(_ insertedText: String, into textView: TextBoxInputTextView) {
         textView.window?.makeFirstResponder(textView)
         textView.insertText(insertedText, replacementRange: textView.selectedRange())
+    }
+}
+
+@MainActor
+final class TerminalTextBoxInputPresentationModel: ObservableObject {
+    @Published var terminalBackgroundColor: NSColor
+    @Published var terminalForegroundColor: NSColor
+    @Published var terminalFont: NSFont
+    @Published var maxLines: Int
+    @Published var terminalAgentContext: String
+    @Published var sessionContentWidthPresentation: SessionContentWidthPresentation
+    @Published var onFocus: () -> Void
+
+    init(
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        self.terminalBackgroundColor = terminalBackgroundColor
+        self.terminalForegroundColor = terminalForegroundColor
+        self.terminalFont = terminalFont
+        self.maxLines = maxLines
+        self.terminalAgentContext = terminalAgentContext
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        self.onFocus = onFocus
+    }
+
+    func update(
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        self.terminalBackgroundColor = terminalBackgroundColor
+        self.terminalForegroundColor = terminalForegroundColor
+        self.terminalFont = terminalFont
+        self.maxLines = maxLines
+        self.terminalAgentContext = terminalAgentContext
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        self.onFocus = onFocus
+    }
+}
+
+struct TerminalTextBoxInputHostedRoot: View {
+    @ObservedObject var panel: TerminalPanel
+    @ObservedObject var presentation: TerminalTextBoxInputPresentationModel
+
+    var body: some View {
+        @Bindable var textBoxState = panel.textBoxState
+        let widthPresentation = presentation.sessionContentWidthPresentation
+
+        TextBoxInputContainer(
+            text: $panel.textBoxContent,
+            attachments: $panel.textBoxAttachments,
+            selectedSubmitActionID: $textBoxState.selectedSubmitActionID,
+            pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
+            pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
+            surface: panel.surface,
+            terminalBackgroundColor: presentation.terminalBackgroundColor,
+            terminalForegroundColor: presentation.terminalForegroundColor,
+            terminalFont: presentation.terminalFont,
+            maxLines: presentation.maxLines,
+            terminalAgentContext: TerminalPanel.effectiveTerminalAgentContext(
+                presentation.terminalAgentContext,
+                pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
+            ),
+            shellActivityState: panel.shellActivity.state,
+            allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
+                shellActivityState: panel.shellActivity.state
+            ),
+            onFocusTextBox: {
+                panel.textBoxDidBecomeFocused()
+                presentation.onFocus()
+            },
+            onToggleFocus: {
+                _ = panel.focusTextBoxInputOrTerminal()
+            },
+            onSelectSubmitAction: { actionID in
+                panel.textBoxState.selectSubmitAction(actionID)
+            },
+            onRecordLaunchCommand: { command in
+                panel.recordTextBoxLaunchCommand(command)
+            },
+            onClearLaunchCommand: {
+                panel.clearTextBoxLaunchCommand()
+            },
+            onEscape: {
+                panel.handleTextBoxEscape()
+            },
+            onTextViewCreated: { view in
+                panel.registerTextBoxInputView(view)
+            },
+            onTextViewMovedToWindow: { view in
+                panel.textBoxInputViewDidMoveToWindow(view)
+            },
+            onTextViewDismantled: { view in
+                panel.preserveTextBoxContentForUnmount(from: view)
+            }
+        )
+        .frame(maxWidth: widthPresentation.maximumWidth ?? .infinity)
+        .frame(maxWidth: .infinity, alignment: alignment(for: widthPresentation.alignment))
+    }
+
+    private func alignment(for alignment: SessionContentAlignment) -> Alignment {
+        switch alignment {
+        case .left:
+            .leading
+        case .center:
+            .center
+        case .right:
+            .trailing
+        }
+    }
+}
+
+/// Transitional owner for the composer while its controls are being moved to
+/// AppKit. Terminal pane ownership and layout remain entirely native.
+@MainActor
+final class TerminalTextBoxInputHostingController: NSHostingController<TerminalTextBoxInputHostedRoot> {
+    private let presentation: TerminalTextBoxInputPresentationModel
+
+    init(
+        panel: TerminalPanel,
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        let presentation = TerminalTextBoxInputPresentationModel(
+            terminalBackgroundColor: terminalBackgroundColor,
+            terminalForegroundColor: terminalForegroundColor,
+            terminalFont: terminalFont,
+            maxLines: maxLines,
+            terminalAgentContext: terminalAgentContext,
+            sessionContentWidthPresentation: sessionContentWidthPresentation,
+            onFocus: onFocus
+        )
+        self.presentation = presentation
+        super.init(rootView: TerminalTextBoxInputHostedRoot(panel: panel, presentation: presentation))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        presentation.update(
+            terminalBackgroundColor: terminalBackgroundColor,
+            terminalForegroundColor: terminalForegroundColor,
+            terminalFont: terminalFont,
+            maxLines: maxLines,
+            terminalAgentContext: terminalAgentContext,
+            sessionContentWidthPresentation: sessionContentWidthPresentation,
+            onFocus: onFocus
+        )
     }
 }
 

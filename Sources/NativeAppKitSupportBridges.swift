@@ -676,24 +676,6 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
         let configuration = configuration
         let panel = configuration.panel
         switch panel.panelType {
-        case .terminal:
-            guard let terminalPanel = panel as? TerminalPanel else { return setEmpty() }
-            rootView = AnyView(TerminalPanelView(
-                panel: terminalPanel,
-                paneId: configuration.paneID,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                portalPaneOwnershipResolver: configuration.terminalPaneOwnershipResolver,
-                portalPriority: configuration.portalPriority,
-                isSplit: configuration.isSplit,
-                appearance: configuration.appearance,
-                hasUnreadNotification: configuration.hasUnreadNotification,
-                terminalAgentContext: configuration.terminalAgentContext,
-                onFocus: configuration.onFocus,
-                onResumeAgentHibernation: configuration.onResumeAgentHibernation,
-                onAutoResumeAgentHibernation: configuration.onAutoResumeAgentHibernation,
-                onTriggerFlash: configuration.onTriggerFlash
-            ).environment(\.paneDropZone, configuration.paneDropZone))
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return setEmpty() }
             rootView = AnyView(BrowserPanelView(
@@ -705,7 +687,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 paneOwnershipOverride: configuration.paneOwnershipOverride,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
-        case .project, .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
+        case .terminal, .project, .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
              .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading,
              .workspaceTodo:
             setEmpty()
