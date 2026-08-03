@@ -39,6 +39,14 @@ struct PaneAddOptions<'a> {
     viewport_width: Option<f32>,
 }
 
+struct TerminalCreateOptions {
+    argv: Option<Vec<String>>,
+    cwd: Option<String>,
+    terminal_name: Option<String>,
+    created_screen_name: Option<String>,
+    size: Option<(u16, u16)>,
+}
+
 struct CreatedTerminalEffect {
     path: Value,
 }
@@ -3034,11 +3042,13 @@ impl Mux {
                 self.effect_create_workspace_terminal(
                     intent,
                     optional_owned_string(fields, "name")?,
-                    argv,
-                    optional_owned_string(fields, "cwd")?,
-                    optional_owned_string(fields, "terminal_name")?,
-                    None,
-                    effect_cell_size(fields)?,
+                    TerminalCreateOptions {
+                        argv,
+                        cwd: optional_owned_string(fields, "cwd")?,
+                        terminal_name: optional_owned_string(fields, "terminal_name")?,
+                        created_screen_name: None,
+                        size: effect_cell_size(fields)?,
+                    },
                 )
                 .map(|created| created.path)
             }
@@ -3057,11 +3067,13 @@ impl Mux {
                 self.effect_create_terminal_in_workspace(
                     intent,
                     target,
-                    Some(effect_command(fields)?),
-                    optional_owned_string(fields, "cwd")?,
-                    optional_owned_string(fields, "name")?,
-                    None,
-                    effect_cell_size(fields)?,
+                    TerminalCreateOptions {
+                        argv: Some(effect_command(fields)?),
+                        cwd: optional_owned_string(fields, "cwd")?,
+                        terminal_name: optional_owned_string(fields, "name")?,
+                        created_screen_name: None,
+                        size: effect_cell_size(fields)?,
+                    },
                 )
                 .map(|created| created.path)
             }
@@ -3085,11 +3097,13 @@ impl Mux {
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
-                        None,
-                        None,
-                        None,
-                        name,
-                        effect_cell_size(fields)?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: None,
+                            terminal_name: None,
+                            created_screen_name: name,
+                            size: effect_cell_size(fields)?,
+                        },
                     ),
                 }
                 .map(|created| created.path)
@@ -3142,20 +3156,24 @@ impl Mux {
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
                         slots.workspace.expect("checked"),
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        None,
-                        None,
-                        effect_cell_size(fields)?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: None,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
                     ),
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        None,
-                        None,
-                        effect_cell_size(fields)?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: None,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
                     ),
                 }
                 .map(|created| created.path)
@@ -3212,20 +3230,24 @@ impl Mux {
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
                         slots.workspace.expect("checked"),
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        optional_owned_string(fields, "name")?,
-                        None,
-                        effect_cell_size(fields)?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: optional_owned_string(fields, "name")?,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
                     ),
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        optional_owned_string(fields, "name")?,
-                        None,
-                        effect_cell_size(fields)?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: optional_owned_string(fields, "name")?,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
                     ),
                 }
                 .map(|created| created.path)
@@ -3486,11 +3508,7 @@ impl Mux {
         self: &Arc<Self>,
         intent: &Value,
         workspace_name: Option<String>,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        terminal_name: Option<String>,
-        created_screen_name: Option<String>,
-        size: Option<(u16, u16)>,
+        options: TerminalCreateOptions,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let (workspace_key, workspace_public_id, workspace_mutation) =
             self.effect_workspace_reservation(intent)?;
@@ -3500,27 +3518,17 @@ impl Mux {
             workspace_public_id,
             &workspace_mutation,
         )?;
-        self.effect_create_terminal_in_workspace(
-            intent,
-            placement.workspace,
-            argv,
-            cwd,
-            terminal_name,
-            created_screen_name,
-            size,
-        )
+        self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
 
     fn effect_create_terminal_in_workspace(
         self: &Arc<Self>,
         intent: &Value,
         workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        created_screen_name: Option<String>,
-        size: Option<(u16, u16)>,
+        options: TerminalCreateOptions,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        let TerminalCreateOptions { argv, cwd, terminal_name: name, created_screen_name, size } =
+            options;
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;

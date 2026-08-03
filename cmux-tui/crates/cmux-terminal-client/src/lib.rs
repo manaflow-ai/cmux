@@ -1580,10 +1580,11 @@ mod tests {
             })
             .await
             .expect("terminal exit did not close the smart client input path");
-            let state = state.lock().unwrap();
-            assert_eq!(state.status, "exited");
-            assert!(!state.ready, "an exited terminal must not remain input-ready");
-            drop(state);
+            {
+                let state = state.lock().unwrap();
+                assert_eq!(state.status, "exited");
+                assert!(!state.ready, "an exited terminal must not remain input-ready");
+            }
 
             active.close().await;
             daemon_task.await.unwrap();
