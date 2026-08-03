@@ -1,8 +1,7 @@
 import AppKit
 import Foundation
-import SwiftUI
 
-/// Stores exact hosted-row heights without measuring from AppKit's layout callbacks.
+/// Stores exact native-row heights without measuring from AppKit layout callbacks.
 @MainActor
 final class SidebarWorkspaceTableRowHeightCache {
     typealias Measurement = (
@@ -25,7 +24,6 @@ final class SidebarWorkspaceTableRowHeightCache {
     }
 
     private var entries: [SidebarWorkspaceRenderItemID: Entry] = [:]
-    private let prototypeView = NSHostingView(rootView: AnyView(EmptyView()))
     private let prototypeRowView = SidebarWorkspaceRowTableCellView()
     private var preparedColumnWidth: CGFloat?
 
@@ -42,10 +40,9 @@ final class SidebarWorkspaceTableRowHeightCache {
         }
         preparedColumnWidth = nil
         prototypeRowView.suspendPresentation()
-        prototypeView.rootView = AnyView(EmptyView())
     }
 
-    func prepareHostedRows(
+    func prepareNativeRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat,
         skippingEquivalenceCheckAt unchanged: IndexSet = []
@@ -54,16 +51,16 @@ final class SidebarWorkspaceTableRowHeightCache {
             rows: rows,
             columnWidth: columnWidth,
             skippingEquivalenceCheckAt: unchanged,
-            measure: measureHostedRow
+            measure: measureNativeRow
         )
     }
 
-    func prepareHostedRowsIfWidthChanged(
+    func prepareNativeRowsIfWidthChanged(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat
     ) -> IndexSet? {
         guard columnWidth > 0, preparedColumnWidth != columnWidth else { return nil }
-        return prepareHostedRows(rows, columnWidth: columnWidth)
+        return prepareNativeRows(rows, columnWidth: columnWidth)
     }
 
     /// Measures only missing or invalid entries. Call from render updates or
@@ -122,9 +119,8 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     /// Live-resize partial pass: re-measures only `indexes` at the live
     /// width, leaving every other entry at its previous width. Only the
-    /// deterministic pure-AppKit rows re-measure here; hosted SwiftUI rows
-    /// keep their entry and settle in the next full `prepareHostedRows`
-    /// pass. Returns the indexes whose height changed.
+    /// deterministic native rows re-measure here. Returns the indexes whose
+    /// height changed.
     func prepareRows(
         at indexes: IndexSet,
         in rows: [SidebarWorkspaceTableRowConfiguration],
@@ -138,7 +134,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             guard row.appKitGroupHeaderModel != nil || row.appKitWorkspaceRowModel != nil else { continue }
             let previous = entries[row.id]
             if let previous, previous.matches(row: row, columnWidth: columnWidth) { continue }
-            let measuredHeight = Self.normalizedHeight(measureHostedRow(row: row, columnWidth: columnWidth))
+            let measuredHeight = Self.normalizedHeight(measureNativeRow(row: row, columnWidth: columnWidth))
             if (previous?.height ?? row.estimatedHeight) != measuredHeight {
                 changedHeights.insert(index)
             }
@@ -170,12 +166,11 @@ final class SidebarWorkspaceTableRowHeightCache {
         ceil(max(1, height))
     }
 
-    private func measureHostedRow(
+    private func measureNativeRow(
         row: SidebarWorkspaceTableRowConfiguration,
         columnWidth: CGFloat
     ) -> CGFloat {
-        // Pure-AppKit rows have deterministic heights; never spin up the
-        // hosted SwiftUI measurement path for them.
+        // Native rows have deterministic heights.
         if let headerModel = row.appKitGroupHeaderModel {
             return SidebarGroupHeaderTableCellView.preferredHeight(model: headerModel)
         }
@@ -191,18 +186,6 @@ final class SidebarWorkspaceTableRowHeightCache {
             )
             return prototypeRowView.layoutContent(model: rowModel, width: columnWidth, apply: false)
         }
-        let contextMenuActions = SidebarWorkspaceTableContextMenuActions(
-            didOpen: {},
-            didClose: {}
-        )
-        prototypeView.rootView = AnyView(
-            row.makeContent(false, contextMenuActions)
-                .frame(width: columnWidth, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        )
-        defer { prototypeView.rootView = AnyView(EmptyView()) }
-        prototypeView.frame = NSRect(x: 0, y: 0, width: columnWidth, height: 1)
-        prototypeView.layoutSubtreeIfNeeded()
-        return prototypeView.fittingSize.height
+        return row.measuredFallbackHeight ?? row.estimatedHeight
     }
 }

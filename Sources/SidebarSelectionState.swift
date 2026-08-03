@@ -1,4 +1,4 @@
-import SwiftUI
+import Combine
 
 @MainActor
 final class SidebarSelectionState: ObservableObject {

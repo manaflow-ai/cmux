@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Compact status line (hidesAllDetails mode)
 
@@ -76,12 +75,12 @@ final class SidebarRowCompactStatusLine: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Legacy SwiftUI `Menu` opens on press, not on release; dim while
+        // The previous menu opened on press, not on release; dim while
         // the menu tracks (popUp blocks until dismissal).
         presentLanesMenu()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Menu.
+    /// VoiceOver and keyboard activation parity with the previous menu.
     override func accessibilityPerformPress() -> Bool {
         guard menuProvider != nil else { return false }
         presentLanesMenu()

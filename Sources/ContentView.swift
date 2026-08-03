@@ -11002,18 +11002,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
-#if DEBUG
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe
-        )
-#else
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
+            colorScheme: sidebarColorScheme == .dark ? .dark : .light,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
         )
-#endif
         let renderContext = WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,

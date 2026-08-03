@@ -1,5 +1,5 @@
 import CmuxNotifications
-import SwiftUI
+import Foundation
 
 struct SidebarWorkspaceTableContextMenuActions {
     let didOpen: () -> Void
@@ -18,19 +18,12 @@ final class SidebarAppKitFrozenRowsBox {
 /// Immutable description of one AppKit-owned sidebar row.
 @MainActor
 struct SidebarWorkspaceTableRowConfiguration {
-    typealias ContentFactory = (
-        _ isPointerHovering: Bool,
-        _ contextMenuActions: SidebarWorkspaceTableContextMenuActions
-    ) -> AnyView
-
     let id: SidebarWorkspaceRenderItemID
     let workspaceId: UUID
     let groupId: UUID?
     let isGroupHeader: Bool
     let isPinned: Bool
-    let makeContent: ContentFactory
-    /// Present when this row renders through the pure-AppKit group header cell
-    /// instead of a hosted SwiftUI cell.
+    /// Present when this row renders through the native group header cell.
     let appKitGroupHeaderModel: SidebarGroupHeaderRowModel?
     let appKitGroupHeaderActions: SidebarGroupHeaderRowActions?
     /// Present when this row renders through the pure-AppKit workspace cell.
@@ -50,6 +43,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
+    private let fallbackMeasuredHeight: CGFloat?
 
     private init(
         id: SidebarWorkspaceRenderItemID,
@@ -57,19 +51,18 @@ struct SidebarWorkspaceTableRowConfiguration {
         groupId: UUID?,
         isGroupHeader: Bool,
         isPinned: Bool,
-        makeContent: @escaping ContentFactory,
         appKitGroupHeaderModel: SidebarGroupHeaderRowModel?,
         appKitWorkspaceRowModel: SidebarWorkspaceRowModel?,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
         equivalenceValue: Any,
-        isEquivalentValue: @escaping (Any) -> Bool
+        isEquivalentValue: @escaping (Any) -> Bool,
+        fallbackMeasuredHeight: CGFloat?
     ) {
         self.id = id
         self.workspaceId = workspaceId
         self.groupId = groupId
         self.isGroupHeader = isGroupHeader
         self.isPinned = isPinned
-        self.makeContent = makeContent
         self.appKitGroupHeaderModel = appKitGroupHeaderModel
         self.appKitGroupHeaderActions = nil
         self.appKitWorkspaceRowModel = appKitWorkspaceRowModel
@@ -82,17 +75,18 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.environment = environment
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = isEquivalentValue
+        self.fallbackMeasuredHeight = fallbackMeasuredHeight
     }
 
-    init<Content: View & Equatable>(
+    init<Token: Equatable>(
         id: SidebarWorkspaceRenderItemID,
         workspaceId: UUID,
         groupId: UUID?,
         isGroupHeader: Bool,
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
-        equivalenceValue: Content,
-        makeContent: @escaping ContentFactory
+        equivalenceValue: Token,
+        measuredHeight: CGFloat? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -100,7 +94,6 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.isGroupHeader = isGroupHeader
         self.isPinned = isPinned
         self.environment = environment
-        self.makeContent = makeContent
         self.appKitGroupHeaderModel = nil
         self.appKitGroupHeaderActions = nil
         self.appKitWorkspaceRowModel = nil
@@ -112,9 +105,10 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitGroupHeaderUnreadRebuild = nil
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = { value in
-            guard let value = value as? Content else { return false }
+            guard let value = value as? Token else { return false }
             return value == equivalenceValue
         }
+        self.fallbackMeasuredHeight = measuredHeight
     }
 
     init(
@@ -130,7 +124,6 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.isGroupHeader = true
         self.isPinned = groupHeaderModel.isPinned
         self.environment = environment
-        self.makeContent = { _, _ in AnyView(EmptyView()) }
         self.appKitGroupHeaderModel = groupHeaderModel
         self.appKitGroupHeaderActions = actions
         self.appKitWorkspaceRowModel = nil
@@ -145,6 +138,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
             return value == groupHeaderModel
         }
+        self.fallbackMeasuredHeight = nil
     }
 
     init(
@@ -163,7 +157,6 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.isGroupHeader = false
         self.isPinned = isPinned
         self.environment = environment
-        self.makeContent = { _, _ in AnyView(EmptyView()) }
         self.appKitGroupHeaderModel = nil
         self.appKitGroupHeaderActions = nil
         self.appKitWorkspaceRowModel = workspaceRowModel
@@ -178,6 +171,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             guard let value = value as? SidebarWorkspaceRowModel else { return false }
             return value == workspaceRowModel
         }
+        self.fallbackMeasuredHeight = nil
     }
 
     func hasEquivalentContent(to other: Self) -> Bool {
@@ -225,16 +219,19 @@ struct SidebarWorkspaceTableRowConfiguration {
             groupId: groupId,
             isGroupHeader: isGroupHeader,
             isPinned: isPinned,
-            makeContent: { _, _ in AnyView(EmptyView()) },
             appKitGroupHeaderModel: appKitGroupHeaderModel,
             appKitWorkspaceRowModel: appKitWorkspaceRowModel,
             environment: environment,
             equivalenceValue: id,
-            isEquivalentValue: { ($0 as? SidebarWorkspaceRenderItemID) == id }
+            isEquivalentValue: { ($0 as? SidebarWorkspaceRenderItemID) == id },
+            fallbackMeasuredHeight: fallbackMeasuredHeight
         )
     }
 
     var estimatedHeight: CGFloat {
+        if let fallbackMeasuredHeight {
+            return fallbackMeasuredHeight
+        }
         let fontScale = CGFloat(environment.globalFontMagnificationPercent) / 100
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         if isGroupHeader {
@@ -245,5 +242,9 @@ struct SidebarWorkspaceTableRowConfiguration {
             titleLineCount: 1,
             auxiliaryLineCount: 0
         )
+    }
+
+    var measuredFallbackHeight: CGFloat? {
+        fallbackMeasuredHeight
     }
 }

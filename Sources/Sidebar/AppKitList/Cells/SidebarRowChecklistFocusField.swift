@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 /// The checklist add/edit field: `FocusGrabbingTextField` that also clears
 /// the field editor's background AFTER the focus grab. The immediate clear

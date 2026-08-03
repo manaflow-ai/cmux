@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Closure menu item
 

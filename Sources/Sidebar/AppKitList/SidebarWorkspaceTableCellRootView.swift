@@ -1,22 +1,7 @@
-import Foundation
-import SwiftUI
+import AppKit
 
-/// Stable SwiftUI root installed once for a reusable sidebar table cell.
+/// Stable native root installed once for a reusable fallback table cell.
 @MainActor
-struct SidebarWorkspaceTableCellRootView: View {
-    let identity: UUID
-    let model: SidebarWorkspaceTableCellModel
-
-    var body: some View {
-        Group {
-            if let state = model.state {
-                state.row.makeContent(
-                    state.isPointerHovering,
-                    state.contextMenuActions
-                )
-            } else {
-                EmptyView()
-            }
-        }
-    }
+final class SidebarWorkspaceTableCellRootView: NSView {
+    override var isFlipped: Bool { true }
 }

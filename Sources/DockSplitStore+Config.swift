@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 extension DockSplitStore {
     // MARK: - Config resolution

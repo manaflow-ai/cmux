@@ -3,7 +3,6 @@ import AppKit
 import Combine
 import Foundation
 import QuartzCore
-import SwiftUI
 
 // MARK: - Explorer Visual Style
 

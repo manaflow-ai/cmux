@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Attachment menu button
 
@@ -11,7 +10,7 @@ import SwiftUI
 final class SidebarRowChecklistAttachmentButton: NSControl {
     private let iconView = NSImageView()
     private let countLabel = SidebarRowTextView(lines: 1)
-    /// The borderless-menu disclosure chevron SwiftUI's
+    /// The borderless-menu disclosure chevron the previous renderer's
     /// `.menuStyle(.borderlessButton)` renders after the label.
     private let chevronView = NSImageView()
     private var item: WorkspaceChecklistItem?
@@ -93,7 +92,7 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
     /// Legacy footprint: the borderless-menu chevron packs INSIDE the
     /// `minWidth = iconPointSize + 8` slot next to the paperclip, so the
     /// whole control stays ~17pt wide and item text wraps at the same
-    /// width as the SwiftUI row.
+    /// width as the previous row.
     func measuredSize() -> NSSize {
         let iconSize = iconView.image?.size ?? .zero
         let chevronSize = chevronView.image?.size ?? .zero
@@ -142,7 +141,7 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         presentAttachmentsMenu()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Menu.
+    /// VoiceOver and keyboard activation parity with the previous menu.
     override func accessibilityPerformPress() -> Bool {
         guard item != nil, actions != nil else { return false }
         presentAttachmentsMenu()

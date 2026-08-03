@@ -1,5 +1,5 @@
 import AppKit
-import SwiftUI
+import Combine
 
 // MARK: - State (visibility toggle)
 
@@ -80,7 +80,7 @@ final class FileExplorerState: ObservableObject {
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
 
-        // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
+        // Suppress AppKit and Core Animation implicit layout changes.
         NSAnimationContext.beginGrouping()
         CATransaction.begin()
         defer {
@@ -92,11 +92,7 @@ final class FileExplorerState: ObservableObject {
         NSAnimationContext.current.allowsImplicitAnimation = false
         CATransaction.setDisableActions(true)
 
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isVisible = nextValue
-        }
+        isVisible = nextValue
     }
 
     private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {

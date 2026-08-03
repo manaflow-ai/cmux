@@ -1,6 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -144,7 +144,7 @@ struct SidebarWorkspaceTableTests {
         }
 
         for _ in 0..<500 {
-            #expect(cache.prepareHostedRowsIfWidthChanged([row], columnWidth: 200) == nil)
+            #expect(cache.prepareNativeRowsIfWidthChanged([row], columnWidth: 200) == nil)
             #expect(cache.height(for: row, columnWidth: 200) == 44)
         }
 
@@ -224,18 +224,16 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func cellReusePreservesOneHostingViewAndStableRootIdentity() {
+    func cellReusePreservesOneNativeRootIdentity() {
         let cell = SidebarWorkspaceTableCellView()
-        let hostingIdentity = cell.hostingViewIdentity
-        let rootIdentity = cell.hostedRootIdentity
+        let rootIdentity = cell.rootViewIdentity
         let reusedWorkspaceId = UUID()
 
         configure(cell, row: makeRowConfiguration())
         configure(cell, row: makeRowConfiguration(workspaceId: reusedWorkspaceId))
 
         #expect(cell.subviews.count == 1)
-        #expect(cell.hostingViewIdentity == hostingIdentity)
-        #expect(cell.hostedRootIdentity == rootIdentity)
+        #expect(cell.rootViewIdentity == rootIdentity)
         #expect(cell.representedRowId == .workspace(reusedWorkspaceId))
     }
 
@@ -492,21 +490,13 @@ struct SidebarWorkspaceTableTests {
         workspaceId: UUID = UUID(),
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
-        colorScheme: ColorScheme = .light,
+        colorScheme: WindowChromeColorScheme = .light,
         fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
-#if DEBUG
-        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
-            globalFontMagnificationPercent: fontMagnificationPercent,
-            lazyContractProbe: SidebarLazyContractProbe()
-        )
-#else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: colorScheme,
             globalFontMagnificationPercent: fontMagnificationPercent
         )
-#endif
         return SidebarWorkspaceTableRowConfiguration(
             id: .workspace(workspaceId),
             workspaceId: workspaceId,
@@ -514,10 +504,9 @@ struct SidebarWorkspaceTableTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
-        ) { _, _ in
-            AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
-        }
+            equivalenceValue: TestRowToken(token: contentToken, fixedHeight: fixedHeight),
+            measuredHeight: fixedHeight
+        )
     }
 
     @MainActor
@@ -575,17 +564,8 @@ struct SidebarWorkspaceTableTests {
     }
 #endif
 
-    private struct TestRowContent: View, Equatable {
+    private struct TestRowToken: Equatable {
         let token: Int
         let fixedHeight: CGFloat?
-
-        @ViewBuilder
-        var body: some View {
-            if let fixedHeight {
-                Color.clear.frame(height: fixedHeight)
-            } else {
-                EmptyView()
-            }
-        }
     }
 }

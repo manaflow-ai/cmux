@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Summary line
 
@@ -127,7 +126,7 @@ final class SidebarRowChecklistSummaryLine: NSControl {
     override func mouseDown(with event: NSEvent) {
         // Swallow so the table row action does not also fire (legacy Button
         // consumes the click without selecting the row), and dim while
-        // pressed like the SwiftUI plain Button this ports.
+        // pressed like the previous plain button.
         alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
@@ -138,7 +137,7 @@ final class SidebarRowChecklistSummaryLine: NSControl {
         onClick?()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    /// VoiceOver and keyboard activation parity with the previous button.
     override func accessibilityPerformPress() -> Bool {
         guard let onClick else { return false }
         onClick()

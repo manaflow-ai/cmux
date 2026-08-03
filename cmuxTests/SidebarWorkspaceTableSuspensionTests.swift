@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -123,8 +122,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             )
         )
         let controller = SidebarWorkspaceTableController()
@@ -246,8 +244,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             )
         )
         let firstId = UUID()
@@ -329,8 +326,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             )
         )
         let firstRoot = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -501,8 +497,7 @@ struct SidebarWorkspaceTableSuspensionTests {
     ) -> SidebarWorkspaceTableRowConfiguration {
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .light,
-            globalFontMagnificationPercent: 100,
-            lazyContractProbe: SidebarLazyContractProbe()
+            globalFontMagnificationPercent: 100
         )
         return SidebarWorkspaceTableRowConfiguration(
             id: .workspace(workspaceId),
@@ -511,10 +506,9 @@ struct SidebarWorkspaceTableSuspensionTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
-        ) { _, _ in
-            AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
-        }
+            equivalenceValue: TestRowToken(token: contentToken, fixedHeight: fixedHeight),
+            measuredHeight: fixedHeight
+        )
     }
 
     private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {
@@ -588,13 +582,9 @@ struct SidebarWorkspaceTableSuspensionTests {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
-    private struct TestRowContent: View, Equatable {
+    private struct TestRowToken: Equatable {
         let token: Int
         let fixedHeight: CGFloat?
-
-        var body: some View {
-            Color.clear.frame(height: fixedHeight)
-        }
     }
 }
 #endif

@@ -1,12 +1,11 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Manual status glyph
 
 /// Pure-AppKit port of `SidebarWorkspaceTaskStatusGlyph` for the row's title
 /// line: circle outline + progress pie + Done checkmark, drawn with the exact
-/// SwiftUI geometry (9pt base circle in an 11pt slot, both font-scaled,
+/// previous geometry (9pt base circle in an 11pt slot, both font-scaled,
 /// 1pt stroke / 1.4pt for attention, checkmark stroke 1.2 round). The control
 /// frame adds the legacy button's 2pt padding on every edge.
 @MainActor
@@ -103,7 +102,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
             context.fillEllipse(in: circleRect)
         } else if glyph.fillFraction > 0 {
             // Same math as `SidebarStatusPieShape` (the view is flipped, so
-            // SwiftUI's y-down arc renders identically): 12 o'clock sweeping
+            // The prior y-down arc renders identically: 12 o'clock sweeping
             // clockwise by `fillFraction` of the circle.
             let center = CGPoint(x: circleRect.midX, y: circleRect.midY)
             let radius = min(circleRect.width, circleRect.height) / 2
@@ -151,7 +150,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
     override func mouseDown(with event: NSEvent) {
         // Swallow so the table row action does not also fire (legacy: the
         // glyph Button consumes the click without selecting the row), and
-        // dim while pressed like a SwiftUI plain Button.
+        // dim while pressed like a plain button.
         alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
@@ -162,7 +161,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         onClick?()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    /// VoiceOver and keyboard activation parity with the previous button.
     override func accessibilityPerformPress() -> Bool {
         guard let onClick else { return false }
         onClick()

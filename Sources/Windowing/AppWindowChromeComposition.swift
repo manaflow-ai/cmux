@@ -1,7 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxWorkspaces
-import SwiftUI
 
 typealias SidebarMaterialOption = WindowChromeSidebarMaterialOption
 typealias SidebarBlendModeOption = WindowChromeSidebarBlendModeOption

@@ -1,11 +1,10 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
 ///
 /// Renders the collapsible group/folder header (pin, chevron, tinted icon,
-/// name, unread capsule, hover-revealed plus button) without any SwiftUI
+/// name, unread capsule, hover-revealed plus button) without hosted layout
 /// hosting so scroll, hover, and reconfigure stay off the AttributeGraph.
 /// Layout is manual: subviews are created once and framed in `layout()`.
 @MainActor

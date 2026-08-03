@@ -8,6 +8,17 @@ import SwiftUI
 /// Transitional mounts for native support views while their parent surfaces
 /// are still being moved to AppKit controllers.
 
+private struct CmuxPaneDropZoneEnvironmentKey: EnvironmentKey {
+    static let defaultValue: DropZone? = nil
+}
+
+extension EnvironmentValues {
+    var paneDropZone: DropZone? {
+        get { self[CmuxPaneDropZoneEnvironmentKey.self] }
+        set { self[CmuxPaneDropZoneEnvironmentKey.self] = newValue }
+    }
+}
+
 @MainActor
 private final class BonsplitSwiftUIProviderBox<Content: View, EmptyContent: View> {
     var content: (Bonsplit.Tab, PaneID) -> Content
@@ -64,7 +75,7 @@ private final class BonsplitSwiftUIContentController: NSHostingController<AnyVie
 
 @MainActor
 private final class BonsplitSwiftUIEmptyController: NSHostingController<AnyView> {
-    init(rootView: AnyView) {
+    override init(rootView: AnyView) {
         super.init(rootView: rootView)
         sizingOptions = []
     }
@@ -108,7 +119,7 @@ struct BonsplitView<Content: View, EmptyContent: View>: NSViewControllerRepresen
 
     @MainActor
     final class Coordinator {
-        let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
+        private let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
 
         init(
             content: @escaping (Bonsplit.Tab, PaneID) -> Content,

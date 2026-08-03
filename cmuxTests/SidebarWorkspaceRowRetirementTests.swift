@@ -160,8 +160,7 @@ struct SidebarWorkspaceRowRetirementTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             )
         )
     }

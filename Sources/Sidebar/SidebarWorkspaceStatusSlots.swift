@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 enum SidebarWorkspaceLoadingTooltip {
     static func text(count: Int) -> String {

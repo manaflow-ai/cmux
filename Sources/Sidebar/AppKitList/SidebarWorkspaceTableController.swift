@@ -3,7 +3,6 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
-import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
@@ -181,7 +180,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     /// Installs one unread subscription for the native table. Snapshot changes
-    /// are projected directly into affected visible cells, bypassing SwiftUI's
+    /// are projected directly into affected visible cells, bypassing hosted
     /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
     func setUnreadSource(_ source: SidebarUnreadModel) {
         guard unreadSource !== source else { return }
@@ -377,7 +376,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let provenUnchanged = hasStructuralChanges
                 ? IndexSet()
                 : IndexSet(nextRows.indices).subtracting(contentChanges)
-            heightChanges = rowHeightCache.prepareHostedRows(
+            heightChanges = rowHeightCache.prepareNativeRows(
                 nextRows,
                 columnWidth: width,
                 skippingEquivalenceCheckAt: provenUnchanged
@@ -561,7 +560,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         case .awaitingActions:
             // Presentation snapshots intentionally release their live action
             // captures while hidden. The retained row can become visible
-            // before SwiftUI supplies its first authoritative reveal apply,
+            // before the renderer supplies its first authoritative reveal apply,
             // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
             deferredRowClick = click
@@ -841,7 +840,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var reorderDragWindowPoint: NSPoint?
 
     /// Controller-owned indicator paint for the live reorder drag. The plan
-    /// result deliberately never enters the SwiftUI drag state (that rebuilds
+    /// result deliberately never enters the old drag state (that rebuilds
     /// every sidebar row per gap change and made the line lag the pointer);
     /// the controller paints the affected cells directly instead.
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
@@ -1165,7 +1164,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func middleClick(row: Int) {
         // Middle-click-close is a workspace-row gesture. A group header is not a
         // workspace row (it carries its anchor's workspaceId only for focus), so
-        // it is excluded here just as the SwiftUI sidebar accepts only .workspace
+        // it is excluded here just as the sidebar accepts only .workspace
         // rows. Group lifecycle runs through the header's own menu (Ungroup /
         // Delete Group), not a middle-click on the header.
         guard rows.indices.contains(row), !rows[row].isGroupHeader else { return }
@@ -1264,7 +1263,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Legacy parity: rows re-wrap continuously while the divider or window
     /// edge is dragged instead of keeping last-width heights until mouse-up.
     /// Only the visible pure-AppKit rows (plus a small buffer) re-measure per
-    /// width tick — manual frame math, no hosted SwiftUI layout — so the
+    /// width tick, with manual frame math and no hosted layout, so the
     /// per-tick cost stays bounded regardless of total row count. Off-screen
     /// and hosted rows settle in the full pass at drag end.
     private func performLiveWidthRemeasure(width: CGFloat) {
@@ -1334,7 +1333,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it forces a full settle even when the drag ends back at the width
         // it started from.
         guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
-        var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
+        var changed = rowHeightCache.prepareNativeRows(rows, columnWidth: width)
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0
@@ -1374,7 +1373,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         recomputeHoveredRow()
     }
 
-    /// Legacy parity: the SwiftUI sidebar never animates row geometry (its
+    /// Legacy parity: the sidebar never animates row geometry (its
     /// "no implicit animation on agent-mutable fields" rule), but
     /// NSTableView animates noteHeightOfRows by default — rails and text
     /// visibly interpolated after width resizes.

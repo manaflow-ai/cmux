@@ -2,7 +2,6 @@ import AppKit
 import CMUXProjectModel
 import Combine
 import Foundation
-import SwiftUI
 
 /// Which tab is active inside a ``ProjectPanel``.
 public enum ProjectPanelTab: String, Sendable, Hashable, CaseIterable {
@@ -52,7 +51,7 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 /// Holds the user's project URL, the parsed ``ProjectModel`` snapshot (loaded
 /// off the main actor through ``XcodeProjectAdapter``), and the
 /// currently-selected tab / scheme / configuration / node. Panel selection
-/// state is plain SwiftUI ``Published`` properties so the view layer can
+/// state uses Combine ``Published`` properties so every presentation can
 /// re-render without dealing with reload events.
 @MainActor
 public final class ProjectPanel: NSObject, Panel, ObservableObject {
@@ -93,17 +92,21 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         let previousModel = loadState.model
         loadState = .loading
         let url = projectURL
-        reloadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let adapter = XcodeProjectAdapter()
+        reloadTask = Task(priority: .userInitiated) { [weak self] in
             do {
-                let model = try adapter.load(at: url)
+                let model = try await Self.loadModel(at: url)
                 if Task.isCancelled { return }
-                await self?.applyLoaded(model)
+                self?.applyLoaded(model)
             } catch {
                 if Task.isCancelled { return }
-                await self?.applyLoadError(error, previousModel: previousModel)
+                self?.applyLoadError(error, previousModel: previousModel)
             }
         }
+    }
+
+    @concurrent
+    private nonisolated static func loadModel(at url: URL) async throws -> ProjectModel {
+        try XcodeProjectAdapter().load(at: url)
     }
 
     private func applyLoadError(_ error: Error, previousModel: ProjectModel?) {

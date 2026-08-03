@@ -1,7 +1,6 @@
 import AppKit
 import CmuxUpdater
 import QuartzCore
-import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -113,8 +112,7 @@ struct SidebarHiddenPresentationTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             )
         )
         controller.apply(
@@ -393,18 +391,10 @@ struct SidebarHiddenPresentationTests {
         workspaceId: UUID,
         payload: NSObject
     ) -> SidebarWorkspaceTableRowConfiguration {
-#if DEBUG
-        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
-            globalFontMagnificationPercent: 100,
-            lazyContractProbe: SidebarLazyContractProbe()
-        )
-#else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .light,
             globalFontMagnificationPercent: 100
         )
-#endif
         return SidebarWorkspaceTableRowConfiguration(
             id: .workspace(workspaceId),
             workspaceId: workspaceId,
@@ -412,10 +402,8 @@ struct SidebarHiddenPresentationTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent()
-        ) { [payload] _, _ in
-            AnyView(TestRowContent().onAppear { _ = payload })
-        }
+            equivalenceValue: TestRowToken(payload: payload)
+        )
     }
 
     private func makeTableActions() -> SidebarWorkspaceTableActions {
@@ -452,8 +440,12 @@ struct SidebarHiddenPresentationTests {
         }
     }
 
-    private struct TestRowContent: View, Equatable {
-        var body: some View { EmptyView() }
+    private struct TestRowToken: Equatable {
+        let payload: NSObject
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.payload === rhs.payload
+        }
     }
 
     private final class FocusProbeView: NSView {

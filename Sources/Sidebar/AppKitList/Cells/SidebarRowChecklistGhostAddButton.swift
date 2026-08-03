@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 /// The ghost "+ Add item" button (icon + label, single click target).
 @MainActor
@@ -40,7 +39,7 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
         label.font = font
         label.textColor = color
         // The custom control does not combine its child text into an
-        // accessible name the way the SwiftUI Button it replaces did.
+        // accessible name the way the button it replaces did.
         setAccessibilityLabel(title)
         label.setAccessibilityElement(false)
         needsLayout = true
@@ -72,7 +71,7 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         // Swallow so the table row action does not also fire; dim while
-        // pressed like the SwiftUI plain Button this ports.
+        // pressed like the previous plain button.
         alphaValue = SidebarRowPressedDim.pressedAlpha
     }
 
@@ -83,7 +82,7 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
         onClick?()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    /// VoiceOver and keyboard activation parity with the previous button.
     override func accessibilityPerformPress() -> Bool {
         guard let onClick else { return false }
         onClick()

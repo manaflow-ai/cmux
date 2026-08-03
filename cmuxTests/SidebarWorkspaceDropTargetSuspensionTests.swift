@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -72,13 +71,10 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
                 colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
+                globalFontMagnificationPercent: 100
             ),
-            equivalenceValue: TestRowContent()
-        ) { _, _ in
-            AnyView(TestRowContent())
-        }
+            equivalenceValue: TestRowToken()
+        )
     }
 
     private func makeTableActions(
@@ -117,8 +113,6 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
         }
     }
 
-    private struct TestRowContent: View, Equatable {
-        var body: some View { EmptyView() }
-    }
+    private struct TestRowToken: Equatable {}
 }
 #endif

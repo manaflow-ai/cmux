@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 /// Transparent full-frame click target (the tap-to-edit overlay on item
 /// text; legacy: `.contentShape(Rectangle()).onTapGesture`).
@@ -18,7 +17,7 @@ final class SidebarRowChecklistTransparentButton: NSControl {
         onClick?()
     }
 
-    /// VoiceOver/keyboard activation parity with the legacy SwiftUI Button.
+    /// VoiceOver and keyboard activation parity with the previous button.
     override func accessibilityPerformPress() -> Bool {
         guard let onClick else { return false }
         onClick()

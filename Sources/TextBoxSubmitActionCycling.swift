@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 extension TextBoxInputContainer {
     func cycleSubmitAction() {

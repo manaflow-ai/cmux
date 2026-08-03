@@ -9,7 +9,6 @@ import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
 import Observation
-import SwiftUI
 import WebKit
 
 @MainActor
@@ -29,7 +28,7 @@ final class DockSplitStore: BonsplitDelegate {
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
     /// Host views currently showing this Dock. Normally at most one (the owning
-    /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
+    /// window's right sidebar), but view remounts can briefly overlap an old
     /// and new host, so visibility is the union rather than a single flag.
     private var visibleUIHostIds: Set<UUID> = []
     @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()

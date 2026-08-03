@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import CmuxFoundation
-import SwiftUI
 
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {

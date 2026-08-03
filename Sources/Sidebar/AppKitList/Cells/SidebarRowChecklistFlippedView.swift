@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 @MainActor
 final class SidebarRowChecklistFlippedView: NSView {
