@@ -1194,6 +1194,33 @@ mod tests {
     }
 
     #[test]
+    fn terminal_connect_timeout_drops_the_stalled_operation() {
+        struct DropSignal(Arc<AtomicBool>);
+
+        impl Drop for DropSignal {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let runtime = Runtime::new().unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let result: Result<(), String> = runtime.block_on(connect_with_timeout(
+            {
+                let dropped = dropped.clone();
+                async move {
+                    let _signal = DropSignal(dropped);
+                    std::future::pending::<Result<(), String>>().await
+                }
+            },
+            std::time::Duration::from_millis(1),
+        ));
+
+        assert_eq!(result.unwrap_err(), CONNECTION_TIMEOUT_ERROR);
+        assert!(dropped.load(Ordering::Acquire), "timed-out enrollment future remained live");
+    }
+
+    #[test]
     fn update_callback_registration_is_signal_driven_and_synchronously_cleared() {
         let updates = ClientUpdates::default();
         let count = AtomicU64::new(0);

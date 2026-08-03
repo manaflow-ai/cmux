@@ -499,6 +499,31 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
+    func timedOutEnrollmentReturnsToARetryableState() async throws {
+        let attempts = LockedCounter()
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "cmux://enroll/test",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            connectClient: { _, _ in
+                attempts.increment()
+                return ConnectedHandle(rawAddress: nil, error: "terminal connection timed out")
+            }
+        )
+
+        model.connect()
+        #expect(await waitUntil { attempts.value == 1 && !model.isConnecting })
+        #expect(!model.errorMessage.isEmpty)
+
+        model.connect()
+        #expect(await waitUntil { attempts.value == 2 && !model.isConnecting })
+        #expect(!model.errorMessage.isEmpty)
+        model.shutdown()
+    }
+
+    @Test @MainActor
     func disconnectDoesNotBlockTheMainActor() async throws {
         let detachStarted = LockedFlag()
         let releaseDetach = DispatchSemaphore(value: 0)

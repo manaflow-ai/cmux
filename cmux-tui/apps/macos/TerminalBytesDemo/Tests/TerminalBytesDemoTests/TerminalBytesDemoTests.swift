@@ -119,6 +119,47 @@ final class TerminalBytesDemoTests: XCTestCase {
     }
 
     @MainActor
+    func testMarkedTextOwnsNamedKeysUntilIMECommit() throws {
+        let terminal = TerminalTextView()
+        terminal.configureForTerminal()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = terminal
+        XCTAssertTrue(window.makeFirstResponder(terminal))
+
+        var delivered: [TerminalInput] = []
+        terminal.submit = { delivered.append($0) }
+        terminal.isInputReady = true
+        terminal.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(terminal.hasMarkedText())
+
+        let backspace = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "\u{7f}",
+                charactersIgnoringModifiers: "\u{7f}",
+                isARepeat: false,
+                keyCode: 51
+            ))
+        terminal.keyDown(with: backspace)
+
+        XCTAssertTrue(delivered.isEmpty)
+    }
+
+    @MainActor
     func testClosingLastWindowTerminatesDemoApp() {
         XCTAssertTrue(
             TerminalBytesDemoAppDelegate()
