@@ -14,7 +14,7 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-    enum Mode: String {
+    enum Mode: String, Sendable {
         case standard
         case minimal
     }

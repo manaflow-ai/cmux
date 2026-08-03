@@ -71,7 +71,7 @@ extension SidebarGitMetadataService {
         }
 
         stopWorkspaceGitMetadataWatcher(for: key)
-        if let watcher = RecursivePathWatcher(paths: watchedPaths) {
+        if let watcher = workspaceGitMetadataWatcherFactory(watchedPaths) {
             workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] = watcher
             setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
             moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)

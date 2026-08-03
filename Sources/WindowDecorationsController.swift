@@ -6,12 +6,23 @@ final class WindowDecorationsController {
     private var didStart = false
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
-    private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
+    private let presentationModeProvider: @Sendable () -> WorkspacePresentationModeSettings.Mode
+    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode
     private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
     )
+
+    init(
+        initialPresentationMode: WorkspacePresentationModeSettings.Mode? = nil,
+        presentationModeProvider: @escaping @Sendable () -> WorkspacePresentationModeSettings.Mode = {
+            WorkspacePresentationModeSettings.mode()
+        }
+    ) {
+        self.presentationModeProvider = presentationModeProvider
+        self.lastKnownPresentationMode = initialPresentationMode ?? presentationModeProvider()
+    }
 
     deinit {
         let center = NotificationCenter.default
@@ -37,7 +48,7 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
+        if isMainWorkspaceWindow(window), presentationModeProvider() == .minimal {
             WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
         } else {
             WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)
@@ -65,7 +76,7 @@ final class WindowDecorationsController {
     }
 
     private func applyDefaultsDrivenDecorationChangeIfNeeded() {
-        let currentMode = WorkspacePresentationModeSettings.mode()
+        let currentMode = presentationModeProvider()
         let currentTitlebarSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
         guard currentMode != lastKnownPresentationMode || currentTitlebarSnapshot != lastKnownTitlebarDebugSnapshot else { return }
         lastKnownPresentationMode = currentMode
@@ -210,7 +221,7 @@ final class WindowDecorationsController {
             height: window.frame.height
         )
         guard isMinimalModeWindowTitlebarClickCandidate(
-            isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
+            isMinimalMode: presentationModeProvider() == .minimal,
             isFullScreen: window.styleMask.contains(.fullScreen),
             isMainWindow: isMainWorkspaceWindow(window),
             locationInWindow: locationInWindow,
@@ -384,7 +395,7 @@ final class WindowDecorationsController {
 
     private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
         let shouldInstall = isMainWorkspaceWindow(window)
-            && WorkspacePresentationModeSettings.isMinimal()
+            && presentationModeProvider() == .minimal
             && !window.styleMask.contains(.fullScreen)
             && minimalModeSidebarTitlebarControlsAreAvailable(in: window)
         guard shouldInstall,

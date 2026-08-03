@@ -48,6 +48,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    let workspaceGitMetadataWatcherFactory: @Sendable ([String]) -> RecursivePathWatcher?
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     private(set) weak var host: (any SidebarGitHosting)?
@@ -89,7 +90,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - clock: Retry/fallback clock; tests inject virtual time.
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
-    public init(
+    public convenience init(
         workspaceGitMetadataReader: any WorkspaceGitMetadataReading,
         gitMetadataService: GitMetadataService,
         pullRequestProbing: any PullRequestProbing,
@@ -98,6 +99,30 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
+        self.init(
+            workspaceGitMetadataReader: workspaceGitMetadataReader,
+            gitMetadataService: gitMetadataService,
+            pullRequestProbing: pullRequestProbing,
+            probeLimiter: probeLimiter,
+            clock: clock,
+            mobileHostDeferral: mobileHostDeferral,
+            debugLog: debugLog,
+            workspaceGitMetadataWatcherFactory: { paths in
+                RecursivePathWatcher(paths: paths)
+            }
+        )
+    }
+
+    init(
+        workspaceGitMetadataReader: any WorkspaceGitMetadataReading,
+        gitMetadataService: GitMetadataService,
+        pullRequestProbing: any PullRequestProbing,
+        probeLimiter: WorkspaceGitMetadataProbeLimiter,
+        clock: any GitPollClock = SystemGitPollClock(),
+        mobileHostDeferral: MobileHostDeferralPolicy = .standard,
+        debugLog: @escaping @Sendable (String) -> Void = { _ in },
+        workspaceGitMetadataWatcherFactory: @escaping @Sendable ([String]) -> RecursivePathWatcher?
+    ) {
         self.workspaceGitMetadataReader = workspaceGitMetadataReader
         self.gitMetadataService = gitMetadataService
         self.pullRequestProbing = pullRequestProbing
@@ -105,6 +130,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.clock = clock
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
+        self.workspaceGitMetadataWatcherFactory = workspaceGitMetadataWatcherFactory
     }
 
     deinit {
