@@ -25944,14 +25944,16 @@ mod tests {
         let mux = Mux::new("resize-client-refresh-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
 
-        app.handle(AppEvent::Mux(MuxEvent::SurfaceResized {
-            surface: 7,
-            cols: 80,
-            rows: 24,
-            reservation_id: None,
-        }))
-        .unwrap();
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::SurfaceResized {
+                surface: 7,
+                cols: 80,
+                rows: 24,
+                reservation_id: None,
+            }))
+            .unwrap();
 
+        assert_eq!(action, RenderAction::Paint);
         assert!(!app.session.client_refresh_queued.load(Ordering::Acquire));
     }
 
@@ -32666,6 +32668,55 @@ mod tests {
             .find(|tab| tab.surface == first.id)
             .and_then(|tab| tab.name.as_deref());
         assert_eq!(renamed, Some("first renamed"));
+        assert_eq!(mux.active_surface(), Some(second.id));
+    }
+
+    #[test]
+    fn pane_tab_context_menu_renames_the_exact_inactive_tab() {
+        let (mux, first) = test_mux("pane-tab-rename-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(app.tree.active_surface(), Some(second.id));
+        let clicked = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane)
+                    .then_some(*rect)
+            })
+            .unwrap();
+
+        app.open_context_menu(clicked.x, clicked.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::RenameSurface(first.id)))
+        );
+        app.activate_menu(MenuAction::RenameSurface(first.id)).unwrap();
+        app.prompt.as_mut().unwrap().input.insert_str("inactive renamed");
+        app.commit_prompt();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        let tree = app.session.tree();
+        let renamed = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == first.id)
+            .and_then(|tab| tab.name.as_deref());
+        assert_eq!(renamed, Some("inactive renamed"));
         assert_eq!(mux.active_surface(), Some(second.id));
     }
 
