@@ -1628,6 +1628,82 @@ struct ApplicationSurfaceTests {
         #expect(!persistedText.contains(privateTitle))
     }
 
+    @Test func movedApplicationSnapshotOmitsAutomaticallyDerivedTitles() throws {
+        let privateTitle = "Private quarterly plan"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let source = try #require(manager.selectedWorkspace)
+        let pane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = try #require(source.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle
+        ))
+        defer { panel.close() }
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        let destination = try #require(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            title: privateTitle,
+            titleSource: .auto,
+            select: false
+        ))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+
+        #expect(
+            snapshot.processTitle
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+        #expect(snapshot.customTitle == nil)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
+    @Test func movedApplicationSnapshotPreservesUserTitle() throws {
+        let privateTitle = "Private quarterly plan"
+        let userTitle = "Pinned app"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let source = try #require(manager.selectedWorkspace)
+        let pane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = try #require(source.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle
+        ))
+        defer { panel.close() }
+        #expect(source.setPanelCustomTitle(
+            panelId: panel.id,
+            title: userTitle
+        ))
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        let destination = try #require(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            title: detached.title,
+            titleSource: .auto,
+            select: false
+        ))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+
+        #expect(snapshot.processTitle == userTitle)
+        #expect(snapshot.customTitle == userTitle)
+        #expect(snapshot.customTitleSource == .user)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
     @Test func pickerFailuresDoNotExposeRawHelperDiagnostics() async throws {
         let privateDiagnostic =
             "Failed to map /Users/private/Library/Application Support/cmux/frame"
