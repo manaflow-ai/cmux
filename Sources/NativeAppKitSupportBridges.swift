@@ -598,15 +598,6 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 appearance: configuration.appearance,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ))
-        case .rightSidebarTool:
-            guard let toolPanel = panel as? RightSidebarToolPanel else { return setEmpty() }
-            rootView = AnyView(RightSidebarToolPanelView(
-                panel: toolPanel,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                appearance: configuration.appearance,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
         case .customSidebar:
             guard let sidebarPanel = panel as? CustomSidebarPanel,
                   let tabManager = configuration.customSidebarTabManager,
@@ -639,7 +630,8 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
         case .cloudVMLoading:
             guard let loadingPanel = panel as? CloudVMLoadingPanel else { return setEmpty() }
             rootView = AnyView(CloudVMLoadingPanelView(panel: loadingPanel))
-        case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn:
+        case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
+             .rightSidebarTool:
             setEmpty()
         }
         rootView = AnyView(
@@ -651,6 +643,31 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
 
     private func setEmpty() {
         rootView = AnyView(EmptyView())
+    }
+}
+
+@MainActor
+final class SessionIndexTransitionalHostingController: NSHostingController<AnyView> {
+    init(store: SessionIndexStore, tabManager: TabManager) {
+        super.init(rootView: AnyView(EmptyView()))
+        sizingOptions = []
+        update(store: store, tabManager: tabManager)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(store: SessionIndexStore, tabManager: TabManager) {
+        rootView = AnyView(
+            SessionIndexView(
+                store: store,
+                onResume: { entry in
+                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                }
+            )
+        )
     }
 }
 

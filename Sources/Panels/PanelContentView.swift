@@ -55,6 +55,7 @@ final class PanelContentViewController: NSViewController {
         case extensionBrowser
         case mobilePairing
         case accountSignIn
+        case rightSidebarTool
         case transitional(String)
     }
 
@@ -134,6 +135,8 @@ final class PanelContentViewController: NSViewController {
             return .mobilePairing
         case .accountSignIn:
             return .accountSignIn
+        case .rightSidebarTool:
+            return .rightSidebarTool
         default:
             return .transitional(configuration.panel.panelType.rawValue)
         }
@@ -156,6 +159,8 @@ final class PanelContentViewController: NSViewController {
             return MobilePairingPanelNativeViewController(configuration: configuration)
         case .accountSignIn:
             return AccountSignInPanelNativeViewController(configuration: configuration)
+        case .rightSidebarTool:
+            return RightSidebarToolPanelViewController(configuration: configuration)
         case .transitional:
             return TransitionalPanelLeafHostingController(configuration: configuration)
         }

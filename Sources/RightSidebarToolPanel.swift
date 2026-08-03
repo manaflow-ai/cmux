@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import SwiftUI
 
 @MainActor
 final class RightSidebarToolPanel: Panel, ObservableObject {
@@ -236,140 +235,183 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 }
 
-struct RightSidebarToolPanelView: View {
-    @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
+@MainActor
+final class RightSidebarToolPanelViewController: NSViewController,
+    PanelContentControllerUpdating,
+    NSGestureRecognizerDelegate
+{
+    private let contentContainer = NSView()
+    private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
+    private let focusAnchor = RightSidebarToolFocusAnchorView(frame: .zero)
+    private var fileExplorerController: FileExplorerPanelController?
+    private var sessionController: SessionIndexTransitionalHostingController?
+    private weak var panel: RightSidebarToolPanel?
+    private var flashCancellable: AnyCancellable?
+    private var onRequestPanelFocus: () -> Void = {}
 
-    @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashAnimationGeneration: Int = 0
-
-    var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
-            .overlay {
-                WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
-            }
-            .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
-            .onChange(of: panel.focusFlashToken) { _, _ in
-                triggerFocusFlashAnimation()
-            }
+    init(configuration: PanelContentConfiguration) {
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
     }
 
-    @ViewBuilder
-    private var content: some View {
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        flashRing.translatesAutoresizingMaskIntoConstraints = false
+        focusAnchor.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(contentContainer)
+        root.addSubview(flashRing)
+        root.addSubview(focusAnchor)
+        NSLayoutConstraint.activate([
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: root.topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            flashRing.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            flashRing.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            flashRing.topAnchor.constraint(equalTo: root.topAnchor),
+            flashRing.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            focusAnchor.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            focusAnchor.topAnchor.constraint(equalTo: root.topAnchor),
+            focusAnchor.widthAnchor.constraint(equalToConstant: 0),
+            focusAnchor.heightAnchor.constraint(equalToConstant: 0),
+        ])
+        let click = NSClickGestureRecognizer(target: self, action: #selector(requestPanelFocus(_:)))
+        click.delaysPrimaryMouseButtonEvents = false
+        click.delegate = self
+        root.addGestureRecognizer(click)
+        view = root
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? RightSidebarToolPanel else { return }
+        loadViewIfNeeded()
+        onRequestPanelFocus = configuration.onRequestPanelFocus
+        view.layer?.backgroundColor = configuration.appearance.backgroundColor.cgColor
+        observeFlash(on: panel)
+
         switch panel.mode {
-        case .files:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: panel.openFilePreview,
-                presentation: .files,
-                placement: .pane,
-                onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
-            )
-        case .find:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: panel.openFilePreview,
-                presentation: .find,
-                placement: .pane,
-                onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
-            )
+        case .files, .find:
+            installFileExplorer(panel: panel, presentation: panel.mode == .files ? .files : .find)
         case .sessions:
-            SessionIndexView(
-                store: panel.sessionIndexStore,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-                }
-            )
-            .background(
-                RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
-                    .frame(width: 0, height: 0)
-            )
+            guard let tabManager = configuration.customSidebarTabManager else { return }
+            installSessionIndex(panel: panel, tabManager: tabManager)
         case .feed, .dock, .customSidebar:
-            EmptyView()
+            clearInstalledContent()
         }
+    }
+
+    func teardownPanelContent() {
+        flashCancellable = nil
+        fileExplorerController?.teardown()
+        fileExplorerController = nil
+        sessionController?.view.removeFromSuperview()
+        sessionController?.removeFromParent()
+        sessionController = nil
+        panel?.attachFileExplorerContainer(nil)
+        panel?.attachSessionIndexFocusAnchor(nil)
+        panel = nil
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: NSGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSGestureRecognizer
+    ) -> Bool {
+        true
+    }
+
+    private func installFileExplorer(
+        panel: RightSidebarToolPanel,
+        presentation: FileExplorerPanelPresentation
+    ) {
+        if sessionController != nil || fileExplorerController == nil {
+            clearInstalledContent()
+            let controller = FileExplorerPanelController(
+                store: panel.fileExplorerStore,
+                state: panel.fileExplorerState,
+                onOpenFilePreview: panel.openFilePreview,
+                presentation: presentation,
+                placement: .pane,
+                onFocus: { [weak self] in self?.requestPanelFocusIfNeeded() },
+                onContainerChange: panel.attachFileExplorerContainer
+            )
+            fileExplorerController = controller
+            install(view: controller.containerView)
+        }
+        fileExplorerController?.update(
+            store: panel.fileExplorerStore,
+            state: panel.fileExplorerState,
+            onOpenFilePreview: panel.openFilePreview,
+            presentation: presentation,
+            placement: .pane,
+            onFocus: { [weak self] in self?.requestPanelFocusIfNeeded() },
+            onContainerChange: panel.attachFileExplorerContainer
+        )
+    }
+
+    private func installSessionIndex(panel: RightSidebarToolPanel, tabManager: TabManager) {
+        if fileExplorerController != nil || sessionController == nil {
+            clearInstalledContent()
+            let controller = SessionIndexTransitionalHostingController(
+                store: panel.sessionIndexStore,
+                tabManager: tabManager
+            )
+            addChild(controller)
+            sessionController = controller
+            install(view: controller.view)
+            panel.attachSessionIndexFocusAnchor(focusAnchor)
+        } else {
+            sessionController?.update(store: panel.sessionIndexStore, tabManager: tabManager)
+        }
+    }
+
+    private func install(view contentView: NSView) {
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+    }
+
+    private func clearInstalledContent() {
+        fileExplorerController?.teardown()
+        fileExplorerController = nil
+        sessionController?.view.removeFromSuperview()
+        sessionController?.removeFromParent()
+        sessionController = nil
+        contentContainer.subviews.forEach { $0.removeFromSuperview() }
+        panel?.attachFileExplorerContainer(nil)
+        panel?.attachSessionIndexFocusAnchor(nil)
+    }
+
+    private func observeFlash(on panel: RightSidebarToolPanel) {
+        guard self.panel !== panel else { return }
+        flashCancellable = panel.$focusFlashToken
+            .dropFirst()
+            .sink { [weak flashRing] _ in
+                Task { @MainActor in
+                    flashRing?.triggerFlash(reason: .navigation)
+                }
+            }
+        self.panel = panel
     }
 
     private func requestPanelFocusIfNeeded() {
-        guard !panel.isFocusedInWorkspace else { return }
+        guard panel?.isFocusedInWorkspace == false else { return }
         onRequestPanelFocus()
     }
 
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
-
-        for segment in FocusFlashPattern.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
-                }
-            }
-        }
-    }
-
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
-        }
-    }
-}
-
-struct RightSidebarToolFocusAnchor: NSViewRepresentable {
-    final class Coordinator {
-        var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
-        weak var attachedView: RightSidebarToolFocusAnchorView?
-
-        init(onViewChange: @escaping (RightSidebarToolFocusAnchorView?) -> Void) {
-            self.onViewChange = onViewChange
-        }
-
-        func attach(_ view: RightSidebarToolFocusAnchorView) {
-            guard attachedView !== view else { return }
-            attachedView = view
-            onViewChange(view)
-        }
-
-        func detach(_ view: RightSidebarToolFocusAnchorView) {
-            guard attachedView === view else { return }
-            attachedView = nil
-            onViewChange(nil)
-        }
-    }
-
-    let onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onViewChange: onViewChange)
-    }
-
-    func makeNSView(context: Context) -> RightSidebarToolFocusAnchorView {
-        let view = RightSidebarToolFocusAnchorView()
-        context.coordinator.attach(view)
-        return view
-    }
-
-    func updateNSView(_ nsView: RightSidebarToolFocusAnchorView, context: Context) {
-        context.coordinator.onViewChange = onViewChange
-        context.coordinator.attach(nsView)
-    }
-
-    static func dismantleNSView(_ nsView: RightSidebarToolFocusAnchorView, coordinator: Coordinator) {
-        coordinator.detach(nsView)
+    @objc private func requestPanelFocus(_ recognizer: NSClickGestureRecognizer) {
+        requestPanelFocusIfNeeded()
     }
 }
 

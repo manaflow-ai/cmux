@@ -45,4 +45,21 @@ final class WorkspaceAttentionFlashRingNativeView: NSView {
         shapeLayer.shadowOffset = .zero
         needsLayout = true
     }
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        update(opacity: 1, reason: reason)
+        shapeLayer.removeAnimation(forKey: "cmux.flash")
+        shapeLayer.opacity = 0
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = FocusFlashPattern.duration
+        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+            switch curve {
+            case .easeIn: CAMediaTimingFunction(name: .easeIn)
+            case .easeOut: CAMediaTimingFunction(name: .easeOut)
+            }
+        }
+        shapeLayer.add(animation, forKey: "cmux.flash")
+    }
 }
