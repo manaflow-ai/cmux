@@ -197,7 +197,7 @@ struct GitStatusProviderTests {
             if [ "${CMUX_TEST_SSH_ENV:-}" != "expected" ]; then
                 exit 3
             fi
-            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            printf '%s\n\000 M remote.txt\000' "$CMUX_TEST_REPO_ROOT"
             """#,
             named: "fake-ssh",
             in: repoURL
@@ -233,7 +233,7 @@ struct GitStatusProviderTests {
         let fakeSSHURL = try Self.writeExecutableScript(
             #"""
             #!/bin/sh
-            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            printf '%s\n\000 M remote.txt\000' "$CMUX_TEST_REPO_ROOT"
             """#,
             named: "fake-ssh",
             in: containerURL
@@ -265,7 +265,7 @@ struct GitStatusProviderTests {
             #"""
             #!/bin/sh
             for arg in "$@"; do printf '%s\n' "$arg"; done > "$CMUX_TEST_SSH_ARGV_LOG"
-            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            printf '%s\n\000 M remote.txt\000' "$CMUX_TEST_REPO_ROOT"
             """#,
             named: "fake-ssh",
             in: repoURL

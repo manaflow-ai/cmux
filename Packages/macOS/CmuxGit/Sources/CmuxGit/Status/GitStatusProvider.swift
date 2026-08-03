@@ -82,7 +82,7 @@ public struct GitStatusProvider: Sendable {
         let command = [
             "cd '\(escapedDir)' 2>/dev/null",
             "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
-            "echo '---GIT_STATUS---'",
+            "printf '\\000'",
             "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = await runSSH(
@@ -95,11 +95,15 @@ public struct GitStatusProvider: Sendable {
             return previousStatus
         }
 
-        let parts = output.components(separatedBy: "---GIT_STATUS---\n")
-        guard parts.count == 2 else { return previousStatus }
-        let repoRoot = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let separatorIndex = output.firstIndex(of: "\0") else {
+            return previousStatus
+        }
+        let repoRoot = output[..<separatorIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let statusStartIndex = output.index(after: separatorIndex)
+        let statusOutput = String(output[statusStartIndex...])
         return parseGitStatus(
-            output: parts[1],
+            output: statusOutput,
             repoRoot: repoRoot,
             explorerRoot: directory,
             resolvesLocalSymlinks: false

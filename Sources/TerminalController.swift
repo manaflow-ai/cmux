@@ -7215,13 +7215,16 @@ class TerminalController {
                     let errorText = (value as? [String: Any])?["error"] as? String
                     if errorText == "not_found", attempt < retryAttempts {
                         let waitTimeoutMs = max(80, (retryAttempts - attempt) * 80)
-                        guard case .met = v2WaitForBrowserCondition(
+                        switch v2WaitForBrowserCondition(
                             ctx.webView,
                             browserPanel: ctx.browserPanel,
                             surfaceId: surfaceId,
                             conditionScript: selectorCondition,
                             timeoutMs: waitTimeoutMs
-                        ) else {
+                        ) {
+                        case .met:
+                            continue
+                        case .timedOut:
                             return v2BrowserElementNotFoundResult(
                                 actionName: actionName,
                                 selector: selector,
@@ -7229,8 +7232,12 @@ class TerminalController {
                                 surfaceId: surfaceId,
                                 browserPanel: browserPanel
                             )
+                        case .evaluationFailed(let failure):
+                            return v2BrowserClientFailureResult(
+                                failure,
+                                data: ["action": actionName, "selector": selector]
+                            )
                         }
-                        continue
                     }
                     if errorText == "not_found" {
                         return v2BrowserElementNotFoundResult(

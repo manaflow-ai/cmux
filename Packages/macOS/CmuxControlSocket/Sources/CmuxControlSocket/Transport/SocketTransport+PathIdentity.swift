@@ -249,7 +249,7 @@ extension SocketTransport {
             : .failed(socketError)
     }
 
-    private static func isPendingConnectErrno(_ errnoCode: Int32) -> Bool {
+    static func isPendingConnectErrno(_ errnoCode: Int32) -> Bool {
         errnoCode == EINPROGRESS
             || errnoCode == EALREADY
             || errnoCode == EAGAIN

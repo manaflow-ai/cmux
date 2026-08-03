@@ -284,28 +284,7 @@ extension SocketControlServer {
             ) {
             case .verified(let identity):
                 activeBoundSocketPathOwnership = .identified(identity)
-            case .pending(let failure):
-                let disposition = handleStartupFailure(
-                    message: "socket.listener.start.failed",
-                    stage: failure.stage,
-                    errnoCode: failure.errnoCode,
-                    request: ListenerStartRequest(
-                        socketPath: activeSocketPath,
-                        accessMode: request.accessMode,
-                        preserveAcceptFailureStreak: request.preserveAcceptFailureStreak
-                    ),
-                    generation: generation,
-                    retainedSocket: activeServerSocket,
-                    retainedPathLockFD: activeSocketPathLockFD,
-                    retainedOwnership: .identityPending
-                )
-                if disposition == .retryScheduled {
-                    activeServerSocket = -1
-                    activeSocketPathLockFD = -1
-                    activeBoundSocketPathOwnership = .none
-                }
-                return false
-            case .failed(let failure):
+            case .pending(let failure), .failed(let failure):
                 let disposition = handleStartupFailure(
                     message: "socket.listener.start.failed",
                     stage: failure.stage,
