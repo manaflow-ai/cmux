@@ -226,6 +226,17 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "f")
     }
 
+    @Test func refreshRequestedByInstallHandlerRunsBeforeCacheBecomesIdle() async {
+        let harness = ReentrantSnapshotCacheHarness()
+
+        harness.cache.requestRefresh()
+        await harness.cache.waitUntilIdle()
+
+        #expect(harness.loader.loadCount == 2)
+        #expect(harness.cache.snapshot == 2)
+        #expect(harness.installedSnapshots == [1, 2])
+    }
+
     }
 }
 
@@ -314,6 +325,41 @@ private final class ShortcutProviderState: @unchecked Sendable {
         guard action == .globalSearch else { return .unbound }
         storedGlobalSearchLookupCount += 1
         return storedConfiguredShortcut
+    }
+}
+
+@MainActor
+private final class ReentrantSnapshotCacheHarness {
+    let loader = IncrementingSnapshotLoader()
+    private(set) var installedSnapshots: [Int] = []
+    lazy var cache = GenerationCoalescingSnapshotCache(
+        initialSnapshot: 0,
+        loader: loader.load,
+        installHandler: { [weak self] snapshot in
+            guard let self else { return }
+            installedSnapshots.append(snapshot)
+            if snapshot == 1 {
+                cache.requestRefresh()
+            }
+        }
+    )
+}
+
+private final class IncrementingSnapshotLoader: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedLoadCount = 0
+
+    var loadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLoadCount
+    }
+
+    func load() -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        storedLoadCount += 1
+        return storedLoadCount
     }
 }
 
