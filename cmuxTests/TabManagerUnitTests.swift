@@ -4101,6 +4101,19 @@ final class SidebarCreationContextTests: XCTestCase {
             "Putting a remote workspace under This Mac must not make its panes local"
         )
         XCTAssertEqual(manager.tabs.map(\.id), workspaceIDs)
+        XCTAssertEqual(
+            manager.sidebarCreationContextSnapshots()
+                .first { $0.id == remote.id }?.workspaceIDs,
+            [localWorkspace.id]
+        )
+
+        let persisted = localWorkspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(persisted.sidebarCreationContextID, remote.id)
+        let decoded = try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONEncoder().encode(persisted)
+        )
+        XCTAssertEqual(decoded.sidebarCreationContextID, remote.id)
 
         let childColumns = manager.sidebarCreationContextSnapshots().map(\.childColumn)
         XCTAssertEqual(Set(childColumns.map(\.id)).count, childColumns.count)

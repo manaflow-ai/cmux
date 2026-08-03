@@ -295,6 +295,63 @@ extension TerminalController {
         }
     }
 
+    nonisolated func v2SidebarWorkspaceMoveToContext(params: [String: Any]) -> V2CallResult {
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.openInvalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
+        guard let rawContextID = params["context_id"] as? String,
+              !rawContextID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        let contextID = rawContextID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params),
+                  tabManager.tabs.contains(where: { $0.id == workspaceID })
+            else {
+                return .err(
+                    code: "workspace_not_found",
+                    message: String(
+                        localized: "socket.sidebar.custom.openNoWorkspace",
+                        defaultValue: "Workspace not found."
+                    ),
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+            }
+            guard tabManager.moveSidebarWorkspaces(
+                [workspaceID],
+                toCreationContextID: contextID
+            ) else {
+                return .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.sidebar.context.notFound",
+                        defaultValue: "Creation context not found."
+                    ),
+                    data: ["context_id": contextID]
+                )
+            }
+            var payload = v2SidebarCreationContextPayload(tabManager: tabManager)
+            payload["moved_workspace_id"] = workspaceID.uuidString
+            payload["destination_context_id"] = contextID
+            return .ok(payload)
+        }
+    }
+
     private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
         guard let raw = params["name"] as? String else { return nil }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -322,6 +379,7 @@ extension TerminalController {
                     "selected": context.isSelected,
                     "kind": context.kind.rawValue,
                     "workspace_count": context.workspaceCount,
+                    "workspace_ids": context.workspaceIDs.map(\.uuidString),
                     "connection_state": context.connectionState?.rawValue ?? NSNull(),
                     "child_column": [
                         "id": context.childColumn.id,

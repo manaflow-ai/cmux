@@ -145,6 +145,7 @@ final class SidebarLazyLayoutScaleTests {
         let counter = RowBodyCounter()
 
         let root = VerticalTabsSidebar(
+            creationContextID: SidebarCreationContextSelection.automaticID,
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),

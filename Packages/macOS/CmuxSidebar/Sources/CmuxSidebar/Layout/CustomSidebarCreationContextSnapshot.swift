@@ -1,9 +1,10 @@
 public import CmuxExtensionKit
+public import Foundation
 
 /// One host-provided execution context exposed to interpreted custom sidebars.
 ///
-/// Contexts influence creation defaults. They do not own or filter workspaces,
-/// so a custom sidebar can present them in any navigation arrangement.
+/// Contexts own child workspace collections without constraining where those
+/// workspaces or their surfaces execute.
 public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
     /// Stable identifier passed to `sidebar.creation_context.select`.
     public let id: String
@@ -19,6 +20,8 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
     public let kind: String
     /// Number of open workspaces currently using this context.
     public let workspaceCount: Int
+    /// Ordered workspace children owned by this context.
+    public let workspaceIDs: [UUID]
     /// Remote connection state, when the context represents a remote.
     public let connectionState: String?
     /// Parent-owned route to the column rendered after this context.
@@ -33,6 +36,7 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
         isSelected: Bool,
         kind: String,
         workspaceCount: Int = 0,
+        workspaceIDs: [UUID] = [],
         connectionState: String? = nil,
         childColumn: CmuxSidebarChildColumn? = nil
     ) {
@@ -43,6 +47,7 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
         self.isSelected = isSelected
         self.kind = kind
         self.workspaceCount = workspaceCount
+        self.workspaceIDs = workspaceIDs
         self.connectionState = connectionState
         self.childColumn = childColumn ?? .sharedWorkspaces(parentID: id)
     }

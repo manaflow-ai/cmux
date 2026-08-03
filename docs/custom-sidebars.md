@@ -141,12 +141,13 @@ with:
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `creationContexts`: array of machine/default rows. Always present: `id`,
   `title`, `systemImage`, `selected`, `kind` (`automatic|local|remote`), and
-  `workspaceCount`. Every row also has `childColumn` (`{ id, rendererId }`).
-  Route ids are parent-specific; the built-in `cmux.workspaces` renderer uses
-  the shared, unfiltered `workspaces` collection. Remote rows can include
+  `workspaceCount`, plus ordered `workspaceIds` children. Every row also has
+  `childColumn` (`{ id, rendererId }`). Route ids are parent-specific; the
+  built-in `cmux.workspaces` renderer resolves each context's `workspaceIds`
+  against the shared `workspaces` snapshot. Remote rows can include
   `subtitle` and `connectionState`. `selectedCreationContextId` is the active
-  id. A context stays available with zero open workspaces and changes creation
-  defaults plus the active child route without owning or filtering workspaces.
+  id. A context stays available with zero open workspaces. Membership controls
+  navigation only; workspaces and surfaces can still mix local and remote runtimes.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.
@@ -251,6 +252,12 @@ Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id` + `index`), and `sidebar.creation_context.select`
 (`context_id` + `workspace_id`). Machine order is changed with
 `sidebar.creation_context.reorder` (`context_id` + machine-only `index`).
+Move a workspace between machine child columns with
+`sidebar.workspace.move_to_context` (`workspace_id` + `context_id`). This only
+changes sidebar membership; local and remote surfaces keep their transports.
+Render one machine's children with
+`workspaces.filter { machine.workspaceIds.contains($0.id) }`; Automatic's
+`workspaceIds` contains the aggregate list.
 `Automatic` is a fixed creation mode and is not a machine-order member. Run
 `cmux docs api` to discover the full command surface.
 

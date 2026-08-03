@@ -1812,6 +1812,7 @@ struct ContentView: View {
         let sidebar = VerticalTabsSidebar(
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
+            creationContextID: tabManager.selectedSidebarCreationContextID,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -10691,10 +10692,14 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.modifierKeyMonitor === rhs.modifierKeyMonitor
             && lhs.isPresented == rhs.isPresented
+            && lhs.creationContextID == rhs.creationContextID
     }
 
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
+    /// Parent route whose child workspaces this column renders. Automatic is
+    /// the aggregate route; machine IDs are scoped membership collections.
+    let creationContextID: String
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
@@ -10861,6 +10866,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     isSelected: context.isSelected,
                     kind: context.kind.rawValue,
                     workspaceCount: context.workspaceCount,
+                    workspaceIDs: context.workspaceIDs,
                     connectionState: context.connectionState?.rawValue,
                     childColumn: context.childColumn
                 )
@@ -11121,13 +11127,16 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
-        let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
+        let scopedTabs = tabManager.sidebarWorkspaces(
+            forCreationContextID: creationContextID
+        )
+        let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(scopedTabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
         // Retain the native table identity while hidden without continuing the
         // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
         // snapshot from the current model before the controller applies again.
-        let tabs = isPresented ? tabManager.tabs : []
+        let tabs = isPresented ? scopedTabs : []
         let workspaceCount = tabs.count
-        let canCloseWorkspace = workspaceCount > 1
+        let canCloseWorkspace = tabManager.tabs.count > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
         let tabIds = tabs.map(\.id)
@@ -11152,7 +11161,10 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let visibleGroupIDs = Set(tabs.compactMap(\.groupId))
+        let workspaceGroups = isPresented
+            ? tabManager.workspaceGroups.filter { visibleGroupIDs.contains($0.id) }
+            : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -11858,7 +11870,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     dragState.clearDrag()
                     dragAutoScrollController.stop()
                 }
-                return performWorkspaceReorderPlan(plan)
+                return performWorkspaceReorderPlan(plan, renderContext: renderContext)
             },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
@@ -11978,6 +11990,7 @@ struct VerticalTabsSidebar: View, Equatable {
             tabManager: tabManager,
             notificationStore: notificationStore,
             index: input.index,
+            visibleWorkspaceIds: renderContext.workspaceIds,
             contextMenuWorkspaceIds: rowSnapshot.contextMenu.targetWorkspaceIds,
             remoteContextMenuWorkspaceIds: rowSnapshot.contextMenu.remoteTargetWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: rowSnapshot.contextMenu.allRemoteTargetsConnecting,
@@ -12504,6 +12517,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     kind: CmuxSidebarCreationContextKind(rawValue: context.kind.rawValue) ?? .automatic,
                     isSelected: context.isSelected,
                     workspaceCount: context.workspaceCount,
+                    workspaceIDs: context.workspaceIDs,
                     connectionState: context.connectionState?.rawValue,
                     childColumn: context.childColumn
                 )
@@ -12563,6 +12577,32 @@ struct VerticalTabsSidebar: View, Equatable {
                   contextID != SidebarCreationContextSelection.automaticID,
                   tabManager.reorderSidebarMachineCreationContext(id: contextID, toIndex: index)
             else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.creationContextNotFound",
+                        defaultValue: "Creation context not found"
+                    )
+                )
+            }
+            return .accepted
+
+        case .moveWorkspacesToCreationContext(let workspaceIDs, let contextID):
+            guard !workspaceIDs.isEmpty,
+                  workspaceIDs.allSatisfy({ workspaceID in
+                      tabManager.tabs.contains(where: { $0.id == workspaceID })
+                  })
+            else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.workspaceNotFound",
+                        defaultValue: "Workspace not found"
+                    )
+                )
+            }
+            guard tabManager.moveSidebarWorkspaces(
+                workspaceIDs,
+                toCreationContextID: contextID
+            ) else {
                 return .rejected(
                     String(
                         localized: "sidebar.extensions.action.creationContextNotFound",
@@ -13475,7 +13515,9 @@ struct VerticalTabsSidebar: View, Equatable {
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
         )
-        let actionFactory = makeWorkspaceRowActionFactory()
+        let actionFactory = makeWorkspaceRowActionFactory(
+            visibleWorkspaceIDs: renderContext.workspaceIds
+        )
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
@@ -13745,7 +13787,7 @@ struct VerticalTabsSidebar: View, Equatable {
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }
-        return performWorkspaceReorderPlan(plan)
+        return performWorkspaceReorderPlan(plan, renderContext: renderContext)
     }
 
     private func workspaceReorderPlan(
@@ -13785,26 +13827,35 @@ struct VerticalTabsSidebar: View, Equatable {
         )
     }
 
-    private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+    private func performWorkspaceReorderPlan(
+        _ plan: SidebarWorkspaceReorderDropPlan,
+        renderContext: WorkspaceListRenderContext
+    ) -> Bool {
         switch plan.action {
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
+            let globalTargetIndex = globalSidebarReorderTargetIndex(
+                scopedTargetIndex: targetIndex,
+                usesTopLevelRows: usesTopLevelRows,
+                draggedWorkspaceID: plan.draggedWorkspaceId,
+                renderContext: renderContext
+            )
             let selectionBeforeReorder = selectedTabIds
             let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
                 existingAnchorIndex: lastSidebarSelectionIndex,
                 liveWorkspaceIds: tabManager.tabs.map(\.id)
             )
             let movingIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
-                orderedWorkspaceIds: tabManager.tabs.map(\.id),
-                selectedIds: selectedTabIds,
+                orderedWorkspaceIds: renderContext.tabIds,
+                selectedIds: selectedTabIds.intersection(renderContext.tabIds),
                 draggedId: plan.draggedWorkspaceId,
-                anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                anchorIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId))
             )
             let didReorder: Bool
             if movingIds.count > 1 {
                 didReorder = tabManager.reorderSidebarWorkspaces(
                     tabIds: movingIds,
                     draggedTabId: plan.draggedWorkspaceId,
-                    toIndex: targetIndex,
+                    toIndex: globalTargetIndex,
                     isDragOperation: true,
                     usesTopLevelRows: usesTopLevelRows,
                     explicitGroupId: explicitGroupId
@@ -13812,7 +13863,7 @@ struct VerticalTabsSidebar: View, Equatable {
             } else {
                 didReorder = tabManager.reorderSidebarWorkspace(
                     tabId: plan.draggedWorkspaceId,
-                    toIndex: targetIndex,
+                    toIndex: globalTargetIndex,
                     isDragOperation: true,
                     usesTopLevelRows: usesTopLevelRows,
                     explicitGroupId: explicitGroupId
@@ -13826,6 +13877,35 @@ struct VerticalTabsSidebar: View, Equatable {
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
             return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
         }
+    }
+
+    private func globalSidebarReorderTargetIndex(
+        scopedTargetIndex: Int,
+        usesTopLevelRows: Bool,
+        draggedWorkspaceID: UUID,
+        renderContext: WorkspaceListRenderContext
+    ) -> Int {
+        let scopedIDs = usesTopLevelRows
+            ? renderContext.visibleWorkspaceRowIds
+            : renderContext.tabIds
+        let globalIDs = usesTopLevelRows
+            ? tabManager.sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: draggedWorkspaceID,
+                usesTopLevelRows: true
+            )
+            : tabManager.tabs.map(\.id)
+
+        if scopedIDs.indices.contains(scopedTargetIndex),
+           let globalIndex = globalIDs.firstIndex(of: scopedIDs[scopedTargetIndex])
+        {
+            return globalIndex
+        }
+        if let lastScopedID = scopedIDs.last,
+           let globalIndex = globalIDs.firstIndex(of: lastScopedID)
+        {
+            return globalIndex + 1
+        }
+        return globalIDs.count
     }
 
     private func performCrossWindowWorkspaceDrop(
@@ -13877,6 +13957,12 @@ struct VerticalTabsSidebar: View, Equatable {
         }
 
         guard !movedIds.isEmpty else { return false }
+        if creationContextID != SidebarCreationContextSelection.automaticID {
+            _ = tabManager.moveSidebarWorkspaces(
+                movedIds,
+                toCreationContextID: creationContextID
+            )
+        }
         let focusId = movedIds.contains(plan.draggedWorkspaceId) ? plan.draggedWorkspaceId : (movedIds.last ?? plan.draggedWorkspaceId)
         _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: destinationWindowId, focus: true)
         selectedTabIds = Set(movedIds)
@@ -13947,7 +14033,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func selectWorkspaceRow(
         _ workspace: Workspace,
         index: Int,
-        modifiers: NSEvent.ModifierFlags
+        modifiers: NSEvent.ModifierFlags,
+        visibleWorkspaceIDs: [UUID]
     ) {
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
@@ -13966,8 +14053,13 @@ struct VerticalTabsSidebar: View, Equatable {
         )
 #endif
 
-        let workspaceIds = tabManager.tabs.map(\.id)
-        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let workspaceIds = visibleWorkspaceIDs
+        let visibleWorkspaceIDSet = Set(visibleWorkspaceIDs)
+        let anchorIds = Set(tabManager.workspaceGroups.compactMap { group in
+            visibleWorkspaceIDSet.contains(group.anchorWorkspaceId)
+                ? group.anchorWorkspaceId
+                : nil
+        })
         let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
@@ -13987,7 +14079,10 @@ struct VerticalTabsSidebar: View, Equatable {
             let anchorIdsByGroup = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
+            let visibleRangeIds = visibleWorkspaceIDs[lower...upper].compactMap { candidateID -> UUID? in
+                guard let candidate = tabManager.tabs.first(where: { $0.id == candidateID }) else {
+                    return nil
+                }
                 if let groupId = candidate.groupId,
                    collapsedGroupIds.contains(groupId),
                    anchorIdsByGroup[groupId] != candidate.id {
@@ -14044,10 +14139,21 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-    private func moveWorkspaceRow(_ workspace: Workspace, by delta: Int) {
-        guard tabManager.reorderWorkspace(tabId: workspace.id, by: delta) else { return }
+    private func moveWorkspaceRow(
+        _ workspace: Workspace,
+        by delta: Int,
+        visibleWorkspaceIDs: [UUID]
+    ) {
+        guard let currentIndex = visibleWorkspaceIDs.firstIndex(of: workspace.id) else { return }
+        let targetIndex = min(max(currentIndex + delta, 0), visibleWorkspaceIDs.count - 1)
+        guard targetIndex != currentIndex else { return }
+        let targetID = visibleWorkspaceIDs[targetIndex]
+        let didMove = delta < 0
+            ? tabManager.reorderWorkspace(tabId: workspace.id, before: targetID)
+            : tabManager.reorderWorkspace(tabId: workspace.id, after: targetID)
+        guard didMove else { return }
         selectedTabIds = [workspace.id]
-        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
+        lastSidebarSelectionIndex = targetIndex
         tabManager.selectTab(workspace)
         selection = .tabs
     }
@@ -14283,7 +14389,9 @@ struct VerticalTabsSidebar: View, Equatable {
     /// this factory below `LazyVStack` only binds immutable ids/values into
     /// closures; live models are resolved later when the user performs an
     /// action, never while SwiftUI realizes or lays out a row.
-    private func makeWorkspaceRowActionFactory() -> SidebarWorkspaceRowActionFactory {
+    private func makeWorkspaceRowActionFactory(
+        visibleWorkspaceIDs: [UUID]
+    ) -> SidebarWorkspaceRowActionFactory {
         let pointerInteractionMonitor = pointerInteractionMonitor
         return { input in
         let tabId = input.workspaceId
@@ -14340,7 +14448,12 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceRowActions(
             select: { modifiers in
                 guard let tab = workspace() else { return }
-                selectWorkspaceRow(tab, index: index, modifiers: modifiers)
+                selectWorkspaceRow(
+                    tab,
+                    index: index,
+                    modifiers: modifiers,
+                    visibleWorkspaceIDs: visibleWorkspaceIDs
+                )
             },
             setCustomTitle: { title in
                 tabManager.setCustomTitle(tabId: tabId, title: title)
@@ -14365,7 +14478,11 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             moveBy: { delta in
                 guard let tab = workspace() else { return }
-                moveWorkspaceRow(tab, by: delta)
+                moveWorkspaceRow(
+                    tab,
+                    by: delta,
+                    visibleWorkspaceIDs: visibleWorkspaceIDs
+                )
             },
             moveTargetsToTop: { targetIds in
                 tabManager.moveTabsToTop(Set(targetIds))
@@ -14394,26 +14511,20 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             closeOtherTargets: { targetIds in
                 let keepIds = Set(targetIds)
-                let idsToClose = tabManager.tabs.compactMap {
-                    keepIds.contains($0.id) ? nil : $0.id
-                }
+                let idsToClose = visibleWorkspaceIDs.filter { !keepIds.contains($0) }
                 closeWorkspaceRows(idsToClose, allowPinned: true)
             },
             closeTargetsBelow: {
-                guard let anchorIndex = tabManager.tabs.firstIndex(
-                    where: { $0.id == tabId }
-                ) else { return }
+                guard let anchorIndex = visibleWorkspaceIDs.firstIndex(of: tabId) else { return }
                 closeWorkspaceRows(
-                    Array(tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)),
+                    Array(visibleWorkspaceIDs.suffix(from: anchorIndex + 1)),
                     allowPinned: true
                 )
             },
             closeTargetsAbove: {
-                guard let anchorIndex = tabManager.tabs.firstIndex(
-                    where: { $0.id == tabId }
-                ) else { return }
+                guard let anchorIndex = visibleWorkspaceIDs.firstIndex(of: tabId) else { return }
                 closeWorkspaceRows(
-                    Array(tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)),
+                    Array(visibleWorkspaceIDs.prefix(upTo: anchorIndex)),
                     allowPinned: true
                 )
             },

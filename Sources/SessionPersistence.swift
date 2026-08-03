@@ -1845,6 +1845,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
     var groupId: UUID? = nil
+    /// Parent machine in the sidebar. Missing legacy values are inferred from
+    /// workspace runtime provenance during restore.
+    var sidebarCreationContextID: String? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil

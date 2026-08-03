@@ -78,7 +78,14 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
             selectedWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceID : nil,
             grantedReadScopes: scopeSet,
             grantedActionScopes: actionScopeSet,
-            creationContexts: canReadCreationContexts ? creationContexts : [],
+            creationContexts: canReadCreationContexts ? creationContexts.map { context in
+                guard canReadWorkspaces else {
+                    var redacted = context
+                    redacted.workspaceIDs = []
+                    return redacted
+                }
+                return context
+            } : [],
             selectedCreationContextID: canReadCreationContexts ? selectedCreationContextID : nil,
             workspaces: canReadWorkspaces ? workspaces.map { workspace in
                 scopeSet.contains(.workspaceMetadata)

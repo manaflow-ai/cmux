@@ -13,10 +13,11 @@ public enum CmuxSidebarCreationContextKind: String, Codable, Equatable, Sendable
 /// A source of defaults for shared creation actions such as New Workspace and
 /// New Terminal Surface.
 ///
-/// Creation contexts are independent from workspaces. Selecting one changes
-/// creation defaults; it does not filter, group, or own the workspace list.
-/// The host supplies contexts in the user's saved order, with `Automatic`
-/// fixed before the reorderable machine contexts.
+/// A context owns one child workspace collection while remaining independent
+/// from runtime locality. A local workspace can belong to a remote context,
+/// and any workspace can mix local and remote surfaces. The host supplies
+/// contexts in the user's saved order, with `Automatic` fixed before the
+/// reorderable machine contexts as an aggregate route.
 public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -26,6 +27,7 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         case kind
         case isSelected
         case workspaceCount
+        case workspaceIDs
         case connectionState
         case childColumn
     }
@@ -37,6 +39,9 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
     public var kind: CmuxSidebarCreationContextKind
     public var isSelected: Bool
     public var workspaceCount: Int
+    /// Ordered workspace children owned by this route. Automatic contains the
+    /// aggregate list.
+    public var workspaceIDs: [UUID]
     public var connectionState: String?
     /// The parent-specific route rendered in the column after this context.
     public var childColumn: CmuxSidebarChildColumn
@@ -49,6 +54,7 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         kind: CmuxSidebarCreationContextKind,
         isSelected: Bool,
         workspaceCount: Int = 0,
+        workspaceIDs: [UUID] = [],
         connectionState: String? = nil,
         childColumn: CmuxSidebarChildColumn? = nil
     ) {
@@ -59,6 +65,7 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         self.kind = kind
         self.isSelected = isSelected
         self.workspaceCount = workspaceCount
+        self.workspaceIDs = workspaceIDs
         self.connectionState = connectionState
         self.childColumn = childColumn ?? .sharedWorkspaces(parentID: id)
     }
@@ -72,6 +79,7 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         kind = try container.decode(CmuxSidebarCreationContextKind.self, forKey: .kind)
         isSelected = try container.decode(Bool.self, forKey: .isSelected)
         workspaceCount = try container.decodeIfPresent(Int.self, forKey: .workspaceCount) ?? 0
+        workspaceIDs = try container.decodeIfPresent([UUID].self, forKey: .workspaceIDs) ?? []
         connectionState = try container.decodeIfPresent(String.self, forKey: .connectionState)
         childColumn = try container.decodeIfPresent(
             CmuxSidebarChildColumn.self,

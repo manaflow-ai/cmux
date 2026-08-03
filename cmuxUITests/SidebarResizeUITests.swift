@@ -67,6 +67,7 @@ final class SidebarResizeUITests: XCTestCase {
 
     func testSidebarColumnsResizeIndependentlyAndToggleTogether() {
         let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_MACHINE_SCOPES"] = "1"
         app.launch()
 
         let elements = app.descendants(matching: .any)
@@ -77,6 +78,9 @@ final class SidebarResizeUITests: XCTestCase {
         let localContext = elements["SidebarContextRow.local"]
         let automaticChildColumn = elements["SidebarChildColumn.automatic.children"]
         let workspaceColumn = elements["Sidebar"]
+        let remoteContext = app.buttons["fixture@example.test"]
+        let localWorkspace = app.staticTexts["Local Fixture"]
+        let remoteWorkspace = app.staticTexts["Remote Fixture"]
         let footer = elements["SidebarHelpMenuButton"]
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
@@ -85,6 +89,9 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertTrue(localContext.waitForExistence(timeout: 5.0))
         XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
         XCTAssertTrue(workspaceColumn.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(remoteContext.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(localWorkspace.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(remoteWorkspace.waitForExistence(timeout: 5.0))
         XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
         XCTAssertLessThan(
             automaticContext.frame.minY - contextColumn.frame.minY,
@@ -111,11 +118,27 @@ final class SidebarResizeUITests: XCTestCase {
             "Each machine should activate its own child-column route"
         )
         XCTAssertTrue(
-            workspaceColumn.waitForExistence(timeout: 5.0),
-            "Built-in machine routes should keep rendering the shared workspace collection"
+            localWorkspace.waitForExistence(timeout: 5.0),
+            "This Mac should render its local workspace child"
+        )
+        XCTAssertTrue(
+            waitForElementUnavailable(remoteWorkspace, timeout: 5.0),
+            "This Mac must not render the remote machine's workspace child"
+        )
+
+        remoteContext.click()
+        XCTAssertTrue(
+            remoteWorkspace.waitForExistence(timeout: 5.0),
+            "The remote should render its own workspace child"
+        )
+        XCTAssertTrue(
+            waitForElementUnavailable(localWorkspace, timeout: 5.0),
+            "The remote must not render This Mac's workspace child"
         )
         automaticContext.click()
         XCTAssertTrue(automaticChildColumn.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(localWorkspace.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(remoteWorkspace.waitForExistence(timeout: 5.0))
 
         let initialInnerX = columnResizer.frame.midX
         let initialOuterX = outerResizer.frame.midX

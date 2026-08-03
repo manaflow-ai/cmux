@@ -15,6 +15,7 @@ struct CMUXExtensionKitTests {
             kind: .local,
             isSelected: true,
             workspaceCount: 1,
+            workspaceIDs: [workspaceID],
             childColumn: CmuxSidebarChildColumn(
                 id: "local.children",
                 rendererID: "dev.example.projects"
@@ -77,6 +78,7 @@ struct CMUXExtensionKitTests {
 
     @Test
     func testCreationContextsArePermissionedIndependentlyFromWorkspaces() throws {
+        let workspaceID = UUID()
         let context = CmuxSidebarCreationContext(
             id: "remote-a",
             title: "Build Mac",
@@ -84,6 +86,7 @@ struct CMUXExtensionKitTests {
             kind: .remote,
             isSelected: true,
             workspaceCount: 2,
+            workspaceIDs: [workspaceID],
             connectionState: "connected"
         )
         let snapshot = CmuxSidebarSnapshot(
@@ -92,11 +95,12 @@ struct CMUXExtensionKitTests {
             selectedWorkspaceID: UUID(),
             creationContexts: [context],
             selectedCreationContextID: context.id,
-            workspaces: [CmuxSidebarWorkspace(id: UUID(), title: "Private")]
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Private")]
         )
 
         let contextsOnly = snapshot.filtered(for: [.creationContexts])
-        #expect(contextsOnly.creationContexts == [context])
+        #expect(contextsOnly.creationContexts.count == 1)
+        #expect(contextsOnly.creationContexts.first?.workspaceIDs == [])
         #expect(contextsOnly.selectedCreationContextID == context.id)
         #expect(contextsOnly.workspaces.isEmpty)
         #expect(contextsOnly.selectedWorkspaceID == nil)
@@ -105,6 +109,11 @@ struct CMUXExtensionKitTests {
         #expect(workspacesOnly.creationContexts.isEmpty)
         #expect(workspacesOnly.selectedCreationContextID == nil)
         #expect(workspacesOnly.workspaces.count == 1)
+
+        let contextsAndWorkspaces = snapshot.filtered(
+            for: [.creationContexts, .workspaceList]
+        )
+        #expect(contextsAndWorkspaces.creationContexts.first?.workspaceIDs == [workspaceID])
     }
 
     @Test
@@ -325,6 +334,7 @@ struct CMUXExtensionKitTests {
         )
 
         host.refresh()
+        try await host.moveWorkspaces([workspaceID], toCreationContext: "remote-a")
         try await host.selectWorkspace(workspaceID)
         try await host.closeWorkspace(workspaceID)
         try await host.createWorkspace(title: "Scratch", select: false)
@@ -337,6 +347,10 @@ struct CMUXExtensionKitTests {
 
         #expect(refreshCount == 1)
         #expect(actions == [
+            .moveWorkspacesToCreationContext(
+                workspaceIDs: [workspaceID],
+                contextID: "remote-a"
+            ),
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
             .createWorkspace(title: "Scratch", workingDirectory: nil, select: false),
@@ -421,6 +435,12 @@ struct CMUXExtensionKitTests {
         #expect(
             CmuxSidebarAction.reorderCreationContext(id: "local", toIndex: 0).requiredScopes
                 == [.reorderCreationContexts]
+        )
+        #expect(
+            CmuxSidebarAction.moveWorkspacesToCreationContext(
+                workspaceIDs: [UUID()],
+                contextID: "local"
+            ).requiredScopes == [.reorderCreationContexts]
         )
     }
 

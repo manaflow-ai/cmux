@@ -71,6 +71,7 @@ public struct CustomSidebarDataContextBuilder {
             "selected": .bool(context.isSelected),
             "kind": .string(context.kind),
             "workspaceCount": .int(context.workspaceCount),
+            "workspaceIds": .array(context.workspaceIDs.map { .string($0.uuidString) }),
             "childColumn": .object([
                 "id": .string(context.childColumn.id),
                 "rendererId": .string(context.childColumn.rendererID),

@@ -34,7 +34,8 @@ struct SidebarRemoteCreationContextKey: Hashable, Sendable {
     }
 }
 
-/// Per-window selection of the defaults applied by shared creation actions.
+/// Per-window selection of a parent column and the defaults applied by shared
+/// creation actions.
 enum SidebarCreationContextSelection: Equatable, Sendable {
     case automatic
     case local
@@ -71,6 +72,9 @@ struct SidebarCreationContextSnapshot: Identifiable, Equatable, Sendable {
     let isSelected: Bool
     let kind: Kind
     let workspaceCount: Int
+    /// Ordered children rendered for this parent. `Automatic` is the aggregate
+    /// route and contains every workspace.
+    let workspaceIDs: [UUID]
     let connectionState: WorkspaceRemoteConnectionState?
     /// Stable parent-owned route to the column rendered after this row.
     let childColumn: CmuxSidebarChildColumn
@@ -104,7 +108,8 @@ struct SidebarRegisteredRemoteCreationContext: Sendable {
 @MainActor
 extension TabManager {
     /// The context rows available in this window. Live remote configurations
-    /// are grouped by machine identity, never by workspace id.
+    /// are grouped by machine identity, while workspace membership is an
+    /// independent persisted relationship.
     func sidebarCreationContextSnapshots() -> [SidebarCreationContextSnapshot] {
         struct RemoteAggregate {
             var configuration: WorkspaceRemoteConfiguration
@@ -160,9 +165,22 @@ extension TabManager {
             }
         }
 
+        for key in Array(remotes.keys) {
+            guard var aggregate = remotes[key] else { continue }
+            aggregate.workspaceCount = tabs.lazy.filter {
+                resolvedSidebarCreationContextID(for: $0) == key.id
+            }.count
+            remotes[key] = aggregate
+        }
+
         let effectiveSelection = effectiveSidebarCreationContextSelection(
             availableRemoteKeys: Set(remoteOrder)
         )
+        let allWorkspaceIDs = tabs.map(\.id)
+        let localWorkspaceIDs = tabs.compactMap { workspace in
+            resolvedSidebarCreationContextID(for: workspace)
+                == SidebarCreationContextSelection.localID ? workspace.id : nil
+        }
         let automatic = SidebarCreationContextSnapshot(
             id: SidebarCreationContextSelection.automaticID,
             title: String(localized: "sidebar.context.automatic.title", defaultValue: "Automatic"),
@@ -173,7 +191,8 @@ extension TabManager {
             systemImageName: "wand.and.stars",
             isSelected: effectiveSelection == .automatic,
             kind: .automatic,
-            workspaceCount: 0,
+            workspaceCount: allWorkspaceIDs.count,
+            workspaceIDs: allWorkspaceIDs,
             connectionState: nil,
             childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.automaticID)
         )
@@ -184,7 +203,8 @@ extension TabManager {
             systemImageName: "desktopcomputer",
             isSelected: effectiveSelection == .local,
             kind: .local,
-            workspaceCount: tabs.filter { $0.remoteConfiguration == nil }.count,
+            workspaceCount: localWorkspaceIDs.count,
+            workspaceIDs: localWorkspaceIDs,
             connectionState: nil,
             childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.localID)
         )
@@ -204,6 +224,11 @@ extension TabManager {
                 isSelected: effectiveSelection == .remote(key),
                 kind: .remote,
                 workspaceCount: aggregate.workspaceCount,
+                workspaceIDs: tabs.compactMap { workspace in
+                    resolvedSidebarCreationContextID(for: workspace) == key.id
+                        ? workspace.id
+                        : nil
+                },
                 connectionState: aggregate.connectionState,
                 childColumn: .sharedWorkspaces(parentID: key.id)
             )
@@ -218,11 +243,77 @@ extension TabManager {
         return effectiveSidebarCreationContextSelection(availableRemoteKeys: availableKeys).id
     }
 
-    /// The child route owned by the selected context. All built-in contexts
-    /// currently resolve to the shared workspace renderer, but keep distinct
-    /// route identities so parents can evolve independently.
+    /// The child route owned by the selected context. Built-in contexts share
+    /// one renderer implementation, with parent-specific data and identity.
     var selectedSidebarChildColumn: CmuxSidebarChildColumn {
         .sharedWorkspaces(parentID: selectedSidebarCreationContextID)
+    }
+
+    /// Workspaces rendered as children of one context. `Automatic` remains an
+    /// aggregate route; machine contexts expose only their persisted members.
+    func sidebarWorkspaces(forCreationContextID contextID: String) -> [Workspace] {
+        if contextID == SidebarCreationContextSelection.automaticID {
+            return tabs
+        }
+        rememberLiveSidebarRemoteCreationContexts()
+        guard isValidSidebarWorkspaceParentContextID(contextID) else { return [] }
+        return tabs.filter { resolvedSidebarCreationContextID(for: $0) == contextID }
+    }
+
+    /// The machine parent currently owning a workspace in the sidebar. This
+    /// relationship does not constrain any surface's runtime transport.
+    func sidebarCreationContextID(for workspace: Workspace) -> String {
+        rememberLiveSidebarRemoteCreationContexts()
+        return resolvedSidebarCreationContextID(for: workspace)
+    }
+
+    /// Reparents workspaces between machine child columns without touching
+    /// their local or remote configurations. Partial group moves ungroup the
+    /// moved members so one group cannot straddle two parent columns.
+    @discardableResult
+    func moveSidebarWorkspaces(
+        _ workspaceIDs: [UUID],
+        toCreationContextID contextID: String
+    ) -> Bool {
+        rememberLiveSidebarRemoteCreationContexts()
+        guard contextID != SidebarCreationContextSelection.automaticID,
+              isValidSidebarWorkspaceParentContextID(contextID)
+        else {
+            return false
+        }
+
+        let requestedIDs = Set(workspaceIDs)
+        let moving = tabs.filter { requestedIDs.contains($0.id) }
+        guard !moving.isEmpty else { return false }
+        let groupMemberIDs = Dictionary(grouping: tabs.compactMap { workspace -> (UUID, UUID)? in
+            guard let groupID = workspace.groupId else { return nil }
+            return (groupID, workspace.id)
+        }, by: \.0).mapValues { Set($0.map(\.1)) }
+
+        objectWillChange.send()
+        for workspace in moving {
+            if let groupID = workspace.groupId,
+               let members = groupMemberIDs[groupID],
+               !members.isSubset(of: requestedIDs)
+            {
+                removeWorkspaceFromGroup(workspaceId: workspace.id)
+            }
+            workspace.sidebarCreationContextID = contextID
+        }
+        return true
+    }
+
+    /// Membership assigned to newly-created workspaces. Automatic leaves the
+    /// field unset so legacy local/remote provenance inference remains intact.
+    func sidebarCreationContextIDForNewWorkspace() -> String? {
+        switch sidebarCreationContextSelection {
+        case .automatic:
+            return nil
+        case .local:
+            return SidebarCreationContextSelection.localID
+        case let .remote(key):
+            return key.id
+        }
     }
 
     @discardableResult
@@ -481,6 +572,46 @@ extension TabManager {
         ) ?? configuration
     }
 
+    private func isValidSidebarWorkspaceParentContextID(_ contextID: String) -> Bool {
+        contextID == SidebarCreationContextSelection.localID
+            || sidebarRemoteCreationContextOrder.contains { $0.id == contextID }
+    }
+
+    private func resolvedSidebarCreationContextID(for workspace: Workspace) -> String {
+        if let explicit = workspace.sidebarCreationContextID?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty,
+           isValidSidebarWorkspaceParentContextID(explicit)
+        {
+            return explicit
+        }
+
+        // A group is one child subtree. Legacy mixed-locality groups follow
+        // their anchor so restore never fragments a group across machines.
+        if let groupID = workspace.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupID }),
+           let anchor = tabs.first(where: { $0.id == group.anchorWorkspaceId }),
+           anchor !== workspace
+        {
+            if let explicit = anchor.sidebarCreationContextID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !explicit.isEmpty,
+               isValidSidebarWorkspaceParentContextID(explicit)
+            {
+                return explicit
+            }
+            return directSidebarCreationContextID(for: anchor)
+        }
+        return directSidebarCreationContextID(for: workspace)
+    }
+
+    private func directSidebarCreationContextID(for workspace: Workspace) -> String {
+        guard let configuration = workspace.remoteConfiguration else {
+            return SidebarCreationContextSelection.localID
+        }
+        return SidebarRemoteCreationContextKey(configuration: configuration).id
+    }
+
     private static func sidebarConnectionStatePriority(
         _ state: WorkspaceRemoteConnectionState
     ) -> Int {
@@ -532,3 +663,40 @@ extension TabManager {
         )
     }
 }
+
+#if DEBUG
+@MainActor
+extension TabManager {
+    /// Deterministic local/remote membership fixture for the focused sidebar
+    /// columns UI test. It never starts a connection.
+    func setupUITestSidebarMachineScopesIfNeeded() {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_SIDEBAR_MACHINE_SCOPES"] == "1",
+              let localWorkspace = tabs.first,
+              tabs.count == 1
+        else {
+            return
+        }
+        setCustomTitle(tabId: localWorkspace.id, title: "Local Fixture")
+        let remoteWorkspace = addWorkspace(
+            title: "Remote Fixture",
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        remoteWorkspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "fixture@example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            ownerWorkspaceID: remoteWorkspace.id,
+            terminalStartupCommand: "ssh fixture@example.test"
+        )
+        remoteWorkspace.remoteConnectionState = .disconnected
+        rememberLiveSidebarRemoteCreationContexts()
+    }
+}
+#endif

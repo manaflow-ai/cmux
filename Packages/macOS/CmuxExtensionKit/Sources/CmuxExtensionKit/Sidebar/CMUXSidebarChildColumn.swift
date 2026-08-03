@@ -7,7 +7,7 @@ import Foundation
 /// renderer id describes the content contract and lets a host or extension
 /// choose the native view that resolves the route.
 public struct CmuxSidebarChildColumn: Codable, Equatable, Hashable, Identifiable, Sendable {
-    /// CMUX's renderer for the window's shared, unfiltered workspace collection.
+    /// CMUX's shared renderer implementation for a parent-scoped workspace collection.
     public static let sharedWorkspacesRendererID = "cmux.workspaces"
 
     public var id: String
@@ -18,7 +18,7 @@ public struct CmuxSidebarChildColumn: Codable, Equatable, Hashable, Identifiable
         self.rendererID = rendererID
     }
 
-    /// Makes a parent-specific route to CMUX's shared workspace collection.
+    /// Makes a parent-specific route to CMUX's workspace renderer.
     public static func sharedWorkspaces(parentID: String) -> Self {
         Self(
             id: "\(parentID).children",

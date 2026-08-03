@@ -108,15 +108,19 @@ Creating or splitting a browser surface with a URL requires both the surface
 action scope and `openURL`.
 
 `CmuxSidebarColumns` provides the same independently resizable parent-and-child
-container used by CMUX. Request `creationContexts`, render
+container used by CMUX. Request `creationContexts` plus `workspaceList`, render
 `context.snapshot.creationContexts` in its leading column, and pass the selected
 context's `childColumn` to the container. Its `children` closure resolves that
-route's `rendererID`; `cmux.workspaces` means the shared, unfiltered
-`context.snapshot.workspaces` collection. Each context owns a unique child
-route even when several routes use that renderer. Call
+route's `rendererID`; `cmux.workspaces` means CMUX's shared workspace-renderer
+implementation. Resolve that route with the context's ordered
+`workspaceIDs` against `context.snapshot.workspaces`. Each context owns a
+unique child route and workspace collection even when several routes use the
+same renderer. Call
 `context.host.selectCreationContext(_:)` when the user selects one. Selection
-changes creation defaults and the active child route atomically, but never
-makes a context own or filter workspaces. A child can nest another
+changes creation defaults and the active child route atomically. Workspace
+membership does not constrain runtime locality, so one context can contain
+local workspaces, remote workspaces, and workspaces with mixed surfaces. A
+child can nest another
 `CmuxSidebarColumns` for deeper navigation. Each container owns only its
 internal divider, so the host still resizes and hides the complete sidebar
 region atomically.
@@ -136,6 +140,7 @@ snapshot and rejects actions that have not been granted:
 - `pullRequests`: pull request links associated with workspaces
 - `createWorkspace`: create workspaces
 - `selectCreationContext`: select the defaults used by shared creation actions
+- `reorderCreationContexts`: reorder machines or move workspace children between them
 - `selectWorkspace`: select a workspace from your UI
 - `closeWorkspace`: close workspaces from your UI
 - `createSurface`: create terminal and browser surfaces

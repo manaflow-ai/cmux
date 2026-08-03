@@ -161,6 +161,7 @@ struct SidebarAppKitRowCellTests {
             tabManager: tabManager,
             notificationStore: nil,
             index: model.index,
+            visibleWorkspaceIds: [model.workspaceId],
             contextMenuWorkspaceIds: [model.workspaceId],
             remoteContextMenuWorkspaceIds: [],
             allRemoteContextMenuTargetsConnecting: false,

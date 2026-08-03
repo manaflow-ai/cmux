@@ -161,6 +161,9 @@ struct SidebarCreationContextColumn: View {
                     toIndex: index
                 )
             }
+            .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { _ in
+                moveDraggedWorkspaces(to: context.id)
+            }
             .contextMenu {
                 Button(moveUpLabel) {
                     _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: -1)
@@ -182,6 +185,29 @@ struct SidebarCreationContextColumn: View {
 
     private static func machineDragPayload(for contextID: String) -> String {
         machineDragPayloadPrefix + contextID
+    }
+
+    private func moveDraggedWorkspaces(to contextID: String) -> Bool {
+        guard let draggedID = AppDelegate.shared?
+            .sidebarWorkspaceDragRegistry.currentWorkspaceId,
+            tabManager.tabs.contains(where: { $0.id == draggedID })
+        else {
+            return false
+        }
+        let selectedIDs = tabManager.sidebarSelectedWorkspaceIds
+        let movingIDs = selectedIDs.contains(draggedID)
+            ? tabManager.tabs.compactMap { selectedIDs.contains($0.id) ? $0.id : nil }
+            : [draggedID]
+        let moved = tabManager.moveSidebarWorkspaces(
+            movingIDs,
+            toCreationContextID: contextID
+        )
+        if moved {
+            SidebarDragLifecycleNotification().postClearRequest(
+                reason: "workspace_reparented_to_machine"
+            )
+        }
+        return moved
     }
 
     private static func machineContextID(from payload: String) -> String? {

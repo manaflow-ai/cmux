@@ -230,8 +230,8 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
-    /// Per-window default source for shared workspace/surface creation actions.
-    /// Contexts never filter or own the workspace collection.
+    /// Per-window parent column and default source for shared
+    /// workspace/surface creation actions.
     @Published var sidebarCreationContextSelection: SidebarCreationContextSelection = .automatic
     var sidebarRemoteCreationContextOrder: [SidebarRemoteCreationContextKey] = []
     /// User-defined order for machine rows. `Automatic` is a creation mode,
@@ -645,6 +645,7 @@ class TabManager: ObservableObject {
             }
         })
 #if DEBUG
+        setupUITestSidebarMachineScopesIfNeeded()
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
         setupChildExitSplitUITestIfNeeded()
@@ -1205,6 +1206,7 @@ class TabManager: ObservableObject {
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: select && allowTextBoxFocusDefault
             )
+            newWorkspace.sidebarCreationContextID = sidebarCreationContextIDForNewWorkspace()
             applyCreationChromeInheritance(
                 to: newWorkspace,
                 from: sourceWorkspace ?? capturedTabs.first

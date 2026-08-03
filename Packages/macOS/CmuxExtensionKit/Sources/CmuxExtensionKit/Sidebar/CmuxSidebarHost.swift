@@ -36,8 +36,7 @@ public struct CmuxSidebarHost {
         refreshSnapshot()
     }
 
-    /// Selects the context whose defaults shared creation actions should use.
-    /// This changes no workspace ownership or filtering.
+    /// Selects the parent context and the defaults shared creation actions use.
     public func selectCreationContext(_ id: String) async throws {
         try await send(.selectCreationContext(id))
     }
@@ -46,6 +45,18 @@ public struct CmuxSidebarHost {
     /// fixed `Automatic` mode is not part of this ordered collection.
     public func reorderCreationContext(_ id: String, to index: Int) async throws {
         try await send(.reorderCreationContext(id: id, toIndex: index))
+    }
+
+    /// Moves workspace navigation membership to another machine without
+    /// changing the runtime locality of any workspace or surface.
+    public func moveWorkspaces(
+        _ workspaceIDs: [UUID],
+        toCreationContext contextID: String
+    ) async throws {
+        try await send(.moveWorkspacesToCreationContext(
+            workspaceIDs: workspaceIDs,
+            contextID: contextID
+        ))
     }
 
     /// Requests that CMUX create a workspace.

@@ -78,7 +78,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(context["clock"]?.member("epoch") == .int(0))
     }
 
-    @Test("Creation contexts expose defaults without workspace ownership")
+    @Test("Creation contexts expose parent-owned workspace children")
     func creationContexts() {
         let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
         let snapshot = CustomSidebarContextSnapshot(
@@ -95,6 +95,10 @@ struct CustomSidebarDataContextBuilderTests {
                     isSelected: true,
                     kind: "remote",
                     workspaceCount: 2,
+                    workspaceIDs: [
+                        UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+                        UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                    ],
                     connectionState: "connected",
                     childColumn: .init(
                         id: "remote-deadbeef.children",
@@ -113,6 +117,10 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(remote?.member("id") == .string("remote-deadbeef"))
         #expect(remote?.member("selected") == .bool(true))
         #expect(remote?.member("workspaceCount") == .int(2))
+        #expect(remote?.member("workspaceIds")?.iterationValues == [
+            .string("11111111-1111-1111-1111-111111111111"),
+            .string("22222222-2222-2222-2222-222222222222"),
+        ])
         #expect(remote?.member("connectionState") == .string("connected"))
         #expect(remote?.member("childColumn")?.member("id") == .string("remote-deadbeef.children"))
         #expect(remote?.member("childColumn")?.member("rendererId") == .string("dev.example.projects"))

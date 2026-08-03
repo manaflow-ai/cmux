@@ -164,6 +164,7 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
+            sidebarCreationContextID: sidebarCreationContextID,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -203,6 +204,7 @@ extension Workspace {
             stableId = persistedStableId
         }
         taskCreateOperationID = snapshot.taskCreateOperationID
+        sidebarCreationContextID = snapshot.sidebarCreationContextID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -2142,6 +2144,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
+    /// Sidebar parent membership. This controls which machine's child column
+    /// lists the workspace, independently from the local or remote transports
+    /// used by any surface inside it.
+    @Published var sidebarCreationContextID: String?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
