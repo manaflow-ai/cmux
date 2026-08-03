@@ -113,7 +113,7 @@ import Testing
         ("creds AKIAIOSFODNN7EXAMPLE rejected", "creds <redacted-secret> rejected"),
         // Quoted JSON values whose secret contains a delimiter (`&`, `,`, `}`)
         // must redact through the CLOSING quote, not stop at the delimiter and
-        // leak the tail (the quote-context split). These are the exact shapes a
+        // leak the tail. These are the exact shapes a
         // raw event message / breadcrumb / NSError description arrives as.
         (#"{"password":"abc&def"}"#, #"{"password":"<redacted-secret>"}"#),
         (#"{"token":"a,b,c"}"#, #"{"token":"<redacted-secret>"}"#),

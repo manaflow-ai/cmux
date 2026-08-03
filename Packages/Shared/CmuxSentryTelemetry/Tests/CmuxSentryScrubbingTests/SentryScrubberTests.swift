@@ -67,6 +67,21 @@ import Testing
         )
     }
 
+    @Test func redactsAuthorizationAssignmentsWithAndWithoutSchemes() {
+        #expect(
+            scrubber.scrub("Authorization: Basic dXNlcjpwYXNz")
+                == "Authorization: Basic <redacted-secret>"
+        )
+        #expect(
+            scrubber.scrub("Authorization: opaquetoken")
+                == "Authorization: <redacted-secret>"
+        )
+        #expect(
+            scrubber.scrub("Proxy-Authorization=Digest opaquetoken")
+                == "Proxy-Authorization=Digest <redacted-secret>"
+        )
+    }
+
     @Test func redactsTokenQueryParameterButKeepsKey() {
         #expect(
             scrubber.scrub("GET https://api.example.com/v1?token=supersecretvalue123&page=2")
@@ -124,8 +139,8 @@ import Testing
     }
 
     @Test func redactsBroaderCredentialMarkersInRawQueryStrings() {
-        // The free-text assignment markers stay in sync with the dictionary
-        // sensitive-key set, so auth/session/cookie params are caught as raw text.
+        // The free-text assignment scanner shares the dictionary sensitive-key
+        // set, so auth/session/cookie params are caught as raw text.
         #expect(
             scrubber.scrub("GET /x?auth=opaquesessionvalue&page=1")
                 == "GET /x?auth=<redacted-secret>&page=1"
@@ -264,7 +279,7 @@ import Testing
     @Test func scrubsSensitiveQueryParamsByKeyKeepingNonSensitive() {
         // The maintained denylist's EXACT aliases (csrf/_csrf, _vercel_jwt, su,
         // phpsessid, sid) are redacted by key even though they are too short to
-        // live in the free-text assignment regex. Keys stay; non-sensitive params
+        // need ambiguous free-text regexes. Keys stay; non-sensitive params
         // (page) are untouched.
         #expect(
             scrubber.scrubQueryString("_csrf=abc123&_vercel_jwt=xyz789&page=2")
