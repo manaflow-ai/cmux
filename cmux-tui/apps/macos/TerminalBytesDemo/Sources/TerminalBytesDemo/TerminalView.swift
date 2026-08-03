@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum TerminalInput: Equatable {
+enum TerminalInput: Equatable, Sendable {
     case bytes(Data)
     case paste(String)
     case key(chord: String, repeat: Bool)
@@ -196,9 +196,8 @@ struct TerminalView: NSViewRepresentable {
         let selection = terminal.selectedRanges
         let visible = scroll.documentVisibleRect
         let followedBottom = visible.maxY >= terminal.bounds.maxY - 24
-        if let edit = terminalTextEdit(from: terminal.string, to: text),
-            let storage = terminal.textStorage
-        {
+        let edit = terminalTextEdit(from: terminal.string, to: text)
+        if let edit, let storage = terminal.textStorage {
             storage.beginEditing()
             storage.replaceCharacters(in: edit.range, with: edit.replacement)
             let replacementRange = NSRange(
@@ -218,6 +217,7 @@ struct TerminalView: NSViewRepresentable {
         }
         terminal.selectedRanges = terminalSelections(
             preserving: selection,
+            applying: edit,
             utf16Length: text.utf16.count
         )
         if followedBottom {
@@ -265,10 +265,83 @@ func terminalTextEdit(from current: String, to next: String) -> TerminalTextEdit
     )
 }
 
-func terminalSelections(preserving selections: [NSValue], utf16Length: Int) -> [NSValue] {
+private func remapTerminalSelection(
+    _ range: NSRange,
+    applying edit: TerminalTextEdit
+) -> NSRange? {
+    guard range.location != NSNotFound,
+        range.location >= 0,
+        range.length >= 0,
+        edit.range.location != NSNotFound,
+        edit.range.location >= 0,
+        edit.range.length >= 0
+    else {
+        return nil
+    }
+    let (rangeEnd, rangeOverflow) = range.location.addingReportingOverflow(range.length)
+    let (editEnd, editOverflow) = edit.range.location.addingReportingOverflow(edit.range.length)
+    let replacementLength = edit.replacement.utf16.count
+    let (replacementEnd, replacementOverflow) =
+        edit.range.location.addingReportingOverflow(replacementLength)
+    let (delta, deltaOverflow) = replacementLength.subtractingReportingOverflow(edit.range.length)
+    guard !rangeOverflow, !editOverflow, !replacementOverflow, !deltaOverflow else { return nil }
+
+    func shifted(_ position: Int) -> Int? {
+        let (shifted, overflow) = position.addingReportingOverflow(delta)
+        return overflow ? nil : shifted
+    }
+
+    if range.length == 0 {
+        let location: Int
+        if range.location < edit.range.location {
+            location = range.location
+        } else if range.location >= editEnd {
+            guard let shifted = shifted(range.location) else { return nil }
+            location = shifted
+        } else {
+            location = replacementEnd
+        }
+        return NSRange(location: location, length: 0)
+    }
+
+    let start: Int
+    if range.location < edit.range.location {
+        start = range.location
+    } else if range.location >= editEnd {
+        guard let shifted = shifted(range.location) else { return nil }
+        start = shifted
+    } else {
+        start = edit.range.location
+    }
+
+    let end: Int
+    if rangeEnd <= edit.range.location {
+        end = rangeEnd
+    } else if rangeEnd >= editEnd {
+        guard let shifted = shifted(rangeEnd) else { return nil }
+        end = shifted
+    } else {
+        end = replacementEnd
+    }
+    guard end >= start else { return nil }
+    return NSRange(location: start, length: end - start)
+}
+
+func terminalSelections(
+    preserving selections: [NSValue],
+    applying edit: TerminalTextEdit? = nil,
+    utf16Length: Int
+) -> [NSValue] {
     let boundedLength = max(0, utf16Length)
     let valid = selections.compactMap { selection -> NSValue? in
-        let range = selection.rangeValue
+        let original = selection.rangeValue
+        let range: NSRange
+        if let edit {
+            guard let remapped = remapTerminalSelection(original, applying: edit) else { return nil }
+            range = remapped
+        } else {
+            range = original
+        }
         guard range.location != NSNotFound,
             range.location >= 0,
             range.location <= boundedLength,

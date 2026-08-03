@@ -380,6 +380,45 @@ func copyGrowingCString(
     }
 }
 
+private struct QueuedTerminalInput: Sendable {
+    let input: TerminalInput
+    let client: TerminalClientHandle
+    let connectionOperation: UInt64
+}
+
+private struct BoundedFIFO<Element> {
+    private var storage: [Element?]
+    private var head = 0
+    private(set) var count = 0
+
+    init(capacity: Int) {
+        precondition(capacity > 0)
+        storage = [Element?](repeating: nil, count: capacity)
+    }
+
+    mutating func append(_ element: Element) -> Bool {
+        guard count < storage.count else { return false }
+        storage[(head + count) % storage.count] = element
+        count += 1
+        return true
+    }
+
+    mutating func popFirst() -> Element? {
+        guard count > 0 else { return nil }
+        let element = storage[head]
+        storage[head] = nil
+        head = (head + 1) % storage.count
+        count -= 1
+        return element
+    }
+
+    mutating func removeAll() {
+        storage = [Element?](repeating: nil, count: storage.count)
+        head = 0
+        count = 0
+    }
+}
+
 @MainActor
 @Observable
 final class TerminalModel {
@@ -393,6 +432,10 @@ final class TerminalModel {
 
     @ObservationIgnored private var client: TerminalClientHandle?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
+    @ObservationIgnored private var inputTask: Task<Void, Never>?
+    @ObservationIgnored private var inputQueue = BoundedFIFO<QueuedTerminalInput>(capacity: 256)
+    @ObservationIgnored private let inputWakeStream: AsyncStream<Void>
+    @ObservationIgnored private let inputWakeContinuation: AsyncStream<Void>.Continuation
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var resizeRetryTask: Task<Void, Never>?
     @ObservationIgnored private var resizeRetryAttempt = 0
@@ -408,6 +451,12 @@ final class TerminalModel {
         retainedClient: TerminalClientHandle? = nil,
         initiallyConnected: Bool = false
     ) {
+        let inputWake = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        inputWakeStream = inputWake.stream
+        inputWakeContinuation = inputWake.continuation
         invitation = configuration.invitation
         terminalID = configuration.terminalID
         shouldAutoConnect = configuration.autoConnect
@@ -519,6 +568,7 @@ final class TerminalModel {
         resizeTask?.cancel()
         resizeTask = nil
         resetResizeRetry()
+        inputQueue.removeAll()
         isConnected = false
         frame = ""
         diagnostics = ""
@@ -546,6 +596,10 @@ final class TerminalModel {
         resizeTask?.cancel()
         resizeTask = nil
         resetResizeRetry()
+        inputQueue.removeAll()
+        inputWakeContinuation.finish()
+        inputTask?.cancel()
+        inputTask = nil
         isConnected = false
         isConnecting = false
         let ownedClient = client
@@ -559,18 +613,65 @@ final class TerminalModel {
 
     func submit(_ input: TerminalInput) {
         guard isConnected, let client else { return }
-        let operation = connectionOperation
-        let failure = L10n.text(
+        let queued = QueuedTerminalInput(
+            input: input,
+            client: client,
+            connectionOperation: connectionOperation
+        )
+        guard inputQueue.append(queued) else {
+            errorMessage = L10n.text(
+                "error.input.backpressure",
+                "Terminal input is arriving faster than it can be sent. Wait and try again."
+            )
+            return
+        }
+        startInputConsumerIfNeeded()
+        inputWakeContinuation.yield()
+    }
+
+    private func startInputConsumerIfNeeded() {
+        guard inputTask == nil else { return }
+        let stream = inputWakeStream
+        inputTask = Task { [weak self] in
+            for await _ in stream {
+                guard !Task.isCancelled else { break }
+                await self?.drainTerminalInputs()
+            }
+        }
+    }
+
+    private func drainTerminalInputs() async {
+        let rejected = L10n.text(
             "error.input.rejected",
             "Terminal input was not queued. Reconnect and try again."
         )
-        Task {
-            let accepted = await client.submit(input)
-            guard operation == connectionOperation, isConnected, !isShuttingDown else { return }
-            if !accepted {
-                errorMessage = failure
-            } else if errorMessage == failure {
-                errorMessage = ""
+        let backpressure = L10n.text(
+            "error.input.backpressure",
+            "Terminal input is arriving faster than it can be sent. Wait and try again."
+        )
+        while !Task.isCancelled, let queued = inputQueue.popFirst() {
+            guard queued.connectionOperation == connectionOperation,
+                queued.client === client,
+                isConnected,
+                !isShuttingDown
+            else {
+                continue
+            }
+            let accepted = await queued.client.submit(queued.input)
+            guard queued.connectionOperation == connectionOperation,
+                isConnected,
+                !isShuttingDown
+            else {
+                continue
+            }
+            if accepted {
+                if errorMessage == rejected || errorMessage == backpressure {
+                    errorMessage = ""
+                }
+            } else {
+                inputQueue.removeAll()
+                errorMessage = rejected
+                return
             }
         }
     }
@@ -701,6 +802,7 @@ final class TerminalModel {
         resizeTask?.cancel()
         resizeTask = nil
         resetResizeRetry()
+        inputQueue.removeAll()
         isConnected = false
         geometryDelivery.resetConnection()
         errorMessage = ""
