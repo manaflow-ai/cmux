@@ -456,6 +456,81 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
     }
 
     @Test
+    func parkingAccessoryAnimationKeepsEverySampleAttachedToOwner() async {
+        _ = NSApplication.shared
+        let visibleFrame = NSScreen.main?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let owner = NSWindow(
+            contentRect: CGRect(
+                x: visibleFrame.midX,
+                y: visibleFrame.midY - 190,
+                width: 520,
+                height: 380
+            ),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WorkspaceFloatingDockParkingAccessoryController(
+            dockID: UUID(),
+            onRestore: {},
+            onRename: { _ in true },
+            onDrag: { _, _ in },
+            onEditingEnded: {}
+        )
+        defer {
+            controller.teardown()
+            owner.orderOut(nil)
+            owner.close()
+        }
+
+        owner.orderFront(nil)
+        controller.show(
+            attachedTo: owner,
+            title: "Build Notes",
+            parkingEdge: .trailing,
+            appearance: .raycast(backgroundColor: .windowBackgroundColor),
+            animated: true
+        )
+
+        var maximumGapError: CGFloat = 0
+        var maximumCenterError: CGFloat = 0
+        for _ in 0..<24 {
+            maximumGapError = max(
+                maximumGapError,
+                abs(
+                    controller.window.frame.maxX
+                        - (owner.frame.minX - WorkspaceFloatingDockParkingAccessoryController.gap)
+                )
+            )
+            maximumCenterError = max(
+                maximumCenterError,
+                abs(controller.window.frame.midY - owner.frame.midY)
+            )
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        controller.hide(animated: true)
+        for _ in 0..<18 {
+            maximumGapError = max(
+                maximumGapError,
+                abs(
+                    controller.window.frame.maxX
+                        - (owner.frame.minX - WorkspaceFloatingDockParkingAccessoryController.gap)
+                )
+            )
+            maximumCenterError = max(
+                maximumCenterError,
+                abs(controller.window.frame.midY - owner.frame.midY)
+            )
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(maximumGapError < 1)
+        #expect(maximumCenterError < 1)
+    }
+
+    @Test
     func doubleClickingParkingAccessoryBeginsRenameWithoutRestoring() throws {
         _ = NSApplication.shared
         let noteURL = FileManager.default.temporaryDirectory
