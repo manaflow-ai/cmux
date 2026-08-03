@@ -7258,16 +7258,14 @@ struct ContentView: View {
                 keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
             )
         )
-        if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: "palette.mobileConnect",
-                    title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
-                    subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
-                    keywords: Self.commandPaletteMobileConnectKeywords
-                )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.mobileConnect",
+                title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
+                keywords: Self.commandPaletteMobileConnectKeywords
             )
-        }
+        )
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8402,6 +8400,7 @@ struct ContentView: View {
             _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
                 tabManager: tabManager,
                 preferredWindow: observedWindow,
+                enforceFeatureFlag: false,
                 debugSource: "palette.mobileConnect"
             )
         }

@@ -110354,13 +110354,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+            "value": "Shows the Mobile Connect button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneペアリングワークスペースを開くMobile Connectの入口を表示します。"
+            "value": "サイドバーのフッターにMobile Connectボタンを表示します。"
           }
         }
       }
