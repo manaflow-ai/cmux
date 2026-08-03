@@ -268,22 +268,32 @@ extension Workspace {
         }
     }
 
-    /// The row's identity label: an explicit rename wins, then the live
-    /// surface title (agents set it to their session name/topic), then the
-    /// directory label. This is what makes a row say the session's name
-    /// instead of a generic "Claude Code".
+    /// The row's identity label combines the live surface title with a
+    /// user-authored rename so sibling agents in the same tab stay distinct.
+    /// Auto-generated titles remain replacements rather than extra identity.
     func agentStatusRowPaneLabel(panelId: UUID) -> String? {
-        let candidates = [
-            panelCustomTitles[panelId],
+        let baseCandidates = [
             panelTitles[panelId],
             panelDirectoryDisplayLabels[panelId],
         ]
-        for candidate in candidates {
+        var baseLabel: String?
+        for candidate in baseCandidates {
             if let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
-                return trimmed
+                baseLabel = trimmed
+                break
             }
         }
-        return nil
+
+        guard let customLabel = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !customLabel.isEmpty else {
+            return baseLabel
+        }
+        guard (panelCustomTitleSources[panelId] ?? .user) == .user,
+              let baseLabel,
+              baseLabel != customLabel else {
+            return customLabel
+        }
+        return "\(baseLabel) · \(customLabel)"
     }
 
     private func isSidebarStatusEntryLessCurrent(
