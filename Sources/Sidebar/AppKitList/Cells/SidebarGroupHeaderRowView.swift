@@ -196,9 +196,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        nameField.textColor = model.isAnchorActive
-            ? environment.primaryTextColor
-            : environment.primaryTextColor.withAlphaComponent(0.9)
+        // Selection is background-only for group headers. Keep the title on
+        // the same semantic primary color as a default workspace row title.
+        nameField.textColor = environment.primaryTextColor
 
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
@@ -297,7 +297,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.backgroundColor = environment.primaryTextColor
             .withAlphaComponent(0.08).cgColor
         CATransaction.commit()
-        nameField.textColor = environment.primaryTextColor
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -314,14 +313,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// Plain-click counterpart: clears active and multi-selected header paint
     /// while the authoritative single selection is applied.
     func showOptimisticDeselection() {
-        guard let model, let environment,
-              model.isAnchorActive || model.isMultiSelected else { return }
+        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        nameField.textColor = environment.primaryTextColor.withAlphaComponent(0.9)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
