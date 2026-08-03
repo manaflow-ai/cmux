@@ -194,16 +194,22 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     releasing = (
         ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
     ).read_text()
-    manifest = tomllib.loads(
-        (
-            ROOT
-            / "cmux-tui"
-            / "bindings"
-            / "bootstrap"
-            / "rust-sidebar"
-            / "Cargo.toml"
-        ).read_text()
-    )
+    manifests = {
+        name: tomllib.loads(
+            (
+                ROOT
+                / "cmux-tui"
+                / "bindings"
+                / "bootstrap"
+                / source
+                / "Cargo.toml"
+            ).read_text()
+        )
+        for name, source in (
+            ("cmux-sdk", "rust-sdk"),
+            ("cmux-sidebar", "rust-sidebar"),
+        )
+    }
 
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
@@ -221,10 +227,15 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "--allow-missing-project" not in bootstrap
     assert 'cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"' in bootstrap
     assert "cargo publish" in bootstrap
-    assert manifest["package"]["name"] == "cmux-sidebar"
-    assert manifest["package"]["version"] == "0.0.0-bootstrap.0"
-    assert "dependencies" not in manifest
-    assert manifest["workspace"] == {}
+    for name, manifest in manifests.items():
+        assert manifest["package"]["name"] == name
+        assert manifest["package"]["version"] == "0.0.0-bootstrap.0"
+        assert "dependencies" not in manifest
+        assert manifest["workspace"] == {}
+    assert "cmux-sdk-bootstrap-crate" in bootstrap
+    assert "cmux-sidebar-bootstrap-crate" in bootstrap
+    assert "client_payload.package" not in bootstrap
+    assert bootstrap.count("max-parallel: 1") == 3
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-crates.yml"') == 2
     assert "sdk-bootstrap-crates.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
@@ -295,6 +306,9 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
     crates_publish = workflow_job(crates, "publish")
     crates_verify = workflow_job(crates, "verify")
     assert "name: crates-bootstrap" in crates_publish
+    assert crates_publish.count("actions/download-artifact@") == 2
+    assert "steps.prepare.outputs.decision == 'publish'" in crates_publish
+    assert '== "$PACKAGE-$BOOTSTRAP_VERSION.crate"' in crates_publish
     assert "member.isfile()" in crates_publish
     assert "archive.extractfile(member)" in crates_publish
     assert "cmp \"$BOOTSTRAP_ARTIFACT\" \"$REPACKED_ARTIFACT\"" in crates_publish
@@ -324,7 +338,7 @@ def test_all_registry_names_are_owned_before_release_tags() -> None:
         ROOT / "cmux-tui" / "bindings" / "verify_npm_provenance.py"
     ).read_text()
     assert "verify_crates_ownership.py" in registry
-    assert "--package cmux-client" in registry
+    assert "--package cmux-sdk" in registry
     assert "--package cmux-sidebar" in registry
     assert "--owner-id 431397" in registry
     assert "--owner-login lawrencecchen" in registry
@@ -411,7 +425,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
     assert "verify-go-tag:" in release
     assert release.index("verify-go-tag:") > tag_push
     for job, publisher in (
-        ("publish-crate-client", "crates"),
+        ("publish-crate-sdk", "crates"),
         ("publish-crate-sidebar", "crates"),
         ("publish-npm", "npm"),
         ("publish-python-wheel", "python"),
@@ -433,7 +447,7 @@ def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
         "REGISTRY_PREFLIGHT_RESULT",
         "REVALIDATE_TAGS_RESULT",
         "CUT_TAGS_RESULT",
-        "CRATE_CLIENT_RESULT",
+        "CRATE_SDK_RESULT",
         "CRATE_SIDEBAR_RESULT",
         "GO_TAG_RESULT",
         "NPM_RESULT",
@@ -510,7 +524,7 @@ def test_registry_state_is_validated_before_irreversible_tags() -> None:
         "python-preflight",
     ):
         assert prerequisite in registry
-    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
+    for artifact in ("cmux-rust-sdk-crate", "cmux-rust-sidebar-crate"):
         assert f"name: {artifact}" in registry
     assert (
         "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
@@ -540,7 +554,7 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
 
     assert "actions: read" in revalidate_tags
     assert "name: sdk-release" in revalidate_tags
-    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
+    for artifact in ("cmux-rust-sdk-crate", "cmux-rust-sidebar-crate"):
         assert f"name: {artifact}" in revalidate_tags
     assert (
         "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
@@ -551,6 +565,8 @@ def test_registry_state_is_revalidated_after_release_approval() -> None:
         in revalidate_tags
     )
     assert revalidate_tags.count("verify_release_registry_state.sh") == 1
+    assert 'validated-rust-sdk/cmux-sdk-$version.crate' in verifier
+    assert "validated-client" not in verifier
     assert "remote_state_sha256" in revalidate_tags
     assert "revalidate-tags" in cut_tags
     assert "verify_release_registry_state.sh" not in cut_tags
@@ -640,10 +656,10 @@ def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
     )
     assert "verify_npm_provenance.py" in stable
     assert "verify_pypi_provenance.py" in stable
-    assert "publish-crate-client" in stable
+    assert "publish-crate-sdk" in stable
     assert "publish-crate-sidebar" in stable
     assert "verify_crates_ownership.py" in stable
-    assert "--package cmux-client" in stable
+    assert "--package cmux-sdk" in stable
     assert "--package cmux-sidebar" in stable
     assert "--publisher github-actions" in stable
     assert "--dist-tag latest" in stable
@@ -940,7 +956,7 @@ def test_registry_publishers_reuse_preflight_artifacts() -> None:
     python = workflow("sdk-publish-python.yml")
     release = workflow("sdk-release-cut.yml")
 
-    for artifact in ("cmux-rust-client-crate", "cmux-rust-sidebar-crate"):
+    for artifact in ("cmux-rust-sdk-crate", "cmux-rust-sidebar-crate"):
         assert rust.count(f"name: {artifact}") == 1
         assert release.count(f"name: {artifact}") >= 1
 
@@ -1014,7 +1030,7 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
         / "verify_release_registry_authority.sh"
     ).read_text()
 
-    for job in ("publish-crate-client", "publish-crate-sidebar"):
+    for job in ("publish-crate-sdk", "publish-crate-sidebar"):
         block = workflow_job(release, job)
         revalidate = block.index(
             "- name: Revalidate crates.io ownership immediately before authentication"
@@ -1052,7 +1068,7 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
         assert "actions/setup-python@" not in block
 
     assert "verify_crates_ownership.py" in authority_helper
-    assert "--package cmux-client" in authority_helper
+    assert "--package cmux-sdk" in authority_helper
     assert "--package cmux-sidebar" in authority_helper
     assert "--owner-id 431397" in authority_helper
     assert "--owner-login lawrencecchen" in authority_helper
@@ -1070,11 +1086,11 @@ def test_publishers_revalidate_registry_authority_after_environment_approval() -
 def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
     release = workflow("sdk-release-cut.yml")
 
-    client = workflow_job(release, "publish-crate-client")
+    sdk = workflow_job(release, "publish-crate-sdk")
     sidebar = workflow_job(release, "publish-crate-sidebar")
-    assert "Publish cmux-client" in client
-    assert "Publish cmux-sidebar" not in client
-    assert "publish-crate-client" in sidebar
+    assert "Publish cmux-sdk" in sdk
+    assert "Publish cmux-sidebar" not in sdk
+    assert "publish-crate-sdk" in sidebar
     assert "Publish cmux-sidebar" in sidebar
 
     wheel = workflow_job(release, "publish-python-wheel")
@@ -1090,7 +1106,7 @@ def test_irreversible_registry_writes_are_independently_rerunnable() -> None:
 def test_registry_writes_reconcile_ambiguous_publish_failures() -> None:
     release = workflow("sdk-release-cut.yml")
 
-    for job in ("publish-crate-client", "publish-crate-sidebar", "publish-npm"):
+    for job in ("publish-crate-sdk", "publish-crate-sidebar", "publish-npm"):
         block = workflow_job(release, job)
         assert "reconcile_registry_artifact.py publish" in block
         assert "--wait-seconds 120" in block
@@ -1109,7 +1125,7 @@ def test_irreversible_registry_writes_have_bounded_processes_and_jobs() -> None:
     release = workflow("sdk-release-cut.yml")
 
     for job in (
-        "publish-crate-client",
+        "publish-crate-sdk",
         "publish-crate-sidebar",
         "publish-npm",
     ):
@@ -1133,11 +1149,11 @@ def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
     assert "-p cmux-sidebar" in preflight
     assert "--no-verify" in preflight
     assert "cmux-sidebar-$CMUX_SDK_VERSION.crate" in preflight
-    assert "cmux-client-$CMUX_SDK_VERSION.crate" in preflight
-    assert "patch.crates-io.cmux-client.path" in preflight
+    assert "cmux-sdk-$CMUX_SDK_VERSION.crate" in preflight
+    assert "patch.crates-io.cmux-sdk.path" in preflight
     assert "--all-targets" in preflight
 
-    for job in ("publish-crate-client", "publish-crate-sidebar"):
+    for job in ("publish-crate-sdk", "publish-crate-sidebar"):
         block = workflow_job(release, job)
         assert "Install pinned Rust toolchain" in block
         assert "Download the validated" in block

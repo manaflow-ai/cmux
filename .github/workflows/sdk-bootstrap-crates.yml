@@ -21,12 +21,13 @@ jobs:
     permissions:
       contents: read
     outputs:
-      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
+      sdk_sha256: ${{ steps.package.outputs.sdk_sha256 }}
+      sidebar_sha256: ${{ steps.package.outputs.sidebar_sha256 }}
     steps:
       - name: Require explicit bootstrap confirmation
         if: github.event.client_payload.confirm_bootstrap != true
         run: |
-          echo "Refusing to reserve cmux-sidebar without confirm_bootstrap=true." >&2
+          echo "Refusing to reserve the Rust SDK crates without confirm_bootstrap=true." >&2
           exit 1
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -60,46 +61,72 @@ jobs:
         id: package
         run: |
           set -euo pipefail
-          source_dir="cmux-tui/bindings/bootstrap/rust-sidebar"
-          bootstrap_dir="$RUNNER_TEMP/cmux-sidebar-bootstrap"
-          cp -R "$source_dir" "$bootstrap_dir"
-          manifest="$bootstrap_dir/Cargo.toml"
-          cargo test --manifest-path "$manifest" --locked
-          cargo package --manifest-path "$manifest" --locked --no-verify
-          artifact="$bootstrap_dir/target/package/cmux-sidebar-$BOOTSTRAP_VERSION.crate"
-          [[ -f "$artifact" ]] || {
-            echo "bootstrap crate was not created" >&2
-            exit 1
-          }
-          verify_dir="$RUNNER_TEMP/cmux-sidebar-bootstrap-verify"
-          mkdir -p "$verify_dir"
-          tar -xzf "$artifact" -C "$verify_dir"
-          cargo test \
-            --manifest-path \
-              "$verify_dir/cmux-sidebar-$BOOTSTRAP_VERSION/Cargo.toml" \
-            --locked
-          artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
-          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || {
-            echo "bootstrap crate digest is malformed" >&2
-            exit 1
-          }
-          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          for specification in \
+            "cmux-sdk:rust-sdk:sdk_sha256" \
+            "cmux-sidebar:rust-sidebar:sidebar_sha256"; do
+            IFS=: read -r package source output_name <<< "$specification"
+            source_dir="cmux-tui/bindings/bootstrap/$source"
+            bootstrap_dir="$RUNNER_TEMP/$package-bootstrap"
+            cp -R "$source_dir" "$bootstrap_dir"
+            manifest="$bootstrap_dir/Cargo.toml"
+            cargo test --manifest-path "$manifest" --locked
+            cargo package --manifest-path "$manifest" --locked --no-verify
+            artifact="$bootstrap_dir/target/package/$package-$BOOTSTRAP_VERSION.crate"
+            [[ -f "$artifact" ]] || {
+              echo "$package bootstrap crate was not created" >&2
+              exit 1
+            }
+            verify_dir="$RUNNER_TEMP/$package-bootstrap-verify"
+            mkdir -p "$verify_dir"
+            tar -xzf "$artifact" -C "$verify_dir"
+            cargo test \
+              --manifest-path \
+                "$verify_dir/$package-$BOOTSTRAP_VERSION/Cargo.toml" \
+              --locked
+            artifact_dir="$RUNNER_TEMP/$package-bootstrap-artifact"
+            mkdir -p "$artifact_dir"
+            cp "$artifact" "$artifact_dir/"
+            artifact_sha256="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+            [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "$package bootstrap crate digest is malformed" >&2
+              exit 1
+            }
+            echo "$output_name=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          done
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload the cmux-sdk bootstrap crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-sdk-bootstrap-crate
+          path: ${{ runner.temp }}/cmux-sdk-bootstrap-artifact
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload the cmux-sidebar bootstrap crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-sidebar-bootstrap-crate
-          path: ${{ runner.temp }}/cmux-sidebar-bootstrap/target/package/*.crate
+          path: ${{ runner.temp }}/cmux-sidebar-bootstrap-artifact
           if-no-files-found: error
           overwrite: true
 
   preflight:
     needs: build
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - package: cmux-sdk
+            artifact: cmux-sdk-bootstrap-crate
+            decision: cmux-sdk-bootstrap-decision
+          - package: cmux-sidebar
+            artifact: cmux-sidebar-bootstrap-crate
+            decision: cmux-sidebar-bootstrap-decision
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
-    outputs:
-      need_publish: ${{ steps.decision.outputs.need_publish }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -108,14 +135,16 @@ jobs:
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-sidebar-bootstrap-crate
+          name: ${{ matrix.artifact }}
           path: bootstrap-crate
 
       - name: Inspect the crates.io bootstrap state
         id: project
+        env:
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
-          metadata="$RUNNER_TEMP/cmux-sidebar-bootstrap-registry.json"
+          metadata="$RUNNER_TEMP/$PACKAGE-bootstrap-registry.json"
           status="$(
             curl \
               --silent \
@@ -127,15 +156,15 @@ jobs:
               --user-agent 'cmux-sdk-bootstrap/1 (https://github.com/manaflow-ai/cmux; contact: https://github.com/manaflow-ai/cmux/issues)' \
               --output "$metadata" \
               --write-out '%{http_code}' \
-              https://crates.io/api/v1/crates/cmux-sidebar
+              "https://crates.io/api/v1/crates/$PACKAGE"
           )"
           case "$status" in
             404)
-              echo "cmux-sidebar is unclaimed; bootstrap may continue."
+              echo "$PACKAGE is unclaimed; bootstrap may continue."
               project_status=missing
               ;;
             200)
-              echo "cmux-sidebar exists; bootstrap bytes must match."
+              echo "$PACKAGE exists; bootstrap bytes must match."
               project_status=exists
               ;;
             *)
@@ -144,11 +173,12 @@ jobs:
               ;;
           esac
           echo "status=$project_status" >> "$GITHUB_OUTPUT"
-          # Keep the next crates.io API client inside the one-request-per-second policy.
           sleep 1
 
       - name: Reconcile an existing crates.io ownership bootstrap
         if: steps.project.outputs.status == 'exists'
+        env:
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -159,39 +189,76 @@ jobs:
           }
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
-            --package cmux-sidebar \
+            --package "$PACKAGE" \
             --version "$BOOTSTRAP_VERSION" \
             --artifact "${artifacts[0]}" \
             --require-match
           sleep 1
           python3 cmux-tui/bindings/verify_crates_ownership.py \
-            --package cmux-sidebar \
+            --package "$PACKAGE" \
             --repository https://github.com/manaflow-ai/cmux \
             --owner-id 431397 \
             --owner-login lawrencecchen \
             --bootstrap-ownership-only
 
-      - name: Request publication for an unclaimed project
-        id: decision
-        if: steps.project.outputs.status == 'missing'
-        run: echo "need_publish=true" >> "$GITHUB_OUTPUT"
+      - name: Record the credential-job decision
+        env:
+          PACKAGE: ${{ matrix.package }}
+          PROJECT_STATUS: ${{ steps.project.outputs.status }}
+        run: |
+          set -euo pipefail
+          case "$PROJECT_STATUS" in
+            missing) decision=publish ;;
+            exists) decision=skip ;;
+            *)
+              echo "unexpected $PACKAGE project state: $PROJECT_STATUS" >&2
+              exit 1
+              ;;
+          esac
+          decision_dir="$RUNNER_TEMP/$PACKAGE-bootstrap-decision"
+          mkdir -p "$decision_dir"
+          printf '%s\n' "$decision" > "$decision_dir/decision.txt"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.decision }}
+          path: ${{ runner.temp }}/${{ matrix.package }}-bootstrap-decision
+          if-no-files-found: error
+          overwrite: true
 
   publish:
     needs:
       - build
       - preflight
-    if: needs.preflight.outputs.need_publish == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - package: cmux-sdk
+            artifact: cmux-sdk-bootstrap-crate
+            decision: cmux-sdk-bootstrap-decision
+            expected_sha256: ${{ needs.build.outputs.sdk_sha256 }}
+          - package: cmux-sidebar
+            artifact: cmux-sidebar-bootstrap-crate
+            decision: cmux-sidebar-bootstrap-decision
+            expected_sha256: ${{ needs.build.outputs.sidebar_sha256 }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions: {}
     environment:
       name: crates-bootstrap
-      url: https://crates.io/crates/cmux-sidebar
+      url: https://crates.io/crates/${{ matrix.package }}
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-sidebar-bootstrap-crate
+          name: ${{ matrix.artifact }}
           path: bootstrap-crate
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.decision }}
+          path: bootstrap-decision
 
       - name: Install pinned Rust toolchain
         run: |
@@ -203,7 +270,8 @@ jobs:
       - name: Verify protected source and reproduce the tested crate
         id: prepare
         env:
-          EXPECTED_SHA256: ${{ needs.build.outputs.artifact_sha256 }}
+          EXPECTED_SHA256: ${{ matrix.expected_sha256 }}
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
@@ -224,6 +292,12 @@ jobs:
             echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
             exit 1
           }
+
+          decision="$(cat bootstrap-decision/decision.txt)"
+          [[ "$decision" == "publish" || "$decision" == "skip" ]] || {
+            echo "invalid bootstrap publication decision" >&2
+            exit 1
+          }
           [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo "validated crate digest is malformed" >&2
             exit 1
@@ -235,14 +309,18 @@ jobs:
             exit 1
           }
           BOOTSTRAP_ARTIFACT="${artifacts[0]}"
+          [[ "$(basename "$BOOTSTRAP_ARTIFACT")" == "$PACKAGE-$BOOTSTRAP_VERSION.crate" ]] || {
+            echo "unexpected bootstrap crate filename" >&2
+            exit 1
+          }
           actual_sha256="$(sha256sum "$BOOTSTRAP_ARTIFACT" | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$EXPECTED_SHA256" ]] || {
             echo "downloaded crates.io bootstrap artifact digest mismatch" >&2
             exit 1
           }
 
-          package_prefix="cmux-sidebar-$BOOTSTRAP_VERSION"
-          publish_root="$RUNNER_TEMP/cmux-sidebar-publish"
+          package_prefix="$PACKAGE-$BOOTSTRAP_VERSION"
+          publish_root="$RUNNER_TEMP/$PACKAGE-publish"
           mkdir -p "$publish_root"
           python3 - \
             "$BOOTSTRAP_ARTIFACT" \
@@ -295,11 +373,12 @@ jobs:
           REPACKED_ARTIFACT="$package_root/target/package/$package_prefix.crate"
           cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"
           {
-            echo "artifact=$BOOTSTRAP_ARTIFACT"
+            echo "decision=$decision"
             echo "manifest=$package_root/Cargo.toml"
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish the exact tested ownership bootstrap
+        if: steps.prepare.outputs.decision == 'publish'
         continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
@@ -324,7 +403,16 @@ jobs:
       always() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
-      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+      needs.publish.result == 'success'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - package: cmux-sdk
+            artifact: cmux-sdk-bootstrap-crate
+          - package: cmux-sidebar
+            artifact: cmux-sidebar-bootstrap-crate
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
@@ -337,10 +425,12 @@ jobs:
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-sidebar-bootstrap-crate
+          name: ${{ matrix.artifact }}
           path: bootstrap-crate
 
       - name: Reconcile the exact crates.io ownership bootstrap
+        env:
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -351,7 +441,7 @@ jobs:
           }
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
-            --package cmux-sidebar \
+            --package "$PACKAGE" \
             --version "$BOOTSTRAP_VERSION" \
             --artifact "${artifacts[0]}" \
             --retry-missing-project \
@@ -359,7 +449,7 @@ jobs:
             --require-match
           sleep 1
           python3 cmux-tui/bindings/verify_crates_ownership.py \
-            --package cmux-sidebar \
+            --package "$PACKAGE" \
             --repository https://github.com/manaflow-ai/cmux \
             --owner-id 431397 \
             --owner-login lawrencecchen \

@@ -164,11 +164,11 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      - name: Download the validated cmux-client crate
+      - name: Download the validated cmux-sdk crate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-rust-client-crate
-          path: validated-client
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
 
       - name: Download the validated cmux-sidebar crate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -213,9 +213,9 @@ jobs:
 
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
-            --package cmux-client \
+            --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "validated-client/cmux-client-$CMUX_SDK_VERSION.crate"
+            --artifact "validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate"
           sleep 1
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
@@ -252,7 +252,7 @@ jobs:
         run: |
           sleep 1
           python3 cmux-tui/bindings/verify_crates_ownership.py \
-            --package cmux-client \
+            --package cmux-sdk \
             --package cmux-sidebar \
             --repository https://github.com/manaflow-ai/cmux \
             --owner-id 431397 \
@@ -375,11 +375,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Download the validated cmux-client crate for final revalidation
+      - name: Download the validated cmux-sdk crate for final revalidation
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-rust-client-crate
-          path: validated-client
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
 
       - name: Download the validated cmux-sidebar crate for final revalidation
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -846,7 +846,7 @@ jobs:
       verify_tag: true
       release_ref: refs/tags/${{ needs.validate-release.outputs.go_tag }}
 
-  publish-crate-client:
+  publish-crate-sdk:
     needs:
       - validate-release
       - cut-tags
@@ -859,7 +859,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: crates-io
-      url: https://crates.io/crates/cmux-client
+      url: https://crates.io/crates/cmux-sdk
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -867,11 +867,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Download the validated cmux-client crate
+      - name: Download the validated cmux-sdk crate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-rust-client-crate
-          path: validated-client
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
 
       - name: Require the coordinated release source
         env:
@@ -905,50 +905,50 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Reproduce the validated cmux-client crate without executing it
+      - name: Reproduce the validated cmux-sdk crate without executing it
         working-directory: cmux-tui
         env:
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           set -euo pipefail
-          cargo package -p cmux-client --locked --no-verify
-          validated="$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate"
-          reproduced="target/package/cmux-client-$CMUX_SDK_VERSION.crate"
+          cargo package -p cmux-sdk --locked --no-verify
+          validated="$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate"
+          reproduced="target/package/cmux-sdk-$CMUX_SDK_VERSION.crate"
           expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
           actual_digest="$(sha256sum "$reproduced" | awk '{print $1}')"
           [[ "$actual_digest" == "$expected_digest" ]] || {
-            echo "validated crate digest mismatch for cmux-client@$CMUX_SDK_VERSION" >&2
+            echo "validated crate digest mismatch for cmux-sdk@$CMUX_SDK_VERSION" >&2
             exit 1
           }
 
       - name: Revalidate crates.io ownership immediately before authentication
         run: bash cmux-tui/bindings/verify_release_registry_authority.sh crates
 
-      - name: Authenticate cmux-client with crates.io trusted publishing
-        id: auth_client
+      - name: Authenticate cmux-sdk with crates.io trusted publishing
+        id: auth_sdk
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-      - name: Publish cmux-client
+      - name: Publish cmux-sdk
         working-directory: cmux-tui
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth_client.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth_sdk.outputs.token }}
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           python3 bindings/reconcile_registry_artifact.py publish \
             --registry crates \
-            --package cmux-client \
+            --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate" \
+            --artifact "$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 120 \
             --publish-timeout-seconds 600 \
-            -- cargo publish -p cmux-client --locked --no-verify
+            -- cargo publish -p cmux-sdk --locked --no-verify
 
   publish-crate-sidebar:
     needs:
       - validate-release
       - cut-tags
       - verify-go-tag
-      - publish-crate-client
+      - publish-crate-sdk
     permissions:
       actions: read
       contents: read
@@ -971,11 +971,11 @@ jobs:
           name: cmux-rust-sidebar-crate
           path: validated-sidebar
 
-      - name: Download the validated cmux-client crate
+      - name: Download the validated cmux-sdk crate
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-rust-client-crate
-          path: validated-client
+          name: cmux-rust-sdk-crate
+          path: validated-rust-sdk
 
       - name: Require the coordinated release source
         env:
@@ -1009,7 +1009,7 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Confirm the validated cmux-client crate reached crates.io
+      - name: Confirm the validated cmux-sdk crate reached crates.io
         working-directory: cmux-tui
         env:
           CMUX_SDK_VERSION: ${{ needs.validate-release.outputs.version }}
@@ -1017,9 +1017,9 @@ jobs:
           set -euo pipefail
           python3 bindings/reconcile_registry_artifact.py check \
             --registry crates \
-            --package cmux-client \
+            --package cmux-sdk \
             --version "$CMUX_SDK_VERSION" \
-            --artifact "$GITHUB_WORKSPACE/validated-client/cmux-client-$CMUX_SDK_VERSION.crate" \
+            --artifact "$GITHUB_WORKSPACE/validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate" \
             --wait-seconds 300 \
             --require-match
 
@@ -1034,7 +1034,7 @@ jobs:
             --locked \
             --no-verify \
             --config \
-              "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+              "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
           validated="$GITHUB_WORKSPACE/validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
           reproduced="target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate"
           expected_digest="$(sha256sum "$validated" | awk '{print $1}')"
@@ -1069,7 +1069,7 @@ jobs:
               --locked \
               --no-verify \
               --config \
-                "patch.crates-io.cmux-client.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
+                "patch.crates-io.cmux-sdk.path='$GITHUB_WORKSPACE/cmux-tui/bindings/rust'"
 
   publish-npm:
     needs:
@@ -1249,7 +1249,7 @@ jobs:
           [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
           [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          actual_sha256="$(cd dist && sha256sum ./*.whl ./*.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
             echo "downloaded Python artifact digest mismatch" >&2
             exit 1
@@ -1372,7 +1372,7 @@ jobs:
           [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
           [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          actual_sha256="$(cd dist && sha256sum ./*.whl ./*.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
             echo "downloaded Python artifact digest mismatch" >&2
             exit 1
@@ -1429,7 +1429,7 @@ jobs:
       - validate-release
       - typescript-preflight
       - python-preflight
-      - publish-crate-client
+      - publish-crate-sdk
       - publish-crate-sidebar
       - publish-npm
       - publish-python-wheel
@@ -1447,7 +1447,7 @@ jobs:
       - name: Revalidate crates.io ownership and publishing policy
         run: |
           python3 cmux-tui/bindings/verify_crates_ownership.py \
-            --package cmux-client \
+            --package cmux-sdk \
             --package cmux-sidebar \
             --repository https://github.com/manaflow-ai/cmux \
             --owner-id 431397 \
@@ -1541,7 +1541,7 @@ jobs:
       - revalidate-tags
       - cut-tags
       - verify-go-tag
-      - publish-crate-client
+      - publish-crate-sdk
       - publish-crate-sidebar
       - publish-npm
       - publish-python-wheel
@@ -1564,7 +1564,7 @@ jobs:
           REVALIDATE_TAGS_RESULT: ${{ needs.revalidate-tags.result }}
           CUT_TAGS_RESULT: ${{ needs.cut-tags.result }}
           GO_TAG_RESULT: ${{ needs.verify-go-tag.result }}
-          CRATE_CLIENT_RESULT: ${{ needs.publish-crate-client.result }}
+          CRATE_SDK_RESULT: ${{ needs.publish-crate-sdk.result }}
           CRATE_SIDEBAR_RESULT: ${{ needs.publish-crate-sidebar.result }}
           NPM_RESULT: ${{ needs.publish-npm.result }}
           PYTHON_WHEEL_RESULT: ${{ needs.publish-python-wheel.result }}
@@ -1585,7 +1585,7 @@ jobs:
             echo "- Approval-fresh revalidation: \`$REVALIDATE_TAGS_RESULT\`"
             echo "- Tag creation: \`$CUT_TAGS_RESULT\`"
             echo "- Public Go tag: \`$GO_TAG_RESULT\`"
-            echo "- cmux-client publish: \`$CRATE_CLIENT_RESULT\`"
+            echo "- cmux-sdk publish: \`$CRATE_SDK_RESULT\`"
             echo "- cmux-sidebar publish: \`$CRATE_SIDEBAR_RESULT\`"
             echo "- npm publish: \`$NPM_RESULT\`"
             echo "- PyPI wheel publish: \`$PYTHON_WHEEL_RESULT\`"
