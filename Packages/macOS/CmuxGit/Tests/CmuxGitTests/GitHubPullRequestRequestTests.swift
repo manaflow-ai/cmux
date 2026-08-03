@@ -55,6 +55,57 @@ struct GitHubPullRequestRequestTests {
         #expect(try #require(requests.last).value(forHTTPHeaderField: "If-None-Match") == "\"issue-8175\"")
     }
 
+    @Test func permanentRedirectTargetIsReusedForNextRevalidation() async throws {
+        let staleEndpoint = "repos/old-owner/cmux/pulls?state=all&head=old-owner:feat%2Fbadge"
+        let canonicalEndpoint = "repos/manaflow-ai/cmux/pulls?state=all&head=old-owner:feat%2Fbadge"
+        let staleURL = try #require(URL(string: "https://api.github.com/\(staleEndpoint)"))
+        let canonicalURL = try #require(URL(string: "https://api.github.com/\(canonicalEndpoint)"))
+        let body = Data("[{\"number\":8367}]".utf8)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                expectedURL: staleURL,
+                statusCode: 301,
+                headers: ["Location": canonicalURL.absoluteString]
+            ),
+            .init(
+                expectedURL: canonicalURL,
+                statusCode: 200,
+                headers: ["ETag": "\"canonical-8367\""],
+                data: body
+            ),
+            // This second redirect is consumed only by the buggy path, which
+            // starts the next poll at the stale repository URL again.
+            .init(
+                expectedURL: staleURL,
+                statusCode: 301,
+                headers: ["Location": canonicalURL.absoluteString]
+            ),
+            .init(expectedURL: canonicalURL, statusCode: 304),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
+
+        let first = await coordinator.response(
+            endpoint: staleEndpoint,
+            authHeader: "Bearer test-token"
+        )
+        let second = await coordinator.response(
+            endpoint: staleEndpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(first?.statusCode == 200)
+        #expect(first?.data == body)
+        #expect(second?.statusCode == 200)
+        #expect(second?.data == body)
+        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        #expect(requests.compactMap(\.url) == [staleURL, canonicalURL, canonicalURL])
+        #expect(requests.filter { $0.url == staleURL }.count == 1)
+        #expect(
+            try #require(requests.last).value(forHTTPHeaderField: "If-None-Match")
+                == "\"canonical-8367\""
+        )
+    }
+
     @Test func changedCredentialDoesNotReuseETagOrCachedBody() async {
         let firstBody = Data("[{\"number\":8175}]".utf8)
         GitHubPullRequestStubURLProtocol.reset(stubs: [

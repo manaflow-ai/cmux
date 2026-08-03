@@ -53,12 +53,14 @@ final class GitHubPullRequestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         Self.lock.lock()
-        guard !Self.stubs.isEmpty else {
+        guard let stubIndex = Self.stubs.firstIndex(where: {
+            $0.expectedURL == nil || $0.expectedURL == request.url
+        }) else {
             Self.lock.unlock()
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        let stub = Self.stubs.removeFirst()
+        let stub = Self.stubs.remove(at: stubIndex)
         Self.activeRequestCount += 1
         Self.maximumActiveRequestCount = max(Self.maximumActiveRequestCount, Self.activeRequestCount)
         Self.lock.unlock()
@@ -70,9 +72,23 @@ final class GitHubPullRequestStubURLProtocol: URLProtocol, @unchecked Sendable {
                 httpVersion: nil,
                 headerFields: stub.headers
             )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: stub.data)
-            client?.urlProtocolDidFinishLoading(self)
+            if (300..<400).contains(stub.statusCode),
+               let location = stub.headers.first(where: {
+                   $0.key.caseInsensitiveCompare("Location") == .orderedSame
+               })?.value,
+               let redirectURL = URL(string: location, relativeTo: request.url)?.absoluteURL {
+                var redirectRequest = request
+                redirectRequest.url = redirectURL
+                client?.urlProtocol(
+                    self,
+                    wasRedirectedTo: redirectRequest,
+                    redirectResponse: response
+                )
+            } else {
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: stub.data)
+                client?.urlProtocolDidFinishLoading(self)
+            }
             Self.lock.lock()
             Self.activeRequestCount -= 1
             Self.lock.unlock()
