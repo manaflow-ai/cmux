@@ -55,6 +55,42 @@ import Testing
         ))
     }
 
+    @Test func sanitizedConnectErrorsUseTypedErrnoClassification() {
+        let refused = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 61)
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: refused.description
+        ))
+
+        let missing = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 2)
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: missing.description
+        ))
+
+        let policyDenied = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 1)
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: policyDenied.description,
+            allowSandboxPolicyDenial: true
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: policyDenied.description
+        ))
+
+        let permissionDenied = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 13)
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: permissionDenied.description,
+            allowSandboxPolicyDenial: true
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "codex-monitor-start",
+            message: refused.description
+        ))
+    }
+
     @Test func errnoMatchingRequiresExactCode() {
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
