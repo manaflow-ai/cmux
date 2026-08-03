@@ -1020,7 +1020,9 @@ func cmuxAccentColor() -> Color {
 
 extension StoredShortcut {
     var swiftUIKeyEquivalent: KeyEquivalent? {
-        keyEquivalent.map(KeyEquivalent.init)
+        keyEquivalent.map { character in
+            KeyEquivalent(character)
+        }
     }
 
     var swiftUIEventModifiers: SwiftUI.EventModifiers {
@@ -1683,7 +1685,7 @@ struct BonsplitView<Content: View, EmptyContent: View>: NSViewControllerRepresen
 
     @MainActor
     final class Coordinator {
-        private let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
+        let providers: BonsplitSwiftUIProviderBox<Content, EmptyContent>
 
         init(
             content: @escaping (Bonsplit.Tab, PaneID) -> Content,
