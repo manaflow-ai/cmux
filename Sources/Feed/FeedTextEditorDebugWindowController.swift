@@ -1,7 +1,6 @@
 import CmuxFoundation
 #if DEBUG
 import AppKit
-import SwiftUI
 
 final class FeedTextEditorDebugWindowController: ReleasingWindowController {
     static let shared = FeedTextEditorDebugWindowController()
@@ -17,13 +16,10 @@ final class FeedTextEditorDebugWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = String(
-            localized: "feed.textEditorDebug.windowTitle",
-            defaultValue: "Feed Text Editor Lab"
-        )
+        window.title = String(localized: "feed.textEditorDebug.windowTitle", defaultValue: "Feed Text Editor Lab")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedTextEditorDebug")
         window.center()
-        window.contentView = NSHostingView(rootView: FeedTextEditorDebugView())
+        window.contentView = FeedTextEditorDebugView()
         return window
     }
 
@@ -37,234 +33,117 @@ final class FeedTextEditorDebugWindowController: ReleasingWindowController {
     }
 }
 
-private enum FeedTextEditorDebugVariant: String, CaseIterable, Identifiable {
-    case swiftUITextField
-    case swiftUIMirror
+private enum FeedTextEditorDebugVariant: String, CaseIterable {
     case appKitDirectSizeThatFits
     case appKitDirectIntrinsic
     case appKitScrollSizeThatFits
     case appKitScrollMeasured
 
-    var id: String { rawValue }
-
     var title: String {
         switch self {
-        case .swiftUITextField:
-            return String(localized: "feed.textEditorDebug.variant.swiftUITextField", defaultValue: "SwiftUI TextField")
-        case .swiftUIMirror:
-            return String(localized: "feed.textEditorDebug.variant.swiftUIMirror", defaultValue: "SwiftUI Mirror TextEditor")
         case .appKitDirectSizeThatFits:
-            return String(localized: "feed.textEditorDebug.variant.appKitDirectSize", defaultValue: "AppKit Direct, sizeThatFits")
+            String(localized: "feed.textEditorDebug.variant.appKitDirectSize", defaultValue: "AppKit Direct, sizeThatFits")
         case .appKitDirectIntrinsic:
-            return String(localized: "feed.textEditorDebug.variant.appKitDirectIntrinsic", defaultValue: "AppKit Direct, intrinsic")
+            String(localized: "feed.textEditorDebug.variant.appKitDirectIntrinsic", defaultValue: "AppKit Direct, intrinsic")
         case .appKitScrollSizeThatFits:
-            return String(localized: "feed.textEditorDebug.variant.appKitScrollSize", defaultValue: "AppKit ScrollView, sizeThatFits")
+            String(localized: "feed.textEditorDebug.variant.appKitScrollSize", defaultValue: "AppKit ScrollView, sizeThatFits")
         case .appKitScrollMeasured:
-            return String(localized: "feed.textEditorDebug.variant.appKitScrollMeasured", defaultValue: "AppKit ScrollView, measured")
+            String(localized: "feed.textEditorDebug.variant.appKitScrollMeasured", defaultValue: "AppKit ScrollView, measured")
         }
     }
 }
 
-private struct FeedTextEditorDebugView: View {
-    private let sampleText = "hello from feed"
+@MainActor
+private final class FeedTextEditorDebugView: NSView {
+    private static let sampleText = "hello from feed"
+    private var cards: [FeedTextEditorDebugCard] = []
 
-    @State private var swiftUITextFieldText = "hello from feed"
-    @State private var swiftUIMirrorText = "hello from feed"
-    @State private var appKitDirectSizeText = "hello from feed"
-    @State private var appKitDirectIntrinsicText = "hello from feed"
-    @State private var appKitScrollSizeText = "hello from feed"
-    @State private var appKitScrollMeasuredText = "hello from feed"
-    @State private var mirrorHeight: CGFloat = 34
-    @State private var scrollMeasuredHeight: CGFloat = 34
-
-    private var placeholder: String {
-        String(localized: "feed.textEditorDebug.placeholder", defaultValue: "Type several lines here...")
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-
-                Text(String(localized: "feed.textEditorDebug.section.swiftui", defaultValue: "SwiftUI"))
-                    .cmuxFont(size: 12, weight: .semibold)
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                    debugCard(.swiftUITextField, text: swiftUITextFieldText) {
-                        swiftUITextField
-                    }
-                    debugCard(.swiftUIMirror, text: swiftUIMirrorText) {
-                        swiftUIMirrorTextEditor
-                    }
-                }
-
-                Text(String(localized: "feed.textEditorDebug.section.appkit", defaultValue: "AppKit"))
-                    .cmuxFont(size: 12, weight: .semibold)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                    appKitCard(.appKitDirectSizeThatFits, text: $appKitDirectSizeText, measuredHeight: .constant(34))
-                    appKitCard(.appKitDirectIntrinsic, text: $appKitDirectIntrinsicText, measuredHeight: .constant(34))
-                    appKitCard(.appKitScrollSizeThatFits, text: $appKitScrollSizeText, measuredHeight: .constant(34))
-                    appKitCard(.appKitScrollMeasured, text: $appKitScrollMeasuredText, measuredHeight: $scrollMeasuredHeight)
-                }
-            }
-            .padding(20)
-        }
-        .frame(minWidth: 760, minHeight: 560)
-        .background(Color(nsColor: .windowBackgroundColor))
+    convenience init() {
+        self.init(frame: .zero)
     }
 
-    private var columns: [GridItem] {
-        [
-            GridItem(.adaptive(minimum: 390), spacing: 14, alignment: .top),
-        ]
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(localized: "feed.textEditorDebug.title", defaultValue: "Feed Text Editors"))
-                    .cmuxFont(size: 18, weight: .semibold)
-                Text(String(
-                    localized: "feed.textEditorDebug.subtitle",
-                    defaultValue: "Compare autosizing editors with identical input."
-                ))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button(String(localized: "feed.textEditorDebug.reset", defaultValue: "Reset")) {
-                reset()
-            }
-        }
-    }
+    private func setupView() {
+        let title = NSTextField(labelWithString: String(localized: "feed.textEditorDebug.title", defaultValue: "Feed Text Editors"))
+        title.font = .systemFont(ofSize: 18, weight: .semibold)
+        let subtitle = NSTextField(wrappingLabelWithString: String(
+            localized: "feed.textEditorDebug.subtitle",
+            defaultValue: "Compare autosizing editors with identical input."
+        ))
+        subtitle.font = .systemFont(ofSize: 12)
+        subtitle.textColor = .secondaryLabelColor
+        let titleStack = NSStackView(views: [title, subtitle])
+        titleStack.orientation = .vertical
+        titleStack.alignment = .leading
+        titleStack.spacing = 4
+        let reset = NSButton(
+            title: String(localized: "feed.textEditorDebug.reset", defaultValue: "Reset"),
+            target: self,
+            action: #selector(reset)
+        )
+        reset.bezelStyle = .rounded
+        let headerSpacer = NSView()
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = NSStackView(views: [titleStack, headerSpacer, reset])
+        header.orientation = .horizontal
+        header.alignment = .top
 
-    private var swiftUITextField: some View {
-        TextField(placeholder, text: $swiftUITextFieldText, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(1...10)
-            .cmuxFont(size: 13, weight: .semibold)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(editorBackground)
-    }
+        let section = NSTextField(labelWithString: String(localized: "feed.textEditorDebug.section.appkit", defaultValue: "AppKit"))
+        section.font = .systemFont(ofSize: 12, weight: .semibold)
+        section.textColor = .secondaryLabelColor
 
-    private var swiftUIMirrorTextEditor: some View {
-        ZStack(alignment: .topLeading) {
-            Text(swiftUIMirrorText.isEmpty ? " " : swiftUIMirrorText + " ")
-                .cmuxFont(size: 13, weight: .semibold)
-                .lineSpacing(0)
-                .padding(.horizontal, 9)
-                .padding(.top, 9)
-                .padding(.bottom, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(0)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: FeedTextEditorDebugHeightKey.self, value: proxy.size.height)
-                    }
-                )
-            TextEditor(text: $swiftUIMirrorText)
-                .cmuxFont(size: 13, weight: .semibold)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 4)
-                .padding(.top, 5)
-                .padding(.bottom, 3)
-                .frame(height: max(34, mirrorHeight))
-        }
-        .background(editorBackground)
-        .onPreferenceChange(FeedTextEditorDebugHeightKey.self) { height in
-            mirrorHeight = max(34, ceil(height))
-        }
-    }
-
-    @ViewBuilder
-    private func appKitCard(
-        _ variant: FeedTextEditorDebugVariant,
-        text: Binding<String>,
-        measuredHeight: Binding<CGFloat>
-    ) -> some View {
-        let mode = FeedTextEditorDebugAppKitMode(variant: variant)
-        debugCard(variant, text: text.wrappedValue) {
-            let editor = FeedTextEditorDebugAppKitEditor(
-                text: text,
-                measuredHeight: measuredHeight,
-                mode: mode,
+        let placeholder = String(localized: "feed.textEditorDebug.placeholder", defaultValue: "Type several lines here...")
+        cards = FeedTextEditorDebugVariant.allCases.map {
+            FeedTextEditorDebugCard(
+                variant: $0,
+                text: Self.sampleText,
                 placeholder: placeholder
             )
-            .frame(maxWidth: .infinity, minHeight: 34)
-
-            if mode.reportsHeight {
-                editor.frame(height: max(34, measuredHeight.wrappedValue))
-            } else {
-                editor
-            }
         }
+        let cardStack = NSStackView(views: cards)
+        cardStack.orientation = .vertical
+        cardStack.alignment = .leading
+        cardStack.spacing = 14
+
+        let root = NSStackView(views: [header, section, cardStack])
+        root.orientation = .vertical
+        root.alignment = .leading
+        root.spacing = 18
+        root.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        header.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -40).isActive = true
+        cardStack.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -40).isActive = true
+        cards.forEach { $0.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true }
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = root
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 760),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 560),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            root.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        ])
     }
 
-    private func debugCard<Content: View>(
-        _ variant: FeedTextEditorDebugVariant,
-        text: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(variant.title)
-                    .cmuxFont(size: 13, weight: .semibold)
-                Spacer()
-                Text(metrics(for: text))
-                    .cmuxFont(size: 10, monospacedDigit: true)
-                    .foregroundStyle(.secondary)
-            }
-            content()
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.055))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-        )
-    }
-
-    private var editorBackground: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color(nsColor: .textBackgroundColor).opacity(0.90))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.primary.opacity(0.16), lineWidth: 1)
-            )
-    }
-
-    private func metrics(for text: String) -> String {
-        let lineCount = Int64(text.filter { $0 == "\n" }.count + 1)
-        let charCount = Int64((text as NSString).length)
-        let format = String(localized: "feed.textEditorDebug.metrics", defaultValue: "%lld lines · %lld chars")
-        return String(format: format, lineCount, charCount)
-    }
-
-    private func reset() {
-        swiftUITextFieldText = sampleText
-        swiftUIMirrorText = sampleText
-        appKitDirectSizeText = sampleText
-        appKitDirectIntrinsicText = sampleText
-        appKitScrollSizeText = sampleText
-        appKitScrollMeasuredText = sampleText
-        mirrorHeight = 34
-        scrollMeasuredHeight = 34
-    }
-}
-
-private struct FeedTextEditorDebugHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 34
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+    @objc private func reset() {
+        cards.forEach { $0.setText(Self.sampleText) }
     }
 }
 
@@ -276,32 +155,24 @@ private enum FeedTextEditorDebugAppKitMode {
 
     init(variant: FeedTextEditorDebugVariant) {
         switch variant {
-        case .appKitDirectIntrinsic:
-            self = .directIntrinsic
-        case .appKitScrollSizeThatFits:
-            self = .scrollSizeThatFits
-        case .appKitScrollMeasured:
-            self = .scrollMeasured
-        default:
-            self = .directSizeThatFits
+        case .appKitDirectSizeThatFits: self = .directSizeThatFits
+        case .appKitDirectIntrinsic: self = .directIntrinsic
+        case .appKitScrollSizeThatFits: self = .scrollSizeThatFits
+        case .appKitScrollMeasured: self = .scrollMeasured
         }
     }
 
     var wrapsInScrollView: Bool {
         switch self {
-        case .directSizeThatFits, .directIntrinsic:
-            return false
-        case .scrollSizeThatFits, .scrollMeasured:
-            return true
+        case .directSizeThatFits, .directIntrinsic: false
+        case .scrollSizeThatFits, .scrollMeasured: true
         }
     }
 
     var usesSizeThatFits: Bool {
         switch self {
-        case .directSizeThatFits, .scrollSizeThatFits:
-            return true
-        case .directIntrinsic, .scrollMeasured:
-            return false
+        case .directSizeThatFits, .scrollSizeThatFits: true
+        case .directIntrinsic, .scrollMeasured: false
         }
     }
 
@@ -317,102 +188,117 @@ private enum FeedTextEditorDebugAppKitMode {
 
     var textInset: NSSize {
         switch self {
-        case .directSizeThatFits, .directIntrinsic:
-            return NSSize(width: 0, height: 1)
-        case .scrollSizeThatFits, .scrollMeasured:
-            return NSSize(width: 5, height: 4)
+        case .directSizeThatFits, .directIntrinsic: NSSize(width: 0, height: 1)
+        case .scrollSizeThatFits, .scrollMeasured: NSSize(width: 5, height: 4)
         }
     }
 }
 
-private struct FeedTextEditorDebugAppKitEditor: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var measuredHeight: CGFloat
+@MainActor
+private final class FeedTextEditorDebugCard: NSView, NSTextViewDelegate {
+    private let mode: FeedTextEditorDebugAppKitMode
+    private let editor = FeedTextEditorDebugAppKitHost(frame: .zero)
+    private let metricsLabel = NSTextField(labelWithString: "")
+    private var editorHeight: NSLayoutConstraint!
 
-    let mode: FeedTextEditorDebugAppKitMode
-    let placeholder: String
+    init(variant: FeedTextEditorDebugVariant, text: String, placeholder: String) {
+        mode = FeedTextEditorDebugAppKitMode(variant: variant)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.055).cgColor
+        layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.10).cgColor
+        layer?.borderWidth = 1
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: FeedTextEditorDebugAppKitEditor
-        weak var host: FeedTextEditorDebugAppKitHost?
-        var isProgrammaticMutation = false
+        let title = NSTextField(labelWithString: variant.title)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        metricsLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        metricsLabel.textColor = .secondaryLabelColor
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = NSStackView(views: [title, spacer, metricsLabel])
+        header.orientation = .horizontal
+        header.alignment = .firstBaseline
 
-        init(parent: FeedTextEditorDebugAppKitEditor) {
-            self.parent = parent
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard !isProgrammaticMutation,
-                  let textView = notification.object as? NSTextView else {
-                return
-            }
-            parent.text = textView.string
-            host?.refreshMetrics()
-        }
-
-        func updateMeasuredHeight(_ height: CGFloat) {
-            guard parent.mode.reportsHeight, abs(parent.measuredHeight - height) > 0.5 else { return }
-            DispatchQueue.main.async {
-                self.parent.measuredHeight = height
-            }
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeNSView(context: Context) -> FeedTextEditorDebugAppKitHost {
-        let host = FeedTextEditorDebugAppKitHost(frame: .zero)
-        host.textView.delegate = context.coordinator
-        host.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
-            coordinator?.updateMeasuredHeight(height)
-        }
-        context.coordinator.host = host
-        host.textView.string = text
-        configure(host)
-        return host
-    }
-
-    func updateNSView(_ nsView: FeedTextEditorDebugAppKitHost, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.host = nsView
-        nsView.textView.delegate = context.coordinator
-        nsView.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
-            coordinator?.updateMeasuredHeight(height)
-        }
-        configure(nsView)
-        if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
-            context.coordinator.isProgrammaticMutation = true
-            nsView.textView.string = text
-            context.coordinator.isProgrammaticMutation = false
-            nsView.refreshMetrics()
-        }
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: FeedTextEditorDebugAppKitHost,
-        context: Context
-    ) -> CGSize? {
-        guard mode.usesSizeThatFits, let width = proposal.width else { return nil }
-        return CGSize(width: width, height: nsView.fittingHeight(for: width))
-    }
-
-    static func dismantleNSView(_ nsView: FeedTextEditorDebugAppKitHost, coordinator: Coordinator) {
-        nsView.textView.delegate = nil
-        nsView.onMeasuredHeightChange = nil
-    }
-
-    private func configure(_ host: FeedTextEditorDebugAppKitHost) {
-        host.apply(
+        editor.textView.delegate = self
+        editor.textView.string = text
+        editor.apply(
             mode: mode,
             font: GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold),
             placeholder: placeholder
         )
+        editor.onMeasuredHeightChange = { [weak self] height in
+            guard let self, self.mode.reportsHeight else { return }
+            self.updateEditorHeight(height)
+        }
+        editor.translatesAutoresizingMaskIntoConstraints = false
+        editorHeight = editor.heightAnchor.constraint(equalToConstant: 34)
+        editorHeight.priority = mode.usesIntrinsicHeight ? .defaultLow : .required
+
+        let stack = NSStackView(views: [header, editor])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            editor.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            editorHeight,
+        ])
+        updateMetrics()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        if mode.usesSizeThatFits {
+            updateEditorHeight(editor.fittingHeight(for: max(editor.bounds.width, 1)))
+        }
+    }
+
+    func setText(_ text: String) {
+        editor.textView.string = text
+        editor.refreshMetrics()
+        updateMetrics()
+    }
+
+    func textDidChange(_ notification: Notification) {
+        editor.refreshMetrics()
+        updateMetrics()
+        if mode.usesSizeThatFits {
+            updateEditorHeight(editor.fittingHeight(for: max(editor.bounds.width, 1)))
+        }
+    }
+
+    private func updateMetrics() {
+        let text = editor.textView.string
+        let lineCount = Int64(text.filter { $0 == "\n" }.count + 1)
+        let charCount = Int64((text as NSString).length)
+        metricsLabel.stringValue = String(
+            format: String(localized: "feed.textEditorDebug.metrics", defaultValue: "%lld lines · %lld chars"),
+            lineCount,
+            charCount
+        )
+    }
+
+    private func updateEditorHeight(_ proposed: CGFloat) {
+        let height = max(34, ceil(proposed))
+        guard abs(editorHeight.constant - height) > 0.5 else { return }
+        editorHeight.constant = height
+        needsLayout = true
     }
 }
 
+@MainActor
 private final class FeedTextEditorDebugAppKitHost: NSView {
     let textView = NSTextView(frame: .zero)
     private let scrollView = NSScrollView(frame: .zero)
@@ -427,6 +313,11 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.90).cgColor
+        layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.16).cgColor
+        layer?.borderWidth = 1
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -442,10 +333,7 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.minSize = .zero
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
+        textView.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
 
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -465,10 +353,9 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        if mode.usesIntrinsicHeight {
-            return NSSize(width: NSView.noIntrinsicMetric, height: fittingHeight())
-        }
-        return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        mode.usesIntrinsicHeight
+            ? NSSize(width: NSView.noIntrinsicMetric, height: fittingHeight())
+            : NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -499,22 +386,18 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
         placeholderField.isHidden = !textView.string.isEmpty
         needsLayout = true
         invalidateIntrinsicContentSize()
-        layoutSubtreeIfNeeded()
         reportMeasuredHeightIfNeeded()
     }
 
     func fittingHeight(for width: CGFloat) -> CGFloat {
         guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else {
-            return minimumHeight()
-        }
+              let textContainer = textView.textContainer else { return minimumHeight() }
         let availableWidth = max(width - mode.textInset.width * 2, 1)
-        textContainer.containerSize = NSSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude)
+        textContainer.containerSize = NSSize(width: availableWidth, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
         let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
-        let contentHeight = max(lineHeight, ceil(usedRect.height))
-        return max(minimumHeight(), ceil(contentHeight + mode.textInset.height * 2))
+        return max(minimumHeight(), ceil(max(lineHeight, usedRect.height) + mode.textInset.height * 2))
     }
 
     private func fittingHeight() -> CGFloat {
@@ -544,12 +427,7 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
         let height = fittingHeight(for: availableWidth)
         if mode.wrapsInScrollView {
             scrollView.frame = bounds
-            textView.frame = NSRect(
-                x: 0,
-                y: 0,
-                width: availableWidth,
-                height: max(height, bounds.height)
-            )
+            textView.frame = NSRect(x: 0, y: 0, width: availableWidth, height: max(height, bounds.height))
         } else {
             textView.frame = NSRect(x: 0, y: 0, width: availableWidth, height: height)
         }
