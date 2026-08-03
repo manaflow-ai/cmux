@@ -1,10 +1,42 @@
 import CmuxSettingsUI
-import SwiftUI
+import AppKit
+
+private typealias Color = NSColor
+
+private extension NSColor {
+    convenience init(red: Double, green: Double, blue: Double) {
+        self.init(srgbRed: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: 1)
+    }
+
+    convenience init(white: Double) {
+        self.init(white: CGFloat(white), alpha: 1)
+    }
+
+    convenience init(sleepyHex hex: String) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        var value: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&value)
+        self.init(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
+    func sleepyDarkened(_ amount: Double) -> NSColor {
+        usingColorSpace(.sRGB)?.blended(withFraction: CGFloat(amount), of: .black) ?? self
+    }
+
+    func sleepyLightened(_ amount: Double) -> NSColor {
+        usingColorSpace(.sRGB)?.blended(withFraction: CGFloat(amount), of: .white) ?? self
+    }
+}
 
 // MARK: - Palettes
 
 enum SleepyPalette {
-    static func colors(for config: SleepyModeConfig) -> [Character: Color] {
+    static func colors(for config: SleepyModeConfig) -> [Character: NSColor] {
         switch config.theme {
         case .custom:
             let face = Color(sleepyHex: config.customFace)
@@ -54,7 +86,7 @@ enum SleepyPalette {
     }
 
     /// Shared accents (blush, pom-pom, moon, and the always-cyan cmux logo).
-    private static func base(face: Color, faceShade: Color, cap: Color, capShade: Color) -> [Character: Color] {
+    private static func base(face: NSColor, faceShade: NSColor, cap: NSColor, capShade: NSColor) -> [Character: NSColor] {
         [
             "O": face,
             "o": faceShade,
@@ -69,7 +101,7 @@ enum SleepyPalette {
         ]
     }
 
-    static func ink(for config: SleepyModeConfig) -> Color {
+    static func ink(for config: SleepyModeConfig) -> NSColor {
         switch config.theme {
         case .custom: return Color(sleepyHex: config.customInk)
         case .mono: return Color(white: 0.18)
@@ -77,7 +109,7 @@ enum SleepyPalette {
         }
     }
 
-    static func glowColors(for config: SleepyModeConfig) -> [Color] {
+    static func glowColors(for config: SleepyModeConfig) -> [NSColor] {
         switch config.glow {
         case .custom:
             let bg = Color(sleepyHex: config.customBackground)

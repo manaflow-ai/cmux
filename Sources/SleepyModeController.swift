@@ -1,7 +1,6 @@
 import AppKit
 import CmuxSettingsUI
 import IOKit.pwr_mgt
-import SwiftUI
 
 /// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
 /// IOKit power assertions so the Mac (and its display) stay awake — useful for
@@ -127,7 +126,14 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive, agentCensus: agentCensus, statusProvider: statusProvider, powerUIState: powerUIState))
+        window.contentView = SleepyFaceView(
+            store: store,
+            power: powerControls,
+            keepingAwake: keepAwakeFullyActive,
+            agentCensus: agentCensus,
+            statusProvider: statusProvider,
+            powerUIState: powerUIState
+        )
         return window
     }
 

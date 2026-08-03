@@ -1,62 +1,288 @@
 import CmuxSettingsUI
-import SwiftUI
+import AppKit
+import Observation
+
+private typealias Color = NSColor
+
+private extension NSColor {
+    convenience init(red: Double, green: Double, blue: Double) {
+        self.init(srgbRed: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: 1)
+    }
+
+    func opacity(_ value: Double) -> NSColor {
+        withAlphaComponent(CGFloat(value))
+    }
+}
+
+private struct GraphicsContext {
+    enum Shading { case color(NSColor) }
+
+    let cgContext: CGContext
+
+    func fill(_ path: Path, with shading: Shading) {
+        guard case .color(let color) = shading else { return }
+        cgContext.setFillColor(color.cgColor)
+        cgContext.fill(path.rect)
+    }
+}
+
+private struct Path {
+    let rect: CGRect
+    init(_ rect: CGRect) { self.rect = rect }
+}
 
 /// Cute pixel-art sleeping scene for Sleepy Mode. Renders from the live
 /// `SleepyModeSettingsStore` snapshot every frame, so theme / mascot / glow /
 /// toggle changes preview instantly. Pixels are drawn on an integer grid so the
 /// art stays crisp; all motion is a pure function of the timeline date.
-struct SleepyFaceView: View {
-    var store: SleepyModeSettingsStore
-    var power: any SleepyPowerControlling
+@MainActor
+final class SleepyFaceView: NSView {
+    private let store: SleepyModeSettingsStore
+    private let power: any SleepyPowerControlling
     /// Whether the controller actually acquired the keep-awake power assertions.
     /// When false, the badge says so instead of falsely claiming the Mac is safe.
-    var keepingAwake: Bool
+    private let keepingAwake: Bool
     /// Frame-sampled data providers, injected by the controller.
-    var agentCensus: any SleepyAgentCensusing
-    var statusProvider: any SleepyStatusProviding
+    private let agentCensus: any SleepyAgentCensusing
+    private let statusProvider: any SleepyStatusProviding
     /// Shared Low Power UI state (one instance across all per-display overlays).
-    var powerUIState: SleepyPowerUIState
+    private let powerUIState: SleepyPowerUIState
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
-    @State private var mascotReactAt: Double?
-    @State private var mascotPokes = 0
-    @State private var lastMascotPokeAt = 0.0
-    @State private var petReactAt: [Int: Double] = [:]
-    @State private var moonReactAt: Double?
+    private var mascotReactAt: Double?
+    private var mascotPokes = 0
+    private var lastMascotPokeAt = 0.0
+    private var petReactAt: [Int: Double] = [:]
+    private var moonReactAt: Double?
+    private var animationTask: Task<Void, Never>?
+    private var powerTask: Task<Void, Never>?
+    private var lastConfig: SleepyModeConfig?
 
-    var body: some View {
-        let config = store.snapshot()
-        let reactions = SleepyReactions(mascotAt: mascotReactAt, mascotPokes: mascotPokes, petAt: petReactAt, moonAt: moonReactAt)
-        return GeometryReader { geo in
-            ZStack {
-                RadialGradient(
-                    colors: SleepyPalette.glowColors(for: config),
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 950
-                )
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                    let t = timeline.date.timeIntervalSinceReferenceDate
-                    // Sample the census + status here (main-actor view-builder
-                    // context), never inside the Canvas renderer (which may run
-                    // off-main, and runs once per display).
-                    let agents = config.showPets ? agentCensus.sample(at: t) : SleepyAgentCounts()
-                    let status = config.showStatus ? statusProvider.sample(at: t) : SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
-                    Canvas { context, size in
-                        draw(in: &context, size: size, time: t, config: config, agents: agents, status: status, reactions: reactions)
-                    }
-                }
-                .contentShape(Rectangle())
-                .gesture(SpatialTapGesture().onEnded { value in
-                    handleTap(at: value.location, size: geo.size, config: config)
-                })
-                bottomBar(config: config)
+    private let keepAwakeBadge = NSTextField(labelWithString: "")
+    private let hintLabel = NSTextField(labelWithString: "")
+    private let lowPowerButton = SleepyPixelButton(frame: .zero)
+
+    init(
+        store: SleepyModeSettingsStore,
+        power: any SleepyPowerControlling,
+        keepingAwake: Bool,
+        agentCensus: any SleepyAgentCensusing,
+        statusProvider: any SleepyStatusProviding,
+        powerUIState: SleepyPowerUIState
+    ) {
+        self.store = store
+        self.power = power
+        self.keepingAwake = keepingAwake
+        self.agentCensus = agentCensus
+        self.statusProvider = statusProvider
+        self.powerUIState = powerUIState
+        super.init(frame: .zero)
+        configureChrome()
+        observePowerState()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        animationTask?.cancel()
+        powerTask?.cancel()
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            startAnimation()
+            powerTask?.cancel()
+            powerTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                powerUIState.isOn = await power.isLowPowerOn()
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .overlay(alignment: .topLeading) { keepAwakeBadge(config: config).padding(26) }
+        } else {
+            animationTask?.cancel()
+            animationTask = nil
+            powerTask?.cancel()
+            powerTask = nil
         }
-        .ignoresSafeArea()
-        .task { powerUIState.isOn = await power.isLowPowerOn() }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        handleTap(
+            at: convert(event.locationInWindow, from: nil),
+            size: bounds.size,
+            config: store.snapshot()
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let config = store.snapshot()
+        drawBackground(config)
+        guard let cgContext = NSGraphicsContext.current?.cgContext else { return }
+        let t = Date().timeIntervalSinceReferenceDate
+        let agents = config.showPets ? agentCensus.sample(at: t) : SleepyAgentCounts()
+        let status = config.showStatus
+            ? statusProvider.sample(at: t)
+            : SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
+        let reactions = SleepyReactions(
+            mascotAt: mascotReactAt,
+            mascotPokes: mascotPokes,
+            petAt: petReactAt,
+            moonAt: moonReactAt
+        )
+        var context = GraphicsContext(cgContext: cgContext)
+        draw(
+            in: &context,
+            size: bounds.size,
+            time: t,
+            config: config,
+            agents: agents,
+            status: status,
+            reactions: reactions
+        )
+    }
+
+    private func startAnimation() {
+        guard animationTask == nil else { return }
+        animationTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                guard let self else { return }
+                let config = store.snapshot()
+                if config != lastConfig {
+                    lastConfig = config
+                    updateChrome(config: config)
+                }
+                needsDisplay = true
+                do {
+                    try await clock.sleep(for: .milliseconds(33))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func drawBackground(_ config: SleepyModeConfig) {
+        let colors = SleepyPalette.glowColors(for: config)
+        guard let gradient = NSGradient(colors: colors) else {
+            NSColor.black.setFill()
+            NSBezierPath(rect: bounds).fill()
+            return
+        }
+        gradient.draw(
+            fromCenter: NSPoint(x: bounds.midX, y: bounds.midY),
+            radius: 0,
+            toCenter: NSPoint(x: bounds.midX, y: bounds.midY),
+            radius: 950,
+            options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation]
+        )
+    }
+
+    private func configureChrome() {
+        keepAwakeBadge.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+        keepAwakeBadge.wantsLayer = true
+        keepAwakeBadge.layer?.borderWidth = 2
+        keepAwakeBadge.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(keepAwakeBadge)
+
+        hintLabel.stringValue = String(
+            localized: "sleepyMode.dismissHintCasual",
+            defaultValue: "Press any key to wake (click the characters to play)"
+        )
+        hintLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+        hintLabel.alignment = .center
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hintLabel)
+
+        let exit = SleepyPixelButton(
+            title: String(localized: "sleepyMode.button.exit", defaultValue: "Exit"),
+            systemImage: "xmark",
+            tint: NSColor(srgbRed: 0.52, green: 0.30, blue: 0.40, alpha: 1)
+        ) { SleepyModeController.shared.toggle() }
+        let lock = SleepyPixelButton(
+            title: String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"),
+            systemImage: "lock.fill",
+            tint: NSColor(srgbRed: 0.34, green: 0.30, blue: 0.60, alpha: 1)
+        ) { [weak self] in
+            guard let self else { return }
+            Task { await power.lockMacNow() }
+        }
+        let sleepDisplay = SleepyPixelButton(
+            title: String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"),
+            systemImage: "moon.fill",
+            tint: NSColor(srgbRed: 0.28, green: 0.40, blue: 0.62, alpha: 1)
+        ) { [weak self] in
+            guard let self else { return }
+            Task { await power.sleepDisplayNow() }
+        }
+        lowPowerButton.configure(
+            title: "",
+            systemImage: "leaf",
+            tint: NSColor(srgbRed: 0.30, green: 0.42, blue: 0.46, alpha: 1)
+        ) { [weak self] in self?.toggleLowPowerMode() }
+
+        let buttons = NSStackView(views: [exit, lock, sleepDisplay, lowPowerButton])
+        buttons.orientation = .horizontal
+        buttons.alignment = .centerY
+        buttons.spacing = 16
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(buttons)
+        NSLayoutConstraint.activate([
+            keepAwakeBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 26),
+            keepAwakeBadge.topAnchor.constraint(equalTo: topAnchor, constant: 26),
+            buttons.centerXAnchor.constraint(equalTo: centerXAnchor),
+            buttons.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -88),
+            hintLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            hintLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -38),
+        ])
+    }
+
+    private func observePowerState() {
+        let snapshot = withObservationTracking {
+            (powerUIState.isOn, powerUIState.isBusy)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observePowerState() }
+        }
+        lowPowerButton.isEnabled = !snapshot.1
+        lowPowerButton.configure(
+            title: snapshot.0
+                ? String(localized: "sleepyMode.button.lowPowerOn", defaultValue: "Low Power: On")
+                : String(localized: "sleepyMode.button.lowPowerOff", defaultValue: "Low Power: Off"),
+            systemImage: snapshot.0 ? "leaf.fill" : "leaf",
+            tint: snapshot.0
+                ? NSColor(srgbRed: 0.24, green: 0.56, blue: 0.32, alpha: 1)
+                : NSColor(srgbRed: 0.30, green: 0.42, blue: 0.46, alpha: 1),
+            action: { [weak self] in self?.toggleLowPowerMode() }
+        )
+    }
+
+    private func toggleLowPowerMode() {
+        guard !powerUIState.isBusy else { return }
+        powerUIState.isBusy = true
+        let turnOn = !powerUIState.isOn
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            powerUIState.isOn = await power.setLowPowerMode(turnOn)
+            powerUIState.isBusy = false
+        }
+    }
+
+    private func updateChrome(config: SleepyModeConfig) {
+        let accent = SleepyPalette.colors(for: config)["O"] ?? .white
+        let tint = keepingAwake
+            ? accent
+            : NSColor(srgbRed: 0.95, green: 0.62, blue: 0.30, alpha: 1)
+        keepAwakeBadge.stringValue = keepingAwake
+            ? String(localized: "sleepyMode.keepAwake", defaultValue: "Mac staying awake")
+            : String(localized: "sleepyMode.keepAwake.failed", defaultValue: "Couldn't keep Mac awake, check Battery settings")
+        keepAwakeBadge.textColor = tint.withAlphaComponent(keepingAwake ? 0.7 : 0.95)
+        keepAwakeBadge.layer?.backgroundColor = tint.withAlphaComponent(keepingAwake ? 0.08 : 0.16).cgColor
+        keepAwakeBadge.layer?.borderColor = tint.withAlphaComponent(keepingAwake ? 0.22 : 0.5).cgColor
+        hintLabel.textColor = accent.withAlphaComponent(0.4)
     }
 
     // MARK: - Poke handling (easter eggs)
@@ -98,91 +324,6 @@ struct SleepyFaceView: View {
         let moonPixel = max(2, (pixel * 0.9).rounded())
         let origin = CGPoint(x: (size.width * 0.15).rounded(), y: (size.height * 0.18).rounded())
         return CGRect(x: origin.x, y: origin.y, width: 5 * moonPixel, height: 5 * moonPixel)
-    }
-
-    /// Tells the user whether the Mac is actually being kept awake. If the power
-    /// assertions could not be acquired, it says so (and to use the Mac's own
-    /// settings) rather than falsely reassuring.
-    private func keepAwakeBadge(config: SleepyModeConfig) -> some View {
-        let accent = SleepyPalette.colors(for: config)["O"] ?? .white
-        let tint: Color = keepingAwake ? accent : Color(red: 0.95, green: 0.62, blue: 0.30)
-        return HStack(spacing: 7) {
-            Image(systemName: keepingAwake ? "cup.and.saucer.fill" : "exclamationmark.triangle.fill")
-            Text(keepingAwake
-                ? String(localized: "sleepyMode.keepAwake", defaultValue: "Mac staying awake")
-                : String(localized: "sleepyMode.keepAwake.failed", defaultValue: "Couldn't keep Mac awake — check Battery settings"))
-        }
-        .font(.system(size: 13, weight: .bold, design: .monospaced))
-        .foregroundStyle(tint.opacity(keepingAwake ? 0.7 : 0.95))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(tint.opacity(keepingAwake ? 0.08 : 0.16))
-        .overlay(Rectangle().strokeBorder(tint.opacity(keepingAwake ? 0.22 : 0.5), lineWidth: 2))
-    }
-
-    private func bottomBar(config: SleepyModeConfig) -> some View {
-        let accent = SleepyPalette.colors(for: config)["O"] ?? .white
-        let hintText = String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Press any key to wake (click the characters to play)")
-        return VStack(spacing: 0) {
-            Spacer()
-            HStack(spacing: 16) {
-                Button {
-                    SleepyModeController.shared.toggle()
-                } label: {
-                    Label(String(localized: "sleepyMode.button.exit", defaultValue: "Exit"), systemImage: "xmark")
-                }
-                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
-
-                Button {
-                    // The real macOS login lock — genuinely secure (Apple's), unlike
-                    // the overlay. The screensaver stays up behind it as the backdrop.
-                    let power = power
-                    Task { await power.lockMacNow() }
-                } label: {
-                    Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
-                }
-                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
-
-                Button {
-                    let power = power
-                    Task { await power.sleepDisplayNow() }
-                } label: {
-                    Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
-                }
-                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
-
-                Button {
-                    // Gate on the shared MainActor UI state so overlapping clicks
-                    // (from any display) can't issue concurrent privileged toggles,
-                    // and every overlay computes the next action from one value.
-                    // The runner does the blocking pmset/admin-prompt work off-main;
-                    // this task just suspends on await.
-                    guard !powerUIState.isBusy else { return }
-                    powerUIState.isBusy = true
-                    let turnOn = !powerUIState.isOn
-                    let power = power
-                    let ui = powerUIState
-                    Task {
-                        ui.isOn = await power.setLowPowerMode(turnOn)
-                        ui.isBusy = false
-                    }
-                } label: {
-                    Label(
-                        powerUIState.isOn
-                            ? String(localized: "sleepyMode.button.lowPowerOn", defaultValue: "Low Power: On")
-                            : String(localized: "sleepyMode.button.lowPowerOff", defaultValue: "Low Power: Off"),
-                        systemImage: powerUIState.isOn ? "leaf.fill" : "leaf"
-                    )
-                }
-                .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
-                .disabled(powerUIState.isBusy)
-            }
-            Spacer().frame(height: 50)
-            Text(hintText)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(accent.opacity(0.4))
-                .padding(.bottom, 38)
-        }
     }
 
     // MARK: - Scene

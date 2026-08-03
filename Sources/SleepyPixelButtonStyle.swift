@@ -1,31 +1,76 @@
-import SwiftUI
+import AppKit
 
-/// Big chunky pixel-art button: square corners, a raised bevel (light top/left,
-/// dark bottom/right) that inverts and sinks on press, and a hard offset shadow.
-struct SleepyPixelButtonStyle: ButtonStyle {
-    var tint: Color
+/// Native square pixel-art button used by the Sleepy Mode overlay.
+@MainActor
+final class SleepyPixelButton: NSButton {
+    private var closure: () -> Void = {}
+    private var tint = NSColor.controlAccentColor
 
-    func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed
-        return configuration.label
-            .font(.system(size: 16, weight: .heavy, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.vertical, 13)
-            .padding(.horizontal, 22)
-            .background(tint.opacity(pressed ? 1.0 : 0.85))
-            .overlay(alignment: .top) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), height: 3) }
-            .overlay(alignment: .leading) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), width: 3) }
-            .overlay(alignment: .bottom) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), height: 3) }
-            .overlay(alignment: .trailing) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), width: 3) }
-            .overlay(Rectangle().strokeBorder(.black.opacity(0.55), lineWidth: 2))
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.5), radius: 0, x: 0, y: pressed ? 1 : 4)
-            .offset(y: pressed ? 2 : 0)
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.08), value: pressed)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureBaseAppearance()
     }
 
-    private func bar(_ color: Color, width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
-        Rectangle().fill(color).frame(width: width, height: height)
+    convenience init(
+        title: String,
+        systemImage: String,
+        tint: NSColor,
+        action: @escaping () -> Void
+    ) {
+        self.init(frame: .zero)
+        configure(title: title, systemImage: systemImage, tint: tint, action: action)
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let base = super.intrinsicContentSize
+        return NSSize(width: base.width + 44, height: max(48, base.height + 26))
+    }
+
+    func configure(
+        title: String,
+        systemImage: String,
+        tint: NSColor,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
+        imagePosition = .imageLeading
+        self.tint = tint
+        closure = action
+        refreshAppearance(pressed: false)
+        invalidateIntrinsicContentSize()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        refreshAppearance(pressed: true)
+        super.mouseDown(with: event)
+        refreshAppearance(pressed: false)
+    }
+
+    private func configureBaseAppearance() {
+        isBordered = false
+        wantsLayer = true
+        layer?.borderWidth = 2
+        font = NSFont.monospacedSystemFont(ofSize: 16, weight: .heavy)
+        contentTintColor = .white
+        target = self
+        action = #selector(invoke)
+    }
+
+    private func refreshAppearance(pressed: Bool) {
+        layer?.backgroundColor = tint.withAlphaComponent(pressed ? 1 : 0.85).cgColor
+        layer?.borderColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.5
+        layer?.shadowRadius = 0
+        layer?.shadowOffset = CGSize(width: 0, height: pressed ? -1 : -4)
+        layer?.setAffineTransform(CGAffineTransform(translationX: 0, y: pressed ? 2 : 0))
+    }
+
+    @objc private func invoke() { closure() }
 }
