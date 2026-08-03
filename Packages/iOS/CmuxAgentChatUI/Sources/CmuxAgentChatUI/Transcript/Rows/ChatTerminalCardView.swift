@@ -1,101 +1,197 @@
 import CmuxAgentChat
-import SwiftUI
 
-/// A near-full-width terminal card: command header with run status, and the
-/// captured output as a horizontally scrolling monospace block.
-///
-/// Long cards preview the head and tail of output at a stable row height.
-public struct ChatTerminalCardView: View {
-    private let capture: ChatTerminalCapture
-    private let rowID: String
-    private let onShowDetail: () -> Void
+#if canImport(UIKit)
+import UIKit
 
-    @Environment(\.chatTheme) private var theme
-    @Environment(\.chatContentCache) private var contentCache
-
+/// Native captured-terminal card with bounded output preview.
+@MainActor
+public final class ChatTerminalCardView: UIControl {
     private static let collapseThreshold = 6
     private static let collapsedHeadCount = 3
     private static let collapsedTailCount = 2
+    private let onShowDetail: @MainActor () -> Void
 
-    /// Creates a terminal card.
-    ///
-    /// - Parameters:
-    ///   - capture: The command-and-output payload.
-    ///   - rowID: The row's stable identity, for cached output rendering.
     public init(
         capture: ChatTerminalCapture,
         rowID: String,
-        onShowDetail: @escaping () -> Void = {}
+        contentCache: ChatContentCache? = nil,
+        onShowDetail: @escaping @MainActor () -> Void = {}
     ) {
-        self.capture = capture
-        self.rowID = rowID
         self.onShowDetail = onShowDetail
+        super.init(frame: .zero)
+        backgroundColor = UIColor(white: 0.055, alpha: 1)
+        layer.cornerRadius = 12
+        layer.borderWidth = 0.5
+        layer.borderColor = UIColor.separator.cgColor
+        accessibilityIdentifier = "ChatTerminalToggle-\(rowID)"
+        accessibilityLabel = Self.accessibilityLabel(capture)
+        accessibilityHint = String(
+            localized: "chat.detail.show.hint",
+            defaultValue: "Opens a sheet with the full block content",
+            bundle: .module
+        )
+        addTarget(self, action: #selector(showDetail), for: .primaryActionTriggered)
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 0
+        stack.isUserInteractionEnabled = false
+        stack.addArrangedSubview(headerView(capture))
+
+        let lines = Self.outputLines(capture: capture, rowID: rowID, cache: contentCache)
+        if !lines.isEmpty {
+            let divider = UIView()
+            divider.backgroundColor = .separator
+            divider.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+            stack.addArrangedSubview(divider)
+            stack.addArrangedSubview(outputView(lines: lines))
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    public var body: some View {
-        let lines = outputLines
-        Button(action: onShowDetail) {
-            VStack(spacing: 0) {
-                header
-                if !lines.isEmpty {
-                    Rectangle()
-                        .fill(theme.hairline)
-                        .frame(height: 0.5)
-                    outputBlock(lines: lines)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(theme.hairline, lineWidth: 0.5)
-            )
-            .contentShape(.rect)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func showDetail() {
+        onShowDetail()
+    }
+
+    private func headerView(_ capture: ChatTerminalCapture) -> UIView {
+        let prompt = UILabel()
+        prompt.text = "$"
+        prompt.font = .monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .semibold
+        )
+        prompt.textColor = .systemBlue
+        prompt.setContentHuggingPriority(.required, for: .horizontal)
+
+        let command = UILabel()
+        command.text = capture.command
+        command.font = .monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .regular
+        )
+        command.textColor = UIColor(white: 0.88, alpha: 1)
+        command.lineBreakMode = .byTruncatingMiddle
+        command.numberOfLines = 1
+
+        let stack = UIStackView(arrangedSubviews: [prompt, command])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 6
+        for status in statusViews(capture) {
+            stack.addArrangedSubview(status)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("ChatTerminalToggle-\(rowID)")
-        .accessibilityLabel(headerAccessibilityLabel)
-        .accessibilityHint(
-            String(
-                localized: "chat.detail.show.hint",
-                defaultValue: "Opens a sheet with the full block content",
+        let detail = UIImageView(image: UIImage(systemName: "doc.text.magnifyingglass"))
+        detail.tintColor = .tertiaryLabel
+        stack.addArrangedSubview(detail)
+
+        let container = UIView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+        ])
+        return container
+    }
+
+    private func statusViews(_ capture: ChatTerminalCapture) -> [UIView] {
+        if capture.isRunning {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
+            indicator.startAnimating()
+            return [indicator]
+        }
+        var views: [UIView] = []
+        if let exitCode = capture.exitCode {
+            let icon = UIImageView(image: UIImage(systemName: exitCode == 0 ? "checkmark" : "xmark"))
+            icon.tintColor = exitCode == 0 ? .systemGreen : .systemRed
+            views.append(icon)
+            if exitCode != 0 {
+                views.append(caption("\(exitCode)", color: .systemRed, monospaced: true))
+            }
+        }
+        if let duration = capture.durationSeconds {
+            views.append(caption(String(format: "%.1fs", duration), color: .secondaryLabel, monospaced: false))
+        }
+        return views
+    }
+
+    private func outputView(lines: [String]) -> UIView {
+        let text: String
+        if lines.count > Self.collapseThreshold {
+            let hidden = lines.count - Self.collapsedHeadCount - Self.collapsedTailCount
+            let more = String(
+                localized: "chat.terminal.more_lines",
+                defaultValue: "⋯ \(hidden) more lines",
                 bundle: .module
             )
-        )
+            text = Array(lines.prefix(Self.collapsedHeadCount)).joined(separator: "\n")
+                + "\n\(more)\n"
+                + Array(lines.suffix(Self.collapsedTailCount)).joined(separator: "\n")
+        } else {
+            text = lines.joined(separator: "\n")
+        }
+        let label = UILabel()
+        label.text = text
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.textColor = UIColor(white: 0.88, alpha: 1)
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let scroll = UIScrollView()
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -8),
+            label.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -16),
+        ])
+        return scroll
     }
 
-    /// Sanitized output split into display lines; empty when there is no
-    /// output yet.
-    private var outputLines: [String] {
+    private func caption(_ text: String, color: UIColor, monospaced: Bool) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = color
+        let size = UIFont.preferredFont(forTextStyle: .caption2).pointSize
+        label.font = monospaced
+            ? .monospacedSystemFont(ofSize: size, weight: .regular)
+            : .systemFont(ofSize: size)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        return label
+    }
+
+    private static func outputLines(
+        capture: ChatTerminalCapture,
+        rowID: String,
+        cache: ChatContentCache?
+    ) -> [String] {
         guard let output = capture.output, !output.isEmpty else { return [] }
-        if let cache = contentCache {
+        if let cache {
             return cache.sanitizedLines(messageID: rowID, output: output)
         }
         let cleaned = ChatANSISanitizer().sanitized(output)
         return cleaned.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     }
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text(verbatim: "$")
-                .font(.system(.footnote, design: .monospaced).weight(.semibold))
-                .foregroundStyle(theme.accent)
-            Text(capture.command)
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(theme.terminalCardText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 6)
-            trailingStatus
-            detailGlyph
-        }
-        .padding(.horizontal, 10)
-        .frame(minHeight: 32)
-        .accessibilityLabel(headerAccessibilityLabel)
-    }
-
-    /// VoiceOver label for the header: the command plus its run outcome.
-    private var headerAccessibilityLabel: String {
+    private static func accessibilityLabel(_ capture: ChatTerminalCapture) -> String {
         if capture.isRunning {
             return String(
                 localized: "chat.terminal.running.accessibility",
@@ -123,78 +219,5 @@ public struct ChatTerminalCardView: View {
             bundle: .module
         )
     }
-
-    @ViewBuilder
-    private var trailingStatus: some View {
-        if capture.isRunning {
-            ProgressView()
-                .controlSize(.mini)
-        } else {
-            if let exitCode = capture.exitCode {
-                HStack(spacing: 3) {
-                    Image(systemName: exitCode == 0 ? "checkmark" : "xmark")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(exitCode == 0 ? .green : .red)
-                    if exitCode != 0 {
-                        Text(verbatim: "\(exitCode)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            if let duration = capture.durationSeconds {
-                Text(verbatim: String(format: "%.1fs", duration))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-        }
-    }
-
-    private var detailGlyph: some View {
-        Image(systemName: "doc.text.magnifyingglass")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .accessibilityHidden(true)
-    }
-
-    private func outputBlock(lines: [String]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                if lines.count > Self.collapseThreshold {
-                    collapsedOutput(lines: lines)
-                } else {
-                    outputText(lines: lines)
-                }
-            }
-            .padding(8)
-        }
-    }
-
-    @ViewBuilder
-    private func collapsedOutput(lines: [String]) -> some View {
-        let hiddenCount = lines.count - Self.collapsedHeadCount - Self.collapsedTailCount
-        outputText(lines: Array(lines.prefix(Self.collapsedHeadCount)))
-        Text(
-            String(
-                localized: "chat.terminal.more_lines",
-                defaultValue: "⋯ \(hiddenCount) more lines",
-                bundle: .module
-            )
-        )
-        .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(.secondary)
-        .padding(.vertical, 2)
-        outputText(lines: Array(lines.suffix(Self.collapsedTailCount)))
-            .opacity(0.55)
-    }
-
-    /// One verbatim monospace text block; lines are preserved as captured.
-    private func outputText(lines: [String]) -> some View {
-        Text(verbatim: lines.joined(separator: "\n"))
-            .font(.system(size: 12, design: .monospaced))
-            .foregroundStyle(theme.terminalCardText)
-            .lineLimit(nil)
-            .fixedSize(horizontal: true, vertical: false)
-    }
 }
+#endif

@@ -506,7 +506,21 @@ private struct ChatTranscriptTableConfiguration {
                 )
             case .question(let question):
                 content = ChatQuestionCardView(question: question, actions: actions)
-            case .prose, .terminal, .fileEdit, .attachment:
+            case .terminal(let capture):
+                content = ChatTerminalCardView(
+                    capture: capture,
+                    rowID: row.id,
+                    contentCache: contentCache,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
+                )
+            case .fileEdit(let edit):
+                content = ChatFileEditCardView(
+                    edit: edit,
+                    rowID: row.id,
+                    contentCache: contentCache,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
+                )
+            case .prose, .attachment:
                 return nil
             }
             let spacing: CGFloat

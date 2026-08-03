@@ -162,6 +162,39 @@ struct ChatNativeTranscriptRowTests {
         #expect(!first.isEnabled)
         #expect(!second.isEnabled)
     }
+
+    @Test("captured terminal and diff cards retain detail routing")
+    func detailCardActions() {
+        var terminalDetails = 0
+        let terminal = ChatTerminalCardView(
+            capture: ChatTerminalCapture(
+                command: "swift build",
+                output: "Build complete",
+                exitCode: 0
+            ),
+            rowID: "terminal-1",
+            onShowDetail: { terminalDetails += 1 }
+        )
+        terminal.sendActions(for: .primaryActionTriggered)
+        #expect(terminalDetails == 1)
+        #expect(terminal.accessibilityIdentifier == "ChatTerminalToggle-terminal-1")
+
+        var editDetails = 0
+        let edit = ChatFileEditCardView(
+            edit: ChatFileEdit(
+                filePath: "Sources/App.swift",
+                operation: .edit,
+                additions: 1,
+                deletions: 1,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new"
+            ),
+            rowID: "edit-1",
+            onShowDetail: { editDetails += 1 }
+        )
+        edit.sendActions(for: .primaryActionTriggered)
+        #expect(editDetails == 1)
+        #expect(edit.accessibilityIdentifier == "ChatFileEditDetail-edit-1")
+    }
 }
 
 private extension UIView {

@@ -9,6 +9,7 @@ public struct ChatMessageRowView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatContentCache) private var contentCache
 
     /// Creates the renderer.
     ///
@@ -45,15 +46,17 @@ public struct ChatMessageRowView: View {
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .terminal(let capture):
-                ChatTerminalCardView(
+                ChatTerminalCardBridge(
                     capture: capture,
                     rowID: rowID,
+                    contentCache: contentCache,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .fileEdit(let edit):
-                ChatFileEditCardView(
+                ChatFileEditCardBridge(
                     edit: edit,
                     rowID: rowID,
+                    contentCache: contentCache,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .permissionRequest(let request):
@@ -152,6 +155,42 @@ private struct ChatQuestionCardBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatQuestionCardView, context: Context) {}
+}
+
+private struct ChatTerminalCardBridge: UIViewRepresentable {
+    let capture: ChatTerminalCapture
+    let rowID: String
+    let contentCache: ChatContentCache?
+    let onShowDetail: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> ChatTerminalCardView {
+        ChatTerminalCardView(
+            capture: capture,
+            rowID: rowID,
+            contentCache: contentCache,
+            onShowDetail: onShowDetail
+        )
+    }
+
+    func updateUIView(_ view: ChatTerminalCardView, context: Context) {}
+}
+
+private struct ChatFileEditCardBridge: UIViewRepresentable {
+    let edit: ChatFileEdit
+    let rowID: String
+    let contentCache: ChatContentCache?
+    let onShowDetail: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> ChatFileEditCardView {
+        ChatFileEditCardView(
+            edit: edit,
+            rowID: rowID,
+            contentCache: contentCache,
+            onShowDetail: onShowDetail
+        )
+    }
+
+    func updateUIView(_ view: ChatFileEditCardView, context: Context) {}
 }
 #endif
 

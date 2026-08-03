@@ -1,215 +1,248 @@
 import CmuxAgentChat
-import SwiftUI
 
-/// A full-width file-edit card: operation icon, file path, add/remove
-/// counts, and the unified diff with per-line add/remove tinting.
-public struct ChatFileEditCardView: View {
-    private let edit: ChatFileEdit
-    private let rowID: String
-    private let onShowDetail: () -> Void
+#if canImport(UIKit)
+import UIKit
 
-    @Environment(\.chatTheme) private var theme
-    @Environment(\.chatContentCache) private var contentCache
-
+/// Native bounded unified-diff card.
+@MainActor
+public final class ChatFileEditCardView: UIControl {
     private static let collapsedLineCap = 8
+    private let onShowDetail: @MainActor () -> Void
 
-    /// Creates a file-edit card.
-    ///
-    /// - Parameters:
-    ///   - edit: The file modification payload.
-    ///   - rowID: The row's stable identity, for cached diff rendering.
-    ///   - onShowDetail: Opens the full diff in a stable detail sheet.
-    public init(edit: ChatFileEdit, rowID: String, onShowDetail: @escaping () -> Void = {}) {
-        self.edit = edit
-        self.rowID = rowID
+    public init(
+        edit: ChatFileEdit,
+        rowID: String,
+        contentCache: ChatContentCache? = nil,
+        onShowDetail: @escaping @MainActor () -> Void = {}
+    ) {
         self.onShowDetail = onShowDetail
+        super.init(frame: .zero)
+        backgroundColor = UIColor(white: 0.055, alpha: 1)
+        layer.cornerRadius = 12
+        layer.borderWidth = 0.5
+        layer.borderColor = UIColor.separator.cgColor
+        accessibilityIdentifier = "ChatFileEditDetail-\(rowID)"
+        accessibilityLabel = Self.accessibilityLabel(edit)
+        accessibilityHint = String(
+            localized: "chat.detail.show.hint",
+            defaultValue: "Opens a sheet with the full block content",
+            bundle: .module
+        )
+        addTarget(self, action: #selector(showDetail), for: .primaryActionTriggered)
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 0
+        stack.isUserInteractionEnabled = false
+        stack.addArrangedSubview(headerView(edit))
+        if let diff = edit.unifiedDiff, !diff.isEmpty {
+            let divider = UIView()
+            divider.backgroundColor = .separator
+            divider.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+            stack.addArrangedSubview(divider)
+            let lines = contentCache?.diffLines(messageID: rowID, diff: diff)
+                ?? diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            stack.addArrangedSubview(diffView(lines: lines))
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    public var body: some View {
-        Button(action: onShowDetail) {
-            VStack(spacing: 0) {
-                header
-                if let diff = edit.unifiedDiff, !diff.isEmpty {
-                    Rectangle()
-                        .fill(theme.hairline)
-                        .frame(height: 0.5)
-                    diffBlock(diff: diff)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(theme.hairline, lineWidth: 0.5)
-            )
-            .contentShape(.rect)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func showDetail() {
+        onShowDetail()
+    }
+
+    private func headerView(_ edit: ChatFileEdit) -> UIView {
+        let icon = UIImageView(image: UIImage(systemName: Self.operationSymbol(edit.operation)))
+        icon.tintColor = .secondaryLabel
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        let path = UILabel()
+        path.text = edit.filePath
+        path.font = .monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .regular
+        )
+        path.textColor = UIColor(white: 0.88, alpha: 1)
+        path.lineBreakMode = .byTruncatingMiddle
+        path.numberOfLines = 1
+
+        let stack = UIStackView(arrangedSubviews: [icon, path])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 6
+        if let additions = edit.additions {
+            stack.addArrangedSubview(countLabel("+\(additions)", color: .systemGreen))
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("ChatFileEditDetail-\(rowID)")
-        .accessibilityLabel(fileEditAccessibilityLabel)
-        .accessibilityHint(
-            String(
-                localized: "chat.detail.show.hint",
-                defaultValue: "Opens a sheet with the full block content",
+        if let deletions = edit.deletions {
+            stack.addArrangedSubview(countLabel("−\(deletions)", color: .systemRed))
+        }
+        let detail = UIImageView(image: UIImage(systemName: "doc.text.magnifyingglass"))
+        detail.tintColor = .tertiaryLabel
+        stack.addArrangedSubview(detail)
+
+        let container = UIView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+        ])
+        return container
+    }
+
+    private func diffView(lines: [String]) -> UIView {
+        let visible = Array(lines.prefix(Self.collapsedLineCap))
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        for line in visible {
+            stack.addArrangedSubview(diffLine(line))
+        }
+        if lines.count > Self.collapsedLineCap {
+            let more = String(
+                localized: "chat.terminal.more_lines",
+                defaultValue: "⋯ \(lines.count - Self.collapsedLineCap) more lines",
                 bundle: .module
             )
-        )
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: operationSymbolName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(edit.filePath)
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(theme.terminalCardText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 6)
-            counts
-            detailGlyph
+            let label = countLabel(more, color: .secondaryLabel)
+            label.directionalLayoutMargins = .init(top: 2, leading: 8, bottom: 2, trailing: 8)
+            stack.addArrangedSubview(label)
         }
-        .padding(.horizontal, 10)
-        .frame(minHeight: 32)
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let scroll = UIScrollView()
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -6),
+            stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -12),
+        ])
+        return scroll
     }
 
-    private var fileEditAccessibilityLabel: String {
-        let title = String(localized: "chat.file_edit.accessibility", defaultValue: "File edit", bundle: .module)
-        var parts = [
-            "\(title): \(operationAccessibilityLabel) \(edit.filePath)",
-        ]
+    private func diffLine(_ line: String) -> UILabel {
+        let label = UILabel()
+        label.text = line.isEmpty ? " " : line
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.numberOfLines = 1
+        label.textColor = Self.foregroundColor(line)
+        label.backgroundColor = Self.backgroundColor(line)
+        label.accessibilityLabel = Self.diffLineAccessibilityLabel(line)
+        return label
+    }
+
+    private func countLabel(_ text: String, color: UIColor) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.textColor = color
+        label.font = .monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
+            weight: .regular
+        )
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        return label
+    }
+
+    private static func operationSymbol(_ operation: ChatFileEdit.Operation) -> String {
+        switch operation {
+        case .edit: "pencil"
+        case .write: "plus.square"
+        case .delete: "trash"
+        }
+    }
+
+    private static func operationLabel(_ operation: ChatFileEdit.Operation) -> String {
+        switch operation {
+        case .edit:
+            String(localized: "chat.detail.operation.edit", defaultValue: "Edit", bundle: .module)
+        case .write:
+            String(localized: "chat.detail.operation.write", defaultValue: "Write", bundle: .module)
+        case .delete:
+            String(localized: "chat.detail.operation.delete", defaultValue: "Delete", bundle: .module)
+        }
+    }
+
+    private static func accessibilityLabel(_ edit: ChatFileEdit) -> String {
+        let title = String(
+            localized: "chat.file_edit.accessibility",
+            defaultValue: "File edit",
+            bundle: .module
+        )
+        var parts = ["\(title): \(operationLabel(edit.operation)) \(edit.filePath)"]
         if let additions = edit.additions {
-            let additionsLabel = String(
+            let label = String(
                 localized: "chat.file_edit.additions.accessibility",
                 defaultValue: "additions",
                 bundle: .module
             )
-            parts.append("\(additions) \(additionsLabel)")
+            parts.append("\(additions) \(label)")
         }
         if let deletions = edit.deletions {
-            let deletionsLabel = String(
+            let label = String(
                 localized: "chat.file_edit.deletions.accessibility",
                 defaultValue: "deletions",
                 bundle: .module
             )
-            parts.append("\(deletions) \(deletionsLabel)")
+            parts.append("\(deletions) \(label)")
         }
         return parts.joined(separator: ", ")
     }
 
-    private var operationAccessibilityLabel: String {
-        switch edit.operation {
-        case .edit:
-            return String(localized: "chat.detail.operation.edit", defaultValue: "Edit", bundle: .module)
-        case .write:
-            return String(localized: "chat.detail.operation.write", defaultValue: "Write", bundle: .module)
-        case .delete:
-            return String(localized: "chat.detail.operation.delete", defaultValue: "Delete", bundle: .module)
-        }
-    }
-
-    /// SF symbol for the edit operation.
-    private var operationSymbolName: String {
-        switch edit.operation {
-        case .edit: return "pencil"
-        case .write: return "plus.square"
-        case .delete: return "trash"
-        }
-    }
-
-    @ViewBuilder
-    private var counts: some View {
-        HStack(spacing: 4) {
-            if let additions = edit.additions {
-                Text(verbatim: "+\(additions)")
-                    .foregroundStyle(.green)
-            }
-            if let deletions = edit.deletions {
-                Text(verbatim: "−\(deletions)")
-                    .foregroundStyle(.red)
-            }
-        }
-        .font(.system(.caption, design: .monospaced))
-    }
-
-    private var detailGlyph: some View {
-        Image(systemName: "doc.text.magnifyingglass")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .accessibilityHidden(true)
-    }
-
-    private func diffBlock(diff: String) -> some View {
-        let lines = contentCache?.diffLines(messageID: rowID, diff: diff)
-            ?? diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let cap = Self.collapsedLineCap
-        let visible = Array(lines.prefix(cap))
-        return ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(visible.enumerated()), id: \.offset) { _, line in
-                    diffLine(line)
-                }
-                if lines.count > cap {
-                    Text(
-                        String(
-                            localized: "chat.terminal.more_lines",
-                            defaultValue: "⋯ \(lines.count - cap) more lines",
-                            bundle: .module
-                        )
-                    )
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                }
-            }
-            .padding(.vertical, 6)
-        }
-    }
-
-    private func diffLine(_ line: String) -> some View {
-        Text(verbatim: line.isEmpty ? " " : line)
-            .font(.system(size: 12, design: .monospaced))
-            .foregroundStyle(foregroundColor(for: line))
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(backgroundColor(for: line))
-            // VoiceOver can't see the +/- color tint, so name the change
-            // kind. Font stays fixed: diffs render as screens (round 7).
-            .accessibilityLabel(diffLineAccessibilityLabel(line))
-    }
-
-    private func diffLineAccessibilityLabel(_ line: String) -> String {
+    private static func diffLineAccessibilityLabel(_ line: String) -> String {
         if line.hasPrefix("+") {
-            return String(localized: "chat.diff.added.accessibility",
-                          defaultValue: "Added: \(line.dropFirst())", bundle: .module)
+            return String(
+                localized: "chat.diff.added.accessibility",
+                defaultValue: "Added: \(line.dropFirst())",
+                bundle: .module
+            )
         }
         if line.hasPrefix("-") {
-            return String(localized: "chat.diff.removed.accessibility",
-                          defaultValue: "Removed: \(line.dropFirst())", bundle: .module)
+            return String(
+                localized: "chat.diff.removed.accessibility",
+                defaultValue: "Removed: \(line.dropFirst())",
+                bundle: .module
+            )
         }
         if line.hasPrefix("@@") {
-            return String(localized: "chat.diff.hunk.accessibility",
-                          defaultValue: "Section: \(line)", bundle: .module)
+            return String(
+                localized: "chat.diff.hunk.accessibility",
+                defaultValue: "Section: \(line)",
+                bundle: .module
+            )
         }
         return line
     }
 
-    private func foregroundColor(for line: String) -> Color {
-        if line.hasPrefix("@@") { return theme.terminalCardText.opacity(0.6) }
-        if line.hasPrefix("+") { return .green }
-        if line.hasPrefix("-") { return .red }
-        return theme.terminalCardText.opacity(0.75)
+    private static func foregroundColor(_ line: String) -> UIColor {
+        if line.hasPrefix("@@") { return UIColor(white: 0.88, alpha: 0.6) }
+        if line.hasPrefix("+") { return .systemGreen }
+        if line.hasPrefix("-") { return .systemRed }
+        return UIColor(white: 0.88, alpha: 0.75)
     }
 
-    private func backgroundColor(for line: String) -> Color {
-        if line.hasPrefix("@@") { return .clear }
-        if line.hasPrefix("+") { return .green.opacity(0.08) }
-        if line.hasPrefix("-") { return .red.opacity(0.08) }
+    private static func backgroundColor(_ line: String) -> UIColor {
+        if line.hasPrefix("+") { return UIColor.systemGreen.withAlphaComponent(0.08) }
+        if line.hasPrefix("-") { return UIColor.systemRed.withAlphaComponent(0.08) }
         return .clear
     }
 }
+#endif
