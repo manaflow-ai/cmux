@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_SOURCE = ROOT / "CLI" / "cmux.swift"
+SOCKET_TELEMETRY_SOURCE = ROOT / "CLI" / "CLISocketSentryTelemetry.swift"
 CATALOG = ROOT / "Resources" / "Localizable.xcstrings"
 EVENT_KEYS = {
     "cli.events.error.invalidTimeout",
@@ -69,10 +70,41 @@ def validate_event_localizations() -> None:
             raise AssertionError(f"{key} locale mismatch: missing={missing}, extra={extra}")
 
 
+def validate_socket_error_context_precedence(source: str) -> None:
+    start = source.index("    func captureError(")
+    end = source.index("        let subcommand = self.subcommand", start)
+    body = source[start:end]
+    generic_context_merge = body.index("        for (key, value) in data {")
+    socket_error_context_merge = body.index(
+        "        if let connectError = error as? CLISocketConnectError {"
+    )
+    if socket_error_context_merge < generic_context_merge:
+        raise AssertionError(
+            "generic operation data can overwrite typed socket error diagnostics"
+        )
+
+
+def validate_socket_policy_follows_connect_path(source: str) -> None:
+    start = source.index("    private func policyDenialContext(")
+    end = source.index("    private func socketDiagnostics()", start)
+    body = source[start:end]
+    if "lstat(connectError.path" in body:
+        raise AssertionError(
+            "policy diagnostics use lstat while socket connection validation follows symlinks"
+        )
+    if "stat(connectError.path" not in body:
+        raise AssertionError("policy diagnostics must inspect the connected socket target")
+
+
 def main() -> None:
     validate_incremental_stream_scan(CLI_SOURCE.read_text(encoding="utf-8"))
     validate_event_localizations()
-    print("PASS: CLI event stream scans incrementally and all event strings cover supported locales")
+    telemetry_source = SOCKET_TELEMETRY_SOURCE.read_text(encoding="utf-8")
+    validate_socket_error_context_precedence(telemetry_source)
+    validate_socket_policy_follows_connect_path(telemetry_source)
+    print(
+        "PASS: CLI stream, localization, and typed socket telemetry contracts hold"
+    )
 
 
 if __name__ == "__main__":

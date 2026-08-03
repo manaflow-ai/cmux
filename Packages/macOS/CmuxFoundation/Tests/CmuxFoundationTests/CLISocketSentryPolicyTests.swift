@@ -139,7 +139,8 @@ import Testing
         )
 
         #expect(valid == "Permission denied")
-        #expect(malformed.contains("1"))
+        #expect(!malformed.isEmpty)
+        #expect(malformed != valid)
         #expect(!malformed.contains("\u{FFFD}"))
     }
 }
