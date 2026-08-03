@@ -56,11 +56,17 @@ func makeCodexHookExecutableShellFile(at url: URL, lines: [String]) throws {
 final class CodexHookCapturedSocketCommands: @unchecked Sendable {
     private let lock = NSLock()
     private var commands: [String] = []
+    private let onAppend: (@Sendable (String) -> Void)?
+
+    init(onAppend: (@Sendable (String) -> Void)? = nil) {
+        self.onAppend = onAppend
+    }
 
     func append(_ command: String) {
         lock.lock()
         commands.append(command)
         lock.unlock()
+        onAppend?(command)
     }
 
     func snapshot() -> [String] {

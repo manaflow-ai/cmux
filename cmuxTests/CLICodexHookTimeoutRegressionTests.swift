@@ -109,7 +109,8 @@ struct CLICodexHookTimeoutRegressionTests {
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_HOOK_CMUX_BIN": fakeCLI.path,
+                "CMUX_BUNDLED_CLI_PATH": root.appendingPathComponent("missing-cmux").path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,
@@ -859,6 +860,135 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+    }
+
+    @Test func codexPromptSubmitPublishesLatestMessageAsViewportOverlay() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-prompt-overlay-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-overlay")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 16
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CODEX_PID": "1",
+            ],
+            standardInput: #"{"session_id":"codex-overlay-session","turn_id":"turn-1","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"show this at the top"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let request = try #require(commands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "surface.overlay.set"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceId)
+        #expect(params["surface_id"] as? String == surfaceId)
+        #expect(params["overlay_id"] as? String == "agent.codex.latest-user-message")
+        #expect(params["text"] as? String == "show this at the top")
+        #expect(params["anchor"] as? String == "viewport")
+        #expect(params["position"] as? String == "left")
+    }
+
+    @Test func codexFastCompletionStillPublishesLatestMessageOverlay() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-fast-overlay-\(UUID().uuidString)", isDirectory: true)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let socketPath = makeCodexHookSocketPath("codex-fast-overlay")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-fast-overlay-session"
+        let turnId = "turn-fast"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let commands = CodexHookCapturedSocketCommands { command in
+            guard codexHookJSONObject(command)?["method"] as? String == "feed.push",
+                  let data = try? Data(contentsOf: stateURL),
+                  var state = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var sessions = state["sessions"] as? [String: Any],
+                  var session = sessions[sessionId] as? [String: Any] else {
+                return
+            }
+            session["terminalPromptTurnIds"] = [turnId]
+            sessions[sessionId] = session
+            state["sessions"] = sessions
+            if let updated = try? JSONSerialization.data(
+                withJSONObject: state,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? updated.write(to: stateURL, options: .atomic)
+            }
+        }
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 16
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CODEX_PID": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"fast answer"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = commands.snapshot().compactMap(codexHookJSONObject)
+        let overlayRequest = try #require(requests.first {
+            $0["method"] as? String == "surface.overlay.set"
+        })
+        let params = try #require(overlayRequest["params"] as? [String: Any])
+        #expect(params["text"] as? String == "fast answer")
+        #expect(params["anchor"] as? String == "viewport")
+        #expect(!commands.snapshot().contains { $0.hasPrefix("set_status codex Running ") })
     }
 
     private func bundledCLIPath() throws -> String {
