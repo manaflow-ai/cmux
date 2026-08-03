@@ -267,6 +267,35 @@ struct RemoteTmuxWindowMirrorSplitView: NSViewControllerRepresentable {
     }
 }
 
+struct NotificationsPage: NSViewControllerRepresentable {
+    @EnvironmentObject private var notificationStore: TerminalNotificationStore
+    @EnvironmentObject private var tabManager: TabManager
+    @Binding var selection: SidebarSelection
+
+    func makeNSViewController(context: Context) -> NotificationsPageViewController {
+        NotificationsPageViewController(
+            notificationStore: notificationStore,
+            tabManager: tabManager,
+            selection: { selection },
+            setSelection: { selection = $0 }
+        )
+    }
+
+    func updateNSViewController(_ controller: NotificationsPageViewController, context: Context) {
+        controller.updateSelection(
+            selection: { selection },
+            setSelection: { selection = $0 }
+        )
+    }
+
+    static func dismantleNSViewController(
+        _ controller: NotificationsPageViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+}
+
 struct ShortcutDiscoveryButton: NSViewRepresentable {
     @Binding var isPopoverPresented: Bool
 
