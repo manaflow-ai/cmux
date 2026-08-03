@@ -142,8 +142,8 @@ import Testing
 
     // MARK: Option composition per keyboard layout (issue #5993 acceptance)
 
-    @Test func usLayoutOptionSemicolonComposesEllipsis() throws {
-        try expectOptionComposes(
+    @Test func usLayoutOptionSemicolonComposesEllipsis() async throws {
+        try await expectOptionComposes(
             layoutID: "com.apple.keylayout.US",
             keyCode: UInt16(kVK_ANSI_Semicolon),
             expected: "…"
