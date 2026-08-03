@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 private final class WeakOmnibarNativeTextField {
     weak var field: OmnibarNativeTextField?
@@ -240,21 +239,5 @@ final class BrowserOmnibarInteractionView: NSView {
             return
         }
         apply(field, event)
-    }
-}
-
-@MainActor
-struct BrowserOmnibarInteractionRepresentable: NSViewRepresentable {
-    let panelId: UUID
-
-    func makeNSView(context: Context) -> BrowserOmnibarInteractionView {
-        let view = BrowserOmnibarInteractionView(frame: .zero)
-        view.panelId = panelId
-        return view
-    }
-
-    func updateNSView(_ nsView: BrowserOmnibarInteractionView, context: Context) {
-        nsView.panelId = panelId
-        nsView.window?.invalidateCursorRects(for: nsView)
     }
 }

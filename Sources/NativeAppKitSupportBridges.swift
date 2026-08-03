@@ -3,6 +3,7 @@ import AVKit
 import CmuxAppKitSupportUI
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -10,6 +11,7 @@ import CmuxSwiftRenderUI
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
 import SwiftUI
+import WebKit
 
 /// Transitional mounts for native support views while their parent surfaces
 /// are still being moved to AppKit controllers.
@@ -590,6 +592,186 @@ struct NativeCustomSidebarSurfaceBridge: NSViewRepresentable {
 
     static func dismantleNSView(_ view: CustomSidebarSurface, coordinator: ()) {
         view.teardown()
+    }
+}
+
+struct SidebarWorkspaceTableView: NSViewRepresentable {
+    let rows: [SidebarWorkspaceTableRowConfiguration]
+    let actions: SidebarWorkspaceTableActions
+    let workspaceIds: [UUID]
+    let selectedWorkspaceId: UUID?
+    let selectedScrollTargetWorkspaceId: UUID?
+    let isPresented: Bool
+    let unreadSource: SidebarUnreadModel
+
+#if DEBUG
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
+
+    func makeCoordinator() -> SidebarWorkspaceTableController { SidebarWorkspaceTableController() }
+
+    func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
+        context.coordinator.makeContainerView()
+    }
+
+    func updateNSView(_ view: SidebarWorkspaceTableContainerView, context: Context) {
+#if DEBUG
+        context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
+#endif
+        context.coordinator.setUnreadSource(unreadSource)
+        context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
+        guard isPresented else { return }
+        context.coordinator.apply(
+            rows: rows,
+            actions: actions,
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+        )
+    }
+
+    static func dismantleNSView(
+        _ view: SidebarWorkspaceTableContainerView,
+        coordinator: SidebarWorkspaceTableController
+    ) {
+        coordinator.dismantleContainerView(view)
+    }
+}
+
+struct QuickLookPreviewView: NSViewRepresentable {
+    let panel: FilePreviewPanel
+    let revision: Int
+    let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
+
+    func makeCoordinator() -> FilePreviewQuickLookViewCoordinator {
+        FilePreviewQuickLookViewCoordinator(panel: panel)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        return quickLook.view(
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        quickLook.update(
+            view,
+            panel: panel,
+            revision: revision,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: FilePreviewQuickLookViewCoordinator) {
+        coordinator.quickLook?.dismantle(view)
+        coordinator.quickLook = nil
+    }
+}
+
+struct AgentSessionWebRenderer: NSViewRepresentable {
+    let panel: AgentSessionPanel
+    let isFocused: Bool
+    let backgroundColor: NSColor
+    let theme: AgentSessionWebTheme
+    let sessionContentWidthPresentation: SessionContentWidthPresentation
+    let onRequestPanelFocus: () -> Void
+
+    func makeCoordinator() -> AgentSessionWebRendererCoordinator {
+        panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            rendererKind: panel.rendererKind,
+            initialProviderID: panel.currentProviderID,
+            workingDirectory: panel.workingDirectory,
+            theme: theme,
+            isFocused: isFocused
+        )
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let host = AgentSessionWebHostView()
+        host.wantsLayer = true
+        applyBackground(to: host)
+        return host
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let host = view as? AgentSessionWebHostView else { return }
+        context.coordinator.bind(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            rendererKind: panel.rendererKind,
+            initialProviderID: panel.currentProviderID,
+            workingDirectory: panel.workingDirectory,
+            theme: theme,
+            isFocused: isFocused
+        )
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: host)
+        applyBackground(to: webView)
+        let appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        if webView.appearance !== appearance { webView.appearance = appearance }
+        host.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+        host.attachWebView(webView)
+        host.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
+        }
+        host.onGeometryChanged = { [weak coordinator = context.coordinator] in
+            coordinator?.flushVisiblePaintIfReady()
+        }
+        context.coordinator.loadShellIfNeeded()
+        context.coordinator.flushVisiblePaintIfReady()
+        if isFocused { context.coordinator.focus() }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: AgentSessionWebRendererCoordinator) {
+        guard let host = view as? AgentSessionWebHostView else { return }
+        host.detachHostedWebViewIfOwned(coordinator.webView)
+        host.onDidMoveToWindow = nil
+        host.onGeometryChanged = nil
+    }
+
+    private func applyBackground(to view: NSView) {
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.cgColor
+        view.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func applyBackground(to webView: WKWebView) {
+        webView.underPageBackgroundColor = backgroundColor
+        applyBackground(to: webView as NSView)
+    }
+}
+
+@MainActor
+struct BrowserOmnibarInteractionRepresentable: NSViewRepresentable {
+    let panelId: UUID
+
+    func makeNSView(context: Context) -> BrowserOmnibarInteractionView {
+        let view = BrowserOmnibarInteractionView(frame: .zero)
+        view.panelId = panelId
+        return view
+    }
+
+    func updateNSView(_ view: BrowserOmnibarInteractionView, context: Context) {
+        view.panelId = panelId
+        view.window?.invalidateCursorRects(for: view)
     }
 }
 
