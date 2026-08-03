@@ -37,6 +37,10 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
     /// commit, or reset.
     public let headSignature: String?
 
+    /// The preferred sanitized browser link for a configured Git remote, or
+    /// `nil` when no configured remote is safe to open in a browser.
+    public let repositoryLink: GitRepositoryLink?
+
     /// Creates a workspace-metadata snapshot.
     public init(
         isRepository: Bool,
@@ -44,7 +48,8 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
         isDirty: Bool,
         indexSignature: String?,
         indexContentSignature: String?,
-        headSignature: String?
+        headSignature: String?,
+        repositoryLink: GitRepositoryLink? = nil
     ) {
         self.isRepository = isRepository
         self.branch = branch
@@ -52,6 +57,7 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
         self.indexSignature = indexSignature
         self.indexContentSignature = indexContentSignature
         self.headSignature = headSignature
+        self.repositoryLink = repositoryLink
     }
 
     /// The metadata for a directory that is not inside any git repository.
@@ -61,6 +67,7 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
         isDirty: false,
         indexSignature: nil,
         indexContentSignature: nil,
-        headSignature: nil
+        headSignature: nil,
+        repositoryLink: nil
     )
 }
