@@ -28,6 +28,129 @@ extension StoredShortcut {
     }
 }
 
+/// Transitional width observers used by the legacy root while the sidebar
+/// layout itself is already stored with Observation.
+struct SidebarWidthReader<Content: View>: View {
+    @Bindable var layout: SidebarLayoutModel
+    @ViewBuilder let content: (CGFloat) -> Content
+
+    var body: some View {
+        content(layout.width)
+    }
+}
+
+struct SidebarWidthFrameModifier: ViewModifier {
+    @Bindable var layout: SidebarLayoutModel
+
+    func body(content: Content) -> some View {
+        content.frame(width: layout.width)
+    }
+}
+
+struct SidebarWidthLeadingPaddingModifier: ViewModifier {
+    @Bindable var layout: SidebarLayoutModel
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        content.padding(.leading, enabled ? layout.width : 0)
+    }
+}
+
+/// Transitional mount for the native pointer event host while the root
+/// workspace hierarchy is still hosted by the legacy renderer.
+@MainActor
+struct SidebarPointerEventHost: NSViewRepresentable {
+    let onResolve: @MainActor (NSView) -> Void
+    let onDismantle: @MainActor (NSView) -> Void
+
+    init(
+        _ onResolve: @escaping @MainActor (NSView) -> Void,
+        onDismantle: @escaping @MainActor (NSView) -> Void
+    ) {
+        self.onResolve = onResolve
+        self.onDismantle = onDismantle
+    }
+
+    func makeNSView(context: Context) -> SidebarPointerEventHostView {
+        let view = SidebarPointerEventHostView()
+        view.onResolve = onResolve
+        view.onDismantle = onDismantle
+        return view
+    }
+
+    func updateNSView(_ view: SidebarPointerEventHostView, context: Context) {
+        view.onResolve = onResolve
+        view.onDismantle = onDismantle
+        view.resolve()
+    }
+
+    static func dismantleNSView(_ view: SidebarPointerEventHostView, coordinator: ()) {
+        view.onDismantle?(view)
+        view.onResolve = nil
+        view.onDismantle = nil
+    }
+}
+
+@MainActor
+struct WindowAccessor: NSViewRepresentable {
+    let onWindow: @MainActor (NSWindow) -> Void
+    let dedupeByWindow: Bool
+    let refreshID: AnyHashable?
+
+    init(
+        dedupeByWindow: Bool = true,
+        refreshID: AnyHashable? = nil,
+        onWindow: @escaping @MainActor (NSWindow) -> Void
+    ) {
+        self.onWindow = onWindow
+        self.dedupeByWindow = dedupeByWindow
+        self.refreshID = refreshID
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WindowObservingView {
+        let view = WindowObservingView()
+        installWindowHandler(on: view, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ view: WindowObservingView, context: Context) {
+        installWindowHandler(on: view, coordinator: context.coordinator)
+        if let window = view.window { view.onWindow?(window) }
+    }
+
+    private func installWindowHandler(on view: WindowObservingView, coordinator: Coordinator) {
+        let handler = onWindow
+        let shouldDedupeByWindow = dedupeByWindow
+        let refreshID = refreshID
+        view.onWindow = { window in
+            guard coordinator.shouldInvoke(
+                window: window,
+                dedupeByWindow: shouldDedupeByWindow,
+                refreshID: refreshID
+            ) else { return }
+            handler(window)
+        }
+    }
+
+    final class Coordinator {
+        private weak var lastWindow: NSWindow?
+        private var lastRefreshID: AnyHashable?
+
+        func shouldInvoke(
+            window: NSWindow,
+            dedupeByWindow: Bool,
+            refreshID: AnyHashable?
+        ) -> Bool {
+            if dedupeByWindow, lastWindow === window, lastRefreshID == refreshID { return false }
+            lastWindow = window
+            lastRefreshID = refreshID
+            return true
+        }
+    }
+}
+
 #if DEBUG
 private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
     static let defaultValue = MinimalModeInvalidationProbe()
