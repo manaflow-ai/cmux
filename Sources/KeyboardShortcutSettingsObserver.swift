@@ -1,4 +1,5 @@
 import Carbon
+import CmuxSettings
 import Foundation
 import Observation
 
@@ -7,16 +8,32 @@ import Observation
 @Observable
 final class KeyboardShortcutSettingsObserver {
     typealias ShortcutProvider = (KeyboardShortcutSettings.Action) -> StoredShortcut
+    typealias ExplicitShortcutProvider =
+        (KeyboardShortcutSettings.Action) -> StoredShortcut?
+    typealias WhenClauseProvider =
+        (KeyboardShortcutSettings.Action) -> ShortcutWhenClause
+
+    struct ShortcutBinding: Equatable {
+        let action: KeyboardShortcutSettings.Action
+        let shortcut: StoredShortcut
+        let whenClause: ShortcutWhenClause
+    }
 
     static let shared = KeyboardShortcutSettingsObserver()
 
     private(set) var revision: UInt64 = 0
     private(set) var globalSearchShortcut: StoredShortcut
+    private(set) var configuredChordBindings: [ShortcutBinding]
+    private(set) var applicationPaneExplicitShortcutBindings: [ShortcutBinding]
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
+    @ObservationIgnored
+    private let explicitShortcutProvider: ExplicitShortcutProvider
+    @ObservationIgnored
+    private let whenClauseProvider: WhenClauseProvider
     @ObservationIgnored
     private var settingsObserver: NSObjectProtocol?
     @ObservationIgnored
@@ -27,12 +44,27 @@ final class KeyboardShortcutSettingsObserver {
     init(
         notificationCenter: NotificationCenter = .default,
         distributedNotificationCenter: DistributedNotificationCenter = .default(),
-        shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
+        shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:),
+        explicitShortcutProvider: @escaping ExplicitShortcutProvider =
+            KeyboardShortcutSettings.explicitlyConfiguredShortcutIfBound(for:),
+        whenClauseProvider: @escaping WhenClauseProvider =
+            KeyboardShortcutSettings.effectiveWhenClause(for:)
     ) {
         self.notificationCenter = notificationCenter
         self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
+        self.explicitShortcutProvider = explicitShortcutProvider
+        self.whenClauseProvider = whenClauseProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        configuredChordBindings = Self.makeConfiguredChordBindings(
+            shortcutProvider: shortcutProvider,
+            whenClauseProvider: whenClauseProvider
+        )
+        applicationPaneExplicitShortcutBindings =
+            Self.makeApplicationPaneExplicitShortcutBindings(
+                explicitShortcutProvider: explicitShortcutProvider,
+                whenClauseProvider: whenClauseProvider
+            )
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
             shortcutProvider: shortcutProvider
         )
@@ -81,8 +113,60 @@ final class KeyboardShortcutSettingsObserver {
 
     private func reloadCachedShortcuts() {
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        configuredChordBindings = Self.makeConfiguredChordBindings(
+            shortcutProvider: shortcutProvider,
+            whenClauseProvider: whenClauseProvider
+        )
+        applicationPaneExplicitShortcutBindings =
+            Self.makeApplicationPaneExplicitShortcutBindings(
+                explicitShortcutProvider: explicitShortcutProvider,
+                whenClauseProvider: whenClauseProvider
+            )
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()
+    }
+
+    private static func makeConfiguredChordBindings(
+        shortcutProvider: ShortcutProvider,
+        whenClauseProvider: WhenClauseProvider
+    ) -> [ShortcutBinding] {
+        KeyboardShortcutSettings.Action.allCases.compactMap { action in
+            guard
+                !action.isSystemWideHotkey,
+                action != .globalSearch,
+                action.allowsChordShortcut,
+                !action.isBrowserContentShortcut
+            else {
+                return nil
+            }
+            let shortcut = shortcutProvider(action)
+            guard shortcut.hasChord else { return nil }
+            return ShortcutBinding(
+                action: action,
+                shortcut: shortcut,
+                whenClause: whenClauseProvider(action)
+            )
+        }
+    }
+
+    private static func makeApplicationPaneExplicitShortcutBindings(
+        explicitShortcutProvider: ExplicitShortcutProvider,
+        whenClauseProvider: WhenClauseProvider
+    ) -> [ShortcutBinding] {
+        KeyboardShortcutSettings.Action.allCases.compactMap { action in
+            guard
+                !action.isSystemWideHotkey,
+                let shortcut = explicitShortcutProvider(action),
+                !shortcut.hasChord
+            else {
+                return nil
+            }
+            return ShortcutBinding(
+                action: action,
+                shortcut: shortcut,
+                whenClause: whenClauseProvider(action)
+            )
+        }
     }
 
     /// Preserves synchronous delivery for main-thread settings mutations while

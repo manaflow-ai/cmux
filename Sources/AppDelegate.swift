@@ -551,6 +551,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    private let keyboardShortcutSettingsObserver =
+        KeyboardShortcutSettingsObserver.shared
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -12976,17 +12978,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
-    private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
-        KeyboardShortcutSettings.Action.allCases.filter { action in
-            // Carbon owns the opt-in hotkey, while Global Search has a cached
-            // foreground route before generic chord handling.
-            guard !action.isSystemWideHotkey,
-                  action != .globalSearch,
-                  action.allowsChordShortcut else {
-                return false
-            }
-            guard !action.isBrowserContentShortcut else { return false }
-            return KeyboardShortcutSettings.shortcut(for: action).hasChord
+    private func currentConfiguredShortcutChordShortcuts(
+        for context: ShortcutContext
+    ) -> [StoredShortcut] {
+        keyboardShortcutSettingsObserver.configuredChordBindings.compactMap { binding in
+            binding.whenClause.evaluate(context) ? binding.shortcut : nil
         }
     }
 
@@ -13697,10 +13693,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            ),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
-            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
-            }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            let availableChordShortcuts =
+                currentConfiguredShortcutChordShortcuts(
+                    for: shortcutContext
+                )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: availableChordShortcuts
+            ) {
                 return true
             }
             let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
@@ -13796,14 +13797,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
-            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
-                // Arm by the effective `when` clause (its shortcuts.when override or
-                // the built-in context default), matching the keyDown gate, so a
-                // `when`-broadened chord arms in its allowed context and a narrowed
-                // one does not swallow its first stroke elsewhere (issue #5189).
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
-            }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            let availableChordShortcuts =
+                currentConfiguredShortcutChordShortcuts(
+                    for: shortcutContext
+                )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: availableChordShortcuts
+            ) {
                 return true
             }
         }
@@ -15851,15 +15853,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         configuredActions: [CmuxResolvedConfigAction]
     ) -> Bool {
-        for action in KeyboardShortcutSettings.Action.allCases
-        where !action.isSystemWideHotkey {
-            guard
-                let shortcut =
-                    KeyboardShortcutSettings
-                        .explicitlyConfiguredShortcutIfBound(for: action),
-                shortcutWhenClauseAllows(action: action, event: event),
-                matchConfiguredShortcut(event: event, shortcut: shortcut)
-            else {
+        let shortcutContext =
+            shortcutEventFocusContext(event).shortcutContext
+        for binding in keyboardShortcutSettingsObserver
+            .applicationPaneExplicitShortcutBindings {
+            guard binding.whenClause.evaluate(shortcutContext),
+                  matchConfiguredShortcut(
+                      event: event,
+                      shortcut: binding.shortcut
+                  ) else {
                 continue
             }
             return true

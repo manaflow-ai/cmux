@@ -480,19 +480,10 @@ final class ApplicationCaptureView: NSView {
         guard canForwardInput else {
             return .surfaceUnavailable
         }
-        let keyDown = ApplicationSurfaceInputEvent(
-            kind: .key,
+        switch enqueueBalancedKeyPress(
             keyCode: keyCode,
-            keyDown: true,
             modifiers: flags.rawValue
-        )
-        let keyUp = ApplicationSurfaceInputEvent(
-            kind: .key,
-            keyCode: keyCode,
-            keyDown: false,
-            modifiers: flags.rawValue
-        )
-        switch inputPump.enqueue([keyDown, keyUp]) {
+        ) {
         case .accepted:
             return .queued
         case .full:
@@ -566,7 +557,17 @@ final class ApplicationCaptureView: NSView {
         else {
             return super.performKeyEquivalent(with: event)
         }
-        return enqueueKey(event, keyDown: true)
+        guard canForwardInput else { return false }
+        switch enqueueBalancedKeyPress(
+            keyCode: event.keyCode,
+            modifiers: UInt64(event.modifierFlags.rawValue)
+        ) {
+        case .accepted:
+            return true
+        case .full:
+            handleInputQueueFull()
+            return false
+        }
     }
 
     func shouldRouteCommandEquivalentThroughContentFirst(
@@ -658,6 +659,26 @@ final class ApplicationCaptureView: NSView {
             return false
         }
         return true
+    }
+
+    private func enqueueBalancedKeyPress(
+        keyCode: UInt16,
+        modifiers: UInt64
+    ) -> ApplicationSurfaceInputEnqueueResult {
+        inputPump.enqueue([
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: keyCode,
+                keyDown: true,
+                modifiers: modifiers
+            ),
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: keyCode,
+                keyDown: false,
+                modifiers: modifiers
+            ),
+        ])
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
