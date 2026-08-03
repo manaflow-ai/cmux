@@ -10,6 +10,30 @@ import Testing
 
 @MainActor
 @Suite struct TextBoxInlineAttachmentRenderingTests {
+    @Test func oversizedAttachmentBatchDoesNotMutateTextView() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "existing text"
+        textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+
+        let attachments = (0..<101).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        textView.insertAttachments(attachments)
+
+        #expect(textView.string == "existing text")
+        #expect(textView.inlineAttachments().isEmpty)
+    }
+
     @Test func identicalRefreshReusesRenderedChipImage() throws {
         let fixture = try AttachmentFixture()
         defer { fixture.cleanup() }
