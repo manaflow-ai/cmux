@@ -314,6 +314,82 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func appendingWorkspaceAtScaleKeepsVisibleInlineEditMounted() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let editableModel = SidebarWorkspaceRowSuspensionTests.makeModel()
+        var committedTitles: [String] = []
+        let editableRow = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: editableModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: editableModel,
+                onCommitRename: { committedTitles.append($0) }
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let trailingRows = (0..<74).map { _ in
+            makeRowConfiguration(workspaceId: UUID(), fixedHeight: 24)
+        }
+        let initialRows = [editableRow] + trailingRows
+        let initialWorkspaceIds = initialRows.map(\.workspaceId)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: initialWorkspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let editingCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        editingCell.isEditing = true
+        editingCell.renameField.stringValue = "Uncommitted rename"
+
+        let appendedRow = makeRowConfiguration(workspaceId: UUID(), fixedHeight: 24)
+        controller.apply(
+            rows: initialRows + [appendedRow],
+            actions: makeTableActions(),
+            workspaceIds: initialWorkspaceIds + [appendedRow.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        await flushStagedTableMutations()
+
+        #expect(
+            committedTitles.isEmpty,
+            "Appending one workspace must insert one table row, not reload and retire every visible row."
+        )
+        let retainedCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        #expect(retainedCell === editingCell)
+        #expect(retainedCell.isEditing)
+        #expect(retainedCell.renameField.stringValue == "Uncommitted rename")
+        #expect(container.tableView.numberOfRows == 76)
+    }
+
+    @Test
     func transientWindowReparentingKeepsRowActionsAttached() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
