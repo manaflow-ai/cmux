@@ -232,7 +232,9 @@ private func taskState(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
     case "completed", "done": return .completed
     case "inProgress", "in_progress", "active": return .inProgress
     case "pending", "todo", "open": return .pending
-    default: return .pending
+    // An unrecognized status must not clobber a state we already know; the
+    // callers fall back to the existing state, or `.pending` for a new row.
+    default: return nil
     }
 }
 

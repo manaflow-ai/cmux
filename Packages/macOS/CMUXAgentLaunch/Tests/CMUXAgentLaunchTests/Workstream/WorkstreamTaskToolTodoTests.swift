@@ -181,6 +181,36 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1").count <= WorkstreamTaskToolTodos.maxOwnedIds)
     }
 
+    @Test("A resumed session adopts tasks it never saw created")
+    func resumedSessionAdoptsExistingTasks() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        // Hooks installed mid-run: the first thing cmux sees is an update for
+        // a task id far above anything it could have minted.
+        store.ingest(preToolUse(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"12","subject":"pre-existing task","status":"in_progress"}"#
+        ))
+        #expect(latestTodos(store)?.map(\.id) == ["12"])
+        #expect(latestTodos(store)?.first?.state == .inProgress)
+
+        // A later create still gets its own authoritative id; nothing is
+        // inferred from the counter the resumed session left behind.
+        createTask(store, "s1", subject: "new work", id: "13")
+        #expect(latestTodos(store)?.map(\.id) == ["12", "13"])
+    }
+
+    @Test("An unknown status never clobbers a state already known")
+    func unknownStatusKeepsExistingState() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "task", id: "1")
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"completed"}"#))
+        #expect(latestTodos(store)?.first?.state == .completed)
+
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"blocked"}"#))
+        #expect(latestTodos(store)?.first?.state == .completed)
+    }
+
     @Test("Non-task PreToolUse events stay tool-use telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

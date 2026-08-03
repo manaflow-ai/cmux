@@ -4,10 +4,15 @@ public import Foundation
 /// the replacement list for `replaceChecklist(with:)`.
 ///
 /// The reporting agent owns only the rows it created. Rows authored by the
-/// user and rows owned by *other* agents sharing the workspace are carried
-/// through untouched, so two agents in one workspace do not erase each other's
-/// checklists. Rows the reporting agent previously owned but no longer reports
-/// are retired, which is what makes an all-tasks-deleted report meaningful.
+/// user and rows owned by *other* agents sharing the workspace keep their
+/// identity, text, state, and relative order, so two agents in one workspace
+/// do not erase each other's checklists. Rows the reporting agent previously
+/// owned but no longer reports are retired, which is what makes an
+/// all-tasks-deleted report meaningful.
+///
+/// The reporting agent's rows are re-emitted as a block after the rows it does
+/// not own, in the order the agent reports them, so the checklist follows the
+/// agent's own plan ordering rather than the order its rows happened to land.
 ///
 /// - Parameters:
 ///   - existing: The workspace's current checklist, in display order.
