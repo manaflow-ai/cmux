@@ -11054,7 +11054,10 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
                 self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
-                Ok(RenderAction::Draw)
+                // This acknowledges geometry already computed by the host-resize draw.
+                // Re-running layout here creates an acknowledgement feedback loop while
+                // the outer terminal is being dragged; only repaint terminal content.
+                Ok(RenderAction::Paint)
             }
             AppEvent::Mux(MuxEvent::SurfaceResizeFailed {
                 surface,
@@ -17712,6 +17715,42 @@ impl App {
             return;
         }
         match hit {
+            Some(Hit::Tab { pane, index }) => {
+                let Some(surface) = self
+                    .tree
+                    .pane(pane)
+                    .and_then(|pane| pane.tabs.get(index))
+                    .map(|tab| tab.surface)
+                else {
+                    return;
+                };
+                let is_browser = self.surface_kind(surface) == Some(SurfaceKind::Browser);
+                let external_browser =
+                    self.browser_source(surface) == Some(BrowserSource::External);
+                let mut actions = pane_context_menu_groups(pane, is_browser, external_browser);
+                if let Some(rename) = actions.first_mut().and_then(|group| group.first_mut()) {
+                    *rename = MenuAction::RenameSurface(surface);
+                }
+                let mut groups = actions
+                    .into_iter()
+                    .map(|group| self.menu_group(group))
+                    .collect::<Vec<Vec<MenuItem>>>();
+                if self.surface_only.is_none() {
+                    let zoomed = self
+                        .tree
+                        .active_screen()
+                        .is_some_and(|screen| screen.zoomed_pane == Some(pane));
+                    groups.push(self.menu_group([MenuAction::TogglePaneZoom { pane, zoomed }]));
+                }
+                if self.surface_only.is_none()
+                    && let Some(clients) = client_menu_item(&self.clients, surface)
+                {
+                    groups.push(vec![clients]);
+                }
+                groups.push(self.menu_group(self.global_menu_actions()));
+                self.menu = Some(ContextMenu::with_groups(x, y, groups));
+                return;
+            }
             Some(Hit::ScreenEntry { id, .. }) => {
                 self.menu = Some(ContextMenu::with_groups(
                     x,
