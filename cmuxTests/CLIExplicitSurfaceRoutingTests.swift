@@ -154,6 +154,55 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceRef)
     }
 
+    @Test func closeSurfaceRejectsExplicitTargetWithoutWorkspaceOrWindowWithoutMutation() throws {
+        let socketPath = Self.makeSocketPath("close-noworkspace")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.close" {
+                state.recordMutation()
+            }
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": method]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "close-surface",
+                "--surface", Self.missingSurfaceUUID,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect((result.stderr + result.stdout).contains("close-surface requires --workspace or --window with explicit --surface"))
+        #expect(state.mutationCountSnapshot() == 0)
+        let requests = try state.requestObjects()
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
     @Test func respawnPaneRejectsMissingExplicitUUIDWithoutMutation() throws {
         let socketPath = Self.makeSocketPath("respawn")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)

@@ -41,6 +41,10 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(

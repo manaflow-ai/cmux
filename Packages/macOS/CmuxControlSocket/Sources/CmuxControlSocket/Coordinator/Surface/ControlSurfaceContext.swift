@@ -54,6 +54,12 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The respawn strings.
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings
 
+    /// Returns the app-localized generic surface-not-found message for close
+    /// failures whose explicit `surface_id` cannot be parsed or resolved.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlSurfaceNotFoundMessage() -> String
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.

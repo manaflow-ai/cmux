@@ -35061,6 +35061,108 @@
         }
       }
     },
+    "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requires --workspace or --window with explicit --surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明示的に --surface を指定する場合、close-surface には --workspace または --window が必要です"
+          }
+        }
+      }
+    },
+    "cli.surface.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface handle is blank"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスハンドルが空です"
+          }
+        }
+      }
+    },
+    "cli.surface.error.indexNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface index not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスインデックスが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.surface.error.invalidHandle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid surface handle: %@ (expected UUID, ref like surface:1, or index)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なサーフェスハンドル: %@ (UUID、surface:1 のような参照、またはインデックスを指定してください)"
+          }
+        }
+      }
+    },
+    "cli.surface.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません: %@"
+          }
+        }
+      }
+    },
+    "cli.surface.error.refNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface ref not found: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス参照が見つかりません: %@"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -228799,6 +228901,23 @@
         }
       }
     },
+    "socket.pane.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
     "socket.pane.resize.invalidParameters": {
       "extractionState": "manual",
       "localizations": {
@@ -229122,6 +229241,23 @@
         }
       }
     },
+    "socket.surface.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -229322,6 +229458,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.tabNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが見つかりません"
           }
         }
       }
