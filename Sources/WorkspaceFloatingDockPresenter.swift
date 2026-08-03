@@ -351,11 +351,13 @@ final class WorkspaceFloatingDockPresenter {
         )] = []
         entries.reserveCapacity(docks.count)
         let migrationTarget = pendingParkingOwnerVisibleScreenFrame
+        let availableScreenFrames = NSScreen.screens.map(\.frame)
         for dock in docks {
             guard let controller = controllers[dock.id],
                   let request = controller.parkingRequest(
                     fallbackVisibleScreenFrame: fallbackVisibleScreenFrame,
-                    migratingToVisibleScreenFrame: migrationTarget
+                    migratingToVisibleScreenFrame: migrationTarget,
+                    availableScreenFrames: availableScreenFrames
                   ) else {
                 controllers[dock.id]?.hide()
                 continue
@@ -378,7 +380,8 @@ final class WorkspaceFloatingDockPresenter {
             remainingEntries.removeAll { $0.visibleScreenFrame == screenFrame }
             let snapshots = WorkspaceFloatingDockParkingSnapshot.arranged(
                 restoreFrames: group.map(\.restoreFrame),
-                visibleScreenFrame: screenFrame
+                visibleScreenFrame: screenFrame,
+                availableScreenFrames: availableScreenFrames
             )
             for (entry, snapshot) in zip(group, snapshots) {
 #if DEBUG
@@ -386,6 +389,7 @@ final class WorkspaceFloatingDockPresenter {
                     "floating.parking.layout dock=\(entry.dock.id.uuidString.prefix(5)) " +
                     "restore=\(NSStringFromRect(entry.restoreFrame)) " +
                     "screen=\(NSStringFromRect(screenFrame)) " +
+                    "edge=\(snapshot.edge) " +
                     "parked=\(NSStringFromRect(snapshot.parkedFrame))"
                 )
 #endif

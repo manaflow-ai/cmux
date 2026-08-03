@@ -396,6 +396,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             attachedTo: owner,
             title: "Build Notes",
             anchorFrame: CGRect(x: 900, y: 400, width: 1, height: 44),
+            parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
         )

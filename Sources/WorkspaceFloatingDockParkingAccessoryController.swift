@@ -20,6 +20,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private let glassEffect = WindowGlassEffect()
     private var presentationGeneration = 0
     private var anchorFrame: CGRect?
+    private var parkingEdge: WorkspaceFloatingDockParkingEdge = .trailing
     private(set) var isEditing = false
 
     var window: NSWindow { panel }
@@ -86,17 +87,20 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         attachedTo ownerWindow: NSWindow,
         title: String,
         anchorFrame: CGRect,
+        parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         presentationGeneration &+= 1
         self.anchorFrame = anchorFrame
+        self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         let targetFrame = frame(
             anchorFrame: anchorFrame,
-            width: accessoryView.preferredWidth
+            width: accessoryView.preferredWidth,
+            parkingEdge: parkingEdge
         )
 
         guard !panel.isVisible else {
@@ -109,7 +113,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         panel.alphaValue = animated ? 0 : 1
         var initialFrame = targetFrame
         if animated {
-            initialFrame.origin.x += 10
+            initialFrame.origin.x += inwardHorizontalOffset(for: parkingEdge, distance: 10)
         }
         panel.setFrame(initialFrame, display: false)
         panel.orderFront(nil)
@@ -135,18 +139,21 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         title: String,
         attachedTo ownerWindow: NSWindow,
         anchorFrame: CGRect,
+        parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         guard panel.isVisible else { return }
         self.anchorFrame = anchorFrame
+        self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         setFrame(
             frame(
                 anchorFrame: anchorFrame,
-                width: accessoryView.preferredWidth
+                width: accessoryView.preferredWidth,
+                parkingEdge: parkingEdge
             ),
             animated: animated
         )
@@ -158,7 +165,8 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         accessoryView.beginRenaming()
         let targetFrame = frame(
             anchorFrame: anchorFrame,
-            width: accessoryView.preferredWidth
+            width: accessoryView.preferredWidth,
+            parkingEdge: parkingEdge
         )
         setFrame(targetFrame, animated: true)
         panel.makeKeyAndOrderFront(nil)
@@ -189,7 +197,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             return
         }
         var targetFrame = panel.frame
-        targetFrame.origin.x += 8
+        targetFrame.origin.x += inwardHorizontalOffset(for: parkingEdge, distance: 8)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.1
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -251,14 +259,33 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     private func frame(
         anchorFrame: CGRect,
-        width: CGFloat
+        width: CGFloat,
+        parkingEdge: WorkspaceFloatingDockParkingEdge
     ) -> CGRect {
-        CGRect(
-            x: anchorFrame.minX - Self.gap - width,
+        let minX: CGFloat = switch parkingEdge {
+        case .leading:
+            anchorFrame.maxX + Self.gap
+        case .trailing:
+            anchorFrame.minX - Self.gap - width
+        }
+        return CGRect(
+            x: minX,
             y: anchorFrame.midY - (Self.height / 2),
             width: width,
             height: Self.height
         )
+    }
+
+    private func inwardHorizontalOffset(
+        for parkingEdge: WorkspaceFloatingDockParkingEdge,
+        distance: CGFloat
+    ) -> CGFloat {
+        switch parkingEdge {
+        case .leading:
+            -distance
+        case .trailing:
+            distance
+        }
     }
 
     private func setFrame(_ frame: CGRect, animated: Bool) {

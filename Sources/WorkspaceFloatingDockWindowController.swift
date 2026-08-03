@@ -262,6 +262,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 title: dock.title,
                 attachedTo: parentWindow ?? panel,
                 anchorFrame: parkingAccessoryAnchorFrame(for: panel),
+                parkingEdge: parkingSnapshot?.edge ?? .trailing,
                 appearance: appearance,
                 animated: false
             )
@@ -304,7 +305,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     func parkingRequest(
         fallbackVisibleScreenFrame: CGRect?,
-        migratingToVisibleScreenFrame targetVisibleScreenFrame: CGRect? = nil
+        migratingToVisibleScreenFrame targetVisibleScreenFrame: CGRect? = nil,
+        availableScreenFrames: [CGRect] = []
     ) -> (restoreFrame: CGRect, visibleScreenFrame: CGRect)? {
         guard let panel = window,
               let fallbackVisibleScreenFrame else { return nil }
@@ -316,7 +318,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             if let targetVisibleScreenFrame,
                parkingSnapshot.visibleScreenFrame != targetVisibleScreenFrame {
                 let migrated = parkingSnapshot.migrated(
-                    toVisibleScreenFrame: targetVisibleScreenFrame
+                    toVisibleScreenFrame: targetVisibleScreenFrame,
+                    availableScreenFrames: availableScreenFrames
                 )
                 return (
                     restoreFrame: migrated.restoreFrame,
@@ -694,7 +697,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             }
             let snapshot = WorkspaceFloatingDockParkingSnapshot(
                 restoreFrame: resolvedFrame,
-                visibleScreenFrame: visibleScreenFrame
+                visibleScreenFrame: visibleScreenFrame,
+                availableScreenFrames: displays.available.map(\.frame)
             )
             presentation = .parked(snapshot)
             setPanelFrame(snapshot.parkedFrame, display: panel.isVisible)
@@ -790,6 +794,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 attachedTo: parentWindow ?? panel,
                 title: dock.title,
                 anchorFrame: parkingAccessoryAnchorFrame(for: panel),
+                parkingEdge: .trailing,
                 appearance: resolvedBackdropAppearance(),
                 animated: true
             )
@@ -949,6 +954,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             attachedTo: parentWindow ?? panel,
             title: dock.title,
             anchorFrame: snapshot.restingHitFrame,
+            parkingEdge: snapshot.edge,
             appearance: resolvedBackdropAppearance(),
             animated: animated
         )
