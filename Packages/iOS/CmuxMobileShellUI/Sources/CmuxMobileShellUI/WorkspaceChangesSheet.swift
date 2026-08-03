@@ -93,7 +93,7 @@ public struct WorkspaceChangesSheet: View {
         let copy: @MainActor @Sendable (String) -> Void = { text in
             UIPasteboard.general.string = text
         }
-        let inlinePreview: @MainActor @Sendable (Int, FileDiffPreviewRevision) -> AnyView = {
+        let inlinePreview: @MainActor @Sendable (Int, FileDiffPreviewRevision) -> UIViewController = {
             index,
             revision in
             inlineArtifactPreview(index: index, revision: revision)
@@ -112,9 +112,9 @@ public struct WorkspaceChangesSheet: View {
     private func inlineArtifactPreview(
         index: Int,
         revision: FileDiffPreviewRevision
-    ) -> AnyView {
+    ) -> UIViewController {
         guard files.indices.contains(index) else {
-            return AnyView(EmptyView())
+            return UIViewController()
         }
         let file = files[index]
         let resolvedPath = revision == .base ? (file.oldPath ?? file.path) : file.path
@@ -124,7 +124,7 @@ public struct WorkspaceChangesSheet: View {
             oldPath: file.oldPath,
             revision: revision
         )
-        return AnyView(
+        return UIHostingController(rootView:
             ChatArtifactInlineViewer(
                 path: resolvedPath,
                 actionHost: inlineActionHost

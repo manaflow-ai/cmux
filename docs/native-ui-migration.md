@@ -74,7 +74,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (191 import files)
   - [ ] `CmuxAgentChatUI` (69)
-  - [ ] `CmuxMobileChanges` (8)
+  - [x] `CmuxMobileChanges` (0)
   - [x] `CmuxMobileTerminal` (0)
   - [x] `CmuxMobileToast` (0)
   - [x] `CmuxMobileBrowserStream` (0)

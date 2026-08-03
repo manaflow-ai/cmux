@@ -1,37 +1,14 @@
-import SwiftUI
+#if canImport(UIKit)
+internal import UIKit
 
-struct WorkspaceChangesSummaryHeader: View {
-    let branch: String
-    let base: String
-    let totals: ChangesTotals
-    let theme: ChangesTheme
+@MainActor
+final class WorkspaceChangesSummaryHeader: UIView {
+    init(branch: String, base: String, totals: ChangesTotals, theme: ChangesTheme) {
+        super.init(frame: .zero)
+        directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 10, trailing: 16)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(filesChangedText)
-                    .font(.headline)
-                Spacer(minLength: 12)
-                HStack(spacing: 8) {
-                    Text(additionsText)
-                        .foregroundStyle(theme.addedStatus)
-                    Text(deletionsText)
-                        .foregroundStyle(theme.deletedStatus)
-                }
-                .font(.subheadline.monospacedDigit())
-            }
-            Label(branchBaseText, systemImage: "arrow.triangle.branch")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 8)
-        .textCase(nil)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var filesChangedText: String {
-        String(
+        let files = UILabel()
+        files.text = String(
             format: String(
                 localized: "changes.summary.files_changed",
                 defaultValue: "%lld files changed",
@@ -39,24 +16,34 @@ struct WorkspaceChangesSummaryHeader: View {
             ),
             Int64(totals.filesChanged)
         )
-    }
+        files.font = .preferredFont(forTextStyle: .headline)
 
-    private var additionsText: String {
-        String(
+        let additions = UILabel()
+        additions.text = String(
             format: String(localized: "changes.summary.additions", defaultValue: "+%lld", bundle: .module),
             Int64(totals.additions)
         )
-    }
+        additions.textColor = theme.addedStatus.uiColor
+        additions.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
 
-    private var deletionsText: String {
-        String(
+        let deletions = UILabel()
+        deletions.text = String(
             format: String(localized: "changes.summary.deletions", defaultValue: "−%lld", bundle: .module),
             Int64(totals.deletions)
         )
-    }
+        deletions.textColor = theme.deletedStatus.uiColor
+        deletions.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
 
-    private var branchBaseText: String {
-        String(
+        let counts = UIStackView(arrangedSubviews: [additions, deletions])
+        counts.axis = .horizontal
+        counts.spacing = 8
+        let top = UIStackView(arrangedSubviews: [files, UIView(), counts])
+        top.axis = .horizontal
+        top.alignment = .firstBaseline
+        top.spacing = 12
+
+        let branchLabel = UILabel()
+        branchLabel.text = "⑂ " + String(
             format: String(
                 localized: "changes.summary.branch_base",
                 defaultValue: "%1$@ ← %2$@",
@@ -65,5 +52,28 @@ struct WorkspaceChangesSummaryHeader: View {
             branch,
             base
         )
+        branchLabel.font = .preferredFont(forTextStyle: .subheadline)
+        branchLabel.textColor = .secondaryLabel
+        branchLabel.lineBreakMode = .byTruncatingMiddle
+
+        let stack = UIStackView(arrangedSubviews: [top, branchLabel])
+        stack.axis = .vertical
+        stack.spacing = 5
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
+        ])
+        isAccessibilityElement = true
+        accessibilityLabel = "\(files.text ?? ""), \(branchLabel.text ?? "")"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
+#endif

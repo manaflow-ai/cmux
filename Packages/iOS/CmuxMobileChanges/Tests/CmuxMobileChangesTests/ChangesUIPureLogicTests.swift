@@ -1,4 +1,3 @@
-import SwiftUI
 import Testing
 
 @testable import CmuxMobileChanges
@@ -6,8 +5,8 @@ import Testing
 @Suite struct ChangesUIPureLogicTests {
     @Test @MainActor
     func themeResolvesDistinctLightAndDarkTokens() {
-        let light = ChangesTheme(colorScheme: .light)
-        let dark = ChangesTheme(colorScheme: .dark)
+        let light = ChangesTheme(appearance: .light)
+        let dark = ChangesTheme(appearance: .dark)
 
         #expect(light.additionBackground != dark.additionBackground)
         #expect(light.removalBackground != dark.removalBackground)

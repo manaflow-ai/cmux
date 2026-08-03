@@ -1,33 +1,43 @@
-import SwiftUI
+#if canImport(UIKit)
+internal import UIKit
 
-struct ChangesMiniBar: View {
-    let additions: Int
-    let deletions: Int
-    let theme: ChangesTheme
+/// Five-segment native magnitude bar used by changed-file rows.
+@MainActor
+final class ChangesMiniBar: UIStackView {
+    init(additions: Int, deletions: Int, theme: ChangesTheme) {
+        super.init(frame: .zero)
+        axis = .horizontal
+        alignment = .center
+        spacing = 2
+        isAccessibilityElement = false
 
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<5, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(color(at: index))
-                    .frame(width: 3, height: 8)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var filledCount: Int {
-        min(5, additions + deletions)
-    }
-
-    private var additionCount: Int {
+        let filledCount = min(5, additions + deletions)
         let total = additions + deletions
-        guard total > 0 else { return 0 }
-        return min(filledCount, Int((Double(additions) / Double(total) * Double(filledCount)).rounded()))
+        let additionCount = total > 0
+            ? min(filledCount, Int((Double(additions) / Double(total) * Double(filledCount)).rounded()))
+            : 0
+        for index in 0..<5 {
+            let segment = UIView()
+            segment.translatesAutoresizingMaskIntoConstraints = false
+            segment.layer.cornerRadius = 1
+            segment.backgroundColor = if index >= filledCount {
+                UIColor.secondaryLabel.withAlphaComponent(0.18)
+            } else if index < additionCount {
+                theme.addedStatus.uiColor
+            } else {
+                theme.deletedStatus.uiColor
+            }
+            addArrangedSubview(segment)
+            NSLayoutConstraint.activate([
+                segment.widthAnchor.constraint(equalToConstant: 3),
+                segment.heightAnchor.constraint(equalToConstant: 8),
+            ])
+        }
     }
 
-    private func color(at index: Int) -> Color {
-        guard index < filledCount else { return Color.secondary.opacity(0.18) }
-        return index < additionCount ? theme.addedStatus : theme.deletedStatus
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
+#endif

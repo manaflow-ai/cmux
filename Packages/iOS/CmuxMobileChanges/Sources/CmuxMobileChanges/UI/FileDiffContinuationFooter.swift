@@ -1,79 +1,103 @@
 internal import Foundation
-internal import SwiftUI
 
-struct FileDiffContinuationFooter: View {
-    let continuation: FileDiffContinuation
-    let state: FileDiffContinuationLoadState
-    let onShowMore: @MainActor @Sendable () -> Void
+#if canImport(UIKit)
+internal import UIKit
 
-    var body: some View {
-        VStack(spacing: 10) {
-            if continuation.canShowMore {
-                Text(progressText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+@MainActor
+final class FileDiffContinuationCell: UITableViewCell {
+    static let reuseIdentifier = "FileDiffContinuationCell"
 
-                Button(action: onShowMore) {
-                    HStack(spacing: 8) {
-                        if state == .loading {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(String(
-                            localized: "changes.diff.show_more",
-                            defaultValue: "Show more",
-                            bundle: .module
-                        ))
-                    }
-                }
-                .disabled(state == .loading)
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .clear
+    }
 
-                if state == .failed {
-                    Text(String(
-                        localized: "changes.diff.show_more_failed",
-                        defaultValue: "Couldn't load more diff lines. Try again.",
-                        bundle: .module
-                    ))
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                }
-            } else {
-                Text(String(
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        continuation: FileDiffContinuation,
+        state: FileDiffContinuationLoadState,
+        onShowMore: @escaping @MainActor @Sendable () -> Void
+    ) {
+        contentView.subviews.forEach { $0.removeFromSuperview() }
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        let message = UILabel()
+        message.font = .preferredFont(forTextStyle: .footnote)
+        message.textColor = .secondaryLabel
+        message.textAlignment = .center
+        message.numberOfLines = 0
+
+        if continuation.canShowMore {
+            if let total = continuation.totalLineCount {
+                message.text = String(
                     format: String(
-                        localized: "changes.diff.truncated",
-                        defaultValue: "Large diff. Showing the first %lld lines to keep things fast. See the rest on your Mac.",
+                        localized: "changes.diff.progress",
+                        defaultValue: "Showing %1$@ of %2$@ diff lines",
                         bundle: .module
                     ),
-                    Int64(continuation.shownLineCount)
-                ))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                    continuation.shownLineCount.formatted(),
+                    total.formatted()
+                )
+            } else {
+                message.text = String(
+                    format: String(
+                        localized: "changes.diff.progress_loaded_only",
+                        defaultValue: "Showing the first %@ diff lines",
+                        bundle: .module
+                    ),
+                    continuation.shownLineCount.formatted()
+                )
             }
-        }
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-        .padding(16)
-    }
+            stack.addArrangedSubview(message)
 
-    private var progressText: String {
-        if let totalLineCount = continuation.totalLineCount {
-            return String(
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = String(localized: "changes.diff.show_more", defaultValue: "Show more", bundle: .module)
+            configuration.showsActivityIndicator = state == .loading
+            let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in onShowMore() })
+            button.isEnabled = state != .loading
+            stack.addArrangedSubview(button)
+
+            if state == .failed {
+                let error = UILabel()
+                error.text = String(
+                    localized: "changes.diff.show_more_failed",
+                    defaultValue: "Couldn't load more diff lines. Try again.",
+                    bundle: .module
+                )
+                error.font = .preferredFont(forTextStyle: .footnote)
+                error.textColor = .systemRed
+                error.textAlignment = .center
+                error.numberOfLines = 0
+                stack.addArrangedSubview(error)
+            }
+        } else {
+            message.text = String(
                 format: String(
-                    localized: "changes.diff.progress",
-                    defaultValue: "Showing %1$@ of %2$@ diff lines",
+                    localized: "changes.diff.truncated",
+                    defaultValue: "Large diff. Showing the first %lld lines to keep things fast. See the rest on your Mac.",
                     bundle: .module
                 ),
-                continuation.shownLineCount.formatted(),
-                totalLineCount.formatted()
+                Int64(continuation.shownLineCount)
             )
+            stack.addArrangedSubview(message)
         }
-        return String(
-            format: String(
-                localized: "changes.diff.progress_loaded_only",
-                defaultValue: "Showing the first %@ diff lines",
-                bundle: .module
-            ),
-            continuation.shownLineCount.formatted()
-        )
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+        ])
     }
 }
+#endif

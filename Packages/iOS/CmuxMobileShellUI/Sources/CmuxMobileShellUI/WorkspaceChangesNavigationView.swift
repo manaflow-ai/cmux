@@ -49,7 +49,7 @@ struct WorkspaceChangesNavigationView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            WorkspaceChangesListView(
+            WorkspaceChangesListHost(
                 branch: branch,
                 base: base,
                 totals: totals,
@@ -68,7 +68,7 @@ struct WorkspaceChangesNavigationView: View {
                 switch route {
                 case .diff(let filePath):
                     if let index = files.firstIndex(where: { $0.path == filePath }) {
-                    WorkspaceFileDiffPagerView(
+                    WorkspaceFileDiffPagerHost(
                         files: files,
                         initialSelectedIndex: index,
                         cachedPresentations: cachedPresentations,
@@ -145,6 +145,69 @@ struct WorkspaceChangesNavigationView: View {
             inlineActionDescriptor = descriptor
         }
         .accessibilityIdentifier("MobileChangesSheet")
+    }
+}
+
+private struct WorkspaceChangesListHost: UIViewControllerRepresentable {
+    let branch: String
+    let base: String
+    let totals: ChangesTotals
+    let files: [ChangedFileItem]
+    let state: WorkspaceChangesListState
+    let actions: WorkspaceChangesListActions
+
+    func makeUIViewController(context: Context) -> WorkspaceChangesListViewController {
+        WorkspaceChangesListViewController(
+            branch: branch,
+            base: base,
+            totals: totals,
+            files: files,
+            state: state,
+            actions: actions
+        )
+    }
+
+    func updateUIViewController(
+        _ controller: WorkspaceChangesListViewController,
+        context: Context
+    ) {
+        controller.update(
+            branch: branch,
+            base: base,
+            totals: totals,
+            files: files,
+            state: state,
+            actions: actions
+        )
+    }
+}
+
+private struct WorkspaceFileDiffPagerHost: UIViewControllerRepresentable {
+    let files: [ChangedFileItem]
+    let initialSelectedIndex: Int
+    let cachedPresentations: [String: FileDiffPresentation]
+    let initialFontSize: Double
+    let actions: WorkspaceFileDiffPagerActions
+
+    func makeUIViewController(context: Context) -> WorkspaceFileDiffPagerViewController {
+        WorkspaceFileDiffPagerViewController(
+            files: files,
+            initialSelectedIndex: initialSelectedIndex,
+            cachedPresentations: cachedPresentations,
+            initialFontSize: initialFontSize,
+            actions: actions
+        )
+    }
+
+    func updateUIViewController(
+        _ controller: WorkspaceFileDiffPagerViewController,
+        context: Context
+    ) {
+        controller.update(
+            files: files,
+            cachedPresentations: cachedPresentations,
+            actions: actions
+        )
     }
 }
 #endif

@@ -1,4 +1,5 @@
-extension FileDiffPageView {
+#if canImport(UIKit)
+extension FileDiffPageViewController {
     func expansionRowStatus(
         for snapshot: DiffExpanderSnapshot
     ) -> DiffExpansionRowStatus {
@@ -39,6 +40,7 @@ extension FileDiffPageView {
         let generation = requestGeneration.begin()
         pendingExpansionGapID = snapshot.gap.id
         pendingExpansionDirection = direction
+        render()
         expansionTask = Task { @MainActor in
             await loadCurrentLinesAndExpand(
                 snapshot: snapshot,
@@ -65,6 +67,7 @@ extension FileDiffPageView {
         let nextExpansionState = expansionState
         pendingExpansionGapID = snapshot.gap.id
         pendingExpansionDirection = direction
+        render()
         expansionTask = Task { @MainActor in
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
@@ -139,6 +142,7 @@ extension FileDiffPageView {
             clearPendingExpansion()
             expansionTask = nil
             expansionContentTooLarge = true
+            render()
         } catch {
             guard !Task.isCancelled,
                   requestGeneration.isCurrent(generation) else { return }
@@ -227,6 +231,7 @@ extension FileDiffPageView {
         failedExpansionDirection = nil
         expansionTask = nil
         loadState = .loaded(presentation)
+        render()
     }
 
     @MainActor
@@ -238,6 +243,7 @@ extension FileDiffPageView {
         expansionTask = nil
         failedExpansionGapID = snapshot.gap.id
         failedExpansionDirection = direction
+        render()
     }
 
     @MainActor
@@ -246,3 +252,4 @@ extension FileDiffPageView {
         pendingExpansionDirection = nil
     }
 }
+#endif

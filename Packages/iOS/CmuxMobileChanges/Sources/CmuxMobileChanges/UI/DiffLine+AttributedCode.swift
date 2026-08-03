@@ -1,19 +1,27 @@
-import SwiftUI
+#if canImport(UIKit)
+internal import UIKit
 
 extension DiffLine {
-    func attributedCode(emphasisColor: Color) -> AttributedString {
-        guard !emphasisRanges.isEmpty else { return AttributedString(text) }
-        var result = AttributedString()
-        var cursor = text.startIndex
-        for range in emphasisRanges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
-            guard cursor <= range.lowerBound, range.upperBound <= text.endIndex else { continue }
-            result.append(AttributedString(String(text[cursor..<range.lowerBound])))
-            var emphasized = AttributedString(String(text[range]))
-            emphasized.backgroundColor = emphasisColor
-            result.append(emphasized)
-            cursor = range.upperBound
+    @MainActor
+    func attributedCode(font: UIFont, emphasisColor: UIColor) -> NSAttributedString {
+        let result = NSMutableAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.label,
+            ]
+        )
+        for range in emphasisRanges {
+            let location = text.distance(from: text.startIndex, to: range.lowerBound)
+            let length = text.distance(from: range.lowerBound, to: range.upperBound)
+            guard location >= 0, length >= 0, location + length <= result.length else { continue }
+            result.addAttribute(
+                .backgroundColor,
+                value: emphasisColor,
+                range: NSRange(location: location, length: length)
+            )
         }
-        result.append(AttributedString(String(text[cursor...])))
         return result
     }
 }
+#endif
