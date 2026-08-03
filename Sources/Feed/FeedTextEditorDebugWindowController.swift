@@ -333,7 +333,10 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.minSize = .zero
-        textView.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
 
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
