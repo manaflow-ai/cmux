@@ -2601,6 +2601,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_commands_use_canonical_public_states() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for state in ["working", "blocked", "idle", "done", "unknown"] {
+            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
+            assert_eq!(list.params["state"], state);
+            let report = protocol(&[
+                "agent",
+                "report",
+                "--terminal",
+                TERMINAL,
+                "--state",
+                state,
+                "--source",
+                "socket",
+            ]);
+            assert_eq!(report.params["state"], state);
+        }
+        for noncanonical in ["running", "waiting", "error"] {
+            assert!(
+                parse(&strings(&[
+                    "agent",
+                    "report",
+                    "--terminal",
+                    TERMINAL,
+                    "--state",
+                    noncanonical,
+                    "--source",
+                    "socket",
+                ]))
+                .is_err(),
+                "accepted noncanonical agent state {noncanonical:?}"
+            );
+        }
+    }
+
+    #[test]
     fn old_hyphenated_action_is_not_a_nested_selector() {
         assert!(
             parse(&strings(&[
