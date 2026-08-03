@@ -250,8 +250,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Focusing a window Dock panel dismisses its unread notification")
-    func focusingWindowDockPanelDismissesUnreadNotification() async throws {
+    @Test("Keyboard entry into a window Dock dismisses its unread notification")
+    func keyboardEntryIntoWindowDockDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -294,7 +294,7 @@ struct DockRuntimeParityTests {
                 isEnabled: true
             ) == "1")
 
-            dock.focusPanelFromDockInteraction(panel.id, window: nil)
+            #expect(dock.focusFirstControl())
 
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: dock.workspaceId,
