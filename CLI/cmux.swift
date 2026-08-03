@@ -4956,10 +4956,17 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId: String?
             if let explicitSurfaceRaw {
+                let explicitSurfaceHandle = explicitSurfaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !explicitSurfaceHandle.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.surface.error.handleBlank",
+                        defaultValue: "Surface handle is blank"
+                    ))
+                }
                 if let wsId {
-                    sfId = try resolveSurfaceId(explicitSurfaceRaw, workspaceId: wsId, client: client)
+                    sfId = try resolveSurfaceId(explicitSurfaceHandle, workspaceId: wsId, client: client)
                 } else if let winId {
-                    sfId = try normalizeSurfaceHandle(explicitSurfaceRaw, client: client, workspaceHandle: nil, windowHandle: winId)
+                    sfId = try normalizeSurfaceHandle(explicitSurfaceHandle, client: client, workspaceHandle: nil, windowHandle: winId)
                 } else {
                     throw CLIError(message: String(
                         localized: "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow",
