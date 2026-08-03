@@ -52,6 +52,17 @@ struct ConnectedHandle: Sendable {
 typealias TerminalConnector = @Sendable (String, String) -> ConnectedHandle
 
 private let terminalConnectionTimeoutError = "terminal connection timed out"
+private let terminalConnectionTimeoutMilliseconds: UInt64 = 15_000
+
+private func displayTerminalConnectionError(_ error: String) -> String {
+    error == terminalConnectionTimeoutError
+        ? L10n.text(
+            "error.connect.timeout",
+            "Connection timed out. Check the invitation and try again."
+        )
+        : error
+}
+
 private let defaultTerminalConnector: TerminalConnector = { invitation, terminalID in
     var error = [CChar](repeating: 0, count: 1_024)
     let handle = invitation.withCString { invitationPointer in
@@ -61,7 +72,7 @@ private let defaultTerminalConnector: TerminalConnector = { invitation, terminal
                 terminalPointer,
                 &error,
                 error.count,
-                15_000
+                terminalConnectionTimeoutMilliseconds
             )
         }
     }
@@ -113,7 +124,8 @@ actor TerminalClientHandle {
             OpaquePointer,
             UnsafePointer<CChar>?,
             UnsafeMutablePointer<CChar>?,
-            Int
+            Int,
+            UInt64
         ) -> Bool
     private let destroyClient: @Sendable (OpaquePointer) -> Void
     private let detachClient: @Sendable (OpaquePointer) -> Void
@@ -163,9 +175,10 @@ actor TerminalClientHandle {
                 OpaquePointer,
                 UnsafePointer<CChar>?,
                 UnsafeMutablePointer<CChar>?,
-                Int
+                Int,
+                UInt64
             ) -> Bool = {
-                cmux_terminal_client_attach($0, $1, $2, $3)
+                cmux_terminal_client_attach_with_timeout($0, $1, $2, $3, $4)
             },
         destroyClient: @escaping @Sendable (OpaquePointer) -> Void = {
             cmux_terminal_client_disconnect($0)
@@ -256,7 +269,13 @@ actor TerminalClientHandle {
         guard !isAttached else { return nil }
         var error = [CChar](repeating: 0, count: 1_024)
         let attached = terminalID.withCString { terminalPointer in
-            attachClient(raw, terminalPointer, &error, error.count)
+            attachClient(
+                raw,
+                terminalPointer,
+                &error,
+                error.count,
+                terminalConnectionTimeoutMilliseconds
+            )
         }
         guard attached else {
             return String(
@@ -512,6 +531,7 @@ final class TerminalModel {
     private(set) var isConnected = false
 
     @ObservationIgnored private var client: TerminalClientHandle?
+    @ObservationIgnored private var clientInvitation: String?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var inputTask: Task<Void, Never>?
     @ObservationIgnored private var inputQueue = BoundedFIFO<QueuedTerminalInput>(
@@ -548,6 +568,11 @@ final class TerminalModel {
         self.connectClient = connectClient ?? defaultTerminalConnector
         shouldAutoConnect = configuration.autoConnect
         client = retainedClient
+        let retainedInvitation = configuration.invitation.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        clientInvitation =
+            retainedClient != nil && !retainedInvitation.isEmpty ? retainedInvitation : nil
         isConnected = retainedClient != nil && initiallyConnected
     }
 
@@ -567,7 +592,10 @@ final class TerminalModel {
             )
             return
         }
-        if let client {
+        let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let client,
+            clientInvitation.map({ $0 == invitation }) ?? invitation.isEmpty
+        {
             errorMessage = ""
             isConnecting = true
             connectionOperation &+= 1
@@ -577,7 +605,7 @@ final class TerminalModel {
                 guard operation == connectionOperation, !isShuttingDown else { return }
                 isConnecting = false
                 if let reconnectError {
-                    errorMessage = reconnectError
+                    errorMessage = displayTerminalConnectionError(reconnectError)
                     return
                 }
                 isConnected = true
@@ -588,10 +616,24 @@ final class TerminalModel {
             }
             return
         }
-        let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !invitation.isEmpty else {
             errorMessage = L10n.text("error.invitation", "Paste an enrollment invitation.")
             return
+        }
+        let replacedClient = client
+        if replacedClient != nil {
+            updateTask?.cancel()
+            updateTask = nil
+            resizeTask?.cancel()
+            resizeTask = nil
+            resetResizeRetry()
+            inputQueue.removeAll()
+            isConnected = false
+            frame = ""
+            diagnostics = ""
+            geometryDelivery.resetConnection()
+            client = nil
+            clientInvitation = nil
         }
         errorMessage = ""
         isConnecting = true
@@ -599,6 +641,10 @@ final class TerminalModel {
         let operation = connectionOperation
         let connectClient = connectClient
         Task {
+            if let replacedClient {
+                await replacedClient.shutdown()
+            }
+            guard operation == connectionOperation, !isShuttingDown else { return }
             let result = await Task.detached(priority: .userInitiated) {
                 connectClient(invitation, terminalID)
             }.value
@@ -610,13 +656,7 @@ final class TerminalModel {
             }
             isConnecting = false
             guard let address = result.rawAddress else {
-                let displayError =
-                    result.error == terminalConnectionTimeoutError
-                    ? L10n.text(
-                        "error.connect.timeout",
-                        "Connection timed out. Check the invitation and try again."
-                    )
-                    : result.error
+                let displayError = displayTerminalConnectionError(result.error)
                 errorMessage = displayError
                 if let bytes = "TerminalBytes connection failed: \(displayError)\n"
                     .data(using: .utf8)
@@ -631,6 +671,7 @@ final class TerminalModel {
                 return
             }
             self.client = client
+            clientInvitation = invitation
             isConnected = true
             geometryDelivery.resetConnection()
             resetResizeRetry()
@@ -682,6 +723,7 @@ final class TerminalModel {
         isConnecting = false
         let ownedClient = client
         client = nil
+        clientInvitation = nil
         if let ownedClient {
             Task {
                 await ownedClient.shutdown()

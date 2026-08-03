@@ -3,7 +3,7 @@ use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration as StdDuration;
+use std::time::{Duration as StdDuration, Instant};
 
 use base64::Engine;
 use bytes::Bytes;
@@ -407,15 +407,28 @@ async fn open_terminal_stream(
     multiplexer: &Arc<ServiceMultiplexer>,
     terminal_id: &TerminalPublicId,
 ) -> Result<Arc<ServiceStream>, String> {
-    let stream = Arc::new(
+    open_terminal_stream_with_timeout(multiplexer, terminal_id, None).await
+}
+
+async fn open_terminal_stream_with_timeout(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    terminal_id: &TerminalPublicId,
+    timeout: Option<StdDuration>,
+) -> Result<Arc<ServiceStream>, String> {
+    let started = Instant::now();
+    let open = async {
         multiplexer
             .open(
                 Service::TerminalBytes,
                 BTreeMap::from([("terminal".into(), terminal_id.to_string())]),
             )
             .await
-            .map_err(|error| format!("open terminal-bytes-v1: {error}"))?,
-    );
+            .map_err(|error| format!("open terminal-bytes-v1: {error}"))
+    };
+    let stream = Arc::new(match timeout {
+        Some(timeout) => connect_with_timeout(open, timeout).await?,
+        None => open.await?,
+    });
     let handshake = async {
         let opened = stream
             .receive()
@@ -430,8 +443,13 @@ async fn open_terminal_stream(
             return Err("terminal service returned an invalid Opened acknowledgement".into());
         }
         Ok::<(), String>(())
-    }
-    .await;
+    };
+    let handshake = match timeout {
+        Some(timeout) => {
+            connect_with_timeout(handshake, timeout.saturating_sub(started.elapsed())).await
+        }
+        None => handshake.await,
+    };
     if let Err(error) = handshake {
         let _ = stream.close().await;
         return Err(error);
@@ -735,13 +753,20 @@ fn start_terminal_tasks(
 }
 
 impl CmuxTerminalClient {
-    fn attach_terminal(&self, terminal_id: TerminalPublicId) -> Result<(), String> {
+    fn attach_terminal(
+        &self,
+        terminal_id: TerminalPublicId,
+        timeout: Option<StdDuration>,
+    ) -> Result<(), String> {
         let mut terminal = self.terminal.lock().unwrap();
         if terminal.is_some() {
             return Ok(());
         }
-        let stream =
-            self.runtime.block_on(open_terminal_stream(&self.multiplexer, &terminal_id))?;
+        let stream = self.runtime.block_on(open_terminal_stream_with_timeout(
+            &self.multiplexer,
+            &terminal_id,
+            timeout,
+        ))?;
         let snapshot = self.runtime.block_on(self.connection.snapshot());
         let path = snapshot
             .transport
@@ -979,6 +1004,42 @@ pub unsafe extern "C" fn cmux_terminal_client_attach(
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> bool {
+    // SAFETY: this function forwards its documented pointer contract unchanged.
+    unsafe { attach_terminal_client(client, terminal_id, error_buffer, error_capacity, None) }
+}
+
+/// Reopens the terminal service with a deadline on an already enrolled transport.
+///
+/// # Safety
+///
+/// The pointer and ownership contract matches [`cmux_terminal_client_attach`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_attach_with_timeout(
+    client: *mut CmuxTerminalClient,
+    terminal_id: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> bool {
+    // SAFETY: this function forwards its documented pointer contract unchanged.
+    unsafe {
+        attach_terminal_client(
+            client,
+            terminal_id,
+            error_buffer,
+            error_capacity,
+            Some(StdDuration::from_millis(timeout_milliseconds)),
+        )
+    }
+}
+
+unsafe fn attach_terminal_client(
+    client: *mut CmuxTerminalClient,
+    terminal_id: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout: Option<StdDuration>,
+) -> bool {
     let Some(client) = (unsafe { client.as_ref() }) else {
         copy_utf8("terminal client is null", error_buffer, error_capacity);
         return false;
@@ -990,7 +1051,7 @@ pub unsafe extern "C" fn cmux_terminal_client_attach(
             return false;
         }
     };
-    match client.attach_terminal(terminal_id) {
+    match client.attach_terminal(terminal_id, timeout) {
         Ok(()) => true,
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
@@ -1543,6 +1604,41 @@ mod tests {
 
             assert!(open_terminal_stream(&client, &test_terminal_id()).await.is_err());
             daemon_task.await.unwrap();
+            client.shutdown().await;
+            daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn timed_out_terminal_handshake_closes_its_service_stream() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (client_endpoint, daemon_endpoint) = endpoint_pair();
+            let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+            let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+            let daemon_task = tokio::spawn({
+                let daemon = daemon.clone();
+                async move {
+                    let incoming = daemon.accept().await.unwrap().unwrap();
+                    tokio::time::timeout(StdDuration::from_secs(1), incoming.stream.receive())
+                        .await
+                        .expect("timed-out handshake left the service registered")
+                        .unwrap()
+                        .unwrap()
+                }
+            });
+
+            let error = open_terminal_stream_with_timeout(
+                &client,
+                &test_terminal_id(),
+                Some(StdDuration::from_millis(25)),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error, CONNECTION_TIMEOUT_ERROR);
+            let closed = daemon_task.await.unwrap();
+            assert!(closed.finished, "timed-out handshake reset instead of closing cleanly");
+            assert!(!closed.reset);
             client.shutdown().await;
             daemon.shutdown().await;
         });

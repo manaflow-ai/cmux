@@ -25,6 +25,12 @@ bool cmux_terminal_client_attach(
     const char *terminal_id,
     char *error_buffer,
     size_t error_capacity);
+bool cmux_terminal_client_attach_with_timeout(
+    CmuxTerminalClient *client,
+    const char *terminal_id,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 void cmux_terminal_client_detach(CmuxTerminalClient *client);
 void cmux_terminal_client_set_update_callback(
     const CmuxTerminalClient *client,

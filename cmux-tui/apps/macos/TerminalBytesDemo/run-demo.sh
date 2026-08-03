@@ -70,7 +70,9 @@ cleanup() {
     rm -rf -- "$DEMO_ROOT"
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "Building the exact cmux-tui daemon and Rust terminal-client static library..."
 (cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
