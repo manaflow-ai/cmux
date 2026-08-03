@@ -1,0 +1,2460 @@
+//! Exact ownership helpers for Unix PTY sessions.
+//!
+//! `portable-pty` starts each terminal child as a session leader. Process
+//! groups inside that session are transient job-control details, so shutdown
+//! enumerates and signals every session member instead of guessing which
+//! foreground or background groups still exist.
+
+use std::collections::{HashMap, HashSet};
+use std::io;
+#[cfg(target_os = "macos")]
+use std::mem::size_of;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
+const PROCESS_SESSION_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(1);
+const NATURAL_REAP_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const NATURAL_REAP_RETRY_MAX: Duration = Duration::from_secs(1);
+#[cfg(not(test))]
+const NATURAL_REAP_DEGRADED_RETRY: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const NATURAL_REAP_DEGRADED_RETRY: Duration = Duration::from_millis(500);
+const NATURAL_REAP_BATCH_WINDOW: Duration = Duration::from_millis(5);
+const NATURAL_REAP_CAPACITY: usize = 4_096;
+#[cfg(not(test))]
+const NATURAL_REAP_MAX_ATTEMPTS: usize = 8;
+#[cfg(test)]
+const NATURAL_REAP_MAX_ATTEMPTS: usize = 3;
+
+#[cfg(test)]
+static NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static NATURAL_REAP_TEST_SESSION: AtomicUsize = AtomicUsize::new(1_000_000_000);
+
+static NATURAL_REAPER: OnceLock<Mutex<Option<NaturalReaper>>> = OnceLock::new();
+static STABLE_PROCESS_SIGNALING: OnceLock<()> = OnceLock::new();
+
+#[cfg(test)]
+thread_local! {
+    static FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static POST_SPAWN_FAILURE_MARKER: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
+    NATURAL_REAP_WORKERS.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+fn natural_reap_test_session() -> libc::pid_t {
+    libc::pid_t::try_from(NATURAL_REAP_TEST_SESSION.fetch_add(1, Ordering::Relaxed)).unwrap()
+}
+
+#[cfg(test)]
+pub(crate) fn reserved_child_reaper_active_for_test() -> usize {
+    let Some(slot) = NATURAL_REAPER.get() else { return 0 };
+    let slot = slot.lock().unwrap();
+    slot.as_ref().map_or(0, |reaper| reaper.activity.active.load(Ordering::Acquire))
+}
+
+#[cfg(test)]
+pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
+    FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.set(enabled);
+}
+
+#[cfg(test)]
+pub(crate) struct ForcedPostSpawnFailure {
+    previous: Option<std::path::PathBuf>,
+}
+
+#[cfg(test)]
+impl Drop for ForcedPostSpawnFailure {
+    fn drop(&mut self) {
+        POST_SPAWN_FAILURE_MARKER.with_borrow_mut(|marker| {
+            *marker = self.previous.take();
+        });
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn force_post_spawn_failure_for_test(
+    marker: std::path::PathBuf,
+) -> ForcedPostSpawnFailure {
+    let previous = POST_SPAWN_FAILURE_MARKER.replace(Some(marker));
+    ForcedPostSpawnFailure { previous }
+}
+
+#[cfg(test)]
+pub(crate) fn fail_after_pty_spawn_for_test() -> io::Result<()> {
+    let marker = POST_SPAWN_FAILURE_MARKER.with_borrow(Clone::clone);
+    let Some(marker) = marker else { return Ok(()) };
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let marker_is_ready = || marker.metadata().is_ok_and(|metadata| metadata.len() > 0);
+    while !marker_is_ready() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if !marker_is_ready() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "forced post-spawn failure marker was not fully published",
+        ));
+    }
+    Err(io::Error::other("forced post-spawn PTY initialization failure"))
+}
+
+/// Synchronization shared by a WNOWAIT child observer and explicit PTY
+/// shutdown. The session leader remains reserved until this state machine
+/// confirms that cleanup completed and performs the sole final reap.
+pub(crate) struct ReservedChildReap<'a> {
+    pub(crate) signal_lock: &'a Mutex<()>,
+    pub(crate) pty_drained: &'a AtomicBool,
+    pub(crate) termination_started: &'a AtomicBool,
+    pub(crate) cleanup_complete: &'a AtomicBool,
+    pub(crate) child_reaped: &'a AtomicBool,
+    pub(crate) wait_ownership_lost: &'a AtomicBool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChildWaitState {
+    Running,
+    Waitable,
+    OwnershipLost,
+}
+
+pub(crate) enum NaturalReapFinish {
+    Complete,
+    Pending,
+    Failed,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NaturalChildObservation {
+    Ready,
+    Pending,
+    Failed,
+}
+
+enum NaturalReaperCommand {
+    Add(NaturalReapRequest),
+    WakeSession(libc::pid_t),
+    WakeUnpublished,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UnpublishedChildReaperHealth {
+    pub(crate) pending: usize,
+    pub(crate) degraded: bool,
+}
+
+#[derive(Default)]
+struct NaturalReaperActivityState {
+    unpublished: usize,
+    degraded: usize,
+    unpublished_degraded: usize,
+}
+
+#[derive(Default)]
+struct NaturalReaperActivity {
+    active: AtomicUsize,
+    state: Mutex<NaturalReaperActivityState>,
+    changed: Condvar,
+}
+
+impl NaturalReaperActivity {
+    fn reserve(&self) -> io::Result<()> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < NATURAL_REAP_CAPACITY).then_some(active + 1)
+            })
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::WouldBlock, "PTY session reaper capacity exhausted")
+            })?;
+        self.state.lock().unwrap().unpublished += 1;
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    fn attach_owner(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.unpublished = state
+            .unpublished
+            .checked_sub(1)
+            .expect("unpublished PTY child reaper reservation is balanced");
+        self.changed.notify_all();
+    }
+
+    fn release(&self, owner_attached: bool) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+        if !owner_attached {
+            let mut state = self.state.lock().unwrap();
+            state.unpublished = state
+                .unpublished
+                .checked_sub(1)
+                .expect("unpublished PTY child reaper reservation is balanced");
+            self.changed.notify_all();
+        }
+    }
+
+    fn set_degraded(&self, owner_attached: bool, degraded: bool) {
+        let mut state = self.state.lock().unwrap();
+        if degraded {
+            state.degraded += 1;
+            if !owner_attached {
+                state.unpublished_degraded += 1;
+            }
+        } else {
+            state.degraded = state
+                .degraded
+                .checked_sub(1)
+                .expect("degraded PTY child reaper accounting is balanced");
+            if !owner_attached {
+                state.unpublished_degraded = state
+                    .unpublished_degraded
+                    .checked_sub(1)
+                    .expect("unpublished degraded PTY child reaper accounting is balanced");
+            }
+        }
+    }
+
+    fn unpublished_health(&self) -> UnpublishedChildReaperHealth {
+        let state = self.state.lock().unwrap();
+        UnpublishedChildReaperHealth {
+            pending: state.unpublished,
+            degraded: state.unpublished_degraded != 0,
+        }
+    }
+
+    fn wait_for_unpublished_until(&self, deadline: Instant) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        while state.unpublished != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(unpublished_child_reaper_deadline_error(&state));
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.unpublished != 0 {
+                return Err(unpublished_child_reaper_deadline_error(&state));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn unpublished_child_reaper_deadline_error(state: &NaturalReaperActivityState) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!(
+            "unpublished child reaper ownership did not drain before the shutdown deadline \
+             (pending: {}, degraded: {})",
+            state.unpublished, state.unpublished_degraded
+        ),
+    )
+}
+
+struct NaturalReapRequest {
+    session: libc::pid_t,
+    cleanup_timeout: Duration,
+    observe_child: Box<dyn FnMut() -> io::Result<bool> + Send>,
+    child_observed: bool,
+    needs_cleanup: Box<dyn Fn() -> bool + Send>,
+    prepare_cleanup: Box<dyn FnMut() -> bool + Send>,
+    finish: Box<dyn FnMut(bool) -> NaturalReapFinish + Send>,
+    _lease: ReservedChildReaperLease,
+    next_attempt: Instant,
+    retry_delay: Duration,
+    attempts: usize,
+    degraded: bool,
+}
+
+impl NaturalReapRequest {
+    fn clear_degraded(&mut self) {
+        if self.degraded {
+            self.degraded = false;
+            self._lease.activity.set_degraded(self._lease.owner_attached, false);
+        }
+    }
+
+    fn recover_from_failure(&mut self) {
+        if self.attempts != 0 || self.degraded {
+            self.attempts = 0;
+            self.retry_delay = NATURAL_REAP_RETRY_INITIAL;
+            self.clear_degraded();
+        }
+    }
+
+    fn schedule_pending(&mut self) {
+        self.recover_from_failure();
+        self.next_attempt = Instant::now() + self.retry_delay;
+        self.retry_delay = (self.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+    }
+
+    fn schedule_failure(&mut self) {
+        self.attempts = self.attempts.saturating_add(1);
+        if self.attempts >= NATURAL_REAP_MAX_ATTEMPTS {
+            if !self.degraded {
+                self.degraded = true;
+                self._lease.activity.set_degraded(self._lease.owner_attached, true);
+            }
+            self.next_attempt = Instant::now() + NATURAL_REAP_DEGRADED_RETRY;
+        } else {
+            self.next_attempt = Instant::now() + self.retry_delay;
+            self.retry_delay = (self.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+        }
+    }
+}
+
+impl Drop for NaturalReapRequest {
+    fn drop(&mut self) {
+        self.clear_degraded();
+    }
+}
+
+struct NaturalReaper {
+    sender: mpsc::Sender<NaturalReaperCommand>,
+    activity: Arc<NaturalReaperActivity>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+pub(crate) struct ReservedChildReaperLease {
+    sender: mpsc::Sender<NaturalReaperCommand>,
+    activity: Arc<NaturalReaperActivity>,
+    owner_attached: bool,
+}
+
+impl ReservedChildReaperLease {
+    /// Transfer cleanup authority to a surface or terminal-host owner.
+    ///
+    /// Until this transition, shutdown must treat the reservation as the sole
+    /// owner of any child created after it. Failed-spawn cleanup deliberately
+    /// keeps the reservation unpublished until the shared reaper completes.
+    #[must_use]
+    pub(crate) fn attach_owner(mut self) -> Self {
+        assert!(!self.owner_attached, "PTY child reaper already has a published owner");
+        self.activity.attach_owner();
+        self.owner_attached = true;
+        self
+    }
+}
+
+impl Drop for ReservedChildReaperLease {
+    fn drop(&mut self) {
+        self.activity.release(self.owner_attached);
+    }
+}
+
+impl NaturalReaper {
+    fn start() -> io::Result<Self> {
+        let (sender, receiver) = mpsc::channel();
+        let activity = Arc::new(NaturalReaperActivity::default());
+        let worker = std::thread::Builder::new().name("cmux-pty-session-reaper".into()).spawn(
+            move || {
+                #[cfg(test)]
+                NATURAL_REAP_WORKERS.fetch_add(1, Ordering::AcqRel);
+                run_natural_reaper(receiver);
+                #[cfg(test)]
+                NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
+            },
+        )?;
+        Ok(Self { sender, activity, _worker: worker })
+    }
+
+    fn lease(&self) -> io::Result<ReservedChildReaperLease> {
+        self.activity.reserve()?;
+        Ok(ReservedChildReaperLease {
+            sender: self.sender.clone(),
+            activity: self.activity.clone(),
+            owner_attached: false,
+        })
+    }
+}
+
+pub(crate) fn reserve_child_reaper() -> io::Result<ReservedChildReaperLease> {
+    require_waitable_child_disposition()?;
+    let mut slot = NATURAL_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    if slot.is_none() {
+        *slot = Some(NaturalReaper::start()?);
+    }
+    slot.as_ref().expect("natural PTY reaper initialized").lease()
+}
+
+pub(crate) fn unpublished_child_reaper_health() -> UnpublishedChildReaperHealth {
+    let Some(slot) = NATURAL_REAPER.get() else {
+        return UnpublishedChildReaperHealth::default();
+    };
+    let activity = {
+        let slot = slot.lock().unwrap();
+        let Some(reaper) = slot.as_ref() else {
+            return UnpublishedChildReaperHealth::default();
+        };
+        reaper.activity.clone()
+    };
+    activity.unpublished_health()
+}
+
+/// Wake ownerless child cleanup and retain the server until every reservation
+/// either publishes a higher-level owner or releases its wait ownership.
+pub(crate) fn wait_for_unpublished_child_reaper_until(deadline: Instant) -> io::Result<()> {
+    let Some(slot) = NATURAL_REAPER.get() else { return Ok(()) };
+    let (sender, activity) = {
+        let slot = slot.lock().unwrap();
+        let Some(reaper) = slot.as_ref() else { return Ok(()) };
+        (reaper.sender.clone(), reaper.activity.clone())
+    };
+    sender.send(NaturalReaperCommand::WakeUnpublished).map_err(|_| {
+        io::Error::new(io::ErrorKind::BrokenPipe, "unpublished child reaper is unavailable")
+    })?;
+    activity.wait_for_unpublished_until(deadline)
+}
+
+pub(crate) fn observe_child_without_reaping(
+    pid: libc::pid_t,
+    nonblocking: bool,
+) -> io::Result<ChildWaitState> {
+    loop {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        let mut flags = libc::WEXITED | libc::WNOWAIT;
+        if nonblocking {
+            flags |= libc::WNOHANG;
+        }
+        // SAFETY: status points to writable siginfo storage. WNOWAIT keeps
+        // the child and its numeric session ID reserved until the sole owner
+        // performs the final wait.
+        let result =
+            unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, status.as_mut_ptr(), flags) };
+        if result == 0 {
+            // SAFETY: waitid initialized status on success; zeroed storage
+            // keeps si_signo at zero when WNOHANG finds no waitable child.
+            return Ok(if unsafe { status.assume_init() }.si_signo == 0 {
+                ChildWaitState::Running
+            } else {
+                ChildWaitState::Waitable
+            });
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            return Ok(ChildWaitState::OwnershipLost);
+        }
+        return Err(error);
+    }
+}
+
+fn require_waitable_child_disposition() -> io::Result<()> {
+    let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
+    // SAFETY: a null replacement only reads the process-wide SIGCHLD
+    // disposition into the initialized output storage.
+    if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), action.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: sigaction initialized the output on success.
+    let action = unsafe { action.assume_init() };
+    if action.sa_sigaction == libc::SIG_IGN || action.sa_flags & libc::SA_NOCLDWAIT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "SIGCHLD disposition does not preserve PTY child wait ownership",
+        ));
+    }
+    Ok(())
+}
+
+/// Wake one reserved child after a cleanup-relevant state transition.
+///
+/// This deliberately preempts that session's degraded retry delay once.
+/// Callers must emit it only when the state actually changed; a failed attempt
+/// keeps its normal degraded backoff.
+pub(crate) fn wake_child_reaper(session: libc::pid_t) {
+    let Some(slot) = NATURAL_REAPER.get() else { return };
+    let slot = slot.lock().unwrap();
+    let Some(reaper) = slot.as_ref() else { return };
+    let _ = reaper.sender.send(NaturalReaperCommand::WakeSession(session));
+}
+
+pub(crate) fn enqueue_reserved_session_leader(
+    lease: ReservedChildReaperLease,
+    session: libc::pid_t,
+    cleanup_timeout: Duration,
+    observe_child: impl FnMut() -> io::Result<bool> + Send + 'static,
+    needs_cleanup: impl Fn() -> bool + Send + 'static,
+    prepare_cleanup: impl FnMut() -> bool + Send + 'static,
+    finish: impl FnMut(bool) -> NaturalReapFinish + Send + 'static,
+) {
+    let sender = lease.sender.clone();
+    sender
+        .send(NaturalReaperCommand::Add(NaturalReapRequest {
+            session,
+            cleanup_timeout,
+            observe_child: Box::new(observe_child),
+            child_observed: false,
+            needs_cleanup: Box::new(needs_cleanup),
+            prepare_cleanup: Box::new(prepare_cleanup),
+            finish: Box::new(finish),
+            _lease: lease,
+            next_attempt: Instant::now(),
+            retry_delay: NATURAL_REAP_RETRY_INITIAL,
+            attempts: 0,
+            degraded: false,
+        }))
+        .expect("natural PTY reaper remains alive while its service is registered");
+}
+
+pub(crate) fn reserved_child_needs_cleanup(sync: ReservedChildReap<'_>) -> bool {
+    let _signal = sync.signal_lock.lock().unwrap();
+    !sync.wait_ownership_lost.load(Ordering::Acquire)
+        && !sync.cleanup_complete.load(Ordering::Acquire)
+        && !sync.termination_started.load(Ordering::Acquire)
+}
+
+pub(crate) fn poll_reserved_session_leader(
+    sync: ReservedChildReap<'_>,
+    cleanup_succeeded: bool,
+    reap: impl FnOnce(),
+) -> bool {
+    let _signal = sync.signal_lock.lock().unwrap();
+    if sync.wait_ownership_lost.load(Ordering::Acquire) {
+        return false;
+    }
+    if !sync.cleanup_complete.load(Ordering::Acquire) {
+        if sync.termination_started.load(Ordering::Acquire) || !cleanup_succeeded {
+            return false;
+        }
+        sync.cleanup_complete.store(true, Ordering::Release);
+    }
+    if !sync.pty_drained.load(Ordering::Acquire) {
+        return false;
+    }
+    reap();
+    sync.child_reaped.store(true, Ordering::Release);
+    true
+}
+
+fn run_natural_reaper(receiver: mpsc::Receiver<NaturalReaperCommand>) {
+    let mut pending = Vec::<NaturalReapRequest>::new();
+    loop {
+        let received = if pending.is_empty() {
+            receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        } else {
+            let now = Instant::now();
+            let wait = pending
+                .iter()
+                .map(|request| request.next_attempt.saturating_duration_since(now))
+                .min()
+                .unwrap_or(NATURAL_REAP_RETRY_MAX);
+            receiver.recv_timeout(wait)
+        };
+        match received {
+            Ok(command) => {
+                accept_natural_reaper_command(command, &mut pending);
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+            Err(RecvTimeoutError::Disconnected) => {
+                std::thread::sleep(NATURAL_REAP_RETRY_MAX);
+            }
+        }
+
+        let batch_deadline = Instant::now() + NATURAL_REAP_BATCH_WINDOW;
+        while let Some(remaining) = batch_deadline.checked_duration_since(Instant::now()) {
+            match receiver.recv_timeout(remaining) {
+                Ok(command) => {
+                    accept_natural_reaper_command(command, &mut pending);
+                }
+                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        let now = Instant::now();
+        let mut due = Vec::new();
+        let mut index = 0;
+        while index < pending.len() {
+            if pending[index].next_attempt <= now {
+                due.push(pending.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        if due.is_empty() {
+            continue;
+        }
+
+        let observations = due
+            .iter_mut()
+            .map(|request| {
+                if request.child_observed {
+                    return NaturalChildObservation::Ready;
+                }
+                match (request.observe_child)() {
+                    Ok(true) => {
+                        request.child_observed = true;
+                        request.recover_from_failure();
+                        request.retry_delay = NATURAL_REAP_RETRY_INITIAL;
+                        NaturalChildObservation::Ready
+                    }
+                    Ok(false) => {
+                        request.recover_from_failure();
+                        NaturalChildObservation::Pending
+                    }
+                    Err(_) => NaturalChildObservation::Failed,
+                }
+            })
+            .collect::<Vec<_>>();
+        let needs_cleanup = due
+            .iter()
+            .zip(&observations)
+            .map(|(request, observation)| {
+                *observation == NaturalChildObservation::Ready && (request.needs_cleanup)()
+            })
+            .collect::<Vec<_>>();
+        let prepared = due
+            .iter_mut()
+            .zip(observations.iter().zip(&needs_cleanup))
+            .map(|(request, (observation, needed))| {
+                *observation != NaturalChildObservation::Ready
+                    || !needed
+                    || (request.prepare_cleanup)()
+            })
+            .collect::<Vec<_>>();
+        let sessions = due
+            .iter()
+            .zip(needs_cleanup.iter().zip(&prepared))
+            .filter_map(|(request, (needed, prepared))| {
+                (*needed && *prepared).then_some(request.session)
+            })
+            .collect::<HashSet<_>>();
+        let cleanup_timeout = due
+            .iter()
+            .zip(&needs_cleanup)
+            .filter_map(|(request, needed)| needed.then_some(request.cleanup_timeout))
+            .max()
+            .unwrap_or_default();
+        let cleanup_deadline = Instant::now() + cleanup_timeout;
+        let cleaned = if sessions.is_empty() {
+            HashSet::new()
+        } else {
+            SessionProcessSnapshot::capture(sessions.iter().copied(), cleanup_deadline)
+                .map(|snapshot| {
+                    kill_sessions_until_only_leaders_from_snapshot(
+                        &snapshot,
+                        &sessions,
+                        cleanup_deadline,
+                    )
+                })
+                .unwrap_or_default()
+        };
+
+        for (((mut request, observation), needed), prepared) in
+            due.into_iter().zip(observations).zip(needs_cleanup).zip(prepared)
+        {
+            match observation {
+                NaturalChildObservation::Pending => {
+                    request.schedule_pending();
+                    pending.push(request);
+                    continue;
+                }
+                NaturalChildObservation::Failed => {
+                    request.schedule_failure();
+                    pending.push(request);
+                    continue;
+                }
+                NaturalChildObservation::Ready => {}
+            }
+            let cleanup_succeeded = needed && prepared && cleaned.contains(&request.session);
+            let cleanup_failed = needed && !cleanup_succeeded;
+            match (request.finish)(cleanup_succeeded) {
+                NaturalReapFinish::Complete => {
+                    request.clear_degraded();
+                }
+                NaturalReapFinish::Failed => {
+                    request.schedule_failure();
+                    pending.push(request);
+                }
+                NaturalReapFinish::Pending if cleanup_failed => {
+                    request.schedule_failure();
+                    pending.push(request);
+                }
+                NaturalReapFinish::Pending => {
+                    request.schedule_pending();
+                    pending.push(request);
+                }
+            }
+        }
+    }
+}
+
+fn kill_sessions_until_only_leaders_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Instant,
+) -> HashSet<libc::pid_t> {
+    let mut states = HashMap::<libc::pid_t, (u64, Vec<libc::pid_t>)>::new();
+    let mut failed = HashSet::new();
+    for session in sessions {
+        match snapshot.members(*session) {
+            Ok((generation, members)) => {
+                if signal_members(&members, *session, None).is_ok() {
+                    states.insert(*session, (generation, members));
+                } else {
+                    failed.insert(*session);
+                }
+            }
+            Err(_) => {
+                failed.insert(*session);
+            }
+        }
+    }
+
+    let mut complete = HashSet::new();
+    while complete.len() + failed.len() < sessions.len() && Instant::now() < deadline {
+        let mut refresh = Vec::new();
+        for (session, (_, members)) in &states {
+            if complete.contains(session) || failed.contains(session) {
+                continue;
+            }
+            let drained = members
+                .iter()
+                .copied()
+                .filter(|pid| pid != session)
+                .map(|pid| still_member(pid, *session))
+                .collect::<io::Result<Vec<_>>>()
+                .map(|members| members.into_iter().all(|alive| !alive));
+            match drained {
+                Ok(true) => refresh.push(*session),
+                Ok(false) => {}
+                Err(_) => {
+                    failed.insert(*session);
+                }
+            }
+        }
+
+        if let Some(first) = refresh.first().copied() {
+            let observed_generation = states[&first].0;
+            if snapshot.refresh_members(first, observed_generation, deadline).is_err() {
+                break;
+            }
+            for session in refresh {
+                let Ok((generation, members)) = snapshot.members(session) else {
+                    failed.insert(session);
+                    continue;
+                };
+                if members.iter().all(|pid| *pid == session) {
+                    complete.insert(session);
+                    continue;
+                }
+                if signal_members(&members, session, None).is_err() {
+                    failed.insert(session);
+                    continue;
+                }
+                states.insert(session, (generation, members));
+            }
+        }
+
+        if complete.len() + failed.len() < sessions.len() {
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
+            );
+        }
+    }
+    complete
+}
+
+fn accept_natural_reaper_command(
+    command: NaturalReaperCommand,
+    pending: &mut Vec<NaturalReapRequest>,
+) {
+    match command {
+        NaturalReaperCommand::Add(request) => pending.push(request),
+        NaturalReaperCommand::WakeSession(session) => {
+            let now = Instant::now();
+            for request in pending.iter_mut().filter(|request| request.session == session) {
+                request.next_attempt = now;
+            }
+        }
+        NaturalReaperCommand::WakeUnpublished => {
+            let now = Instant::now();
+            for request in pending.iter_mut().filter(|request| !request._lease.owner_attached) {
+                request.next_attempt = now;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static STABLE_PROCESS_PREFLIGHT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static STABLE_PROCESS_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_stable_process_preflight_count_for_test() {
+    STABLE_PROCESS_PREFLIGHT_COUNT.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn stable_process_preflight_count_for_test() -> usize {
+    STABLE_PROCESS_PREFLIGHT_COUNT.get()
+}
+
+pub(crate) struct SessionProcessSnapshot {
+    sessions: HashSet<libc::pid_t>,
+    state: Mutex<SessionProcessSnapshotState>,
+    refreshed: Condvar,
+    #[cfg(test)]
+    scan_count: AtomicUsize,
+}
+
+struct SessionProcessSnapshotState {
+    generation: u64,
+    members: HashMap<libc::pid_t, Vec<libc::pid_t>>,
+    refreshing: bool,
+    failure: Option<SessionScanFailure>,
+}
+
+#[derive(Clone)]
+struct SessionScanFailure {
+    kind: io::ErrorKind,
+    message: String,
+}
+
+impl SessionScanFailure {
+    fn from_error(error: &io::Error) -> Self {
+        Self { kind: error.kind(), message: error.to_string() }
+    }
+
+    fn to_error(&self) -> io::Error {
+        io::Error::new(self.kind, self.message.clone())
+    }
+}
+
+impl SessionProcessSnapshot {
+    pub(crate) fn capture(
+        sessions: impl IntoIterator<Item = libc::pid_t>,
+        deadline: Instant,
+    ) -> io::Result<Self> {
+        let sessions = sessions.into_iter().collect::<HashSet<_>>();
+        for session in &sessions {
+            validate_session_target(*session)?;
+        }
+        let members = scan_sessions(&sessions, Some(deadline))?;
+        #[cfg(test)]
+        let has_sessions = !sessions.is_empty();
+        Ok(Self {
+            sessions,
+            state: Mutex::new(SessionProcessSnapshotState {
+                generation: 0,
+                members,
+                refreshing: false,
+                failure: None,
+            }),
+            refreshed: Condvar::new(),
+            #[cfg(test)]
+            scan_count: AtomicUsize::new(usize::from(has_sessions)),
+        })
+    }
+
+    fn members(&self, session: libc::pid_t) -> io::Result<(u64, Vec<libc::pid_t>)> {
+        if !self.sessions.contains(&session) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY session is outside the shutdown snapshot",
+            ));
+        }
+        let state = self.state.lock().unwrap();
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        Ok((state.generation, state.members.get(&session).cloned().unwrap_or_default()))
+    }
+
+    fn refresh_members(
+        &self,
+        session: libc::pid_t,
+        observed_generation: u64,
+        deadline: Instant,
+    ) -> io::Result<(u64, Vec<libc::pid_t>)> {
+        if !self.sessions.contains(&session) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY session is outside the shutdown snapshot",
+            ));
+        }
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            if state.generation != observed_generation {
+                return Ok((
+                    state.generation,
+                    state.members.get(&session).cloned().unwrap_or_default(),
+                ));
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(snapshot_deadline_error());
+            };
+            if !state.refreshing {
+                state.refreshing = true;
+                break;
+            }
+            let (next, timeout) = self.refreshed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.generation == observed_generation {
+                return Err(snapshot_deadline_error());
+            }
+        }
+        drop(state);
+
+        #[cfg(test)]
+        self.scan_count.fetch_add(1, Ordering::Relaxed);
+        let scanned = scan_sessions(&self.sessions, Some(deadline));
+        let mut state = self.state.lock().unwrap();
+        state.refreshing = false;
+        match scanned {
+            Ok(members) => {
+                state.generation = state.generation.saturating_add(1);
+                state.members = members;
+            }
+            Err(error) => {
+                state.failure = Some(SessionScanFailure::from_error(&error));
+            }
+        }
+        self.refreshed.notify_all();
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        Ok((state.generation, state.members.get(&session).cloned().unwrap_or_default()))
+    }
+
+    #[cfg(test)]
+    fn scan_count(&self) -> usize {
+        self.scan_count.load(Ordering::Relaxed)
+    }
+}
+
+pub(crate) fn signal_until(
+    session: libc::pid_t,
+    signal: libc::c_int,
+    deadline: Instant,
+) -> io::Result<()> {
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    signal_from_snapshot(&snapshot, session, signal)
+}
+
+pub(crate) fn signal_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    signal: libc::c_int,
+) -> io::Result<()> {
+    validate_session_target(session)?;
+    let (_, members) = snapshot.members(session)?;
+    signal_members_with(&members, session, None, signal)
+}
+
+/// Repeatedly SIGKILL every member until the session contains only its
+/// reserved leader (or is empty). Callers must keep the leader unreaped for
+/// this entire operation, which prevents the session id from being reused.
+pub(crate) fn kill_until_only_leader(
+    session: libc::pid_t,
+    leader: libc::pid_t,
+    deadline: Instant,
+    leader_exited: impl FnMut() -> io::Result<bool>,
+) -> io::Result<bool> {
+    validate_session_target(session)?;
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    kill_until_only_leader_from_snapshot(&snapshot, session, leader, deadline, leader_exited)
+}
+
+pub(crate) fn kill_until_only_leader_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    leader: libc::pid_t,
+    deadline: Instant,
+    leader_exited: impl FnMut() -> io::Result<bool>,
+) -> io::Result<bool> {
+    kill_until_only_reserved_from_snapshot(snapshot, session, leader, deadline, leader_exited, None)
+}
+
+/// Drain a captured session while the caller keeps one exact member stopped.
+/// The reserved process prevents session-id reuse and cannot fork, so global
+/// membership is reconciled only after each known generation has exited.
+pub fn kill_until_only_reserved(
+    session: libc::pid_t,
+    reserved: libc::pid_t,
+    deadline: Instant,
+) -> io::Result<bool> {
+    validate_session_target(session)?;
+    if !still_member(reserved, session)? {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "reserved PTY session process exited"));
+    }
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    kill_until_only_reserved_from_snapshot(
+        &snapshot,
+        session,
+        reserved,
+        deadline,
+        || Ok(true),
+        Some(reserved),
+    )
+}
+
+fn kill_until_only_reserved_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    reserved: libc::pid_t,
+    deadline: Instant,
+    mut can_reconcile: impl FnMut() -> io::Result<bool>,
+    signal_exclusion: Option<libc::pid_t>,
+) -> io::Result<bool> {
+    validate_session_target(session)?;
+    let (mut generation, mut known_members) = snapshot.members(session)?;
+    signal_members(&known_members, session, signal_exclusion)?;
+    loop {
+        let known_drained = known_members
+            .iter()
+            .copied()
+            .filter(|pid| *pid != reserved)
+            .map(|pid| still_member(pid, session))
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .all(|alive| !alive);
+        if known_drained && can_reconcile()? {
+            let (current_generation, current) =
+                snapshot.refresh_members(session, generation, deadline)?;
+            if current.iter().all(|pid| *pid == reserved) {
+                return Ok(true);
+            }
+            signal_members(&current, session, signal_exclusion)?;
+            generation = current_generation;
+            known_members = current;
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
+        );
+    }
+}
+
+/// Read-only proof used after every pre-close process identity in a captured
+/// legacy PTY session has already disappeared.
+pub fn session_is_empty_until(session: libc::pid_t, deadline: Instant) -> io::Result<bool> {
+    validate_session_target(session)?;
+    members_until(session, deadline).map(|members| members.is_empty())
+}
+
+/// Snapshot process IDs in a non-caller session. Callers must capture exact
+/// process birth identities before using the result for later signaling.
+pub fn session_member_pids_until(
+    session: libc::pid_t,
+    deadline: Instant,
+) -> io::Result<Vec<libc::pid_t>> {
+    validate_session_target(session)?;
+    members_until(session, deadline)
+}
+
+fn signal_members(
+    members: &[libc::pid_t],
+    session: libc::pid_t,
+    reserved: Option<libc::pid_t>,
+) -> io::Result<()> {
+    signal_members_with(members, session, reserved, libc::SIGKILL)
+}
+
+fn signal_members_with(
+    members: &[libc::pid_t],
+    session: libc::pid_t,
+    reserved: Option<libc::pid_t>,
+    signal: libc::c_int,
+) -> io::Result<()> {
+    for pid in members.iter().copied().filter(|pid| Some(*pid) != reserved) {
+        signal_if_still_member(pid, session, signal)?;
+    }
+    Ok(())
+}
+
+fn validate_session_target(session: libc::pid_t) -> io::Result<()> {
+    if session <= 1 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid PTY session id"));
+    }
+    // SAFETY: getsid(0) only queries the calling process.
+    if unsafe { libc::getsid(0) } == session {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "refusing to signal the mux process session",
+        ));
+    }
+    Ok(())
+}
+
+fn signal_if_still_member(
+    pid: libc::pid_t,
+    session: libc::pid_t,
+    signal: libc::c_int,
+) -> io::Result<()> {
+    let Some(process) = stable_process_in_session(pid, session)? else {
+        return Ok(());
+    };
+    let _ = process.signal(signal)?;
+    Ok(())
+}
+
+fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
+    Ok(active_process_session(pid)? == Some(session))
+}
+
+fn process_session_id(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+    // SAFETY: getsid only queries process metadata.
+    let current_session = unsafe { libc::getsid(pid) };
+    if current_session >= 0 {
+        return Ok(Some(current_session));
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+    process_session_id(pid)
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LinuxProcessMetadata {
+    started_at: u128,
+    zombie: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_metadata(pid: libc::pid_t) -> io::Result<Option<LinuxProcessMetadata>> {
+    let stat = match std::fs::read(format!("/proc/{pid}/stat")) {
+        Ok(stat) => stat,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let fields = linux_process_stat_fields(pid, &stat)?;
+    let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
+    let started_at = fields
+        .get(19)
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .and_then(|value| value.parse::<u128>().ok())
+        .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
+    Ok(Some(LinuxProcessMetadata { started_at, zombie: state == b"Z" }))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_stat_fields(pid: libc::pid_t, stat: &[u8]) -> io::Result<Vec<&[u8]>> {
+    let name_start = stat
+        .windows(2)
+        .position(|window| window == b" (")
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let name_end = stat
+        .windows(2)
+        .rposition(|window| window == b") ")
+        .filter(|name_end| *name_end > name_start)
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let pid_text = std::str::from_utf8(&stat[..name_start])
+        .map_err(|_| io::Error::other("invalid process metadata id"))?;
+    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    Ok(stat[name_end + 2..]
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect())
+}
+
+#[cfg(target_os = "linux")]
+fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+    let Some(before) = linux_process_metadata(pid)? else { return Ok(None) };
+    if before.zombie {
+        return Ok(None);
+    }
+
+    let Some(current_session) = process_session_id(pid)? else { return Ok(None) };
+
+    // Bracket the reusable PID query with the kernel process birth identity.
+    // Zombies cannot execute or fork, so shutdown may treat them as drained
+    // while the reserved leader still prevents session-id reuse.
+    let Some(after) = linux_process_metadata(pid)? else { return Ok(None) };
+    if after.zombie || after.started_at != before.started_at {
+        return Ok(None);
+    }
+    Ok(Some(current_session))
+}
+
+#[cfg(target_os = "linux")]
+fn tracked_process_session(
+    pid: libc::pid_t,
+    sessions: &HashSet<libc::pid_t>,
+) -> io::Result<Option<libc::pid_t>> {
+    // Query the kernel session first so unrelated PIDs never require procfs
+    // access on hidepid mounts. Candidate members still pass through the
+    // birth-identity bracket, and any failure there aborts the snapshot.
+    tracked_process_session_with(pid, sessions, process_session_id, active_process_session)
+}
+
+#[cfg(target_os = "linux")]
+fn tracked_process_session_with<Q, V>(
+    pid: libc::pid_t,
+    sessions: &HashSet<libc::pid_t>,
+    mut query_session: Q,
+    mut verify_session: V,
+) -> io::Result<Option<libc::pid_t>>
+where
+    Q: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+    V: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+{
+    let Some(candidate_session) = query_session(pid)? else { return Ok(None) };
+    if !sessions.contains(&candidate_session) {
+        return Ok(None);
+    }
+    let Some(verified_session) = verify_session(pid)? else { return Ok(None) };
+    Ok(sessions.contains(&verified_session).then_some(verified_session))
+}
+
+fn stable_process_in_session(
+    pid: libc::pid_t,
+    session: libc::pid_t,
+) -> io::Result<Option<StableProcessHandle>> {
+    let Some(process) = StableProcessHandle::capture(pid)? else { return Ok(None) };
+    // Bracket the PID-based session query with a stable process identity. If
+    // the PID is recycled during getsid(2), the final identity check fails
+    // closed and no signal is sent.
+    let current_session = unsafe { libc::getsid(pid) };
+    if current_session < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+    }
+    if current_session != session || !process.matches_current()? {
+        return Ok(None);
+    }
+    Ok(Some(process))
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// An OS-backed reference to one process instance that cannot retarget after PID reuse.
+pub struct StableProcessHandle {
+    pid: libc::pid_t,
+    audit_token: MacAuditToken,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MacAuditToken {
+    values: [u32; 8],
+}
+
+#[cfg(target_os = "macos")]
+impl StableProcessHandle {
+    /// Capture the process currently using `pid`, or return `None` if it is already gone.
+    pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        const TASK_AUDIT_TOKEN: libc::task_flavor_t = 15;
+        let mut task = 0;
+        // SAFETY: mach_task_self returns the calling process's send right.
+        #[allow(deprecated)]
+        let current_task = unsafe { libc::mach_task_self() };
+        // SAFETY: `task` points to writable storage for one task-name right.
+        let name_result = unsafe { task_name_for_pid(current_task, pid, &mut task) };
+        if name_result != libc::KERN_SUCCESS {
+            return if process_is_gone(pid)? {
+                Ok(None)
+            } else {
+                Err(io::Error::other(format!(
+                    "cannot acquire stable process identity for PID {pid}: Mach error {name_result}"
+                )))
+            };
+        }
+
+        let mut audit_token = MacAuditToken { values: [0; 8] };
+        let mut count = u32::try_from(size_of::<MacAuditToken>() / size_of::<libc::natural_t>())
+            .expect("audit token count fits mach_msg_type_number_t");
+        // SAFETY: the token buffer contains `count` natural_t values and the
+        // returned task-name right remains owned until the call completes.
+        let info_result = unsafe {
+            libc::task_info(
+                task,
+                TASK_AUDIT_TOKEN,
+                audit_token.values.as_mut_ptr().cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        // SAFETY: `task` is the send right returned by task_name_for_pid.
+        let _ = unsafe { mach_port_deallocate(current_task, task) };
+        if info_result != libc::KERN_SUCCESS {
+            return if process_is_gone(pid)? {
+                Ok(None)
+            } else {
+                Err(io::Error::other(format!(
+                    "cannot read stable process identity for PID {pid}: Mach error {info_result}"
+                )))
+            };
+        }
+        let expected_pid = u32::try_from(pid)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
+        if count != 8 || audit_token.values[5] != expected_pid {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "stable process identity returned a mismatched PID",
+            ));
+        }
+        Ok(Some(Self { pid, audit_token }))
+    }
+
+    /// Return whether this exact process instance is still alive.
+    pub fn matches_current(&self) -> io::Result<bool> {
+        Ok(Self::capture(self.pid)?.is_some_and(|current| current == *self))
+    }
+
+    /// Signal this exact process instance, returning false if it is already gone.
+    pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
+        let signal_process = resolve_proc_signal_with_audittoken()?;
+        let mut token = self.audit_token;
+        loop {
+            // SAFETY: the audit token came from TASK_AUDIT_TOKEN for this
+            // process instance; libproc validates its PID generation.
+            let result = unsafe { signal_process(&mut token, signal) };
+            if result == 0 {
+                #[cfg(test)]
+                STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+                return Ok(true);
+            }
+            if result == libc::ESRCH {
+                #[cfg(test)]
+                STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+                return Ok(false);
+            }
+            if result != libc::EINTR {
+                return Err(io::Error::from_raw_os_error(result));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_is_gone(pid: libc::pid_t) -> io::Result<bool> {
+    // SAFETY: signal zero performs a non-mutating liveness/permission probe.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return Ok(false);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ESRCH) => Ok(true),
+        Some(libc::EPERM) => Ok(false),
+        _ => Err(error),
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn task_name_for_pid(
+        target_task: libc::mach_port_t,
+        pid: libc::pid_t,
+        task: *mut libc::mach_port_t,
+    ) -> libc::kern_return_t;
+    fn mach_port_deallocate(
+        task: libc::mach_port_t,
+        name: libc::mach_port_t,
+    ) -> libc::kern_return_t;
+}
+
+#[cfg(target_os = "macos")]
+type ProcSignalWithAuditToken =
+    unsafe extern "C" fn(*mut MacAuditToken, libc::c_int) -> libc::c_int;
+
+#[cfg(target_os = "macos")]
+fn resolve_proc_signal_with_audittoken() -> io::Result<ProcSignalWithAuditToken> {
+    static SYMBOL: OnceLock<Option<ProcSignalWithAuditToken>> = OnceLock::new();
+    SYMBOL
+        .get_or_init(|| {
+            // SAFETY: RTLD_DEFAULT searches already loaded images. The
+            // resolved address is used only with the documented libproc ABI.
+            let address =
+                unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"proc_signal_with_audittoken".as_ptr()) };
+            if address.is_null() {
+                return None;
+            }
+            // SAFETY: dlsym returned the address of the named C function.
+            Some(unsafe {
+                std::mem::transmute::<*mut libc::c_void, ProcSignalWithAuditToken>(address)
+            })
+        })
+        .as_ref()
+        .copied()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "exact process signaling is unavailable on this macOS version",
+            )
+        })
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+/// An OS-backed reference to one process instance that cannot retarget after PID reuse.
+pub struct StableProcessHandle {
+    process_fd: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+impl StableProcessHandle {
+    /// Capture the process currently using `pid`, or return `None` if it is already gone.
+    pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        use std::os::fd::FromRawFd;
+
+        // SAFETY: pidfd_open receives a validated integer PID and zero flags.
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+        if descriptor >= 0 {
+            let descriptor = i32::try_from(descriptor)
+                .map_err(|_| io::Error::other("pidfd descriptor is out of range"))?;
+            // SAFETY: a successful pidfd_open returns one newly owned descriptor.
+            return Ok(Some(Self {
+                process_fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) },
+            }));
+        }
+        let pidfd_error = io::Error::last_os_error();
+        if pidfd_error.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(None);
+        }
+
+        // Linux 5.1 and 5.2 predate pidfd_open but pidfd_send_signal accepts
+        // an open /proc/PID directory as the same exact process reference.
+        match std::fs::File::open(format!("/proc/{pid}")) {
+            Ok(process_directory) => Ok(Some(Self { process_fd: process_directory.into() })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "cannot acquire stable process identity: pidfd_open failed ({pidfd_error}); \
+                     /proc fallback failed ({error})"
+                ),
+            )),
+        }
+    }
+
+    /// Return whether this exact process instance is still alive.
+    pub fn matches_current(&self) -> io::Result<bool> {
+        self.signal_result(0)
+    }
+
+    /// Signal this exact process instance, returning false if it is already gone.
+    pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
+        let signaled = self.signal_result(signal)?;
+        #[cfg(test)]
+        STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+        Ok(signaled)
+    }
+
+    fn signal_result(&self, signal: libc::c_int) -> io::Result<bool> {
+        use std::os::fd::AsRawFd;
+
+        // SAFETY: the descriptor is a live pidfd, the siginfo pointer is
+        // intentionally null, and flags must be zero.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.process_fd.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
+    }
+}
+
+/// Verify that this runtime can enumerate PTY session members and signal exact
+/// process instances before any PTY is spawned or shutdown topology mutates.
+pub fn require_stable_process_signaling() -> io::Result<()> {
+    if STABLE_PROCESS_SIGNALING.get().is_some() {
+        return Ok(());
+    }
+    require_stable_process_signaling_until(Instant::now() + PROCESS_SESSION_PREFLIGHT_TIMEOUT)?;
+    let _ = STABLE_PROCESS_SIGNALING.set(());
+    Ok(())
+}
+
+/// Cache a successful process-level capability check once per server
+/// generation. Transient failures remain retryable; shutdown still performs a
+/// fresh bounded preflight immediately before mutating topology.
+pub(crate) fn initialize_stable_process_signaling() {
+    let _ = require_stable_process_signaling();
+}
+
+pub(crate) fn require_cached_stable_process_signaling() -> io::Result<()> {
+    require_stable_process_signaling()
+}
+
+pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::Result<()> {
+    #[cfg(test)]
+    STABLE_PROCESS_PREFLIGHT_COUNT.set(STABLE_PROCESS_PREFLIGHT_COUNT.get() + 1);
+    #[cfg(test)]
+    if FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.get() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "forced process-session preflight failure",
+        ));
+    }
+    require_waitable_child_disposition()?;
+    let pid = libc::pid_t::try_from(std::process::id())
+        .map_err(|_| io::Error::new(io::ErrorKind::Unsupported, "invalid process id"))?;
+    let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::Unsupported, "current process identity is unavailable")
+    })?;
+    #[cfg(target_os = "macos")]
+    let retained = {
+        resolve_proc_signal_with_audittoken().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("stable process signaling is unavailable: {error}"),
+            )
+        })?;
+        process.matches_current()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let retained = process.signal(0);
+    match retained {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "stable process signaling did not retain the current process",
+            ));
+        }
+        Err(error) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("stable process signaling is unavailable: {error}"),
+            ));
+        }
+    }
+    all_process_ids(Some(deadline)).map(|_| ()).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("PTY session enumeration is unavailable: {error}"),
+        )
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Placeholder on platforms without stable process signaling.
+pub struct StableProcessHandle;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+impl StableProcessHandle {
+    /// Report that stable process handles are unsupported on this platform.
+    pub fn capture(_pid: libc::pid_t) -> io::Result<Option<Self>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stable process signaling is unavailable on this platform",
+        ))
+    }
+
+    /// Return false because no stable process handle is available.
+    pub fn matches_current(&self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    /// Report that stable process signaling is unsupported on this platform.
+    pub fn signal(&self, _signal: libc::c_int) -> io::Result<bool> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stable process signaling is unavailable on this platform",
+        ))
+    }
+}
+
+#[cfg(all(target_os = "macos", test))]
+fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    let sessions = HashSet::from([session]);
+    Ok(scan_sessions(&sessions, None)?.remove(&session).unwrap_or_default())
+}
+
+fn members_until(session: libc::pid_t, deadline: Instant) -> io::Result<Vec<libc::pid_t>> {
+    let sessions = HashSet::from([session]);
+    Ok(scan_sessions(&sessions, Some(deadline))?.remove(&session).unwrap_or_default())
+}
+
+fn scan_sessions(
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Option<Instant>,
+) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>> {
+    #[cfg(target_os = "linux")]
+    {
+        scan_sessions_with(
+            sessions,
+            deadline,
+            || all_process_ids(deadline),
+            |pid| tracked_process_session(pid, sessions),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        scan_sessions_with(sessions, deadline, || all_process_ids(deadline), active_process_session)
+    }
+}
+
+fn scan_sessions_with<P, S>(
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Option<Instant>,
+    process_ids: P,
+    mut process_session: S,
+) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>>
+where
+    P: FnOnce() -> io::Result<Vec<libc::pid_t>>,
+    S: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+{
+    let mut members =
+        sessions.iter().copied().map(|session| (session, Vec::new())).collect::<HashMap<_, _>>();
+    if sessions.is_empty() {
+        return Ok(members);
+    }
+    #[cfg(test)]
+    PROCESS_TABLE_SCAN_COUNT.set(PROCESS_TABLE_SCAN_COUNT.get() + 1);
+    for pid in process_ids()? {
+        ensure_before_deadline(deadline)?;
+        if pid <= 1 {
+            continue;
+        }
+        let Some(current_session) = process_session(pid)? else { continue };
+        ensure_before_deadline(deadline)?;
+        if let Some(session_members) = members.get_mut(&current_session) {
+            session_members.push(pid);
+        }
+    }
+    for session_members in members.values_mut() {
+        session_members.sort_unstable();
+        session_members.dedup();
+    }
+    Ok(members)
+}
+
+fn ensure_before_deadline(deadline: Option<Instant>) -> io::Result<()> {
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(snapshot_deadline_error());
+    }
+    Ok(())
+}
+
+fn snapshot_deadline_error() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "process-session snapshot deadline expired")
+}
+
+#[cfg(test)]
+fn shutdown_batch_members_for_test(
+    sessions: &[libc::pid_t],
+    deadline: Instant,
+) -> io::Result<Vec<Vec<libc::pid_t>>> {
+    let snapshot = SessionProcessSnapshot::capture(sessions.iter().copied(), deadline)?;
+    sessions.iter().map(|session| snapshot.members(*session).map(|(_, members)| members)).collect()
+}
+
+#[cfg(all(target_os = "macos", test))]
+fn macos_session_process_ids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    members(session)
+}
+
+#[cfg(target_os = "macos")]
+fn all_process_ids(deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
+    use std::ffi::c_void;
+
+    // Callers retain this snapshot and poll its members directly. A new full
+    // process-table scan happens only after that generation has drained.
+    ensure_before_deadline(deadline)?;
+    // SAFETY: a null buffer asks libproc for the current process count.
+    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if count < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut capacity =
+        usize::try_from(count).map_err(|_| io::Error::other("invalid process count"))? + 32;
+    for _ in 0..4 {
+        ensure_before_deadline(deadline)?;
+        let mut pids = vec![0; capacity];
+        let bytes = capacity
+            .checked_mul(size_of::<libc::pid_t>())
+            .and_then(|bytes| i32::try_from(bytes).ok())
+            .ok_or_else(|| io::Error::other("process list buffer overflow"))?;
+        // SAFETY: `pids` owns a writable buffer of `bytes` bytes.
+        let listed = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast::<c_void>(), bytes) };
+        if listed < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let listed =
+            usize::try_from(listed).map_err(|_| io::Error::other("invalid process count"))?;
+        if listed < capacity {
+            pids.truncate(listed);
+            return Ok(pids);
+        }
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or_else(|| io::Error::other("process list buffer overflow"))?;
+    }
+    Err(io::Error::other("process list did not stabilize"))
+}
+
+#[cfg(target_os = "linux")]
+fn all_process_ids(deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
+    let mut pids = Vec::new();
+    for entry in std::fs::read_dir("/proc")? {
+        ensure_before_deadline(deadline)?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if let Some(pid) =
+            entry.file_name().to_str().and_then(|name| name.parse::<libc::pid_t>().ok())
+        {
+            pids.push(pid);
+        }
+    }
+    Ok(pids)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn all_process_ids(_deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "PTY session enumeration is unavailable on this platform",
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    use std::os::unix::process::CommandExt;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    use std::process::{Command, Stdio};
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    use super::*;
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn spawn_session_child() -> std::process::Child {
+        let mut command = Command::new("sleep");
+        command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        command.spawn().unwrap()
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_cleanup_does_not_wait_for_pty_drain() {
+        let signal_lock = Mutex::new(());
+        let pty_drained = AtomicBool::new(false);
+        let termination_started = AtomicBool::new(false);
+        let cleanup_complete = AtomicBool::new(false);
+        let child_reaped = AtomicBool::new(false);
+        let wait_ownership_lost = AtomicBool::new(false);
+        let reap_called = AtomicBool::new(false);
+        let sync = || ReservedChildReap {
+            signal_lock: &signal_lock,
+            pty_drained: &pty_drained,
+            termination_started: &termination_started,
+            cleanup_complete: &cleanup_complete,
+            child_reaped: &child_reaped,
+            wait_ownership_lost: &wait_ownership_lost,
+        };
+
+        assert!(
+            reserved_child_needs_cleanup(sync()),
+            "a descendant holding the PTY open prevented its own cleanup"
+        );
+        assert!(
+            !poll_reserved_session_leader(sync(), true, || {
+                reap_called.store(true, Ordering::Release);
+            }),
+            "the session leader was reaped before the PTY reader drained"
+        );
+        assert!(
+            cleanup_complete.load(Ordering::Acquire),
+            "successful descendant cleanup was not recorded before PTY drain"
+        );
+        assert!(!child_reaped.load(Ordering::Acquire));
+        assert!(!reap_called.load(Ordering::Acquire));
+
+        pty_drained.store(true, Ordering::Release);
+        assert!(poll_reserved_session_leader(sync(), false, || {
+            reap_called.store(true, Ordering::Release);
+        }));
+        assert!(child_reaped.load(Ordering::Acquire));
+        assert!(reap_called.load(Ordering::Acquire));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_reaper_degrades_persistent_observation_errors() {
+        let release = Arc::new(AtomicBool::new(false));
+        let observe_release = release.clone();
+        let (attempt_sender, attempt_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let session = natural_reap_test_session();
+        enqueue_reserved_session_leader(
+            reserve_child_reaper().unwrap().attach_owner(),
+            session,
+            Duration::ZERO,
+            move || {
+                let _ = attempt_sender.send(());
+                if observe_release.load(Ordering::Acquire) {
+                    Ok(true)
+                } else {
+                    Err(io::Error::other("injected persistent observation error"))
+                }
+            },
+            || false,
+            || true,
+            move |_| {
+                let _ = finished_sender.send(());
+                NaturalReapFinish::Complete
+            },
+        );
+
+        for _ in 0..NATURAL_REAP_MAX_ATTEMPTS {
+            attempt_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let retried_while_degraded =
+            attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
+        release.store(true, Ordering::Release);
+        wake_child_reaper(session);
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            !retried_while_degraded,
+            "persistent observation errors kept the shared child reaper on its hot retry cadence"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_reaper_degrades_unresolved_finish_without_session_cleanup() {
+        let release = Arc::new(AtomicBool::new(false));
+        let finish_release = release.clone();
+        let (attempt_sender, attempt_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let session = natural_reap_test_session();
+        enqueue_reserved_session_leader(
+            reserve_child_reaper().unwrap().attach_owner(),
+            session,
+            Duration::ZERO,
+            || Ok(true),
+            || false,
+            || true,
+            move |_| {
+                let _ = attempt_sender.send(());
+                if finish_release.load(Ordering::Acquire) {
+                    let _ = finished_sender.send(());
+                    NaturalReapFinish::Complete
+                } else {
+                    NaturalReapFinish::Failed
+                }
+            },
+        );
+
+        for _ in 0..NATURAL_REAP_MAX_ATTEMPTS {
+            attempt_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let retried_while_degraded =
+            attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
+        release.store(true, Ordering::Release);
+        wake_child_reaper(session);
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            !retried_while_degraded,
+            "an unresolved ownership-loss finish kept the shared child reaper on its hot retry cadence"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn degraded_reap_request_for_test(
+        session: libc::pid_t,
+        next_attempt: Instant,
+        activity: Arc<NaturalReaperActivity>,
+    ) -> NaturalReapRequest {
+        let (sender, _receiver) = mpsc::channel();
+        NaturalReapRequest {
+            session,
+            cleanup_timeout: Duration::ZERO,
+            observe_child: Box::new(|| Ok(false)),
+            child_observed: false,
+            needs_cleanup: Box::new(|| false),
+            prepare_cleanup: Box::new(|| true),
+            finish: Box::new(|_| NaturalReapFinish::Pending),
+            _lease: ReservedChildReaperLease { sender, activity, owner_attached: true },
+            next_attempt,
+            retry_delay: NATURAL_REAP_RETRY_MAX,
+            attempts: NATURAL_REAP_MAX_ATTEMPTS,
+            degraded: true,
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn natural_reaper_activity_for_test(
+        active: usize,
+        degraded: usize,
+    ) -> Arc<NaturalReaperActivity> {
+        Arc::new(NaturalReaperActivity {
+            active: AtomicUsize::new(active),
+            state: Mutex::new(NaturalReaperActivityState {
+                unpublished: 0,
+                degraded,
+                unpublished_degraded: 0,
+            }),
+            changed: Condvar::new(),
+        })
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn accept_session_state_change_for_test(
+        session: libc::pid_t,
+        pending: &mut Vec<NaturalReapRequest>,
+    ) {
+        accept_natural_reaper_command(NaturalReaperCommand::WakeSession(session), pending);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn state_change_wake_preempts_degraded_retry_before_shutdown_deadline() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let activity = natural_reaper_activity_for_test(1, 1);
+        let mut pending = vec![degraded_reap_request_for_test(
+            41,
+            now + Duration::from_secs(30),
+            activity.clone(),
+        )];
+        accept_session_state_change_for_test(41, &mut pending);
+
+        assert!(
+            pending[0].next_attempt <= shutdown_deadline,
+            "the production degraded retry outlived the server shutdown deadline"
+        );
+        assert!(pending[0].degraded);
+        assert_eq!(activity.state.lock().unwrap().degraded, 1);
+
+        let rescheduled_at = Instant::now();
+        pending[0].schedule_failure();
+        assert!(
+            pending[0].next_attempt.saturating_duration_since(rescheduled_at)
+                >= NATURAL_REAP_DEGRADED_RETRY.saturating_sub(Duration::from_millis(10)),
+            "an unsuccessful state-change retry disabled degraded backoff"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn state_change_wake_preserves_unrelated_degraded_backoff() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let activity = natural_reaper_activity_for_test(2, 2);
+        let mut pending = vec![
+            degraded_reap_request_for_test(41, now + Duration::from_secs(30), activity.clone()),
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), activity),
+        ];
+        accept_session_state_change_for_test(41, &mut pending);
+
+        assert!(pending[0].next_attempt <= shutdown_deadline);
+        assert!(
+            pending[1].next_attempt > shutdown_deadline,
+            "one session state change defeated another degraded session's backoff"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shutdown_wake_preempts_only_unpublished_degraded_reapers() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let activity = Arc::new(NaturalReaperActivity {
+            active: AtomicUsize::new(2),
+            state: Mutex::new(NaturalReaperActivityState {
+                unpublished: 1,
+                degraded: 2,
+                unpublished_degraded: 1,
+            }),
+            changed: Condvar::new(),
+        });
+        let mut unpublished =
+            degraded_reap_request_for_test(41, now + Duration::from_secs(30), activity.clone());
+        unpublished._lease.owner_attached = false;
+        let published =
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), activity.clone());
+        let mut pending = vec![unpublished, published];
+
+        accept_natural_reaper_command(NaturalReaperCommand::WakeUnpublished, &mut pending);
+
+        assert!(pending[0].next_attempt <= shutdown_deadline);
+        assert!(
+            pending[1].next_attempt > shutdown_deadline,
+            "shutdown defeated a published surface reaper's degraded backoff"
+        );
+        assert_eq!(
+            activity.unpublished_health(),
+            UnpublishedChildReaperHealth { pending: 1, degraded: true }
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn ignored_sigchld_fails_before_reserving_a_child_reaper() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_IGNORED_SIGCHLD";
+        const TEST_NAME: &str =
+            "process_session::tests::ignored_sigchld_fails_before_reserving_a_child_reaper";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "SIGCHLD preflight subprocess failed: {status}");
+            return;
+        }
+
+        // SAFETY: this isolated one-test subprocess intentionally changes its
+        // process-wide child disposition and exits immediately after the
+        // preflight assertion.
+        let previous = unsafe { libc::signal(libc::SIGCHLD, libc::SIG_IGN) };
+        assert_ne!(previous, libc::SIG_ERR);
+
+        let Err(error) = reserve_child_reaper() else {
+            panic!("ignored SIGCHLD passed the child-wait ownership preflight");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn enter_syscall_blocked_subprocess(
+        child_env: &str,
+        test_name: &str,
+        syscalls: &[libc::c_long],
+    ) -> bool {
+        if std::env::var_os(child_env).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test_name])
+                .env(child_env, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "pidfd compatibility subprocess failed: {status}");
+            return false;
+        }
+
+        let mut filter = vec![libc::sock_filter {
+            code: u16::try_from(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS).unwrap(),
+            jt: 0,
+            jf: 0,
+            k: 0,
+        }];
+        for syscall in syscalls {
+            filter.extend([
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 1,
+                    k: u32::try_from(*syscall).unwrap(),
+                },
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ERRNO | u32::try_from(libc::ENOSYS).unwrap(),
+                },
+            ]);
+        }
+        filter.push(libc::sock_filter {
+            code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+            jt: 0,
+            jf: 0,
+            k: libc::SECCOMP_RET_ALLOW,
+        });
+        let program = libc::sock_fprog {
+            len: u16::try_from(filter.len()).unwrap(),
+            filter: filter.as_mut_ptr(),
+        };
+        // SAFETY: this one-test subprocess opts into a filter whose backing
+        // instructions remain live for the prctl call.
+        assert_eq!(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, 0);
+        // SAFETY: `program` describes the initialized filter above.
+        let installed = unsafe {
+            libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                std::ptr::from_ref(&program),
+            )
+        };
+        assert_eq!(
+            installed,
+            0,
+            "could not install pidfd test filter: {}",
+            io::Error::last_os_error()
+        );
+        true
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_session_query_is_scoped_to_the_owned_session() {
+        let mut child = spawn_session_child();
+        let session = libc::pid_t::try_from(child.id()).unwrap();
+
+        let members = macos_session_process_ids(session).unwrap();
+
+        let current = libc::pid_t::try_from(std::process::id()).unwrap();
+        assert!(members.contains(&session));
+        assert!(!members.contains(&current));
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_binary_does_not_strongly_import_optional_signal_api() {
+        let output = Command::new("/usr/bin/nm")
+            .arg("-u")
+            .arg(std::env::current_exe().unwrap())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let imports = String::from_utf8(output.stdout).unwrap();
+
+        assert!(
+            !imports.lines().any(|line| line.contains("_proc_signal_with_audittoken")),
+            "an optional post-deployment-target API remained a strong dyld import"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn session_members_are_never_signaled_through_a_reusable_pid() {
+        let mut child = spawn_session_child();
+        let session = libc::pid_t::try_from(child.id()).unwrap();
+        RAW_PID_SIGNAL_COUNT.set(0);
+        STABLE_PROCESS_SIGNAL_COUNT.set(0);
+
+        signal_until(session, libc::SIGCONT, Instant::now() + Duration::from_secs(1)).unwrap();
+        let raw_signals = RAW_PID_SIGNAL_COUNT.get();
+        let stable_signals = STABLE_PROCESS_SIGNAL_COUNT.get();
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(
+            raw_signals, 0,
+            "session cleanup used a reusable PID instead of a stable process identity"
+        );
+        assert_eq!(stable_signals, 1, "session cleanup did not use the stable process handle");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_metadata_accepts_a_non_utf8_process_name() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_NON_UTF8_PROCESS_NAME";
+        const TEST_NAME: &str =
+            "process_session::tests::linux_process_metadata_accepts_a_non_utf8_process_name";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "non-UTF-8 proc metadata subprocess failed: {status}");
+            return;
+        }
+
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        std::fs::write(format!("/proc/self/task/{pid}/comm"), b"cmux-\xff").unwrap();
+
+        let metadata =
+            linux_process_metadata(pid).expect("a valid non-UTF-8 proc name was rejected");
+        assert!(metadata.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shutdown_treats_zombie_members_as_drained_before_reserved_parent() {
+        use std::io::BufRead as _;
+
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "trap '' HUP TERM; sleep 60 & echo $!; wait"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut leader = command.spawn().unwrap();
+        let session = libc::pid_t::try_from(leader.id()).unwrap();
+        let stdout = leader.stdout.take().unwrap();
+        let (descendant_sender, descendant_receiver) = mpsc::sync_channel(1);
+        let descendant_reader = std::thread::spawn(move || {
+            let mut line = String::new();
+            let result = io::BufReader::new(stdout).read_line(&mut line).map(|_| line);
+            let _ = descendant_sender.send(result);
+        });
+        let descendant = match descendant_receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(Ok(line)) => line.trim().parse::<libc::pid_t>().unwrap(),
+            result => {
+                let _ = leader.kill();
+                let _ = leader.wait();
+                let _ = descendant_reader.join();
+                panic!("session descendant PID was not published within one second: {result:?}");
+            }
+        };
+        descendant_reader.join().unwrap();
+        let leader_handle = StableProcessHandle::capture(session).unwrap().unwrap();
+        assert!(leader_handle.signal(libc::SIGSTOP).unwrap());
+        let mut status = 0;
+        loop {
+            let waited = unsafe { libc::waitpid(session, &mut status, libc::WUNTRACED) };
+            if waited == session {
+                assert!(libc::WIFSTOPPED(status));
+                break;
+            }
+            assert_eq!(waited, -1);
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                panic!("could not observe reserved session leader stop: {error}");
+            }
+        }
+
+        let drained =
+            kill_until_only_reserved(session, session, Instant::now() + Duration::from_secs(1));
+
+        let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+        let _ = leader_handle.signal(libc::SIGCONT);
+        let _ = leader.kill();
+        let _ = leader.wait();
+        assert!(drained.unwrap(), "an unreaped zombie kept a fully terminated PTY session pending");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pidfd_open_denial_uses_an_exact_proc_handle() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_OPEN";
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::pidfd_open_denial_uses_an_exact_proc_handle",
+            &[libc::SYS_pidfd_open],
+        ) {
+            return;
+        }
+
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+        assert!(process.matches_current().unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_exact_signal_support_fails_the_runtime_preflight() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_SIGNALING";
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::missing_exact_signal_support_fails_the_runtime_preflight",
+            &[libc::SYS_pidfd_open, libc::SYS_pidfd_send_signal],
+        ) {
+            return;
+        }
+
+        let error = require_stable_process_signaling().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_process_enumeration_fails_the_runtime_preflight() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PROCESS_ENUMERATION";
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::missing_process_enumeration_fails_the_runtime_preflight",
+            &[libc::SYS_getdents64],
+        ) {
+            return;
+        }
+
+        let error = require_stable_process_signaling().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn successful_preflight_survives_a_transient_initializer_failure() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_TRANSIENT_PREFLIGHT_CACHE";
+        const TEST_NAME: &str =
+            "process_session::tests::successful_preflight_survives_a_transient_initializer_failure";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "preflight cache subprocess failed: {status}");
+            return;
+        }
+
+        require_stable_process_signaling().unwrap();
+        set_process_session_preflight_failure_for_test(true);
+        initialize_stable_process_signaling();
+        set_process_session_preflight_failure_for_test(false);
+
+        require_cached_stable_process_signaling()
+            .expect("a later transient scan replaced the successful startup preflight");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shutdown_batch_reuses_one_process_table_snapshot() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<Vec<_>>();
+        PROCESS_TABLE_SCAN_COUNT.set(0);
+
+        let snapshots =
+            shutdown_batch_members_for_test(&sessions, Instant::now() + Duration::from_secs(1));
+        let scan_count = PROCESS_TABLE_SCAN_COUNT.get();
+
+        for child in &mut children {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        let snapshots = snapshots.unwrap();
+        assert!(
+            snapshots.iter().zip(&sessions).all(|(members, session)| members.contains(session))
+        );
+        assert_eq!(
+            scan_count, 1,
+            "one shutdown batch scanned the global process table more than once"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn session_scan_does_not_assume_an_inaccessible_pid_is_foreign() {
+        let sessions = HashSet::from([41]);
+        let error = scan_sessions_with(
+            &sessions,
+            None,
+            || Ok(vec![73]),
+            |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
+        )
+        .expect_err("unknown session membership was silently treated as foreign");
+        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tracked_session_filter_reads_proc_metadata_only_for_candidates() {
+        let sessions = HashSet::from([41]);
+        let metadata_queried = std::cell::Cell::new(false);
+        let foreign = tracked_process_session_with(
+            73,
+            &sessions,
+            |_| Ok(Some(99)),
+            |_| {
+                metadata_queried.set(true);
+                Err(io::Error::from_raw_os_error(libc::EACCES))
+            },
+        )
+        .unwrap();
+        assert_eq!(foreign, None);
+        assert!(!metadata_queried.get());
+
+        let error = tracked_process_session_with(
+            73,
+            &sessions,
+            |_| Ok(Some(41)),
+            |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
+        )
+        .expect_err("candidate session metadata failure was ignored");
+        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn concurrent_shutdown_refreshes_share_one_new_snapshot_generation() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<Vec<_>>();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let snapshot =
+            Arc::new(SessionProcessSnapshot::capture(sessions.clone(), deadline).unwrap());
+        let barrier = Arc::new(std::sync::Barrier::new(sessions.len()));
+
+        std::thread::scope(|scope| {
+            for session in &sessions {
+                let snapshot = snapshot.clone();
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let generation = snapshot.members(*session).unwrap().0;
+                    barrier.wait();
+                    snapshot.refresh_members(*session, generation, deadline).unwrap();
+                });
+            }
+        });
+        let scan_count = snapshot.scan_count();
+
+        for child in &mut children {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert_eq!(
+            scan_count, 2,
+            "concurrent refreshes did not coalesce onto one new process-table snapshot"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_reap_batch_refreshes_all_sessions_with_one_scan() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<HashSet<_>>();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let snapshot = SessionProcessSnapshot::capture(sessions.iter().copied(), deadline).unwrap();
+
+        let completed =
+            kill_sessions_until_only_leaders_from_snapshot(&snapshot, &sessions, deadline);
+        let scan_count = snapshot.scan_count();
+
+        for child in &mut children {
+            child.wait().unwrap();
+        }
+        assert_eq!(completed, sessions);
+        assert_eq!(scan_count, 2, "one natural-reap batch did not share its reconciliation scan");
+    }
+}

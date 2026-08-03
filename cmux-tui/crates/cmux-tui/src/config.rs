@@ -2692,7 +2692,7 @@ fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> 
 
 fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
     let mut command = ghostty_show_config_command(installation);
-    let mut child = command.spawn().ok()?;
+    let mut child = cmux_tui_process::spawn(&mut command).ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
         match child.try_wait().ok()? {
@@ -3149,7 +3149,7 @@ mod tests {
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
         mux.close_surface(surface.id).unwrap();
-        mux.shutdown();
+        mux.shutdown().unwrap();
         server::cleanup(&socket);
     }
 

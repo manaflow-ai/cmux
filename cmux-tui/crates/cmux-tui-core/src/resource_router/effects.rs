@@ -509,7 +509,7 @@ mod tests {
                 .unwrap(),
                 ResourceEffectPreparation::Execute { resumed: false, .. }
             ));
-            mux.shutdown();
+            let _ = mux.shutdown();
             drop(mux);
             fingerprint
         };
@@ -551,7 +551,7 @@ mod tests {
                 None,
             )
             .unwrap();
-            mux.shutdown();
+            let _ = mux.shutdown();
         }
 
         {
@@ -567,7 +567,7 @@ mod tests {
                 .unwrap(),
                 Some(ResourceEffectPreparation::Committed { revision: 0, .. })
             ));
-            mux.shutdown();
+            let _ = mux.shutdown();
         }
 
         fn assert_tree_excludes(path: &std::path::Path, needle: &[u8]) {

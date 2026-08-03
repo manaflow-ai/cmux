@@ -215,6 +215,7 @@
       "attach-surface"
     ],
     "local-admin": [
+      "shutdown",
       "shutdown-daemon",
       "pairing-response"
     ],

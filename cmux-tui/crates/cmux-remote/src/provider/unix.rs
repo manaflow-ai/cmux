@@ -2,9 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use async_trait::async_trait;
-use tokio::net::UnixStream;
-
 use crate::admin::verify_unix_peer_owner;
 #[cfg(test)]
 use crate::admin::verify_unix_peer_uid;
@@ -14,6 +11,7 @@ use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
 };
+use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
 pub struct UnixProvider {
@@ -120,13 +118,15 @@ impl LinkGroup for UnixLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Link(LinkError::Closed));
         }
-        let stream = UnixStream::connect(&self.path).await.map_err(|error| {
-            if retryable_dial_error(&error) {
-                ProviderError::Link(LinkError::Transport(error.to_string()))
-            } else {
-                ProviderError::Transport(error.to_string())
-            }
-        })?;
+        let stream = cmux_tui_process::tokio_net::connect_unix_stream(&self.path).await.map_err(
+            |error| {
+                if retryable_dial_error(&error) {
+                    ProviderError::Link(LinkError::Transport(error.to_string()))
+                } else {
+                    ProviderError::Transport(error.to_string())
+                }
+            },
+        )?;
         #[cfg(test)]
         let peer_validation = match self.expected_uid {
             Some(expected_uid) => verify_unix_peer_uid(&stream, expected_uid),

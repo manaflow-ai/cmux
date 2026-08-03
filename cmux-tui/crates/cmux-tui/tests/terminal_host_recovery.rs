@@ -2,13 +2,12 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
@@ -16,8 +15,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_TERMINATE_ONLY, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
@@ -25,6 +25,18 @@ use cmux_tui_core::terminal_host_runtime::{
     terminal_host_root,
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
+
+fn test_timeout_scale() -> u32 {
+    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1)
+}
+
+fn scaled_timeout(timeout: Duration) -> Duration {
+    timeout.saturating_mul(test_timeout_scale())
+}
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 
@@ -601,24 +613,107 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
 }
 
 #[test]
-fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
-    let harness = RecoveryHarness::start("exit-after-final-bytes");
-    request(
+fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
+    let harness = RecoveryHarness::start("terminate-job-control-group");
+    let marker = format!("job-control-background-ready-{}", std::process::id());
+    let descendant_pid_path = harness.dir.join("job-control-background.pid");
+    let created = request(
         &harness.socket,
         serde_json::json!({
             "id": 1,
             "cmd": "run",
             "argv": [
-                "/bin/sh",
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-i",
                 "-c",
                 concat!(
-                    "IFS= read -r trigger; i=0; ",
-                    "while [ \"$i\" -lt 20000 ]; do ",
-                    "printf 'drain-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; ",
-                    "i=$((i + 1)); done; ",
-                    "printf 'FINAL-PTY-BYTE-MARKER\\n'",
+                    "trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$1\"; printf '%s\\n' \"$2\"; wait",
                 ),
+                "cmux-job-control-background",
+                descendant_pid_path,
+                marker,
             ],
+            "new_workspace": true,
+            "name": "job-control-background",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let descendant_pid = wait_for_pid_file(&harness.dir.join("job-control-background.pid"));
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let observer = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let direct_pid = observer.snapshot.pid.unwrap() as libc::pid_t;
+    observer.disconnect();
+    assert!(process_exists(direct_pid), "direct PTY child exited before Terminate");
+    assert!(process_exists(descendant_pid), "background job exited before Terminate");
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_session = unsafe { libc::getsid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_session = unsafe { libc::getsid(descendant_pid) };
+
+    let host = adopt_terminal_host(record, record_path).unwrap();
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_remained = process_exists(descendant_pid);
+    if descendant_remained {
+        // SAFETY: the live process and group belong to this isolated fixture.
+        let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
+        // SAFETY: the live process belongs to this isolated fixture.
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+    }
+
+    assert!(direct_group > 0);
+    assert!(descendant_group > 0);
+    assert_ne!(
+        descendant_group, direct_group,
+        "fixture background job did not enter a separate process group"
+    );
+    assert_eq!(
+        descendant_session, direct_session,
+        "fixture background job left the owned PTY session"
+    );
+    wait_for_process_and_group_absent(direct_pid);
+    assert!(
+        !descendant_remained,
+        "terminal host exited after killing only the shell and foreground process groups"
+    );
+}
+
+#[test]
+fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
+    let harness = RecoveryHarness::start("exit-after-final-bytes");
+    let timeout_scale = test_timeout_scale();
+    // Keep enough bytes in flight for the PTY reader to finish after the child,
+    // but emit them in large writes so this exit-ordering test cannot trip the
+    // independent 256-frame slow-client guard under scheduler contention.
+    let drain_chunks = 16_u32.div_ceil(timeout_scale.saturating_mul(timeout_scale));
+    let script = format!(
+        concat!(
+            "IFS= read -r trigger; ",
+            "dd if=/dev/zero bs=65536 count={} 2>/dev/null; ",
+            "printf 'FINAL-PTY-BYTE-MARKER\\n'",
+        ),
+        drain_chunks,
+    );
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", script],
             "new_workspace": true,
             "name": "final-byte-ordering",
         }),
@@ -632,7 +727,7 @@ fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
         CapabilityRights::ADMIN,
     )
     .unwrap();
-    renderer.stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+    renderer.stream.set_read_timeout(Some(scaled_timeout(Duration::from_secs(15)))).unwrap();
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"go\n".to_vec())).unwrap();
 
     let mut output = Vec::new();
@@ -1304,6 +1399,53 @@ fn mint_capability_fences_prior_admin_input_before_renderer_input() {
 }
 
 #[test]
+fn terminate_only_owner_handshake_never_materializes_a_snapshot() {
+    let harness = RecoveryHarness::start("terminate-only");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+        }),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_terminate_only);
+    let mut stream = UnixStream::connect(&record.endpoint).unwrap();
+    let hello = ClientHello {
+        min_version: PROTOCOL_VERSION,
+        max_version: PROTOCOL_VERSION,
+        role: ClientRole::Admin,
+        requested_rights: CapabilityRights::TERMINATE,
+        terminal_id: TerminalId::from_bytes(decode_hex(&record.terminal_id).unwrap()),
+        token: CapabilityToken::from_bytes(decode_hex(&record.owner_token).unwrap()),
+    };
+    let mut hello = hello.into_frame(1);
+    hello.flags = FLAG_TERMINATE_ONLY;
+    write_frame(&mut stream, &hello).unwrap();
+    let response = read_frame(&mut stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(response.kind, MessageKind::HostHello);
+    assert_eq!(response.flags, FLAG_TERMINATE_ONLY);
+
+    write_frame(&mut stream, &Frame::new(MessageKind::Terminate, Vec::new())).unwrap();
+    stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+    match read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
+        Ok(None) => {}
+        Err(ProtocolError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::ConnectionReset
+            ) => {}
+        Ok(Some(frame)) => panic!("terminate-only handshake emitted {:?}", frame.kind),
+        Err(error) => panic!("unexpected terminate-only close error: {error}"),
+    }
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     let mut harness = RecoveryHarness::start("sigkill-adopt");
     let created = request(
@@ -1508,6 +1650,12 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.terminal_id, terminal_id);
 
     harness.restart();
+    let adopted_surface = wait_for_adopted_terminal(
+        &harness.socket,
+        &terminal_id,
+        &incarnation,
+        "terminal host was not adopted",
+    );
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -1516,8 +1664,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         .iter()
         .find(|item| item["key"].as_str() == Some(&workspace_key))
         .expect("durable workspace was not recovered");
-    let adopted_surface =
-        first_surface(recovered_workspace).expect("terminal host was not adopted");
+    assert_eq!(first_surface(recovered_workspace), Some(adopted_surface));
     let state = wait_for_cursor_visual(&harness.socket, adopted_surface, "block", true);
     assert_eq!(state["colors"]["cursor_style"], "block");
     assert_eq!(state["colors"]["cursor_blink"], true);
@@ -1571,6 +1718,12 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     // only in the disposable daemon-side Ghostty mirror.
     harness.sigkill();
     harness.restart();
+    let resized_surface = wait_for_adopted_terminal(
+        &harness.socket,
+        &terminal_id,
+        &incarnation,
+        "resized terminal host was not adopted",
+    );
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -1579,8 +1732,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         .iter()
         .find(|item| item["key"].as_str() == Some(&workspace_key))
         .expect("workspace was not recovered after the resized host survived again");
-    let resized_surface =
-        first_surface(recovered_workspace).expect("resized terminal host was not adopted");
+    assert_eq!(first_surface(recovered_workspace), Some(resized_surface));
     let state = request(
         &harness.socket,
         serde_json::json!({"id": 9, "cmd": "vt-state", "surface": resized_surface}),
@@ -1852,7 +2004,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "ttl_ms": 10_000,
         }),
     );
-    let stalled = connect_host_detailed(
+    let mut stalled = connect_host_detailed(
         grant["endpoint"].as_str().unwrap(),
         grant["terminal_id"].as_str().unwrap(),
         grant["token"].as_str().unwrap(),
@@ -1861,20 +2013,25 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     )
     .unwrap();
 
+    let ready = format!("overflow-ready-{}", std::process::id());
     request(
         &harness.socket,
         serde_json::json!({
             "id": 3,
             "cmd": "send",
             "surface": surface,
-            // A finite burst can fit in Darwin's dynamically sized socket
-            // buffers under some scheduler interleavings. Keep producing
-            // until the bounded host tap closes this unread renderer.
-            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
+            "text": format!(
+                // Keep the producer active until the bounded host queue closes
+                // this renderer. A finite burst can fit entirely in a
+                // dynamically sized local-socket buffer on either platform.
+                "printf '{ready}\\n'; \
+                 /usr/bin/head -c 1000000000000 /dev/zero & flood=$!\n"
+            ),
         }),
     );
+    assert!(wait_for_screen(&harness.socket, surface, &ready).contains(&ready));
     assert!(
-        wait_for_socket_hangup(&stalled.stream, Duration::from_secs(15)),
+        wait_for_stream_disconnect(&mut stalled.stream, scaled_timeout(Duration::from_secs(15))),
         "stalled renderer silently froze instead of being disconnected"
     );
 
@@ -1893,7 +2050,10 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "id": 4,
             "cmd": "send",
             "surface": surface,
-            "text": format!("printf '{after}\\n'\n"),
+            "text": format!(
+                "kill \"$flood\" 2>/dev/null; wait \"$flood\" 2>/dev/null; \
+                 printf '{after}\\n'\n"
+            ),
         }),
     );
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
@@ -1940,10 +2100,8 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     let mut renderer_writer = renderer.stream.try_clone().unwrap();
     let drained = Arc::new(AtomicUsize::new(0));
     let drain_count = drained.clone();
-    let (overflow_tx, overflow_rx) = mpsc::sync_channel(1);
     let drain = std::thread::spawn(move || {
         let mut renderer = renderer;
-        let mut reported = false;
         loop {
             match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
                 Ok(Some(frame)) => {
@@ -1952,12 +2110,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
                         renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
                     }
                     if frame.kind == MessageKind::Output {
-                        let total = drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel)
-                            + frame.payload.len();
-                        if total >= 12_000_000 && !reported {
-                            reported = true;
-                            let _ = overflow_tx.send(());
-                        }
+                        drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel);
                     }
                 }
                 Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
@@ -1972,15 +2125,22 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     // enough PTY output fills the daemon tap's bounded queue and deliberately
     // disconnects that admin stream.
     harness.signal_daemon(libc::SIGSTOP);
-    write_frame(
-        &mut renderer_writer,
-        &Frame::new(
-            MessageKind::Input,
-            b"/usr/bin/head -c 14000000 /dev/zero; printf '\\nadmin-flood-done\\n'\n".to_vec(),
-        ),
-    )
-    .unwrap();
-    overflow_rx.recv_timeout(Duration::from_secs(15)).unwrap();
+    for chunk in 1..=14 {
+        write_frame(
+            &mut renderer_writer,
+            &Frame::new(MessageKind::Input, b"/usr/bin/head -c 1000000 /dev/zero\n".to_vec()),
+        )
+        .unwrap();
+        let expected = chunk * 1_000_000;
+        let deadline = Instant::now() + scaled_timeout(Duration::from_secs(15));
+        while drained.load(Ordering::Acquire) < expected && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            drained.load(Ordering::Acquire) >= expected,
+            "renderer did not drain output chunk {chunk} while the daemon was frozen"
+        );
+    }
     harness.signal_daemon(libc::SIGCONT);
 
     let after = format!("renderer-after-reconnect-{}", std::process::id());
@@ -2638,6 +2798,7 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
     assert_eq!(first_snapshot["cursor"]["revision"], "1");
     assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
+    assert_eq!(first_snapshot["terminals"][0]["id"], created_path["terminal_id"]);
     let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
     assert_eq!(after_first_restart.host_pid, before.host_pid);
     assert_eq!(after_first_restart.host_start_nonce, before.host_start_nonce);
@@ -2684,6 +2845,7 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
     assert_eq!(second_snapshot["cursor"]["revision"], "1");
     assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
+    assert_eq!(second_snapshot["terminals"][0]["id"], created_path["terminal_id"]);
     let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
     assert_eq!(after_second_restart.host_pid, before.host_pid);
     assert_eq!(after_second_restart.host_start_nonce, before.host_start_nonce);
@@ -2901,6 +3063,61 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
     last
 }
 
+fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    let previous_timeout = stream.write_timeout().ok().flatten();
+    let disconnected = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break false;
+        }
+        if stream.set_write_timeout(Some(remaining.min(Duration::from_millis(50)))).is_err() {
+            break true;
+        }
+        // ReleaseViewer is valid and idempotent for this renderer but produces
+        // no host-to-client frame, so it probes only the input half of the
+        // connection while output remains deliberately unread.
+        match write_frame(stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new())) {
+            Ok(()) => {}
+            Err(ProtocolError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break true,
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    };
+    let _ = stream.set_write_timeout(previous_timeout);
+    disconnected
+}
+
+fn wait_for_adopted_terminal(
+    path: &Path,
+    terminal_id: &str,
+    incarnation: &str,
+    failure: &str,
+) -> u64 {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let resolved = request(
+            path,
+            serde_json::json!({
+                "cmd": "resolve-terminal",
+                "terminal_id": terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation)
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            return surface;
+        }
+        assert!(Instant::now() < deadline, "{failure}: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -2922,39 +3139,6 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
-}
-
-fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return false;
-        }
-        let mut descriptor = libc::pollfd {
-            fd: stream.as_raw_fd(),
-            events: libc::POLLIN | libc::POLLHUP,
-            revents: 0,
-        };
-        let timeout_ms =
-            remaining.min(Duration::from_millis(100)).as_millis().clamp(1, i32::MAX as u128) as i32;
-        // SAFETY: descriptor points to one initialized pollfd and the stream
-        // remains borrowed for the duration of poll.
-        let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
-        if ready < 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            panic!("poll stalled renderer: {error}");
-        }
-        if descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
-            return true;
-        }
-        if ready > 0 {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    }
 }
 
 fn wait_for_terminal_lifecycle(

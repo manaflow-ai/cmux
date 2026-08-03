@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+#[cfg(test)]
+use std::net::TcpListener;
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -45,12 +47,14 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
+use crate::PublicationGuard;
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
 use crate::model::{Screen, State, Workspace};
 use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
+use crate::release::ReleaseIdentity;
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
     ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
@@ -74,6 +78,13 @@ use crate::{
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
+pub const SERVER_SHUTDOWN_INCOMPLETE_ERROR: &str = "shutdown_cleanup_incomplete";
+/// Maximum wall-clock time the server spends draining a shutdown request.
+/// Clients add their own transport margin to this server-owned bound.
+pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+/// Maximum time startup spends determining whether a local session socket is live.
+pub const LOCAL_SOCKET_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
@@ -90,6 +101,8 @@ pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+#[cfg(unix)]
+static SOCKET_CLEANUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
@@ -106,6 +119,12 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
+    }
+    // Atomic shutdown is advertised only where PTY session descendants can
+    // be enumerated and signaled through exact process handles.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if crate::process_session::require_cached_stable_process_signaling().is_ok() {
+        capabilities.push(SERVER_SHUTDOWN_CAPABILITY);
     }
     capabilities
 }
@@ -484,6 +503,7 @@ enum Command {
         force: bool,
     },
     Ping,
+    Shutdown,
     SetClientInfo {
         #[serde(default)]
         name: Option<String>,
@@ -1255,6 +1275,7 @@ impl std::error::Error for DeliveryClassifiedError {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_WRITE_TIMEOUT: Duration = SERVER_SHUTDOWN_TIMEOUT;
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -1963,6 +1984,11 @@ trait MessageSink: Send + Sync {
     -> std::io::Result<()>;
     fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    fn send_control_confirmed(
+        &self,
+        text: Arc<BudgetedText>,
+        timeout: Duration,
+    ) -> std::io::Result<()>;
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -2130,6 +2156,20 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.sink.send_control(text);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    fn send_control_confirmed(&self, value: &Value, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_control(value)
+            .and_then(|text| self.sink.send_control_confirmed(text, timeout));
         if result.is_err() {
             self.close();
         }
@@ -2490,7 +2530,8 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<Arc<BudgetedText>>,
+    confirmed: VecDeque<ControlOutbound>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     stream_usage: HashMap<u64, StreamOutboundUsage>,
     control_bytes: usize,
@@ -2507,6 +2548,40 @@ struct StreamOutboundUsage {
 struct RegularOutbound {
     text: Arc<BudgetedText>,
     stream: OutboundStream,
+}
+
+struct ControlOutbound {
+    text: Arc<BudgetedText>,
+    completion: Option<std::sync::mpsc::SyncSender<bool>>,
+}
+
+struct OutboundMessage {
+    text: Arc<BudgetedText>,
+    completion: Option<std::sync::mpsc::SyncSender<bool>>,
+}
+
+impl OutboundMessage {
+    fn finish(mut self, written: bool) {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(written);
+        }
+    }
+
+    #[cfg(test)]
+    fn into_test_text(mut self) -> String {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(true);
+        }
+        self.text.to_string()
+    }
+}
+
+impl Drop for OutboundMessage {
+    fn drop(&mut self) {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(false);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -2631,9 +2706,31 @@ impl BoundedOutbound {
 
     fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        Self::push_control_locked(&mut state, text)?;
+        Self::push_control_locked(&mut state, text, None, false)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    fn push_control_confirmed(
+        &self,
+        text: Arc<BudgetedText>,
+        timeout: Duration,
+    ) -> std::io::Result<()> {
+        let (completion, written) = std::sync::mpsc::sync_channel(1);
+        {
+            let mut state = self.state.lock().unwrap();
+            Self::push_control_locked(&mut state, text, Some(completion), true)?;
+            self.changed.notify_one();
+        }
+        match written.recv_timeout(timeout) {
+            Ok(true) => Ok(()),
+            Ok(false) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "response write failed"))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "response write timed out"))
+            }
+        }
     }
 
     fn push_terminal(
@@ -2647,7 +2744,7 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        Self::push_control_locked(&mut state, text)?;
+        Self::push_control_locked(&mut state, text, None, false)?;
         self.changed.notify_one();
         Ok(())
     }
@@ -2662,7 +2759,7 @@ impl BoundedOutbound {
             return Ok(());
         }
         let overflow_text = stream.overflow_text.lock().unwrap().clone();
-        if let Err(error) = Self::push_control_locked(state, overflow_text) {
+        if let Err(error) = Self::push_control_locked(state, overflow_text, None, false) {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -2691,12 +2788,14 @@ impl BoundedOutbound {
     fn push_control_locked(
         state: &mut BoundedOutboundState,
         text: Arc<BudgetedText>,
+        completion: Option<std::sync::mpsc::SyncSender<bool>>,
+        confirmed: bool,
     ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let bytes = text.len();
-        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+        if state.confirmed.len() + state.control.len() >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
             return Err(std::io::Error::new(
@@ -2705,21 +2804,26 @@ impl BoundedOutbound {
             ));
         }
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        let message = ControlOutbound { text, completion };
+        if confirmed {
+            state.confirmed.push_back(message);
+        } else {
+            state.control.push_back(message);
+        }
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        Self::pop_locked(&mut state).map(|text| text.to_string())
+        Self::pop_locked(&mut state).map(OutboundMessage::into_test_text)
     }
 
-    fn recv(&self) -> Option<Arc<BudgetedText>> {
+    fn recv(&self) -> Option<OutboundMessage> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
-                return Some(text);
+            if let Some(message) = Self::pop_locked(&mut state) {
+                return Some(message);
             }
             if state.closed {
                 return None;
@@ -2728,18 +2832,22 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundMessage> {
+        if let Some(message) = state.confirmed.pop_front() {
+            state.control_bytes -= message.text.len();
+            return Some(OutboundMessage { text: message.text, completion: message.completion });
+        }
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(message.text);
+            return Some(OutboundMessage { text: message.text, completion: None });
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(message) = state.control.pop_front() {
+            state.control_bytes -= message.text.len();
+            return Some(OutboundMessage { text: message.text, completion: message.completion });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(message.text)
+        Some(OutboundMessage { text: message.text, completion: None })
     }
 
     fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -2760,7 +2868,19 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for message in &mut state.confirmed {
+            if let Some(completion) = message.completion.take() {
+                let _ = completion.send(false);
+            }
+        }
+        for message in &mut state.control {
+            if let Some(completion) = message.completion.take() {
+                let _ = completion.send(false);
+            }
+        }
+        drop(state);
         self.changed.notify_all();
     }
 }
@@ -2789,11 +2909,14 @@ impl SynchronizedTcpStream {
     }
 
     fn try_clone(&self) -> std::io::Result<Self> {
-        Ok(Self { stream: self.stream.try_clone()?, write_lock: self.write_lock.clone() })
+        Ok(Self {
+            stream: cmux_tui_process::tcp::clone_stream(&self.stream)?,
+            write_lock: self.write_lock.clone(),
+        })
     }
 
     fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
-        self.stream.try_clone()
+        cmux_tui_process::tcp::clone_stream(&self.stream)
     }
 
     fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
@@ -2891,6 +3014,17 @@ impl MessageSink for QueuedSink {
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn send_control_confirmed(
+        &self,
+        text: Arc<BudgetedText>,
+        timeout: Duration,
+    ) -> std::io::Result<()> {
+        if self.control.is_none() {
+            return self.outbound.push_control(text);
+        }
+        self.outbound.push_control_confirmed(text, timeout)
     }
 
     fn send_terminal(
@@ -3743,6 +3877,199 @@ fn clamp_client_label(value: String) -> String {
     sanitize_window_title(&value).chars().take(64).collect()
 }
 
+/// Connect to a live local session, or return `None` only when its socket is
+/// absent or definitively refusing connections.
+pub fn connect_existing_until(
+    path: &Path,
+    deadline: Instant,
+) -> std::io::Result<Option<Box<dyn transport::Stream>>> {
+    match transport::connect_until(path, deadline) {
+        Ok(stream) => Ok(Some(stream)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SocketPublicationStage {
+    StaleProbeComplete,
+    Bound,
+}
+
+#[cfg(test)]
+type SocketPublicationHook = Arc<dyn Fn(&Path, SocketPublicationStage) + Send + Sync + 'static>;
+
+#[cfg(test)]
+static SOCKET_PUBLICATION_HOOK: std::sync::OnceLock<Mutex<Option<SocketPublicationHook>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn set_socket_publication_hook(hook: Option<SocketPublicationHook>) {
+    *SOCKET_PUBLICATION_HOOK.get_or_init(Default::default).lock().unwrap() = hook;
+}
+
+#[cfg(test)]
+fn socket_publication_hook(path: &Path, stage: SocketPublicationStage) {
+    let hook = SOCKET_PUBLICATION_HOOK.get_or_init(Default::default).lock().unwrap().clone();
+    if let Some(hook) = hook {
+        hook(path, stage);
+    }
+}
+
+#[cfg(any(not(unix), test))]
+fn cleanup_without_stable_identity(_path: &Path) {
+    // Windows does not expose a race-free socket publication identity through
+    // this transport. Leave the path in place; the next server performs a
+    // bounded liveness probe before reclaiming a stale socket.
+}
+
+/// Identity-coupled ownership of one published local server socket.
+///
+/// Unix cleanup removes only the socket inode created by the matching
+/// successful publication. Platforms without a stable socket identity leave
+/// cleanup to the next server's liveness probe. A failed bind or a later
+/// replacement at the same path remains outside this owner's authority.
+pub struct PublishedSocket {
+    path: PathBuf,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl PublishedSocket {
+    /// Claim a socket path immediately after a successful bind.
+    pub fn claim(path: PathBuf) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if !metadata.file_type().is_socket() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "published server path is not a socket",
+                ));
+            }
+            Ok(Self { path, device: metadata.dev(), inode: metadata.ino() })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove this publication without unlinking a path reused by another server.
+    pub fn cleanup(self) {
+        #[cfg(unix)]
+        {
+            let _ = self.cleanup_unix();
+        }
+        #[cfg(not(unix))]
+        {
+            cleanup_without_stable_identity(&self.path);
+        }
+    }
+
+    fn cleanup_while_publication_locked(self) {
+        #[cfg(unix)]
+        {
+            let _ = self.cleanup_unix_locked();
+        }
+        #[cfg(not(unix))]
+        {
+            cleanup_without_stable_identity(&self.path);
+        }
+    }
+
+    #[cfg(unix)]
+    fn matches(&self, path: &Path) -> std::io::Result<bool> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let metadata = std::fs::symlink_metadata(path)?;
+        Ok(metadata.file_type().is_socket()
+            && metadata.dev() == self.device
+            && metadata.ino() == self.inode)
+    }
+
+    #[cfg(unix)]
+    fn cleanup_unix(&self) -> std::io::Result<()> {
+        let _publication_lock = PublicationGuard::acquire(
+            &self.path,
+            Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
+        )?;
+        self.cleanup_unix_locked()
+    }
+
+    #[cfg(unix)]
+    fn cleanup_unix_locked(&self) -> std::io::Result<()> {
+        match self.matches(&self.path) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        }
+
+        let parent = self.path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "published server socket has no parent directory",
+            )
+        })?;
+        let file_name =
+            self.path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+        let quarantine_dir = loop {
+            let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate =
+                parent.join(format!(".{file_name}.cleanup-{}-{sequence:x}", std::process::id()));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => {
+                    if let Err(error) = platform::restrict_directory(&candidate) {
+                        let _ = std::fs::remove_dir(&candidate);
+                        return Err(error);
+                    }
+                    break candidate;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        };
+        let quarantined = quarantine_dir.join("socket");
+        if let Err(error) = std::fs::rename(&self.path, &quarantined) {
+            let _ = std::fs::remove_dir(&quarantine_dir);
+            return if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) };
+        }
+
+        match self.matches(&quarantined) {
+            Ok(true) => {
+                let removed = std::fs::remove_file(&quarantined);
+                let _ = std::fs::remove_dir(&quarantine_dir);
+                removed
+            }
+            Ok(false) | Err(_) => {
+                // An uncoordinated replacement won the race between the
+                // public identity check and rename. Restore it without
+                // overwriting any newer publication at the public path.
+                std::fs::hard_link(&quarantined, &self.path)?;
+                std::fs::remove_file(&quarantined)?;
+                std::fs::remove_dir(&quarantine_dir)
+            }
+        }
+    }
+}
+
 fn validate_resource_client_label(
     field: &'static str,
     value: Option<String>,
@@ -3765,27 +4092,59 @@ fn validate_resource_client_label(
 
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let published = serve_owned(mux, path)?;
+    Ok(published.path().to_path_buf())
+}
+
+/// Bind the socket and return its exact publication ownership.
+pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PublishedSocket> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
     }
+    let _publication_lock = PublicationGuard::acquire(
+        &path,
+        Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
+    )?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
-        match transport::connect(&path) {
-            Ok(_) => anyhow::bail!(
+        let deadline = Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT;
+        match connect_existing_until(&path, deadline)? {
+            Some(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => std::fs::remove_file(&path)?,
+            None => {
+                #[cfg(test)]
+                socket_publication_hook(&path, SocketPublicationStage::StaleProbeComplete);
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
         }
     }
     let listener = transport::listen(&path)?;
-    platform::restrict_file(&path)?;
+    #[cfg(test)]
+    socket_publication_hook(&path, SocketPublicationStage::Bound);
+    let published = match PublishedSocket::claim(path.clone()) {
+        Ok(published) => published,
+        Err(error) => {
+            // The listener drops here. Leave the path for the next liveness
+            // probe rather than unlinking without a captured socket identity.
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = platform::restrict_file(&path) {
+        published.cleanup_while_publication_locked();
+        return Err(error.into());
+    }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    if let Err(error) = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
@@ -3795,8 +4154,11 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
-    })?;
-    Ok(path)
+    }) {
+        published.cleanup_while_publication_locked();
+        return Err(error.into());
+    }
+    Ok(published)
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -3819,7 +4181,7 @@ impl Drop for WebSocketServer {
         for stream in self.connections.lock().unwrap().values() {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        if let Ok(stream) = TcpStream::connect(self.local_addr) {
+        if let Ok(stream) = cmux_tui_process::tcp::connect_stream(self.local_addr) {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
@@ -3850,7 +4212,7 @@ pub fn serve_websocket(
             );
         }
     }
-    let listener = TcpListener::bind(addr)?;
+    let listener = cmux_tui_process::tcp::bind_listener(addr)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
@@ -3861,7 +4223,7 @@ pub fn serve_websocket(
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
-            let (stream, peer) = match listener.accept() {
+            let (stream, peer) = match cmux_tui_process::tcp::accept_stream(&listener) {
                 Ok(connection) => connection,
                 Err(_) => {
                     if thread_shutdown.load(Ordering::Acquire) {
@@ -3881,7 +4243,7 @@ pub fn serve_websocket(
             }
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = stream.try_clone() {
+            if let Ok(tracked) = cmux_tui_process::tcp::clone_stream(&stream) {
                 thread_connections.lock().unwrap().insert(id, tracked);
             }
             let mux = mux.clone();
@@ -3951,14 +4313,17 @@ fn handle_connection_with_permit(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
+            while let Some(message) = writer_outbound.recv() {
+                let written = write_half
+                    .write_all(message.text.as_bytes())
+                    .and_then(|()| write_half.write_all(b"\n"));
+                if written.is_err() {
+                    message.finish(false);
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
                 }
+                message.finish(true);
             }
             writer_close.close();
             let _ = write_half.shutdown(Shutdown::Both);
@@ -4062,11 +4427,13 @@ fn handle_websocket_connection_with_permit(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(text) = writer_outbound.recv() {
-                if writer_stream.write_websocket_text(&text).is_err() {
+            while let Some(message) = writer_outbound.recv() {
+                if writer_stream.write_websocket_text(&message.text).is_err() {
+                    message.finish(false);
                     writer_outbound.close();
                     break;
                 }
+                message.finish(true);
             }
             writer_close.close();
             let _ = writer_stream.write_websocket_close();
@@ -6542,6 +6909,7 @@ fn handle_request_with_cancellation(
     }
 
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
+    let shutdown = matches!(&cmd, Command::Shutdown);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
@@ -6567,10 +6935,16 @@ fn handle_request_with_cancellation(
         }
     };
     let response_ok = response.ok;
-    let sent = send_response(writer, response);
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    let sent = if shutdown && response_ok {
+        serde_json::to_value(&response).is_ok_and(|value| {
+            writer.send_control_confirmed(&value, SHUTDOWN_ACK_WRITE_TIMEOUT).is_ok()
+        })
+    } else {
+        send_response(writer, response)
+    };
+    // Daemon handoff remains reversible until its response is queued. Full
+    // shutdown uses the confirmed control path above and requests process exit
+    // only after the writer reports that the ACK reached the socket.
     if shutdown_daemon && response_ok {
         if sent {
             mux.request_daemon_shutdown();
@@ -6581,6 +6955,13 @@ fn handle_request_with_cancellation(
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
+    }
+    if shutdown && response_ok {
+        // Cleanup is irreversible once the registry and runtimes have been
+        // drained. A peer that disconnects before the best-effort ACK must
+        // not leave an empty, permanently fenced daemon behind.
+        mux.request_shutdown();
+        return sent;
     }
     sent
 }
@@ -8161,22 +8542,47 @@ fn handle_command_with_cancellation(
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
             let (registry_id, generation) = mux.registry_identity();
+            let shutdown_cleanup = mux.shutdown_cleanup_health();
             Ok(json!({
                 "app": "cmux-tui",
-                "version": env!("CARGO_PKG_VERSION"),
-                "build_commit": stamped_build_commit(),
-                "ghostty_commit": stamped_ghostty_commit(),
-                "protocol": PROTOCOL_VERSION,
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
                 "capabilities": advertised_capabilities(cfg!(unix)),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
-                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+                "terminal_revision": mux.terminal_registry_revision()?,
                 "daemon_handoff": 1,
+                "shutdown_cleanup": {
+                    "pending": shutdown_cleanup.pending,
+                    "retrying": shutdown_cleanup.retrying,
+                    "degraded": shutdown_cleanup.degraded,
+                },
             }))
+        }
+        Command::Ping => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
+            Ok(json!({
+                "ok": true,
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
+            }))
+        }
+        Command::Shutdown => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("shutdown is only available over the local session socket");
+            }
+            mux.close_all_surfaces_for_shutdown()
+                .map_err(|_| anyhow::anyhow!(SERVER_SHUTDOWN_INCOMPLETE_ERROR))?;
+            Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation, force } => {
             let actual_identity = mux.begin_daemon_handoff(
@@ -8189,13 +8595,6 @@ fn handle_command_with_cancellation(
                 "generation": actual_identity.generation,
             }))
         }
-        Command::Ping => Ok(json!({
-            "ok": true,
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-        })),
         Command::SetClientInfo { name, kind, capabilities } => {
             let (name, kind) = mux.control_clients.set_info(
                 client,
@@ -9862,16 +10261,6 @@ fn handle_command_with_cancellation(
     }
 }
 
-fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
-}
-
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
@@ -10043,6 +10432,334 @@ mod tests {
         assert_eq!(
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn cleanup_without_stable_identity_preserves_a_replacement_path() {
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-unverified-publication-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        std::fs::write(&path, b"original").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"replacement").unwrap();
+
+        cleanup_without_stable_identity(&path);
+
+        let replacement = std::fs::read(&path);
+        let _ = std::fs::remove_file(&path);
+        std::fs::remove_dir(directory).unwrap();
+        assert_eq!(
+            replacement.expect("unverified cleanup removed a replacement publication"),
+            b"replacement"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn published_socket_cleanup_waits_for_publication_lock() {
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-serialized-cleanup-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let published = PublishedSocket::claim(path.clone()).unwrap();
+        let publication_lock =
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+        let (finished, observed) = std::sync::mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            published.cleanup();
+            let _ = finished.send(());
+        });
+
+        let completed_while_locked = observed.recv_timeout(Duration::from_millis(100)).is_ok();
+        drop(publication_lock);
+        if !completed_while_locked {
+            observed
+                .recv_timeout(Duration::from_secs(2))
+                .expect("socket cleanup did not resume after the publication lock was released");
+        }
+        cleanup.join().unwrap();
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert!(!completed_while_locked, "socket cleanup bypassed the concurrent publication lock");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_guard_transfers_across_exec() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_PUBLICATION_GUARD_CHILD";
+        const DESCRIPTOR_ENV: &str = "CMUX_TUI_TEST_PUBLICATION_GUARD_FD";
+        const TEST_NAME: &str = "server::tests::publication_guard_transfers_across_exec";
+
+        fn wait_for_marker(child: &mut std::process::Child, marker: &Path) -> Result<(), String> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if marker.exists() {
+                    return Ok(());
+                }
+                if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+                    return Err(format!(
+                        "publication child exited before {}: {status}",
+                        marker.display()
+                    ));
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!("publication child did not create {}", marker.display()));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        fn wait_for_child_exit(
+            child: &mut std::process::Child,
+        ) -> Result<std::process::ExitStatus, String> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => return Ok(status),
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Ok(None) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err("publication child did not exit".to_string());
+                    }
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(error.to_string());
+                    }
+                }
+            }
+        }
+
+        if let Some(directory) = std::env::var_os(CHILD_ENV) {
+            let directory = PathBuf::from(directory);
+            let path = directory.join("server.sock");
+            let descriptor =
+                std::env::var(DESCRIPTOR_ENV).unwrap().parse::<std::os::fd::RawFd>().unwrap();
+            // SAFETY: the parent passed the unique descriptor copy prepared
+            // for this exec child and retains no child-side alias.
+            let guard = unsafe {
+                PublicationGuard::adopt_inherited(
+                    &path,
+                    descriptor,
+                    Instant::now() + Duration::from_secs(2),
+                )
+            }
+            .unwrap();
+            std::fs::write(directory.join("ready"), []).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !directory.join("release").exists() {
+                assert!(Instant::now() < deadline, "parent did not release publication child");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            drop(guard);
+            std::fs::write(directory.join("dropped"), []).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !directory.join("finish").exists() {
+                assert!(Instant::now() < deadline, "parent did not finish publication child");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            return;
+        }
+
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-publication-transfer-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        let guard =
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        let descriptor = guard.inherit_into(&mut command);
+        command
+            .args(["--exact", TEST_NAME])
+            .env(CHILD_ENV, &directory)
+            .env(DESCRIPTOR_ENV, descriptor.to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut child = cmux_tui_process::spawn(&mut command).unwrap();
+
+        let ready = wait_for_marker(&mut child, &directory.join("ready"));
+        drop(guard);
+        let competing =
+            PublicationGuard::acquire(&path, Instant::now() + Duration::from_millis(150));
+        let child_retained_lock =
+            matches!(&competing, Err(error) if error.kind() == std::io::ErrorKind::TimedOut);
+        drop(competing);
+
+        std::fs::write(directory.join("release"), []).unwrap();
+        let dropped = wait_for_marker(&mut child, &directory.join("dropped"));
+        let reacquired = PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1));
+        let child_released_lock = reacquired.is_ok();
+        drop(reacquired);
+        std::fs::write(directory.join("finish"), []).unwrap();
+        let status = wait_for_child_exit(&mut child);
+
+        for marker in ["ready", "release", "dropped", "finish"] {
+            let _ = std::fs::remove_file(directory.join(marker));
+        }
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
+        std::fs::remove_dir(&directory).unwrap();
+
+        ready.unwrap();
+        dropped.unwrap();
+        let status = status.unwrap();
+        assert!(status.success(), "publication child failed: {status}");
+        assert!(child_retained_lock, "parent release dropped the child's publication lock");
+        assert!(child_released_lock, "child guard retained publication ownership after drop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_lock_rejects_symlink_without_changing_target_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-publication-symlink-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let socket_path = directory.join("server.sock");
+        let target = directory.join("target");
+        std::fs::write(&target, b"target").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let lock_path = crate::publication::publication_lock_path(&socket_path).unwrap();
+        symlink(&target, &lock_path).unwrap();
+
+        let result =
+            PublicationGuard::acquire(&socket_path, Instant::now() + Duration::from_secs(1));
+        let target_mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        let rejected = result.is_err();
+        drop(result);
+        std::fs::remove_file(&lock_path).unwrap();
+        std::fs::remove_file(&target).unwrap();
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert!(rejected, "publication lock followed a symbolic link");
+        assert_eq!(target_mode, 0o644, "publication lock changed the symlink target mode");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_stale_socket_reclamation_has_one_owner() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_CONCURRENT_SOCKET_RECLAMATION";
+        const TEST_NAME: &str = "server::tests::concurrent_stale_socket_reclamation_has_one_owner";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "socket reclamation subprocess failed: {status}");
+            return;
+        }
+
+        #[derive(Default)]
+        struct RaceState {
+            second_probed: bool,
+            first_bound: bool,
+            second_bound: bool,
+        }
+
+        struct ClearPublicationHook;
+        impl Drop for ClearPublicationHook {
+            fn drop(&mut self) {
+                set_socket_publication_hook(None);
+            }
+        }
+
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-concurrent-publication-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        std::os::unix::net::UnixListener::bind(&path).unwrap();
+
+        let state = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
+        let hook_path = path.clone();
+        let hook_state = state.clone();
+        set_socket_publication_hook(Some(Arc::new(move |path, stage| {
+            if path != hook_path {
+                return;
+            }
+            let thread_name = std::thread::current().name().unwrap_or_default().to_string();
+            let (state, changed) = &*hook_state;
+            let mut state = state.lock().unwrap();
+            match (thread_name.as_str(), stage) {
+                ("socket-startup-second", SocketPublicationStage::StaleProbeComplete) => {
+                    state.second_probed = true;
+                    changed.notify_all();
+                    let (next, _) = changed
+                        .wait_timeout_while(state, Duration::from_secs(1), |state| {
+                            !state.first_bound
+                        })
+                        .unwrap();
+                    drop(next);
+                }
+                ("socket-startup-first", SocketPublicationStage::Bound) => {
+                    state.first_bound = true;
+                    changed.notify_all();
+                    let (next, _) = changed
+                        .wait_timeout_while(state, Duration::from_secs(1), |state| {
+                            !state.second_bound
+                        })
+                        .unwrap();
+                    drop(next);
+                }
+                ("socket-startup-second", SocketPublicationStage::Bound) => {
+                    state.second_bound = true;
+                    changed.notify_all();
+                }
+                _ => {}
+            }
+        })));
+        let _clear_hook = ClearPublicationHook;
+
+        let second_path = path.clone();
+        let second = std::thread::Builder::new()
+            .name("socket-startup-second".into())
+            .spawn(move || serve_owned(test_mux(), Some(second_path)))
+            .unwrap();
+        {
+            let (state, changed) = &*state;
+            let state = state.lock().unwrap();
+            let (state, timeout) = changed
+                .wait_timeout_while(state, Duration::from_secs(2), |state| !state.second_probed)
+                .unwrap();
+            assert!(!timeout.timed_out() && state.second_probed);
+        }
+        let first_path = path.clone();
+        let first = std::thread::Builder::new()
+            .name("socket-startup-first".into())
+            .spawn(move || serve_owned(test_mux(), Some(first_path)))
+            .unwrap();
+
+        let first = first.join().unwrap();
+        let second = second.join().unwrap();
+        let first_error = first.as_ref().err().map(ToString::to_string);
+        let second_error = second.as_ref().err().map(ToString::to_string);
+        let publications: Vec<_> = [first.ok(), second.ok()].into_iter().flatten().collect();
+        let owners = publications.len();
+        for publication in publications {
+            publication.cleanup();
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert_eq!(
+            owners, 1,
+            "concurrent startup created {owners} owners; first={first_error:?}, second={second_error:?}"
         );
     }
 
@@ -10624,6 +11341,14 @@ mod tests {
                 })?;
             }
             self.outbound.push_control(text)
+        }
+
+        fn send_control_confirmed(
+            &self,
+            text: Arc<BudgetedText>,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.send_control(text)
         }
 
         fn send_terminal(
@@ -13071,10 +13796,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "write-eof-drain-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
@@ -13156,10 +13881,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "clear-concurrency-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
@@ -13230,10 +13955,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "clear-lifecycle-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
@@ -13681,6 +14406,34 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_control_precedes_initial_stream_backlog() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let service = RenderService::new();
+        let stream = OutboundStream::new(
+            1,
+            service.serialize_control(&json!({"event": "overflow"})).unwrap(),
+        );
+        outbound.push_initial(service.serialize_control(&"initial").unwrap(), &stream).unwrap();
+        let confirmed_text = service.serialize_control(&"ack").unwrap();
+        let confirmed = {
+            let outbound = outbound.clone();
+            std::thread::spawn(move || {
+                outbound.push_control_confirmed(confirmed_text, Duration::from_secs(1))
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while outbound.state.lock().unwrap().control_bytes == 0 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+
+        let first = outbound.try_pop().unwrap();
+        let second = outbound.try_pop().unwrap();
+        confirmed.join().unwrap().unwrap();
+        assert_eq!(first, "\"ack\"", "confirmed control waited behind initial stream state");
+        assert_eq!(second, "\"initial\"");
+    }
+
+    #[test]
     fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -13842,18 +14595,19 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
+        let release = ReleaseIdentity::current(PROTOCOL_VERSION);
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
-        assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(identity["version"].as_str(), Some(release.version.as_str()));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(identity["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(identity["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
 
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
-        assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
-        assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(data["version"].as_str(), Some(release.version.as_str()));
+        assert_eq!(data["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(data["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
         assert!(
@@ -14126,13 +14880,201 @@ mod tests {
             Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
             &writer,
         );
-        mux.shutdown();
+        mux.shutdown().unwrap();
 
         let error = attach.expect_err("a legacy pointer owner must not gain a guarded attach");
         assert!(
             error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY),
             "late capability upgrade must return the guarded-pointer admission error: {error:#}"
         );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn repeated_identify_never_rescans_the_global_process_table() {
+        let mux = test_mux();
+        crate::process_session::reset_stable_process_preflight_count_for_test();
+
+        handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(
+            crate::process_session::stable_process_preflight_count_for_test(),
+            0,
+            "ordinary identity requests repeated the process-control startup preflight"
+        );
+    }
+
+    #[test]
+    fn identify_reads_terminal_revision_without_materializing_the_registry() {
+        let mux = test_mux();
+        mux.reset_terminal_snapshot_count_for_test();
+
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["terminal_revision"].as_u64(), Some(0));
+        assert_eq!(
+            mux.terminal_snapshot_count_for_test(),
+            0,
+            "identity preflight materialized every terminal record"
+        );
+    }
+
+    #[test]
+    fn identify_exposes_shutdown_cleanup_health() {
+        let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["shutdown_cleanup"]["pending"].as_u64(), Some(0));
+        assert_eq!(identity["shutdown_cleanup"]["retrying"].as_bool(), Some(false));
+        assert_eq!(identity["shutdown_cleanup"]["degraded"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn local_shutdown_responds_before_requesting_mux_exit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response, json!({"id": 7, "ok": true, "data": {}}));
+    }
+
+    struct ConfirmedControlSink {
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        open: AtomicBool,
+    }
+
+    impl MessageSink for ConfirmedControlSink {
+        fn send_initial(
+            &self,
+            _text: Arc<BudgetedText>,
+            _stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_stream(
+            &self,
+            _text: Arc<BudgetedText>,
+            _stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control(&self, _text: Arc<BudgetedText>) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control_confirmed(
+            &self,
+            _text: Arc<BudgetedText>,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.entered
+                .send(())
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))?;
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))
+        }
+
+        fn send_terminal(
+            &self,
+            _text: Arc<BudgetedText>,
+            _stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn is_open(&self) -> bool {
+            self.open.load(Ordering::Acquire)
+        }
+
+        fn close(&self) {
+            self.open.store(false, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn local_shutdown_waits_for_the_acknowledgement_write() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(ConfirmedControlSink {
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+            open: AtomicBool::new(true),
+        });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let request = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                done_tx
+                    .send(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer))
+                    .unwrap();
+            }
+        });
+
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("shutdown did not use the confirmed control path");
+        assert!(!mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        release_tx.send(()).unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        request.join().unwrap();
+        assert!(mux.shutdown_requested());
+    }
+
+    #[test]
+    fn local_shutdown_exits_after_cleanup_when_the_peer_drops_before_ack() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        writer.close();
+
+        assert!(!handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[test]
+    fn websocket_clients_cannot_shutdown_the_server() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert!(error.to_string().contains("local session socket"));
+        assert!(!mux.shutdown_requested());
+    }
+
+    #[test]
+    fn local_shutdown_returns_a_stable_cleanup_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        surface.set_server_shutdown_failure_for_test(true);
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert_eq!(error.to_string(), SERVER_SHUTDOWN_INCOMPLETE_ERROR);
     }
 
     #[test]
@@ -14207,7 +15149,7 @@ mod tests {
             tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
             expected
         );
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -14362,7 +15304,7 @@ mod tests {
         let replayed_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(replayed_snapshot["cursor"]["revision"], first_revision);
         assert_eq!(replayed_snapshot["terminals"].as_array().unwrap().len(), 1);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -14505,6 +15447,39 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_shutdown_rejects_unavailable_process_control_before_ack() {
+        let mux = test_mux();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let local = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (_, generation) = mux.registry_identity();
+        crate::process_session::set_process_session_preflight_failure_for_test(true);
+
+        assert!(handle_message(
+            &mux,
+            local,
+            &json!({
+                "id": 95,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &writer,
+        ));
+
+        crate::process_session::set_process_session_preflight_failure_for_test(false);
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(
+            !mux.daemon_handoff_pending.load(Ordering::Acquire),
+            "failed preflight left daemon handoff admission fenced"
+        );
     }
 
     #[test]
@@ -16108,6 +17083,14 @@ mod tests {
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        assert!(
+            capabilities.iter().any(|value| value.as_str() == Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        assert!(
+            capabilities.iter().all(|value| value.as_str() != Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
     }
 
     #[test]

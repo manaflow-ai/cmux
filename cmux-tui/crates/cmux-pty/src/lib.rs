@@ -4,7 +4,7 @@
 //! descriptor-pinned working directories. Non-Unix platforms use
 //! portable-pty's native backend.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(unix)]
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -25,6 +25,7 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -37,6 +38,7 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -64,12 +66,21 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = key.into();
+        self.removed_environment.remove(&key);
+        self.environment.insert(key, value.into());
+    }
+
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = key.into();
+        self.environment.remove(&key);
+        self.removed_environment.insert(key);
     }
 
     pub fn env_clear(&mut self) {
         self.clean_environment = true;
         self.environment.clear();
+        self.removed_environment.clear();
     }
 }
 
@@ -130,6 +141,9 @@ mod platform {
         if let Some(cwd) = command.cwd {
             builder.cwd(cwd);
         }
+        for key in command.removed_environment {
+            builder.env_remove(key);
+        }
         for (key, value) in command.environment {
             builder.env(key, value);
         }
@@ -178,6 +192,39 @@ mod tests {
             parent_flags & libc::FD_CLOEXEC,
             0,
             "child cleanup changed the parent descriptor"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pty_spawn_waits_for_process_creation_barrier() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let publisher = std::thread::spawn(move || {
+            sender.send(pair.spawn(PtyCommand::new("/usr/bin/true"))).unwrap();
+        });
+
+        let early = match receiver.recv_timeout(std::time::Duration::from_millis(250)) {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(error) => panic!("PTY spawn channel failed: {error}"),
+        };
+        drop(barrier);
+
+        let spawned_while_barrier_held = early.is_some();
+        let result = match early {
+            Some(result) => result,
+            None => receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("PTY spawn did not resume after the process barrier was released"),
+        };
+        let mut spawned = result.unwrap();
+        assert!(spawned.child.wait().unwrap().success());
+        publisher.join().unwrap();
+        assert!(
+            !spawned_while_barrier_held,
+            "PTY child started while the process barrier was held"
         );
     }
 

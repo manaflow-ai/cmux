@@ -1252,6 +1252,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
+    if (value.shutdown_cleanup) {
+        auto encoded = encode_value(*value.shutdown_cleanup);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shutdown_cleanup", std::move(encoded).value());
+    }
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
@@ -1356,6 +1361,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_session);
         if (!decoded) return std::move(decoded).error();
         result.session = std::move(decoded).value();
+    }
+    const Json* field_shutdown_cleanup = value.find("shutdown_cleanup");
+    if (field_shutdown_cleanup) {
+        auto decoded = decode_value<ShutdownCleanupStatus>(*field_shutdown_cleanup);
+        if (!decoded) return std::move(decoded).error();
+        result.shutdown_cleanup = std::move(decoded).value();
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (!field_terminal_revision) {
@@ -3918,6 +3929,55 @@ Result<SetCellPixelsResult> Codec<SetCellPixelsResult>::decode(const Json& value
         auto decoded = decode_value<std::vector<CellPixelResize>>(*field_resizes);
         if (!decoded) return std::move(decoded).error();
         result.resizes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ShutdownCleanupStatus>::encode(const ShutdownCleanupStatus& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_degraded = encode_value(value.degraded);
+    if (!encoded_degraded) return std::move(encoded_degraded).error();
+    object.emplace("degraded", std::move(encoded_degraded).value());
+    auto encoded_pending = encode_value(value.pending);
+    if (!encoded_pending) return std::move(encoded_pending).error();
+    object.emplace("pending", std::move(encoded_pending).value());
+    auto encoded_retrying = encode_value(value.retrying);
+    if (!encoded_retrying) return std::move(encoded_retrying).error();
+    object.emplace("retrying", std::move(encoded_retrying).value());
+    return Json(std::move(object));
+}
+
+Result<ShutdownCleanupStatus> Codec<ShutdownCleanupStatus>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ShutdownCleanupStatus result{};
+    const Json* field_degraded = value.find("degraded");
+    if (!field_degraded) {
+        return make_error(ErrorCode::decode, "missing required field 'degraded'");
+    }
+    if (field_degraded) {
+        auto decoded = decode_value<bool>(*field_degraded);
+        if (!decoded) return std::move(decoded).error();
+        result.degraded = std::move(decoded).value();
+    }
+    const Json* field_pending = value.find("pending");
+    if (!field_pending) {
+        return make_error(ErrorCode::decode, "missing required field 'pending'");
+    }
+    if (field_pending) {
+        auto decoded = decode_value<std::uint64_t>(*field_pending);
+        if (!decoded) return std::move(decoded).error();
+        result.pending = std::move(decoded).value();
+    }
+    const Json* field_retrying = value.find("retrying");
+    if (!field_retrying) {
+        return make_error(ErrorCode::decode, "missing required field 'retrying'");
+    }
+    if (field_retrying) {
+        auto decoded = decode_value<bool>(*field_retrying);
+        if (!decoded) return std::move(decoded).error();
+        result.retrying = std::move(decoded).value();
     }
     return result;
 }
@@ -10457,6 +10517,19 @@ Result<SetWindowTitleRequest> Codec<SetWindowTitleRequest>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<ShutdownRequest>::encode(const ShutdownRequest& value) {
+    (void)value;
+    Json::Object object;
+    return Json(std::move(object));
+}
+
+Result<ShutdownRequest> Codec<ShutdownRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ShutdownRequest result{};
+    return result;
+}
+
 Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& value) {
     (void)value;
     Json::Object object;
@@ -15199,14 +15272,14 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand79FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand80FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand82FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand83FieldRequirements{{
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand85FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand86FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 92> kCommands{{
+constexpr std::array<CommandMetadata, 93> kCommands{{
     {"apply-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"attach-surface", "frontend", 5U, "", true, "attach", "detached", std::span<const CommandFieldRequirement>(kCommand1FieldRequirements)},
     {"browser-activate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -15289,10 +15362,11 @@ constexpr std::array<CommandMetadata, 92> kCommands{{
     {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
     {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand80FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand82FieldRequirements)},
+    {"shutdown", "local-admin", 9U, "server-shutdown-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand83FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand85FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand86FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -16264,6 +16338,17 @@ Result<EmptyResult> Client::set_window_title(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("set-window-title", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<EmptyResult>(response.value());
+}
+
+Result<EmptyResult> Client::shutdown(
+    const ShutdownRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("shutdown", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<EmptyResult>(response.value());
 }

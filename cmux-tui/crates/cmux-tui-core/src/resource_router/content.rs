@@ -323,7 +323,13 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?
+                .terminal
+                .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -356,6 +362,16 @@ fn execute_terminal_effect(
             ResourceError::not_found("terminal", terminal_id.as_str()),
         );
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_content_close_effect(
+            surface_id,
+            &ContentPublicId::Terminal(terminal_id),
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
     let Some(surface) = mux.surface(surface_id) else {
         return effects::commit_known_failure(
             mux,
@@ -380,7 +396,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(&surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -389,16 +404,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_surface_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -501,8 +506,9 @@ fn execute_browser_effect(
     }
 
     if prepared.operation == "browser.close" {
-        let commit = mux.commit_resource_surface_close_effect(
+        let commit = mux.commit_resource_content_close_effect(
             surface_id,
+            &ContentPublicId::Browser(browser_id),
             &prepared.idempotency_key,
             &prepared.operation,
             &prepared.fingerprint,
@@ -2092,6 +2098,36 @@ mod tests {
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_terminates_a_restored_host_before_acknowledgement() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let detached = mux
+            .remove_surface_runtime_for_test(surface.id)
+            .expect("fixture surface is live before simulating delayed adoption");
+        assert!(mux.take_discovered_terminal_termination_requests_for_test().is_empty());
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-restored-terminal-host"),
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(
+            mux.take_discovered_terminal_termination_requests_for_test(),
+            vec![(host.terminal_id, Some(host.incarnation))],
+            "terminal.close acknowledged before terminating the exact restored host"
+        );
+        detached.kill();
+    }
+
     #[test]
     fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
         let (mux, surface, selectors) = terminal_fixture(None);
@@ -2252,7 +2288,7 @@ mod tests {
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["revision"], closed["revision"]);
         assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

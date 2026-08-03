@@ -119,16 +119,23 @@ jobs:
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
+      - name: Configure macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          target="$(tr -d '[:space:]' < cmux-tui/dist/macos-deployment-target.txt)"
+          printf 'MACOSX_DEPLOYMENT_TARGET=%s\n' "$target" >> "$GITHUB_ENV"
+
       - name: Install cargo-zigbuild
-        if: matrix.cross == true
+        if: matrix.cross == true && runner.os != 'macOS'
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
       - name: Build cmux-tui (native)
         if: matrix.cross == false
         env:
-          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
+          VERSION: ${{ inputs.version }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -137,9 +144,10 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_DISTRIBUTION_VERSION="$VERSION"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
@@ -148,8 +156,8 @@ jobs:
       - name: Build cmux-tui (cross)
         if: matrix.cross == true
         env:
-          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
+          VERSION: ${{ inputs.version }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -158,13 +166,19 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_DISTRIBUTION_VERSION="$VERSION"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+            cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          else
+            cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+            cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          fi
 
       - name: Stage binary
         shell: bash
@@ -179,6 +193,27 @@ jobs:
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
+
+      - name: Verify macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          expected="$(tr -d '[:space:]' < cmux-tui/dist/macos-deployment-target.txt)"
+          actual="$(xcrun vtool -show-build "$binary" | awk '$1 == "minos" { print $2; exit }')"
+          test "$actual" = "$expected"
+
+      - name: Verify native binary identity
+        if: matrix.cross == false
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}" \
+            --version "$EXPECTED_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git -C ghostty rev-parse HEAD)"
 
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
@@ -338,8 +373,8 @@ jobs:
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         env:
-          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
+          VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           # Keep the manual Zig build and Cargo's build script on the same
@@ -347,9 +382,10 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          CMUX_TUI_DISTRIBUTION_VERSION="$VERSION"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cd ghostty
@@ -431,6 +467,15 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Verify downloaded binary identity
+        run: |
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/binaries/cmux-tui-x86_64-unknown-linux-gnu \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -442,6 +487,7 @@ jobs:
       - name: Build PyPI wheels
         if: inputs.package_pypi
         run: |
+          python3 cmux-tui/dist/scripts/test_package_pypi.py
           python3 cmux-tui/dist/scripts/package_pypi.py \
             --binaries-dir dist/binaries \
             --version "$PYPI_VERSION" \
@@ -484,6 +530,14 @@ jobs:
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
+          mkdir -p dist/npm-smoke/node_modules
+          cp -R dist/npm-packages/cmux dist/npm-smoke/node_modules/cmux
+          cp -R dist/npm-packages/cmux-tui-linux-x64 dist/npm-smoke/node_modules/cmux-tui-linux-x64
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/npm-smoke/node_modules/cmux/bin/cmux.js \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
           CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
           CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
           export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
@@ -528,8 +582,11 @@ jobs:
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
-          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
-          grep -i usage /tmp/cmux-help.txt
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary /tmp/cmux-tui-wheel-smoke/bin/cmux \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
       - name: Upload npm package directories
         if: inputs.package_npm

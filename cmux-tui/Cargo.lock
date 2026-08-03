@@ -554,6 +554,7 @@ name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-tui-process",
  "libc",
  "portable-pty",
 ]
@@ -590,6 +591,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-tui-process",
  "cmux-tui-source-watch",
  "diffy",
  "fs4",
@@ -651,9 +653,11 @@ dependencies = [
  "base64",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-tui-process",
  "crossterm",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -683,6 +687,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-tui-process",
+ "libc",
  "serde_json",
  "tungstenite",
 ]
@@ -696,6 +702,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-tui-cdp",
+ "cmux-tui-process",
  "fs4",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -709,6 +716,7 @@ dependencies = [
  "tungstenite",
  "uds_windows",
  "url",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -731,6 +739,15 @@ dependencies = [
  "serde_json",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "socket2 0.5.10",
+ "tokio",
 ]
 
 [[package]]

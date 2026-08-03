@@ -84,12 +84,32 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
         assert "--archive dist/npm-packages.tar.gz" in workflow
 
 
+def test_build_workflow_executes_stamped_raw_and_packaged_artifacts() -> None:
+    build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
+    safe_build_env = (
+        "PACKAGE_NPM: ${{ inputs.package_npm }}\n"
+        "          VERSION: ${{ inputs.version }}"
+    )
+
+    assert build.count(safe_build_env) == 3
+    assert build.count('CMUX_TUI_DISTRIBUTION_VERSION="$VERSION"') == 3
+    assert build.count('CMUX_TUI_NPM_BOOTSTRAP_VERSION="$VERSION"') == 3
+    assert 'CMUX_TUI_DISTRIBUTION_VERSION="${{ inputs.version }}"' not in build
+    assert 'if [[ "${{ inputs.package_npm }}" == "true" ]]; then' not in build
+    assert "EXPECTED_VERSION: ${{ inputs.version }}" in build
+    assert "(inputs.package_npm || inputs.package_pypi)" not in build
+    assert build.count("verify_artifact_identity.py") == 4
+    assert "dist/npm-smoke/node_modules/cmux/bin/cmux.js" in build
+    assert "/tmp/cmux-tui-wheel-smoke/bin/cmux" in build
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_archive_round_trip_preserves_package_executables(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()
+    test_build_workflow_executes_stamped_raw_and_packaged_artifacts()
 
 
 if __name__ == "__main__":

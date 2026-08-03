@@ -314,8 +314,7 @@ async fn run_git(
             });
         }
     }
-    let mut child = command
-        .spawn()
+    let mut child = crate::process_creation::spawn(&mut command)
         .map_err(|error| RpcError::new("git-unavailable", format!("start git: {error}")))?;
     let mut stdout =
         child.stdout.take().ok_or_else(|| RpcError::new("internal", "git stdout was not piped"))?;

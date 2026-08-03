@@ -1,5 +1,4 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -54,7 +53,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = resolve_socket(&global);
+    let socket = super::resolve_server_socket(&global);
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -525,20 +524,6 @@ fn human_key_rank(key: &str) -> usize {
         "running" => 8,
         _ => 9,
     }
-}
-
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
-    if let Some(path) = &global.socket {
-        return path.clone();
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
 }
 
 #[cfg(test)]

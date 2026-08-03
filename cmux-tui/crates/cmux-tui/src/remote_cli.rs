@@ -1822,8 +1822,8 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let runtime = match load_runtime_info(&parsed.session, parsed.state_dir.as_deref()) {
         Ok(runtime) => runtime,
         Err(_)
-            if UnixStream::connect(&default_link).is_err()
-                && UnixStream::connect(&default_admin).is_err() =>
+            if cmux_tui_process::unix::connect_stream(&default_link).is_err()
+                && cmux_tui_process::unix::connect_stream(&default_admin).is_err() =>
         {
             if parsed.acknowledge_failed_finalization {
                 return tokio_runtime()?.block_on(acknowledge_failed_shutdown_outcome(
@@ -1905,7 +1905,10 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     while Instant::now() < deadline {
         let process_exited =
             peer_exit.has_exited().context(catalog().remote.observe_daemon_exit)?;
-        if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
+        if process_exited
+            && cmux_tui_process::unix::connect_stream(&link).is_err()
+            && !runtime_file.exists()
+        {
             match lifecycle_id.as_deref() {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
                 None => Ok(()),
@@ -2026,7 +2029,7 @@ fn ensure_daemon(
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
     let _lock = lock_daemon_start(session_state)?;
-    if UnixStream::connect(link).is_ok() {
+    if cmux_tui_process::unix::connect_stream(link).is_ok() {
         return Ok(());
     }
 
@@ -2036,7 +2039,7 @@ fn ensure_daemon(
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
-    if UnixStream::connect(&mux_socket).is_err() {
+    if cmux_tui_process::unix::connect_stream(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
@@ -2046,7 +2049,8 @@ fn ensure_daemon(
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
         configure_detached_process(&mut mux_owner);
-        let mut child = mux_owner.spawn().context("could not start remote mux owner")?;
+        let mut child =
+            cmux_tui_process::spawn(&mut mux_owner).context("could not start remote mux owner")?;
         wait_for_detached_socket(
             &mut child,
             &mux_socket,
@@ -2069,7 +2073,8 @@ fn ensure_daemon(
     command.stdin(Stdio::null());
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
-    let mut child = command.spawn().context("could not start remote daemon")?;
+    let mut child =
+        cmux_tui_process::spawn(&mut command).context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
@@ -2082,7 +2087,7 @@ fn wait_for_detached_socket(
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if UnixStream::connect(socket).is_ok() {
+        if cmux_tui_process::unix::connect_stream(socket).is_ok() {
             return Ok(());
         }
         match child.try_wait() {
@@ -2172,7 +2177,7 @@ fn configure_detached_process(command: &mut Command) {
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
+    let stream = cmux_tui_process::unix::connect_stream(path).with_context(|| {
         format!("cannot attach remote sidecar to mux socket {}", path.display())
     })?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
@@ -2245,7 +2250,7 @@ where
 {
     use tokio::io::{AsyncWriteExt, copy};
 
-    let stream = tokio::net::UnixStream::connect(link).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(link).await?;
     verify_peer(&stream)?;
     let (mut socket_read, mut socket_write) = stream.into_split();
     let upload = async {

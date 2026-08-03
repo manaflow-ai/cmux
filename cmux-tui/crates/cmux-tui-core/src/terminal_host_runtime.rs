@@ -28,10 +28,10 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_TERMINATE_ONLY, FLAG_VIEWER_SIZE_ACKS, Frame,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, encode_terminal_exit, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -132,6 +132,10 @@ pub struct TerminalHostRecord {
     /// hosts and must never receive the unknown SetDefaults message.
     #[serde(default)]
     pub supports_set_defaults: bool,
+    /// Additive handshake capability. Missing/false records require the
+    /// compatibility adoption path, which materializes a full Snapshot.
+    #[serde(default)]
+    pub supports_terminate_only: bool,
     /// Additive control capability. Missing/false records belong to legacy
     /// hosts and must never receive the unknown ClearHistory message.
     #[serde(default)]
@@ -150,6 +154,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("host_start_nonce", &self.host_start_nonce)
             .field("workspace_key", &self.workspace_key)
             .field("supports_set_defaults", &self.supports_set_defaults)
+            .field("supports_terminate_only", &self.supports_terminate_only)
             .field("supports_clear_history", &self.supports_clear_history)
             .finish()
     }
@@ -394,10 +399,16 @@ mod unix {
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
     use std::io::{Read, Write};
+    #[cfg(all(test, target_os = "linux"))]
+    use std::mem::{offset_of, size_of};
     use std::os::fd::{AsRawFd, RawFd};
+    #[cfg(all(test, target_os = "linux"))]
+    use std::os::fd::{FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-    use std::os::unix::net::{UnixListener, UnixStream};
+    #[cfg(test)]
+    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -405,13 +416,14 @@ mod unix {
         Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel as mpsc_channel,
         sync_channel,
     };
-    use std::sync::{Arc, Condvar, Mutex, Weak};
+    use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
-    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
+    use cmux_pty::PtyCommand;
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
+    use portable_pty::{ChildKiller, MasterPty, PtySize};
 
     use super::*;
 
@@ -420,9 +432,184 @@ mod unix {
     const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
+    const HOST_CLIENT_EXIT_DRAIN: Duration = Duration::from_secs(1);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+    const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
+    const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
-    const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_PROCESS_REAPER_CAPACITY: usize = 4_096;
+    const HOST_PROCESS_REAPER_POLL: Duration = Duration::from_millis(25);
+    const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
+    const MAX_TERMINAL_HOST_RECORD_BYTES: usize = MAX_LAUNCH_PAYLOAD;
+    const MAX_TERMINAL_HOST_RECORDS: usize = 4_096;
+    const MAX_TERMINAL_HOST_CLIENTS: usize = 64;
+    const TERMINAL_HOST_RECORD_SCAN_TIMEOUT: Duration = Duration::from_secs(2);
+    static HOST_PROCESS_REAPER: OnceLock<Mutex<Option<HostProcessReaper>>> = OnceLock::new();
+    #[cfg(test)]
+    static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
+    #[cfg(test)]
+    static NEXT_HOST_NORMAL_CLEANUP_FAILURES: AtomicUsize = AtomicUsize::new(0);
+
+    #[cfg(not(test))]
+    fn host_forced_drain_window() -> Duration {
+        HOST_FORCED_DRAIN_WINDOW
+    }
+
+    #[cfg(test)]
+    fn host_forced_drain_window() -> Duration {
+        crate::test_timeout(HOST_FORCED_DRAIN_WINDOW)
+    }
+    #[cfg(test)]
+    static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(test)]
+    static HOST_PROCESS_INLINE_WAITS: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(test)]
+    static HOST_CHILD_OBSERVER_SPAWNS: AtomicUsize = AtomicUsize::new(0);
+
+    struct HostProcessReaper {
+        sender: Sender<HostProcessReapRequest>,
+        active: Arc<AtomicUsize>,
+        _worker: thread::JoinHandle<()>,
+    }
+
+    struct HostProcessReaperLease {
+        sender: Sender<HostProcessReapRequest>,
+        active: Arc<AtomicUsize>,
+        #[cfg(test)]
+        completion: Option<Sender<()>>,
+    }
+
+    impl Drop for HostProcessReaperLease {
+        fn drop(&mut self) {
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            #[cfg(test)]
+            if let Some(completion) = self.completion.take() {
+                let _ = completion.send(());
+            }
+        }
+    }
+
+    struct HostProcessReapRequest {
+        child: std::process::Child,
+        _lease: HostProcessReaperLease,
+        next_attempt: Instant,
+        retry_delay: Duration,
+    }
+
+    impl HostProcessReaper {
+        fn start() -> std::io::Result<Self> {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let active = Arc::new(AtomicUsize::new(0));
+            let worker = spawn_host_process_reaper_worker(receiver)?;
+            Ok(Self { sender, active, _worker: worker })
+        }
+
+        fn lease(&self) -> std::io::Result<HostProcessReaperLease> {
+            self.active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                    (active < HOST_PROCESS_REAPER_CAPACITY).then_some(active + 1)
+                })
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::WouldBlock,
+                        "terminal-host process reaper capacity exhausted",
+                    )
+                })?;
+            Ok(HostProcessReaperLease {
+                sender: self.sender.clone(),
+                active: self.active.clone(),
+                #[cfg(test)]
+                completion: None,
+            })
+        }
+    }
+
+    fn reserve_host_process_reaper() -> std::io::Result<HostProcessReaperLease> {
+        let mut slot = HOST_PROCESS_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+        if slot.is_none() {
+            *slot = Some(HostProcessReaper::start()?);
+        }
+        slot.as_ref().expect("terminal-host process reaper initialized").lease()
+    }
+
+    fn spawn_host_process_reaper_worker(
+        receiver: Receiver<HostProcessReapRequest>,
+    ) -> std::io::Result<thread::JoinHandle<()>> {
+        #[cfg(test)]
+        if NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
+        {
+            return Err(std::io::Error::other("forced terminal-host reaper spawn failure"));
+        }
+        thread::Builder::new()
+            .name("terminal-host-process-reaper".into())
+            .spawn(move || run_host_process_reaper(receiver))
+    }
+
+    fn run_host_process_reaper(receiver: Receiver<HostProcessReapRequest>) {
+        let mut pending = Vec::<HostProcessReapRequest>::new();
+        loop {
+            let received = if pending.is_empty() {
+                receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+            } else {
+                let now = Instant::now();
+                let wait = pending
+                    .iter()
+                    .map(|request| request.next_attempt.saturating_duration_since(now))
+                    .min()
+                    .unwrap_or(HOST_PROCESS_REAPER_POLL);
+                receiver.recv_timeout(wait)
+            };
+            match received {
+                Ok(request) => pending.push(request),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+                Err(RecvTimeoutError::Disconnected) => {}
+            }
+            pending.extend(receiver.try_iter());
+
+            let now = Instant::now();
+            let mut index = 0;
+            while index < pending.len() {
+                if pending[index].next_attempt > now {
+                    index += 1;
+                    continue;
+                }
+                match pending[index].child.try_wait() {
+                    Ok(Some(_)) => {
+                        pending.swap_remove(index);
+                    }
+                    Ok(None) => {
+                        let retry = pending[index].retry_delay;
+                        pending[index].next_attempt = now + retry;
+                        pending[index].retry_delay =
+                            retry.saturating_mul(2).min(HOST_PROCESS_REAPER_RETRY_MAX);
+                        index += 1;
+                    }
+                    Err(_) => {
+                        let retry = pending[index].retry_delay;
+                        pending[index].next_attempt = now + retry;
+                        pending[index].retry_delay =
+                            retry.saturating_mul(2).min(HOST_PROCESS_REAPER_RETRY_MAX);
+                        index += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn enqueue_host_process_reaper(lease: HostProcessReaperLease, child: std::process::Child) {
+        let sender = lease.sender.clone();
+        sender
+            .send(HostProcessReapRequest {
+                child,
+                _lease: lease,
+                next_attempt: Instant::now(),
+                retry_delay: HOST_PROCESS_REAPER_POLL,
+            })
+            .expect("terminal-host process reaper remains alive while registered");
+    }
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
@@ -457,15 +644,27 @@ mod unix {
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
+        reaper: Option<HostProcessReaperLease>,
     }
 
     impl SpawnedHostProcess {
-        fn child_mut(&mut self) -> &mut std::process::Child {
-            self.child.as_mut().expect("terminal-host child is present")
+        fn with_reaper(
+            child: std::process::Child,
+            reaper: HostProcessReaperLease,
+        ) -> SpawnedHostProcess {
+            Self { child: Some(child), reaper: Some(reaper) }
         }
 
-        fn into_child(mut self) -> std::process::Child {
-            self.child.take().expect("terminal-host child is present")
+        #[cfg(test)]
+        fn new_for_test(child: std::process::Child) -> (Self, Receiver<()>) {
+            let mut reaper = reserve_host_process_reaper().unwrap();
+            let (completion, completed) = std::sync::mpsc::channel();
+            reaper.completion = Some(completion);
+            (Self::with_reaper(child, reaper), completed)
+        }
+
+        fn child_mut(&mut self) -> &mut std::process::Child {
+            self.child.as_mut().expect("terminal-host child is present")
         }
 
         fn wait_timeout(&mut self, timeout: Duration) -> bool {
@@ -475,6 +674,7 @@ mod unix {
                 match child.try_wait() {
                     Ok(Some(_)) => {
                         self.child.take();
+                        self.reaper.take();
                         return true;
                     }
                     Ok(None) if Instant::now() < deadline => {
@@ -484,14 +684,91 @@ mod unix {
                 }
             }
         }
+
+        fn detach_reaper(mut self) {
+            let Some(child) = self.child.take() else { return };
+            let reaper =
+                self.reaper.take().expect("spawned terminal host retains its reaper reservation");
+            enqueue_host_process_reaper(reaper, child);
+        }
     }
 
     impl Drop for SpawnedHostProcess {
         fn drop(&mut self) {
-            if let Some(child) = self.child.as_mut() {
-                let _ = child.kill();
-                let _ = child.wait();
+            let Some(mut child) = self.child.take() else { return };
+            let _ = child.kill();
+            let reaper =
+                self.reaper.take().expect("spawned terminal host retains its reaper reservation");
+            enqueue_host_process_reaper(reaper, child);
+        }
+    }
+
+    struct PublishedHostRecovery {
+        process: Option<SpawnedHostProcess>,
+        record_path: PathBuf,
+        terminal_id: String,
+        incarnation: String,
+        owner_token: String,
+        host_pid: u32,
+    }
+
+    impl PublishedHostRecovery {
+        fn new(
+            process: SpawnedHostProcess,
+            record_path: PathBuf,
+            terminal_id: String,
+            incarnation: HostIncarnation,
+            owner_token: CapabilityToken,
+            host_pid: u32,
+        ) -> Self {
+            Self {
+                process: Some(process),
+                record_path,
+                terminal_id,
+                incarnation: incarnation.to_hex(),
+                owner_token: encode_hex(owner_token.as_bytes()),
+                host_pid,
             }
+        }
+
+        fn commit(mut self) -> SpawnedHostProcess {
+            self.process.take().expect("published terminal-host process is present")
+        }
+
+        fn matching_record(&self) -> Option<TerminalHostRecord> {
+            let record: TerminalHostRecord =
+                serde_json::from_slice(&fs::read(&self.record_path).ok()?).ok()?;
+            validate_terminal_host_record(&self.record_path, &record).ok()?;
+            (record.terminal_id == self.terminal_id
+                && record.incarnation == self.incarnation
+                && record.owner_token == self.owner_token
+                && record.host_pid == self.host_pid)
+                .then_some(record)
+        }
+
+        fn reconcile(&mut self) {
+            let Some(process) = self.process.take() else { return };
+            let Some(record) = self.matching_record() else {
+                // Publication was not proven, so the exact spawned process
+                // remains the only safe cleanup target.
+                drop(process);
+                return;
+            };
+
+            // The authenticated durable record now owns PTY cleanup. Never
+            // exact-kill the host after this handoff because its child runs
+            // in a separate session and may ignore terminal hangup.
+            process.detach_reaper();
+            if let Ok(attachment) = connect_record(record, self.record_path.clone()) {
+                let _ = attachment.terminate();
+                attachment.disconnect();
+            }
+        }
+    }
+
+    impl Drop for PublishedHostRecovery {
+        fn drop(&mut self) {
+            self.reconcile();
         }
     }
 
@@ -1254,22 +1531,28 @@ mod unix {
             self.send(MessageKind::Terminate, &[])
         }
 
+        pub(crate) fn terminate_until(&self, deadline: Instant) -> std::io::Result<()> {
+            let mut writer = self.writer.lock().unwrap();
+            let frame = Frame::new(MessageKind::Terminate, Vec::new());
+            let result = write_frame(&mut DeadlineStream::new(&mut writer, deadline), &frame)
+                .map_err(protocol_io_error);
+            if result.is_err() {
+                let _ = writer.shutdown(std::net::Shutdown::Both);
+            }
+            result
+        }
+
         pub fn disconnect(&self) {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
 
         /// Commit the launch ownership handoff after every fallible Surface
-        /// setup step succeeds. Until then, dropping this attachment exact-
-        /// kills and waits the child process through SpawnedHostProcess.
+        /// setup step succeeds. Until then, dropping this attachment asks the
+        /// host to exit, exact-kills it after the bounded rollback window, and
+        /// transfers the remaining wait to the shared process reaper.
         pub(crate) fn commit_launched_host(&mut self) {
             let Some(process) = self.launch_process.take() else { return };
-            let mut child = process.into_child();
-            // Reaping is housekeeping after the ownership handoff. Failure to
-            // create this helper cannot turn a committed live Surface into an
-            // error; dropping Child leaves the independent host running.
-            let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-                let _ = child.wait();
-            });
+            process.detach_reaper();
         }
 
         pub fn identity(&self) -> TerminalHostIdentity {
@@ -1423,11 +1706,29 @@ mod unix {
         state_root.join(format!("terminal-hosts-{}", stable_token(session)))
     }
 
-    /// Strip every descriptor except the private bootstrap stdio before the
-    /// hidden host starts any threads or opens its endpoint. This runs inside
-    /// the freshly exec'd `__terminal-host`, so descriptor enumeration is
-    /// race-free and cannot affect the daemon's own open files.
-    pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+    fn terminal_host_publication_descriptor(args: &[String]) -> anyhow::Result<Option<RawFd>> {
+        if args.first().map(String::as_str) != Some("--bootstrap-stdio") {
+            anyhow::bail!("hidden mode requires --bootstrap-stdio");
+        }
+        match &args[1..] {
+            [] => Ok(None),
+            [flag, descriptor] if flag == "--publication-fd" => descriptor
+                .parse::<RawFd>()
+                .ok()
+                .filter(|descriptor| *descriptor > libc::STDERR_FILENO)
+                .map(Some)
+                .ok_or_else(|| anyhow::anyhow!("terminal-host publication descriptor is invalid")),
+            _ => anyhow::bail!("hidden mode received unsupported arguments"),
+        }
+    }
+
+    /// Strip every descriptor except the private bootstrap stdio and the
+    /// explicitly inherited publication guard before the hidden host starts
+    /// any threads or opens its endpoint. This runs inside the freshly exec'd
+    /// `__terminal-host`, so descriptor enumeration is race-free and cannot
+    /// affect the daemon's own open files.
+    pub fn isolate_terminal_host_process_fds(args: &[String]) -> anyhow::Result<()> {
+        let publication_descriptor = terminal_host_publication_descriptor(args)?;
         let mut last_error = None;
         let mut inherited = None;
         for directory in ["/proc/self/fd", "/dev/fd"] {
@@ -1453,6 +1754,9 @@ mod unix {
             )
         })?;
         for descriptor in descriptors {
+            if Some(descriptor) == publication_descriptor {
+                continue;
+            }
             // SAFETY: descriptors came from this single-threaded process's
             // descriptor filesystem snapshot. stdio 0/1/2 is excluded.
             if unsafe { libc::close(descriptor) } != 0 {
@@ -1477,14 +1781,34 @@ mod unix {
         cell_pixels: (u16, u16),
         kitty_graphics_limits: KittyGraphicsLimits,
     ) -> anyhow::Result<HostAttachment> {
-        let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(
+        launch_terminal_host_cancellable(
             options,
             root,
             default_colors,
             cell_pixels,
             kitty_graphics_limits,
-            terminal_id,
+            &|| false,
+        )
+    }
+
+    pub(crate) fn launch_terminal_host_cancellable(
+        options: &SurfaceOptions,
+        root: &Path,
+        default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
+        cancelled: &dyn Fn() -> bool,
+    ) -> anyhow::Result<HostAttachment> {
+        let terminal_id = TerminalId::random()?;
+        let publication_guard = acquire_terminal_host_publication(root, &terminal_id.to_hex())?;
+        launch_terminal_host_with_identity_cancellable(
+            options,
+            root,
+            default_colors,
+            cell_pixels,
+            kitty_graphics_limits,
+            (terminal_id, publication_guard),
+            cancelled,
         )
     }
 
@@ -1499,6 +1823,28 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
+        let publication_guard = acquire_terminal_host_publication(root, &terminal_id.to_hex())?;
+        launch_terminal_host_with_identity_cancellable(
+            options,
+            root,
+            default_colors,
+            cell_pixels,
+            kitty_graphics_limits,
+            (terminal_id, publication_guard),
+            &|| false,
+        )
+    }
+
+    pub(crate) fn launch_terminal_host_with_identity_cancellable(
+        options: &SurfaceOptions,
+        root: &Path,
+        default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
+        ownership: (TerminalId, crate::PublicationGuard),
+        cancelled: &dyn Fn() -> bool,
+    ) -> anyhow::Result<HostAttachment> {
+        let (terminal_id, publication_guard) = ownership;
         prepare_private_dir(root)?;
         let owner_token = CapabilityToken::random()?;
         let terminal_hex = encode_hex(terminal_id.as_bytes());
@@ -1511,6 +1857,10 @@ mod unix {
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
         let record_path = root.join(format!("{terminal_hex}.json"));
+        anyhow::ensure!(
+            publication_guard.target() == record_path,
+            "terminal-host publication ownership has the wrong target"
+        );
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -1556,13 +1906,23 @@ mod unix {
                 if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
             });
         }
-        let child = command.spawn().context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
+        let publication_descriptor = publication_guard.inherit_into(&mut command);
+        command.args(["--publication-fd", &publication_descriptor.to_string()]);
+        let reaper = reserve_host_process_reaper()
+            .context("reserve bounded terminal-host process cleanup")?;
+        let child = cmux_tui_process::spawn(&mut command).context("spawn terminal-host process")?;
+        let mut process = SpawnedHostProcess::with_reaper(child, reaper);
         let host_pid = process.child_mut().id();
-        let mut stdin =
+        let stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-        let mut stdout =
+        let stdout =
             process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
+        set_nonblocking(stdin.as_raw_fd())?;
+        let launch_deadline = Instant::now() + HOST_LAUNCH_TIMEOUT;
+        let mut stdin =
+            CancellableHostWriter { writer: stdin, deadline: launch_deadline, cancelled };
+        let mut stdout =
+            CancellableHostReader { reader: stdout, deadline: launch_deadline, cancelled };
 
         let bootstrap = HostBootstrap {
             min_version: PROTOCOL_VERSION,
@@ -1571,7 +1931,20 @@ mod unix {
             owner_token,
         };
         write_frame(&mut stdin, &bootstrap.into_frame(1))?;
-        let ready_frame = read_required_frame(&mut stdout, "bootstrap ready")?;
+        let ready_frame = match read_required_frame(&mut stdout, "bootstrap ready") {
+            Ok(frame) => frame,
+            Err(error) => {
+                if cancelled() && record_path.exists() {
+                    // Publication transfers PTY ownership to the durable
+                    // record. Keep that host discoverable so the shutdown
+                    // coordinator can terminate it through the authenticated
+                    // endpoint instead of killing the host and orphaning its
+                    // shell.
+                    process.detach_reaper();
+                }
+                return Err(error);
+            }
+        };
         if ready_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host returned {:?} instead of Ready", ready_frame.kind);
         }
@@ -1580,9 +1953,32 @@ mod unix {
             anyhow::bail!("terminal host changed terminal identity during bootstrap");
         }
 
+        let launch_recovery = PublishedHostRecovery::new(
+            process,
+            record_path.clone(),
+            terminal_hex.clone(),
+            ready.incarnation,
+            owner_token,
+            host_pid,
+        );
         let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
+        // Integration synchronization seam for cancellation after the host
+        // has published its durable record but before the launcher consumes
+        // Ready. The host remains free to serve authenticated termination.
+        if let Some(barrier) = std::env::var_os("CMUX_TUI_TEST_LAUNCH_ACK_BARRIER") {
+            let barrier = PathBuf::from(barrier);
+            while !record_path.exists() && !cancelled() && Instant::now() < launch_deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            if record_path.exists() {
+                fs::write(&barrier, b"published")?;
+                while barrier.exists() && !cancelled() && Instant::now() < launch_deadline {
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
         let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
         if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
             anyhow::bail!("terminal host did not acknowledge launch");
@@ -1610,8 +2006,146 @@ mod unix {
         // would leave a live published host while the mux marks its registry
         // row Exited.
         let mut attachment = connect_record(record, record_path)?;
-        attachment.launch_process = Some(process);
+        attachment.launch_process = Some(launch_recovery.commit());
+        if cancelled() {
+            drop(attachment);
+            anyhow::bail!("terminal host launch cancelled because the server is shutting down");
+        }
         Ok(attachment)
+    }
+
+    fn set_nonblocking(descriptor: RawFd) -> std::io::Result<()> {
+        // SAFETY: F_GETFL reads flags from the valid owned pipe descriptor.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if flags & libc::O_NONBLOCK != 0 {
+            return Ok(());
+        }
+        // SAFETY: F_SETFL updates status flags on the same valid descriptor.
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    struct CancellableHostWriter<'a, W> {
+        writer: W,
+        deadline: Instant,
+        cancelled: &'a dyn Fn() -> bool,
+    }
+
+    impl<W: Write + AsRawFd> Write for CancellableHostWriter<'_, W> {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            if buffer.is_empty() {
+                return Ok(0);
+            }
+            loop {
+                if (self.cancelled)() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "terminal host launch cancelled during server shutdown",
+                    ));
+                }
+                let Some(remaining) = self.deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host launch timed out",
+                    ));
+                };
+                let wait = remaining.min(HOST_LAUNCH_CANCEL_POLL);
+                let timeout_ms = wait.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.writer.as_raw_fd(),
+                    events: libc::POLLOUT | libc::POLLHUP,
+                    revents: 0,
+                };
+                let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+                if result > 0 {
+                    if descriptor.revents & libc::POLLNVAL != 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "terminal host bootstrap pipe became invalid",
+                        ));
+                    }
+                    match self.writer.write(buffer) {
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                            ) =>
+                        {
+                            continue;
+                        }
+                        result => return result,
+                    }
+                }
+                if result == 0 {
+                    continue;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.writer.flush()
+        }
+    }
+
+    struct CancellableHostReader<'a, R> {
+        reader: R,
+        deadline: Instant,
+        cancelled: &'a dyn Fn() -> bool,
+    }
+
+    impl<R: Read + AsRawFd> Read for CancellableHostReader<'_, R> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            loop {
+                if (self.cancelled)() {
+                    return Err(std::io::Error::new(
+                        // `Read::read_exact` transparently retries
+                        // `Interrupted`, so cancellation needs a terminal
+                        // error kind to release the surface-creation permit.
+                        std::io::ErrorKind::ConnectionAborted,
+                        "terminal host launch cancelled during server shutdown",
+                    ));
+                }
+                let Some(remaining) = self.deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host launch timed out",
+                    ));
+                };
+                let wait = remaining.min(HOST_LAUNCH_CANCEL_POLL);
+                let timeout_ms = wait.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.reader.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP,
+                    revents: 0,
+                };
+                let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+                if result > 0 {
+                    if descriptor.revents & libc::POLLNVAL != 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "terminal host bootstrap pipe became invalid",
+                        ));
+                    }
+                    return self.reader.read(buffer);
+                }
+                if result == 0 {
+                    continue;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
     }
 
     pub fn adopt_terminal_host(
@@ -1620,6 +2154,70 @@ mod unix {
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
         connect_record(record, record_path)
+    }
+
+    pub(crate) fn adopt_terminal_host_until(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        deadline: Instant,
+    ) -> anyhow::Result<HostAttachment> {
+        validate_terminal_host_record(&record_path, &record)?;
+        connect_record_until(record, record_path, deadline)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminate_terminal_host_with_timeout(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        terminate_terminal_host_until(record, record_path, Instant::now() + timeout)
+    }
+
+    fn terminate_terminal_host_until(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        validate_terminal_host_record(record_path, record)?;
+        if !record.supports_terminate_only {
+            anyhow::bail!("terminal host does not advertise terminate-only handshakes");
+        }
+        let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
+        let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
+        let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
+        let mut stream = connect_until(Path::new(&record.endpoint), deadline)?;
+        let mut stream = DeadlineStream::new(&mut stream, deadline);
+        let hello = ClientHello {
+            min_version: PROTOCOL_VERSION,
+            max_version: PROTOCOL_VERSION,
+            role: ClientRole::Admin,
+            requested_rights: CapabilityRights::TERMINATE,
+            terminal_id,
+            token: owner_token,
+        };
+        let mut hello = hello.into_frame(1);
+        hello.flags = FLAG_TERMINATE_ONLY;
+        write_frame(&mut stream, &hello)?;
+        let response = read_required_frame(&mut stream, "terminate-only host hello")?;
+        if response.kind != MessageKind::HostHello
+            || response.flags != FLAG_TERMINATE_ONLY
+            || response.request_id != 1
+            || response.sequence != 0
+        {
+            anyhow::bail!("terminal host rejected terminate-only handshake");
+        }
+        let response = HostHello::decode(&response.payload)?;
+        if response.selected_version != PROTOCOL_VERSION
+            || response.granted_rights != CapabilityRights::TERMINATE
+            || response.terminal_id != terminal_id
+            || response.incarnation != incarnation
+        {
+            anyhow::bail!("terminate-only host identity or rights changed");
+        }
+        write_frame(&mut stream, &Frame::new(MessageKind::Terminate, Vec::new()))?;
+        stream.shutdown(std::net::Shutdown::Write)?;
+        Ok(())
     }
 
     pub(crate) fn adopt_terminal_host_with_kitty_limits(
@@ -1672,6 +2270,7 @@ mod unix {
             if record.host_pid != 0
                 || !record.host_start_nonce.is_empty()
                 || record.supports_set_defaults
+                || record.supports_terminate_only
                 || record.supports_clear_history
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
@@ -1835,35 +2434,248 @@ mod unix {
     pub fn load_terminal_host_records(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_until(
+            root,
+            MAX_TERMINAL_HOST_RECORDS,
+            Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
+            TerminalHostRecordLoadMode::Tolerant,
+        )
+    }
+
+    fn terminal_host_record_path(root: &Path, terminal_id: &str) -> anyhow::Result<PathBuf> {
+        let terminal = TerminalId::from_hex(terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
+        anyhow::ensure!(terminal.to_hex() == terminal_id, "terminal-host id is not canonical");
+        Ok(root.join(format!("{terminal_id}.json")))
+    }
+
+    /// Exclude a still-launching host before treating its absent canonical
+    /// record as proof that no PTY owner can publish later.
+    pub(crate) fn acquire_terminal_host_publication(
+        root: &Path,
+        terminal_id: &str,
+    ) -> anyhow::Result<crate::PublicationGuard> {
+        prepare_private_dir(root)?;
+        let path = terminal_host_record_path(root, terminal_id)?;
+        crate::PublicationGuard::acquire(&path, Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT)
+            .with_context(|| format!("wait for terminal-host publication {}", path.display()))
+    }
+
+    /// Load the one canonical discovery record for `terminal_id` without
+    /// scanning unrelated hosts. A missing record means there is no discovery
+    /// owner to terminate; malformed or unreadable records remain errors so a
+    /// close cannot silently abandon a live host.
+    pub(crate) fn load_terminal_host_record(
+        root: &Path,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<(PathBuf, TerminalHostRecord)>> {
+        let path = terminal_host_record_path(root, terminal_id)?;
+        match read_terminal_host_record_until(
+            &path,
+            Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
+        ) {
+            Ok(record) => Ok(Some((path, record))),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Load every discovery record without omission. Adoption tolerates
+    /// transient or stale files, but an atomic server shutdown must account
+    /// for every record before it discards topology.
+    pub fn load_terminal_host_records_strict(
+        root: &Path,
+        max_records: usize,
+        deadline: Instant,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_until(
+            root,
+            max_records,
+            deadline,
+            TerminalHostRecordLoadMode::Strict,
+        )
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum TerminalHostRecordLoadMode {
+        Tolerant,
+        Strict,
+    }
+
+    fn load_terminal_host_records_until(
+        root: &Path,
+        max_records: usize,
+        deadline: Instant,
+        mode: TerminalHostRecordLoadMode,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        ensure_terminal_host_scan_before(deadline)?;
         let mut records = Vec::new();
         let mut identities = HashSet::new();
+        let mut candidates = 0usize;
         let entries = match fs::read_dir(root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
             Err(error) => return Err(error.into()),
         };
         for entry in entries {
+            ensure_terminal_host_scan_before(deadline)?;
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
+            candidates = candidates.saturating_add(1);
+            if candidates > max_records {
+                anyhow::bail!("terminal-host record count exceeds capacity {max_records}");
+            }
+            let record = match read_terminal_host_record_until(&path, deadline) {
+                Ok(record) => record,
+                Err(_) if mode == TerminalHostRecordLoadMode::Tolerant => {
+                    ensure_terminal_host_scan_before(deadline)?;
+                    continue;
+                }
+                Err(error) => return Err(error),
             };
-            let Ok(record) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else {
-                continue;
-            };
-            if validate_terminal_host_record(&path, &record).is_err()
-                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
-            {
+            if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+                if mode == TerminalHostRecordLoadMode::Strict {
+                    anyhow::bail!(
+                        "duplicate terminal-host identity {}:{}",
+                        record.terminal_id,
+                        record.incarnation
+                    );
+                }
                 continue;
             }
             records.push((path, record));
         }
+        ensure_terminal_host_scan_before(deadline)?;
         records.sort_by(|left, right| left.0.cmp(&right.0));
         Ok(records)
+    }
+
+    fn ensure_terminal_host_scan_before(deadline: Instant) -> anyhow::Result<()> {
+        if Instant::now() >= deadline {
+            anyhow::bail!("terminal-host record scan exceeded the shutdown deadline");
+        }
+        Ok(())
+    }
+
+    fn read_terminal_host_record_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<TerminalHostRecord> {
+        ensure_terminal_host_scan_before(deadline)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .with_context(|| format!("open terminal-host record {}", path.display()))?;
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("inspect terminal-host record {}", path.display()))?;
+        let expected_uid = fs::metadata(
+            path.parent()
+                .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?,
+        )?
+        .uid();
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            anyhow::bail!("terminal-host record permissions or ownership are unsafe");
+        }
+        if metadata.len() > MAX_TERMINAL_HOST_RECORD_BYTES as u64 {
+            anyhow::bail!("terminal-host record {} exceeds size limit", path.display());
+        }
+
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        let mut buffer = [0u8; 8 * 1024];
+        loop {
+            ensure_terminal_host_scan_before(deadline)?;
+            let remaining = MAX_TERMINAL_HOST_RECORD_BYTES + 1 - bytes.len();
+            let read_len = buffer.len().min(remaining);
+            let read = file
+                .read(&mut buffer[..read_len])
+                .with_context(|| format!("read terminal-host record {}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buffer[..read]);
+            if bytes.len() > MAX_TERMINAL_HOST_RECORD_BYTES {
+                anyhow::bail!("terminal-host record {} exceeds size limit", path.display());
+            }
+        }
+        ensure_terminal_host_scan_before(deadline)?;
+        let current = fs::symlink_metadata(path)
+            .with_context(|| format!("reinspect terminal-host record {}", path.display()))?;
+        if !current.file_type().is_file()
+            || current.dev() != metadata.dev()
+            || current.ino() != metadata.ino()
+        {
+            anyhow::bail!("terminal-host record changed while being read");
+        }
+        let record = serde_json::from_slice::<TerminalHostRecord>(&bytes)
+            .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+        validate_terminal_host_record(path, &record)
+            .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+        Ok(record)
+    }
+
+    /// Terminate one exact host incarnation and retain its discovery record
+    /// until process-bound liveness proves that host is dead.
+    pub(crate) fn terminate_and_confirm_terminal_host_record(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        deadline: Instant,
+    ) -> bool {
+        let mut last_terminate_attempt = None;
+        loop {
+            match terminal_host_record_liveness(record_path, record)
+                .unwrap_or(TerminalHostLiveness::Indeterminate)
+            {
+                TerminalHostLiveness::Dead => {
+                    return match remove_stale_terminal_host_record(record_path, record) {
+                        Ok(removed) => removed,
+                        Err(_) if !record_path.exists() => true,
+                        Err(_) => false,
+                    };
+                }
+                TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {}
+            }
+
+            let now = Instant::now();
+            if last_terminate_attempt.is_none_or(|attempt: Instant| {
+                now.duration_since(attempt) >= Duration::from_millis(100)
+            }) {
+                let attempt_deadline = deadline.min(Instant::now() + Duration::from_millis(100));
+                if Instant::now() < attempt_deadline {
+                    if record.supports_terminate_only {
+                        let _ =
+                            terminate_terminal_host_until(record, record_path, attempt_deadline);
+                    } else if let Ok(host) = adopt_terminal_host_until(
+                        record.clone(),
+                        record_path.to_path_buf(),
+                        attempt_deadline,
+                    ) {
+                        let _ = host.terminate_until(attempt_deadline);
+                        host.disconnect();
+                    }
+                    last_terminate_attempt = Some(Instant::now());
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
+        }
     }
 
     pub fn validate_terminal_host_exit_record(
@@ -1984,12 +2796,20 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        connect_record_until(record, record_path, Instant::now() + handshake_timeout)
+    }
+
+    fn connect_record_until(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        deadline: Instant,
+    ) -> anyhow::Result<HostAttachment> {
         let mut failures = Vec::new();
         for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
-            match connect_record_at_version(
+            match connect_record_at_version_until(
                 record.clone(),
                 record_path.clone(),
-                handshake_timeout,
+                deadline,
                 protocol_version,
             ) {
                 Ok(attachment) => return Ok(attachment),
@@ -2001,10 +2821,10 @@ mod unix {
         anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
     }
 
-    fn connect_record_at_version(
+    fn connect_record_at_version_until(
         record: TerminalHostRecord,
         record_path: PathBuf,
-        handshake_timeout: Duration,
+        deadline: Instant,
         protocol_version: u16,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
@@ -2013,9 +2833,7 @@ mod unix {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_retry(Path::new(&record.endpoint))?;
-        stream.set_read_timeout(Some(handshake_timeout))?;
-        stream.set_write_timeout(Some(handshake_timeout))?;
+        let mut stream = connect_until(Path::new(&record.endpoint), deadline)?;
         let hello = ClientHello {
             min_version: protocol_version,
             max_version: protocol_version,
@@ -2024,53 +2842,61 @@ mod unix {
             terminal_id,
             token: owner_token,
         };
-        let mut hello_frame = hello.into_frame(1);
-        hello_frame.version = protocol_version;
-        write_frame(&mut stream, &hello_frame)?;
-        let hello_frame = read_required_frame(&mut stream, "host hello")?;
-        if hello_frame.kind != MessageKind::HostHello
-            || hello_frame.version != protocol_version
-            || hello_frame.request_id != 1
-            || hello_frame.sequence != 0
-        {
-            anyhow::bail!("terminal host rejected owner handshake");
-        }
-        let host_hello = HostHello::decode(&hello_frame.payload)?;
-        if host_hello.selected_version != protocol_version
-            || host_hello.terminal_id != terminal_id
-            || host_hello.incarnation != incarnation
-            || host_hello.granted_rights != CapabilityRights::ADMIN
-        {
-            anyhow::bail!("terminal-host record identity does not match live host");
-        }
-        let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
-        if snapshot_frame.kind != MessageKind::Snapshot
-            || snapshot_frame.version != protocol_version
-            || snapshot_frame.flags != 0
-            || snapshot_frame.request_id != 0
-        {
-            anyhow::bail!("terminal host did not send an initial snapshot");
-        }
-        let mut snapshot = decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
-        let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
-        if colors_frame.kind != MessageKind::Colors
-            || colors_frame.version != protocol_version
-            || colors_frame.flags != 0
-            || colors_frame.sequence != snapshot_frame.sequence
-            || colors_frame.request_id != 0
-        {
-            anyhow::bail!("terminal host did not send Colors at the snapshot sequence boundary");
-        }
-        snapshot.sequence_boundary = snapshot_frame.sequence;
-        snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
-        let snapshot_size = (snapshot.cols, snapshot.rows);
+        let (snapshot, snapshot_size) = {
+            let mut handshake = DeadlineStream::new(&mut stream, deadline);
+            let mut hello_frame = hello.into_frame(1);
+            hello_frame.version = protocol_version;
+            write_frame(&mut handshake, &hello_frame)?;
+            let hello_frame = read_required_frame(&mut handshake, "host hello")?;
+            if hello_frame.kind != MessageKind::HostHello
+                || hello_frame.version != protocol_version
+                || hello_frame.request_id != 1
+                || hello_frame.sequence != 0
+            {
+                anyhow::bail!("terminal host rejected owner handshake");
+            }
+            let host_hello = HostHello::decode(&hello_frame.payload)?;
+            if host_hello.selected_version != protocol_version
+                || host_hello.terminal_id != terminal_id
+                || host_hello.incarnation != incarnation
+                || host_hello.granted_rights != CapabilityRights::ADMIN
+            {
+                anyhow::bail!("terminal-host record identity does not match live host");
+            }
+            let snapshot_frame = read_required_frame(&mut handshake, "terminal snapshot")?;
+            if snapshot_frame.kind != MessageKind::Snapshot
+                || snapshot_frame.version != protocol_version
+                || snapshot_frame.flags != 0
+                || snapshot_frame.request_id != 0
+            {
+                anyhow::bail!("terminal host did not send an initial snapshot");
+            }
+            let mut snapshot =
+                decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
+            let colors_frame = read_required_frame(&mut handshake, "terminal color state")?;
+            if colors_frame.kind != MessageKind::Colors
+                || colors_frame.version != protocol_version
+                || colors_frame.flags != 0
+                || colors_frame.sequence != snapshot_frame.sequence
+                || colors_frame.request_id != 0
+            {
+                anyhow::bail!(
+                    "terminal host did not send Colors at the snapshot sequence boundary"
+                );
+            }
+            snapshot.sequence_boundary = snapshot_frame.sequence;
+            snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+            let snapshot_size = (snapshot.cols, snapshot.rows);
+            (snapshot, snapshot_size)
+        };
         stream.set_read_timeout(None)?;
+        stream.set_write_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
         // Keep bounded writes for the lifetime of the disposable admin
         // mirror. A stopped or wedged host must not block a mux/control thread
         // forever while it sends input, mouse, resize, or Terminate. Reads are
         // unbounded because the dedicated reader thread is intentionally
         // long-lived and reconnects on any eventual EOF/protocol failure.
-        let reader = stream.try_clone()?;
+        let reader = cmux_tui_process::unix::clone_stream(&stream)?;
         let attachment = HostAttachment {
             record,
             record_path,
@@ -2091,20 +2917,124 @@ mod unix {
         Ok(attachment)
     }
 
-    fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
-        let mut last_error = None;
-        for _ in 0..100 {
-            match UnixStream::connect(path) {
-                Ok(stream) => return Ok(stream),
-                Err(error) => {
-                    last_error = Some(error);
-                    thread::sleep(Duration::from_millis(10));
-                }
-            }
+    struct DeadlineStream<'a> {
+        stream: &'a mut UnixStream,
+        deadline: Instant,
+    }
+
+    impl<'a> DeadlineStream<'a> {
+        fn new(stream: &'a mut UnixStream, deadline: Instant) -> Self {
+            Self { stream, deadline }
         }
-        Err(last_error
-            .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "host missing"))
-            .into())
+
+        fn remaining(&self) -> std::io::Result<Duration> {
+            self.deadline
+                .checked_duration_since(Instant::now())
+                .filter(|value| !value.is_zero())
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host operation exceeded its deadline",
+                    )
+                })
+        }
+
+        fn shutdown(&self, how: std::net::Shutdown) -> std::io::Result<()> {
+            self.stream.shutdown(how)
+        }
+    }
+
+    impl Read for DeadlineStream<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.stream.set_read_timeout(Some(self.remaining()?))?;
+            self.stream.read(buffer)
+        }
+    }
+
+    impl Write for DeadlineStream<'_> {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.write(buffer)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.flush()
+        }
+    }
+
+    fn connect_until(path: &Path, deadline: Instant) -> anyhow::Result<UnixStream> {
+        let mut last_error = None;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(last_error
+                    .unwrap_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "terminal host connection exceeded its deadline",
+                        )
+                    })
+                    .into());
+            }
+            match connect_once_until(path, deadline) {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last_error = Some(error),
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                continue;
+            }
+            thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
+        }
+    }
+
+    fn connect_once_until(path: &Path, deadline: Instant) -> std::io::Result<UnixStream> {
+        crate::platform::transport::connect_unix_until(path, deadline)
+    }
+
+    #[cfg(all(test, target_os = "linux"))]
+    fn unix_socket_address(path: &Path) -> std::io::Result<(libc::sockaddr_un, libc::socklen_t)> {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        let path = path.as_os_str().as_bytes();
+        if path.is_empty() || path.len() >= SUN_PATH_CAPACITY || path.contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid terminal host Unix socket path",
+            ));
+        }
+        // SAFETY: all-zero is a valid starting representation for
+        // sockaddr_un; family, path, and platform length are set below.
+        let mut address = unsafe { std::mem::zeroed::<libc::sockaddr_un>() };
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (destination, source) in address.sun_path.iter_mut().zip(path) {
+            *destination = *source as libc::c_char;
+        }
+        let address_len = offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "macos",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            address.sun_len = u8::try_from(address_len).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal host Unix socket path is too long",
+                )
+            })?;
+        }
+        Ok((
+            address,
+            libc::socklen_t::try_from(address_len).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal host Unix socket path is too long",
+                )
+            })?,
+        ))
     }
 
     fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {
@@ -2274,8 +3204,51 @@ mod unix {
     }
 
     fn prepare_private_dir(path: &Path) -> anyhow::Result<()> {
-        fs::create_dir_all(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        match fs::create_dir(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let parent = path.parent().ok_or_else(|| {
+                    anyhow::anyhow!("terminal-host directory has no parent: {}", path.display())
+                })?;
+                fs::create_dir_all(parent)?;
+                match fs::create_dir(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(path)
+            .with_context(|| format!("open private terminal-host directory {}", path.display()))?;
+        let metadata = directory.metadata().with_context(|| {
+            format!("inspect private terminal-host directory {}", path.display())
+        })?;
+        // SAFETY: geteuid has no preconditions and returns the effective user
+        // that must own this process-private endpoint directory.
+        let current_user = unsafe { libc::geteuid() };
+        if !metadata.file_type().is_dir() || metadata.uid() != current_user {
+            anyhow::bail!(
+                "private terminal-host directory is not an owned directory: {}",
+                path.display()
+            );
+        }
+        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+
+        let current = fs::symlink_metadata(path).with_context(|| {
+            format!("reinspect private terminal-host directory {}", path.display())
+        })?;
+        if !current.file_type().is_dir()
+            || current.dev() != metadata.dev()
+            || current.ino() != metadata.ino()
+        {
+            anyhow::bail!("private terminal-host directory changed: {}", path.display());
+        }
         Ok(())
     }
 
@@ -2379,7 +3352,7 @@ mod unix {
         loop {
             if force_drain.load(Ordering::Acquire) {
                 let started = forced_at.get_or_insert_with(Instant::now);
-                if started.elapsed() >= HOST_FORCED_DRAIN_WINDOW {
+                if started.elapsed() >= host_forced_drain_window() {
                     return Ok(false);
                 }
             }
@@ -2397,7 +3370,7 @@ mod unix {
             ];
             let timeout_ms = forced_at
                 .map(|started| {
-                    let remaining = HOST_FORCED_DRAIN_WINDOW.saturating_sub(started.elapsed());
+                    let remaining = host_forced_drain_window().saturating_sub(started.elapsed());
                     remaining.as_millis().clamp(1, i32::MAX as u128) as i32
                 })
                 .unwrap_or(-1);
@@ -2434,6 +3407,96 @@ mod unix {
         }
     }
 
+    fn wait_for_host_service_activity(
+        listener_fd: RawFd,
+        exit_waiter: &mut UnixStream,
+        dead: &AtomicBool,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<bool> {
+        loop {
+            if dead.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            let mut poll_fds = [
+                libc::pollfd {
+                    fd: listener_fd,
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: exit_waiter.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+            ];
+            let timeout = deadline
+                .map(|deadline| {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        0
+                    } else {
+                        remaining.as_millis().clamp(1, i32::MAX as u128) as i32
+                    }
+                })
+                .unwrap_or(-1);
+            // SAFETY: poll_fds contains two initialized descriptors that
+            // remain owned by the service loop for the duration of this call.
+            let ready = unsafe {
+                libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout)
+            };
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if ready == 0 {
+                return Ok(true);
+            }
+            if poll_fds[0].revents & libc::POLLNVAL != 0 {
+                return Err(std::io::Error::other("terminal host listener became invalid"));
+            }
+            if poll_fds[1].revents & libc::POLLIN != 0 {
+                let mut wake = [0u8; 64];
+                let _ = exit_waiter.read(&mut wake);
+                if dead.load(Ordering::Acquire) {
+                    return Ok(false);
+                }
+            }
+            if poll_fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+                return Ok(true);
+            }
+            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+                if dead.load(Ordering::Acquire) {
+                    return Ok(false);
+                }
+                return Err(std::io::Error::other("terminal host exit waiter became invalid"));
+            }
+        }
+    }
+
+    struct HostClientAdmission {
+        active: Arc<AtomicUsize>,
+    }
+
+    impl HostClientAdmission {
+        fn try_acquire(active: &Arc<AtomicUsize>) -> Option<Self> {
+            active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    (count < MAX_TERMINAL_HOST_CLIENTS).then_some(count + 1)
+                })
+                .ok()?;
+            Some(Self { active: active.clone() })
+        }
+    }
+
+    impl Drop for HostClientAdmission {
+        fn drop(&mut self) {
+            self.active.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
     struct HostShared {
         terminal_id: TerminalId,
         incarnation: HostIncarnation,
@@ -2451,9 +3514,11 @@ mod unix {
         cell_pixels: Mutex<(u16, u16)>,
         viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
         taps: Mutex<HashMap<u64, HostTap>>,
+        taps_changed: Condvar,
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
         next_client: AtomicU64,
+        active_clients: Arc<AtomicUsize>,
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
@@ -2466,10 +3531,17 @@ mod unix {
         exit_publish_requests: Sender<()>,
         force_pty_drain: AtomicBool,
         pty_drain_waker: Mutex<UnixStream>,
+        service_exit_waker: Mutex<UnixStream>,
+        service_exit_waiter: Mutex<Option<UnixStream>>,
         termination_started: AtomicBool,
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
+        child_wait_ownership_lost: AtomicBool,
         group_escalation_complete: AtomicBool,
+        #[cfg(test)]
+        normal_cleanup_failures: AtomicUsize,
+        #[cfg(test)]
+        normal_cleanup_attempts: AtomicUsize,
     }
 
     struct LaunchOwnerConnection {
@@ -2662,7 +3734,9 @@ mod unix {
         }
 
         fn remove_client(&self, client: u64) {
-            self.taps.lock().unwrap().remove(&client);
+            if self.taps.lock().unwrap().remove(&client).is_some() {
+                self.taps_changed.notify_all();
+            }
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
@@ -3029,14 +4103,37 @@ mod unix {
             self.pty_drained.load(Ordering::Acquire)
         }
 
-        fn publish_child_wait_predicate(&self, predicate: &AtomicBool) {
-            // Every predicate consumed by child_exit.wait_* must change while
+        fn observe_child_wait_state_locked(
+            &self,
+            session: libc::pid_t,
+            nonblocking: bool,
+        ) -> std::io::Result<crate::process_session::ChildWaitState> {
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Ok(crate::process_session::ChildWaitState::OwnershipLost);
+            }
+            let state =
+                crate::process_session::observe_child_without_reaping(session, nonblocking)?;
+            match state {
+                crate::process_session::ChildWaitState::Waitable => {
+                    self.mark_child_waitable();
+                }
+                crate::process_session::ChildWaitState::OwnershipLost => {
+                    self.publish_child_wait_predicate(&self.child_wait_ownership_lost);
+                }
+                crate::process_session::ChildWaitState::Running => {}
+            }
+            Ok(state)
+        }
+
+        fn publish_child_wait_predicate(&self, predicate: &AtomicBool) -> bool {
+            // Every predicate consumed by child_exit.wait_* changes while
             // holding this mutex. Otherwise a notifier can run after a waiter
             // checks the atomic but before Condvar::wait arms, losing the only
             // wake that allows the terminal exit to be published.
             let _state = self.child_exit.0.lock().unwrap();
-            predicate.store(true, Ordering::Release);
+            let changed = !predicate.swap(true, Ordering::AcqRel);
             self.child_exit.1.notify_all();
+            changed
         }
 
         fn mark_child_waitable(&self) {
@@ -3044,42 +4141,86 @@ mod unix {
         }
 
         fn mark_pty_drained(&self) {
-            self.publish_child_wait_predicate(&self.pty_drained);
+            if self.publish_child_wait_predicate(&self.pty_drained) {
+                self.wake_reserved_child_reaper();
+            }
         }
 
-        fn signal_terminal_process_groups(&self, signal: libc::c_int) {
-            let mut groups = Vec::with_capacity(2);
-            // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. While we hold it, `!child_reaped` means the
-            // original PID/PGID is still kernel-reserved and cannot have been
-            // reused between validation and killpg.
+        fn signal_terminal_process_session(
+            &self,
+            signal: libc::c_int,
+            deadline: Instant,
+        ) -> std::io::Result<()> {
+            // The shared reaper observes exit with WNOWAIT, then takes this
+            // lock before reaping. Holding it reserves the session leader and
+            // its numeric session id across enumeration and signaling.
             let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved = !self.child_reaped.load(Ordering::Acquire);
-            if child_reserved
-                && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
+            let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return Err(std::io::Error::other("PTY child has no process id"));
+            };
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
+            }
+            if self.child_reaped.load(Ordering::Acquire) {
+                return match crate::process_session::session_is_empty_until(session, deadline) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(std::io::Error::other(
+                        "PTY session still has members after its leader was reaped",
+                    )),
+                    Err(error) => Err(error),
+                };
+            }
+            if self.observe_child_wait_state_locked(session, true)?
+                == crate::process_session::ChildWaitState::OwnershipLost
             {
-                groups.push(pid);
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
             }
-            // Query the PTY each time rather than trusting the original group:
-            // a foreground job or retained descendant may own a different
-            // group by the time explicit Terminate escalates.
-            if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+            crate::process_session::signal_until(session, signal, deadline)
+        }
+
+        fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
+            let _signal = self.child_signal_lock.lock().unwrap();
+            let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return Err(std::io::Error::other("PTY child has no process id"));
+            };
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
+            }
+            if self.child_reaped.load(Ordering::Acquire) {
+                return crate::process_session::session_is_empty_until(leader, deadline);
+            }
+            if self.observe_child_wait_state_locked(leader, true)?
+                == crate::process_session::ChildWaitState::OwnershipLost
             {
-                groups.push(foreground);
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
             }
-            groups.sort_unstable();
-            groups.dedup();
-            // A portable-pty child starts as a new session/process-group
-            // leader. Signal both that durable group and any foreground job
-            // group, but never risk addressing the terminal-host's own group.
-            // SAFETY: getpgrp has no preconditions.
-            let host_group = unsafe { libc::getpgrp() };
-            for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
-                // SAFETY: validated positive process-group ids owned by this
-                // PTY session; signal is a platform constant from this module.
-                let _ = unsafe { libc::killpg(group, signal) };
+            crate::process_session::kill_until_only_leader(leader, leader, deadline, || match self
+                .observe_child_wait_state_locked(
+                leader, true,
+            )? {
+                crate::process_session::ChildWaitState::Running => Ok(false),
+                crate::process_session::ChildWaitState::Waitable => Ok(true),
+                crate::process_session::ChildWaitState::OwnershipLost => {
+                    Err(std::io::Error::other("PTY child wait ownership was lost"))
+                }
+            })
+        }
+
+        fn prepare_natural_cleanup(&self) -> bool {
+            #[cfg(test)]
+            {
+                self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
+                if self
+                    .normal_cleanup_failures
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                        remaining.checked_sub(1)
+                    })
+                    .is_ok()
+                {
+                    return false;
+                }
             }
+            true
         }
 
         fn request_forced_pty_drain(&self) {
@@ -3087,6 +4228,13 @@ mod unix {
             // Wake the otherwise blocking poll in the sole PTY reader. The
             // byte has no protocol meaning; it only makes the wake fd ready.
             let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
+        }
+
+        fn wake_reserved_child_reaper(&self) {
+            let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return;
+            };
+            crate::process_session::wake_child_reaper(session);
         }
 
         fn request_termination(self: &Arc<Self>) {
@@ -3097,9 +4245,11 @@ mod unix {
                 let _signal = self.child_signal_lock.lock().unwrap();
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
+            self.child_exit.1.notify_all();
             if already_started {
                 return;
             }
+            self.wake_reserved_child_reaper();
             let worker = self.clone();
             if thread::Builder::new()
                 .name("terminal-host-terminate".into())
@@ -3113,7 +4263,17 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
-            self.publish_child_wait_predicate(&self.group_escalation_complete);
+            if self.publish_child_wait_predicate(&self.group_escalation_complete) {
+                self.wake_reserved_child_reaper();
+            }
+        }
+
+        fn abandon_group_escalation(&self) {
+            let changed = self.termination_started.swap(false, Ordering::AcqRel);
+            self.child_exit.1.notify_all();
+            if changed {
+                self.wake_reserved_child_reaper();
+            }
         }
 
         fn publish_exit_if_drained(&self) {
@@ -3203,34 +4363,104 @@ mod unix {
             if let Some(exit) = exit {
                 self.dead.store(true, Ordering::Release);
                 self.broadcast(MessageKind::Exit, encode_terminal_exit(&exit));
+                // Wake the blocking listener poll so host service cleanup
+                // follows durable exit publication without a periodic timer.
+                let _ = self.service_exit_waker.lock().unwrap().write_all(&[1]);
             }
             Ok(())
         }
 
+        fn drain_clients_after_exit(&self) {
+            let deadline = Instant::now() + HOST_CLIENT_EXIT_DRAIN;
+            let mut taps = self.taps.lock().unwrap();
+            while !taps.is_empty() {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let (next, timeout) = self.taps_changed.wait_timeout(taps, deadline - now).unwrap();
+                taps = next;
+                if timeout.timed_out() && !taps.is_empty() {
+                    break;
+                }
+            }
+            let stalled = taps.values().cloned().collect::<Vec<_>>();
+            drop(taps);
+            for tap in stalled {
+                tap.close();
+            }
+        }
+
         fn terminate_and_wait(&self) {
-            {
+            let (termination_changed, child_reaped, wait_ownership_lost) = {
                 let _signal = self.child_signal_lock.lock().unwrap();
-                self.termination_started.store(true, Ordering::Release);
+                let termination_changed = !self.termination_started.swap(true, Ordering::AcqRel);
+                (
+                    termination_changed,
+                    self.child_reaped.load(Ordering::Acquire),
+                    self.child_wait_ownership_lost.load(Ordering::Acquire),
+                )
+            };
+            self.child_exit.1.notify_all();
+            if termination_changed {
+                self.wake_reserved_child_reaper();
+            }
+            if wait_ownership_lost {
+                self.abandon_group_escalation();
+                return;
+            }
+            if child_reaped {
+                let session_empty = self
+                    .pid
+                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                    .is_some_and(|session| {
+                        matches!(
+                            crate::process_session::session_is_empty_until(
+                                session,
+                                Instant::now() + HOST_KILL_WAIT,
+                            ),
+                            Ok(true)
+                        )
+                    });
+                if session_empty {
+                    self.child_exit.1.notify_all();
+                    self.publish_exit_if_drained();
+                } else {
+                    self.abandon_group_escalation();
+                }
+                return;
             }
             // ProcessSignaller only targets the direct child. Start with a
-            // graceful group hangup so foreground jobs and normal descendants
-            // can clean up too, then escalate after a strict bound.
-            self.signal_terminal_process_groups(libc::SIGHUP);
+            // graceful session hangup so foreground and background jobs can
+            // clean up too, then escalate after a strict bound.
+            if self
+                .signal_terminal_process_session(
+                    libc::SIGHUP,
+                    Instant::now() + HOST_TERMINATE_GRACE,
+                )
+                .is_err()
+            {
+                self.abandon_group_escalation();
+                return;
+            }
             if !self.child_waitable.load(Ordering::Acquire) {
                 let _ = self.killer.lock().unwrap().kill();
             }
             let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
             let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
 
-            // The direct child may ignore SIGHUP, or it may already have
-            // exited while a descendant retains the PTY. Kill both the
-            // original session group and its current foreground job group.
-            // This escalation is mandatory even if Darwin reports PTY EOF as
-            // soon as the session leader exits: an HUP-ignoring descendant
-            // can still be alive in the now-invisible original group.
-            self.signal_terminal_process_groups(libc::SIGKILL);
+            // Process groups are transient job-control details. Repeatedly
+            // kill every member of the PTY session while WNOWAIT reserves the
+            // leader, then publish Exit only after every background group is
+            // gone.
+            let kill_deadline = Instant::now() + HOST_KILL_WAIT;
+            if !matches!(self.kill_terminal_process_session_until(kill_deadline), Ok(true)) {
+                self.abandon_group_escalation();
+                return;
+            }
             self.finish_group_escalation();
-            let child_exited = self.wait_for_child_exit(HOST_KILL_WAIT);
+            let child_exited =
+                self.wait_for_child_exit(kill_deadline.saturating_duration_since(Instant::now()));
             if child_exited && self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE) {
                 return;
             }
@@ -3241,7 +4471,7 @@ mod unix {
                 // the durable host: wake the reader, drain bytes already
                 // readable for a short bounded window, then publish Exit.
                 self.request_forced_pty_drain();
-                let _ = self.wait_for_pty_drain(HOST_FORCED_DRAIN_WINDOW * 2);
+                let _ = self.wait_for_pty_drain(host_forced_drain_window() * 2);
             }
         }
     }
@@ -3268,6 +4498,30 @@ mod unix {
             .then_some(exit))
     }
 
+    fn reap_reserved_child_status(session: libc::pid_t) -> TerminalExit {
+        use std::os::unix::process::ExitStatusExt;
+
+        loop {
+            let mut status = 0;
+            // SAFETY: the shared reaper calls this while holding the signal
+            // lock after WNOWAIT proved `session` is our waitable child. The
+            // retained child handle keeps the numeric PID reserved until this
+            // sole final reap completes.
+            let waited = unsafe { libc::waitpid(session, &mut status, 0) };
+            if waited == session {
+                return TerminalExit::from_exit_status(&std::process::ExitStatus::from_raw(status));
+            }
+            if waited < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return TerminalExit::unknown(format!("waitpid failed: {error}"));
+            }
+            return TerminalExit::unknown("waitpid returned without the reserved child");
+        }
+    }
+
     /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
     /// in one critical section. If the guard were released after reduction,
     /// an older large resize could run after a newer small resize and leave
@@ -3289,31 +4543,6 @@ mod unix {
             return Err(error);
         }
         Ok(())
-    }
-
-    fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
-        loop {
-            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-            // SAFETY: status points to writable siginfo storage. WNOWAIT
-            // observes this owned child becoming waitable without releasing
-            // its PID/PGID for reuse; the portable Child handle reaps it after
-            // acquiring child_signal_lock.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    status.as_mut_ptr(),
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
     }
 
     struct HostLivenessLease {
@@ -3342,12 +4571,28 @@ mod unix {
         }
     }
 
+    impl Drop for HostLivenessLease {
+        fn drop(&mut self) {
+            loop {
+                // SAFETY: this valid descriptor owns the advisory lock. An
+                // explicit unlock also releases the shared open-file
+                // description inherited by a child between fork and exec.
+                if unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+                    break;
+                }
+                if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                    break;
+                }
+            }
+        }
+    }
+
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
         record_path: PathBuf,
         record: TerminalHostRecord,
-        lease: Option<HostLivenessLease>,
+        lease: HostLivenessLease,
         published: bool,
     }
 
@@ -3386,24 +4631,26 @@ mod unix {
                             && current.incarnation == self.record.incarnation
                             && current.host_start_nonce == self.record.host_start_nonce
                     });
-            let released_lease_path = if owns_record {
-                self.lease.take().map(|lease| {
-                    let _ = lease.file.sync_all();
-                    let path = lease.path.clone();
-                    // Unlock the process-incarnation proof before removing its
-                    // discovery record. Observers can never see an absent
-                    // record whose captured liveness proof still says Live.
-                    drop(lease);
-                    path
-                })
-            } else {
-                None
+            let endpoint_removed = match fs::remove_file(&self.endpoint) {
+                Ok(()) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                Err(_) => false,
             };
-            let removed_record =
-                !self.published || (owns_record && fs::remove_file(&self.record_path).is_ok());
-            let _ = fs::remove_file(&self.endpoint);
-            if removed_record && let Some(path) = released_lease_path {
-                let _ = fs::remove_file(path);
+            let lease_removed = if owns_record {
+                match fs::remove_file(&self.lease.path) {
+                    Ok(()) => true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+            let _ = self.lease.file.sync_all();
+            // Record removal is the final cleanup barrier. Once observers see
+            // it absent, both the transport endpoint and process-bound
+            // liveness path are already gone.
+            if self.published && owns_record && endpoint_removed && lease_removed {
+                let _ = fs::remove_file(&self.record_path);
             }
         }
     }
@@ -3413,10 +4660,20 @@ mod unix {
         reader: &mut impl Read,
         writer: &mut impl Write,
     ) -> anyhow::Result<()> {
-        if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
-            anyhow::bail!("hidden mode requires --bootstrap-stdio");
+        let publication_descriptor = terminal_host_publication_descriptor(args)?;
+        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS")
+            && let Ok(delay) = delay.parse::<u64>()
+            && delay > 0
+        {
+            thread::sleep(Duration::from_millis(delay.min(5_000)));
         }
         let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS")
+            && let Ok(delay) = delay.parse::<u64>()
+            && delay > 0
+        {
+            thread::sleep(Duration::from_millis(delay.min(5_000)));
+        }
         let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
             // Keep the one-frame bootstrap probe useful for compatibility and
             // packaging diagnostics. Production launchers always follow it
@@ -3427,6 +4684,18 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
+        let publication_descriptor = publication_descriptor
+            .ok_or_else(|| anyhow::anyhow!("terminal-host launch omitted publication ownership"))?;
+        // SAFETY: the private launcher passes one unique child descriptor,
+        // and fd isolation preserves only that descriptor beyond stdio.
+        let publication_guard = unsafe {
+            crate::PublicationGuard::adopt_inherited(
+                Path::new(&launch.record_path),
+                publication_descriptor,
+                Instant::now() + HOST_LAUNCH_TIMEOUT,
+            )
+        }
+        .context("adopt terminal-host record publication ownership")?;
         let shared = spawn_host_runtime(&launch, &bootstrapped)?;
 
         let endpoint = PathBuf::from(&launch.endpoint);
@@ -3439,7 +4708,7 @@ mod unix {
         if let Some(parent) = endpoint.parent() {
             prepare_private_dir(parent)?;
         }
-        let listener = UnixListener::bind(&endpoint)?;
+        let listener = cmux_tui_process::unix::bind_listener(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
 
@@ -3454,6 +4723,7 @@ mod unix {
             host_start_nonce: encode_hex(start_nonce.as_bytes()),
             workspace_key: String::new(),
             supports_set_defaults: true,
+            supports_terminate_only: true,
             supports_clear_history: true,
         };
         let lease =
@@ -3463,7 +4733,7 @@ mod unix {
             endpoint,
             record_path: PathBuf::from(&launch.record_path),
             record: record.clone(),
-            lease: Some(lease),
+            lease,
             published: false,
         };
         unpublished.armed = false;
@@ -3473,6 +4743,7 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        drop(publication_guard);
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -3491,6 +4762,9 @@ mod unix {
             incarnation: bootstrapped.incarnation,
         };
         let mut response = Frame::new(MessageKind::Ready, ready.encode());
+        if std::env::var("CMUX_TUI_TEST_INVALID_HOST_READY").as_deref() == Ok("1") {
+            response.kind = MessageKind::Snapshot;
+        }
         response.request_id = launch_frame.request_id;
         // Publication is the ownership handoff. If the launcher dies in the
         // narrow record-before-Ready window, EPIPE must not tear down the
@@ -3499,7 +4773,10 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-        let mut exit_drain_deadline = None;
+        let mut service_waiter =
+            shared.service_exit_waiter.lock().unwrap().take().ok_or_else(|| {
+                anyhow::anyhow!("terminal host service waiter was already claimed")
+            })?;
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -3517,36 +4794,46 @@ mod unix {
                 shared.publish_exit_if_drained();
             }
             if shared.dead.load(Ordering::Acquire) {
-                let deadline =
-                    *exit_drain_deadline.get_or_insert(now + HOST_EXIT_STREAM_DRAIN_TIMEOUT);
-                let clients_drained = shared.taps.lock().unwrap().is_empty();
-                if (shared.launch_owner_completed.load(Ordering::Acquire) && clients_drained)
-                    || now >= deadline
-                {
-                    break;
-                }
+                break;
             }
-            match listener.accept() {
+            match cmux_tui_process::unix::accept_stream(&listener) {
                 Ok((stream, _)) => {
                     // Accepted sockets inherit O_NONBLOCK from the listener
                     // on macOS. Client protocol threads use blocking framed
                     // reads, so normalize the accepted descriptor here.
                     stream.set_nonblocking(false)?;
+                    let Some(admission) = HostClientAdmission::try_acquire(&shared.active_clients)
+                    else {
+                        continue;
+                    };
                     let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
+                    // A transient thread creation failure rejects this client
+                    // without taking down the terminal host. Dropping the
+                    // unstarted closure releases its admission automatically.
+                    let _ = thread::Builder::new().name("terminal-host-client".into()).spawn(
                         move || {
+                            let _admission = admission;
                             let _ = serve_client(host, stream);
                         },
-                    )?;
+                    );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
+                    let deadline = (!shared.launch_owner_claimed.load(Ordering::Acquire))
+                        .then_some(launch_owner_deadline);
+                    if !wait_for_host_service_activity(
+                        listener.as_raw_fd(),
+                        &mut service_waiter,
+                        &shared.dead,
+                        deadline,
+                    )? {
+                        break;
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
             }
         }
-        thread::sleep(Duration::from_millis(20));
+        shared.drain_clients_after_exit();
         drop(guard);
         Ok(())
     }
@@ -3555,6 +4842,8 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
+        let reaper = crate::process_session::reserve_child_reaper()
+            .context("reserve bounded PTY session cleanup")?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = cmux_pty::open(initial_pty_size)?;
@@ -3564,16 +4853,33 @@ mod unix {
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
+        command.env_remove(crate::release::LAUNCHER_COMMAND_ENV);
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        let child = crate::spawned_pty_child::SpawnedPtyChild::new(child).with_reaper(reaper);
+        #[cfg(test)]
+        crate::process_session::fail_after_pty_spawn_for_test()?;
         let pid = child.process_id();
+        let Some(session) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            anyhow::bail!("native terminal-host PTY child did not expose a process ID");
+        };
+        let child_identity = match crate::process_session::StableProcessHandle::capture(session) {
+            Ok(Some(identity)) => identity,
+            Ok(None) => {
+                anyhow::bail!(
+                    "terminal-host PTY child exited before its process identity was captured"
+                );
+            }
+            Err(error) => return Err(error).context("capture terminal-host PTY child identity"),
+        };
         let killer = child.clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = master.try_clone_reader()?;
         let pty_writer = master.take_writer()?;
-        let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
+        let (pty_drain_waker, pty_drain_waiter) = cmux_tui_process::unix::pair_stream()?;
+        let (service_exit_waker, service_exit_waiter) = cmux_tui_process::unix::pair_stream()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -3621,9 +4927,11 @@ mod unix {
             cell_pixels: Mutex::new(cell_pixels),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
+            taps_changed: Condvar::new(),
             broadcast_lock: Mutex::new(()),
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),
+            active_clients: Arc::new(AtomicUsize::new(0)),
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
@@ -3636,10 +4944,19 @@ mod unix {
             exit_publish_requests,
             force_pty_drain: AtomicBool::new(false),
             pty_drain_waker: Mutex::new(pty_drain_waker),
+            service_exit_waker: Mutex::new(service_exit_waker),
+            service_exit_waiter: Mutex::new(Some(service_exit_waiter)),
             termination_started: AtomicBool::new(false),
             child_signal_lock: Mutex::new(()),
             child_reaped: AtomicBool::new(false),
+            child_wait_ownership_lost: AtomicBool::new(false),
             group_escalation_complete: AtomicBool::new(false),
+            #[cfg(test)]
+            normal_cleanup_failures: AtomicUsize::new(
+                NEXT_HOST_NORMAL_CLEANUP_FAILURES.swap(0, Ordering::AcqRel),
+            ),
+            #[cfg(test)]
+            normal_cleanup_attempts: AtomicUsize::new(0),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
 
@@ -3719,69 +5036,113 @@ mod unix {
             reader_host.mark_pty_drained();
             reader_host.publish_exit_if_drained();
         })?;
-        let child_host = shared.clone();
-        thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            let observed_without_reaping = child_host
-                .pid
-                .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
-            if observed_without_reaping {
-                child_host.mark_child_waitable();
-                loop {
-                    let signal = child_host.child_signal_lock.lock().unwrap();
-                    let escalation_complete =
-                        child_host.group_escalation_complete.load(Ordering::Acquire);
-                    let termination_started =
-                        child_host.termination_started.load(Ordering::Acquire);
-                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                    if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.as_mut());
-                        child_host.child_reaped.store(true, Ordering::Release);
-                        drop(signal);
-                        *child_host.child_exit.0.lock().unwrap() = Some(exit);
-                        break;
-                    }
-                    drop(signal);
-                    let state = child_host.child_exit.0.lock().unwrap();
-                    let _state = child_host
-                        .child_exit
-                        .1
-                        .wait_while(state, |_| {
-                            !child_host.group_escalation_complete.load(Ordering::Acquire)
-                                && (child_host.termination_started.load(Ordering::Acquire)
-                                    || !child_host.pty_drained.load(Ordering::Acquire))
-                        })
-                        .unwrap();
+        let observe_host = shared.clone();
+        let cleanup_host = shared.clone();
+        let prepare_host = shared.clone();
+        let reap_host = shared.clone();
+        let mut child = child;
+        let reaper = child
+            .take_reaper()
+            .expect("terminal-host PTY child retains its reserved session reaper");
+        let mut child = Some(child);
+        crate::process_session::enqueue_reserved_session_leader(
+            reaper.attach_owner(),
+            session,
+            HOST_KILL_WAIT,
+            move || {
+                let _signal = observe_host.child_signal_lock.lock().unwrap();
+                let state = observe_host.observe_child_wait_state_locked(session, true)?;
+                Ok(state != crate::process_session::ChildWaitState::Running)
+            },
+            move || {
+                crate::process_session::reserved_child_needs_cleanup(
+                    crate::process_session::ReservedChildReap {
+                        signal_lock: &cleanup_host.child_signal_lock,
+                        pty_drained: &cleanup_host.pty_drained,
+                        termination_started: &cleanup_host.termination_started,
+                        cleanup_complete: &cleanup_host.group_escalation_complete,
+                        child_reaped: &cleanup_host.child_reaped,
+                        wait_ownership_lost: &cleanup_host.child_wait_ownership_lost,
+                    },
+                )
+            },
+            move || prepare_host.prepare_natural_cleanup(),
+            move |cleanup_succeeded| {
+                if reap_host.child_reaped.load(Ordering::Acquire) {
+                    reap_host.publish_exit_if_drained();
+                    return crate::process_session::NaturalReapFinish::Complete;
                 }
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            } else {
-                // Native Unix PTYs always expose a PID and support waitid;
-                // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.as_mut());
-                child_host.child_reaped.store(true, Ordering::Release);
-                child_host.mark_child_waitable();
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = Some(exit);
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
-            }
-        })?;
+                if reap_host.child_wait_ownership_lost.load(Ordering::Acquire) {
+                    let _signal = reap_host.child_signal_lock.lock().unwrap();
+                    if !reap_host.pty_drained.load(Ordering::Acquire) {
+                        return crate::process_session::NaturalReapFinish::Pending;
+                    }
+                    match child_identity.matches_current() {
+                        Ok(false) => {}
+                        Ok(true) | Err(_) => {
+                            return crate::process_session::NaturalReapFinish::Failed;
+                        }
+                    }
+                    child
+                        .take()
+                        .expect("reserved child releases lost wait ownership once")
+                        .abandon_wait_ownership();
+                    *reap_host.child_exit.0.lock().unwrap() = Some(TerminalExit::unknown(
+                        "terminal child wait ownership was lost before native status was available",
+                    ));
+                    reap_host.child_reaped.store(true, Ordering::Release);
+                    drop(_signal);
+                    reap_host.child_exit.1.notify_all();
+                    reap_host.publish_exit_if_drained();
+                    return crate::process_session::NaturalReapFinish::Complete;
+                }
+                let done = crate::process_session::poll_reserved_session_leader(
+                    crate::process_session::ReservedChildReap {
+                        signal_lock: &reap_host.child_signal_lock,
+                        pty_drained: &reap_host.pty_drained,
+                        termination_started: &reap_host.termination_started,
+                        cleanup_complete: &reap_host.group_escalation_complete,
+                        child_reaped: &reap_host.child_reaped,
+                        wait_ownership_lost: &reap_host.child_wait_ownership_lost,
+                    },
+                    cleanup_succeeded,
+                    || {
+                        let child = child.take().expect("reserved child is reaped once");
+                        let exit = reap_reserved_child_status(session);
+                        child.abandon_wait_ownership();
+                        *reap_host.child_exit.0.lock().unwrap() = Some(exit);
+                        reap_host.child_exit.1.notify_all();
+                    },
+                );
+                if done {
+                    reap_host.publish_exit_if_drained();
+                    crate::process_session::NaturalReapFinish::Complete
+                } else {
+                    crate::process_session::NaturalReapFinish::Pending
+                }
+            },
+        );
         Ok(shared)
     }
 
     fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+        stream.set_read_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
-            || hello_frame.flags & !FLAG_VIEWER_SIZE_ACKS != 0
+            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINATE_ONLY) != 0
+            || hello_frame.flags == (FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINATE_ONLY)
         {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
         let hello = ClientHello::decode(&hello_frame.payload)?;
         let response = authenticate_client(&host, &hello)?;
+        let terminate_only = hello_frame.flags == FLAG_TERMINATE_ONLY;
         if hello_frame.version != response.selected_version
-            || !response.granted_rights.contains(CapabilityRights::READ)
+            || (!terminate_only && !response.granted_rights.contains(CapabilityRights::READ))
+            || (terminate_only
+                && (hello.role != ClientRole::Admin
+                    || response.granted_rights != CapabilityRights::TERMINATE))
         {
             anyhow::bail!("terminal-host capability denied");
         }
@@ -3793,13 +5154,37 @@ mod unix {
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags = FLAG_VIEWER_SIZE_ACKS;
+        } else if terminate_only {
+            hello_response.flags = FLAG_TERMINATE_ONLY;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
 
+        if terminate_only {
+            let terminate = read_required_frame(&mut stream, "terminate-only request")?;
+            if terminate.kind != MessageKind::Terminate
+                || terminate.flags != 0
+                || terminate.sequence != 0
+                || terminate.request_id != 0
+                || !terminate.payload.is_empty()
+            {
+                anyhow::bail!("terminate-only client sent an unexpected request");
+            }
+            host.request_termination();
+            return Ok(());
+        }
+
+        // Authenticated interactive clients are long-lived. Clear the
+        // unauthenticated handshake deadline before entering their command
+        // and live-output loops.
+        stream.set_read_timeout(None)?;
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(256);
-        let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
+        let tap = HostTap::new(
+            sender,
+            Arc::new(cmux_tui_process::unix::clone_stream(&stream)?),
+            MAX_HOST_CLIENT_QUEUED_BYTES,
+        );
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
             // Match resize's viewer -> size -> cell metrics -> parser ->
@@ -3864,7 +5249,7 @@ mod unix {
             return Err(error.into());
         }
 
-        let mut command_stream = stream.try_clone()?;
+        let mut command_stream = cmux_tui_process::unix::clone_stream(&stream)?;
         let command_host = host.clone();
         thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
@@ -4572,6 +5957,485 @@ mod unix {
     mod tests {
         use super::*;
 
+        fn spawn_sleeping_host_for_test(name: &str) -> (Arc<HostShared>, PathBuf) {
+            let root = std::env::temp_dir()
+                .join(format!("cmux-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sh".into(), "-c".into(), "exec /bin/sleep 60".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            (spawn_host_runtime(&launch, &bootstrapped).unwrap(), root)
+        }
+
+        fn stop_test_host(host: &Arc<HostShared>, root: &Path) {
+            host.request_termination();
+            assert!(
+                host.wait_for_child_exit(Duration::from_secs(3)),
+                "test terminal host did not stop"
+            );
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn unauthenticated_host_client_handshake_is_time_bounded() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let (host, root) = spawn_sleeping_host_for_test("host-handshake-timeout");
+            let (server, client) = cmux_tui_process::unix::pair_stream().unwrap();
+            let client_host = host.clone();
+            let (done_sender, done_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                done_sender.send(serve_client(client_host, server)).unwrap();
+            });
+
+            let result =
+                done_receiver.recv_timeout(HOST_HANDSHAKE_TIMEOUT + Duration::from_secs(1));
+            drop(client);
+            if result.is_err() {
+                let _ = done_receiver.recv_timeout(Duration::from_secs(1));
+            }
+            worker.join().unwrap();
+            stop_test_host(&host, &root);
+
+            match result {
+                Ok(Err(_)) => {}
+                Ok(Ok(())) => panic!("an empty client completed a terminal-host handshake"),
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("an unauthenticated client retained a host thread past the deadline")
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("the terminal-host client worker disconnected without a result")
+                }
+            }
+        }
+
+        #[test]
+        fn host_client_admission_is_bounded_and_reusable() {
+            let active = Arc::new(AtomicUsize::new(0));
+            let mut admissions = (0..MAX_TERMINAL_HOST_CLIENTS)
+                .map(|_| {
+                    HostClientAdmission::try_acquire(&active)
+                        .expect("a client below the configured limit was rejected")
+                })
+                .collect::<Vec<_>>();
+
+            assert!(
+                HostClientAdmission::try_acquire(&active).is_none(),
+                "the terminal host admitted more than its configured client limit"
+            );
+            admissions.pop();
+            let replacement = HostClientAdmission::try_acquire(&active)
+                .expect("a released client admission was not reusable");
+            drop(replacement);
+            drop(admissions);
+
+            assert_eq!(active.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
+        fn idle_host_service_wait_is_event_driven() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-hsw-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let endpoint = root.join("host.sock");
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (mut service_waker, mut service_waiter) =
+                cmux_tui_process::unix::pair_stream().unwrap();
+            let dead = Arc::new(AtomicBool::new(false));
+            let waiter_dead = dead.clone();
+            let listener_fd = listener.as_raw_fd();
+            let (done_sender, done_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                done_sender
+                    .send(wait_for_host_service_activity(
+                        listener_fd,
+                        &mut service_waiter,
+                        &waiter_dead,
+                        None,
+                    ))
+                    .unwrap();
+            });
+
+            let first = done_receiver.recv_timeout(Duration::from_millis(75));
+            dead.store(true, Ordering::Release);
+            let _ = service_waker.write_all(&[1]);
+            let (waited_for_event, result) = match first {
+                Ok(result) => (false, result),
+                Err(RecvTimeoutError::Timeout) => {
+                    (true, done_receiver.recv_timeout(Duration::from_secs(1)).unwrap())
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("the host service waiter disconnected without a result")
+                }
+            };
+            worker.join().unwrap();
+            drop(listener);
+            let _ = fs::remove_file(endpoint);
+            let _ = fs::remove_dir(root);
+
+            assert!(waited_for_event, "an idle host service woke without socket activity");
+            assert!(!result.unwrap(), "the exit wake was reported as client activity");
+        }
+
+        #[test]
+        fn host_service_wait_reports_listener_activity() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-hsc-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let endpoint = root.join("host.sock");
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (_service_waker, mut service_waiter) =
+                cmux_tui_process::unix::pair_stream().unwrap();
+            let dead = AtomicBool::new(false);
+            let listener_fd = listener.as_raw_fd();
+            let worker = thread::spawn(move || {
+                wait_for_host_service_activity(listener_fd, &mut service_waiter, &dead, None)
+            });
+
+            let client = UnixStream::connect(&endpoint).unwrap();
+            let activity = worker.join().unwrap().unwrap();
+            drop(client);
+            drop(listener);
+            let _ = fs::remove_file(endpoint);
+            let _ = fs::remove_dir(root);
+
+            assert!(activity, "a waiting host service ignored a client connection");
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn host_pty_creation_waits_for_process_barrier() {
+            const CHILD_ENV: &str = "CMUX_TUI_TEST_HOST_PTY_CREATION_BARRIER";
+            const TEST_NAME: &str =
+                "terminal_host_runtime::unix::tests::host_pty_creation_waits_for_process_barrier";
+            if std::env::var_os(CHILD_ENV).is_none() {
+                let status = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST_NAME])
+                    .env(CHILD_ENV, "1")
+                    .status()
+                    .unwrap();
+                assert!(status.success(), "host PTY barrier subprocess failed: {status}");
+                return;
+            }
+
+            fn descriptor_count() -> usize {
+                fs::read_dir("/dev/fd").unwrap().count()
+            }
+
+            drop(crate::process_session::reserve_child_reaper().unwrap());
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: "/tmp/cmux-host-pty-barrier.sock".into(),
+                record_path: "/tmp/cmux-host-pty-barrier.json".into(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sleep".into(), "60".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let baseline = descriptor_count();
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (started_sender, started_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                started_sender.send(()).unwrap();
+                spawn_host_runtime(&launch, &bootstrapped)
+            });
+            started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            let deadline = Instant::now() + Duration::from_millis(250);
+            let mut observed = baseline;
+            while observed == baseline && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+                observed = descriptor_count();
+            }
+
+            drop(process_barrier);
+            let host = worker.join().unwrap().unwrap();
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+
+            assert_eq!(
+                observed, baseline,
+                "host PTY descriptors were created outside the process barrier"
+            );
+        }
+
+        #[test]
+        fn host_pty_does_not_inherit_launcher_command() {
+            const CHILD_ENV: &str = "CMUX_TUI_TEST_HOST_LAUNCHER_ENV";
+            const LAUNCHER_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
+            const TEST_NAME: &str =
+                "terminal_host_runtime::unix::tests::host_pty_does_not_inherit_launcher_command";
+            if std::env::var_os(CHILD_ENV).is_none() {
+                let status = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST_NAME])
+                    .env(CHILD_ENV, "1")
+                    .env(LAUNCHER_ENV, "npx cmux@1.2.3")
+                    .status()
+                    .unwrap();
+                assert!(status.success(), "host PTY environment subprocess failed: {status}");
+                return;
+            }
+
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-launcher-env-{}",
+                crate::workspace_registry::new_uuid_v4()
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let result = root.join("launcher.txt");
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "result=\"$CMUX_TUI_TEST_RESULT\"; \
+                     printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \"$result.tmp\"; \
+                     mv \"$result.tmp\" \"$result\"; exec /bin/sleep 60"
+                        .into(),
+                ],
+                extra_env: vec![(
+                    "CMUX_TUI_TEST_RESULT".into(),
+                    result.to_string_lossy().into_owned(),
+                )],
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !result.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let inherited = fs::read_to_string(&result).unwrap();
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            let _ = fs::remove_dir_all(root);
+
+            assert_eq!(inherited, "unset", "host PTY inherited launcher replay metadata");
+        }
+
+        #[test]
+        fn failed_host_pty_initialization_reaps_spawned_child() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-spawn-failure-{}",
+                crate::workspace_registry::new_uuid_v4()
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let ready = root.join("ready");
+            let descendant = root.join("descendant");
+            let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!(
+                        "trap '' HUP TERM; \
+                         (trap '' HUP TERM; exec /bin/sleep 60) & \
+                         echo $! > {}; \
+                         echo $$ > {}; exec /bin/sleep 60",
+                        descendant.display(),
+                        ready.display()
+                    ),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+
+            let error = match spawn_host_runtime(&launch, &bootstrapped) {
+                Ok(_) => panic!("forced hosted PTY initialization failure unexpectedly succeeded"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("forced post-spawn PTY initialization failure"));
+            let pid = fs::read_to_string(&ready).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            let descendant_pid =
+                fs::read_to_string(&descendant).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            let mut status = 0;
+            // SAFETY: the marker contains the exact child PID spawned by this test.
+            let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+            let wait_error = std::io::Error::last_os_error();
+            if result == 0 {
+                // SAFETY: the child is still owned by this test process.
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                    libc::waitpid(pid, &raw mut status, 0);
+                }
+            }
+            let descendant_deadline = Instant::now() + Duration::from_secs(2);
+            let descendant_gone = loop {
+                // SAFETY: signal zero performs a non-mutating liveness probe.
+                if unsafe { libc::kill(descendant_pid, 0) } < 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                {
+                    break true;
+                }
+                if Instant::now() >= descendant_deadline {
+                    break false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            };
+            if !descendant_gone {
+                // SAFETY: the marker names the test's retained-session descendant.
+                unsafe {
+                    libc::kill(descendant_pid, libc::SIGKILL);
+                }
+            }
+            let _ = fs::remove_dir_all(root);
+
+            assert_eq!(result, -1, "failed hosted PTY initialization left child {pid} unreaped");
+            assert_eq!(wait_error.raw_os_error(), Some(libc::ECHILD));
+            assert!(
+                descendant_gone,
+                "failed hosted PTY initialization left descendant {descendant_pid} running"
+            );
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn saturated_listener_never_returns_an_unconnected_host_stream() {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-host-backlog-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let (address, address_len) = unix_socket_address(&path).unwrap();
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let listener =
+                unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+            assert!(listener >= 0, "failed to create the test listener");
+            // SAFETY: listener is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let listener = unsafe { OwnedFd::from_raw_fd(listener) };
+            // SAFETY: address is initialized for this exact filesystem path
+            // and listener owns a valid AF_UNIX descriptor.
+            let result = unsafe {
+                libc::bind(
+                    listener.as_raw_fd(),
+                    (&raw const address).cast::<libc::sockaddr>(),
+                    address_len,
+                )
+            };
+            assert_eq!(result, 0, "failed to bind the test listener");
+            // SAFETY: listener remains a valid bound AF_UNIX descriptor.
+            let result = unsafe { libc::listen(listener.as_raw_fd(), 0) };
+            assert_eq!(result, 0, "failed to create a zero-backlog test listener");
+
+            let mut queued = Vec::new();
+            let mut timeout_elapsed = None;
+            for _ in 0..32 {
+                let started = Instant::now();
+                match connect_until(&path, started + Duration::from_millis(75)) {
+                    Ok(stream) => queued.push(stream),
+                    Err(error) => {
+                        assert_eq!(
+                            error.downcast_ref::<std::io::Error>().map(std::io::Error::kind),
+                            Some(std::io::ErrorKind::TimedOut)
+                        );
+                        timeout_elapsed = Some(started.elapsed());
+                        break;
+                    }
+                }
+            }
+            let elapsed =
+                timeout_elapsed.expect("saturated host listener returned unconnected streams");
+            assert!(
+                elapsed < Duration::from_secs(1),
+                "saturated host connect exceeded its deadline bound: {elapsed:?}"
+            );
+            drop(queued);
+            drop(listener);
+            fs::remove_file(path).unwrap();
+        }
+
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
                 limits: KittyGraphicsLimits {
@@ -4639,6 +6503,7 @@ mod unix {
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            let (service_exit_waker, service_exit_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
@@ -4659,9 +6524,11 @@ mod unix {
                 cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
                 viewer_sizes: Mutex::new(HashMap::new()),
                 taps: Mutex::new(HashMap::new()),
+                taps_changed: Condvar::new(),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
                 next_client: AtomicU64::new(1),
+                active_clients: Arc::new(AtomicUsize::new(0)),
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
@@ -4682,10 +6549,15 @@ mod unix {
                 exit_publish_requests,
                 force_pty_drain: AtomicBool::new(false),
                 pty_drain_waker: Mutex::new(pty_drain_waker),
+                service_exit_waker: Mutex::new(service_exit_waker),
+                service_exit_waiter: Mutex::new(Some(service_exit_waiter)),
                 termination_started: AtomicBool::new(false),
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
+                child_wait_ownership_lost: AtomicBool::new(false),
                 group_escalation_complete: AtomicBool::new(false),
+                normal_cleanup_failures: AtomicUsize::new(0),
+                normal_cleanup_attempts: AtomicUsize::new(0),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
             host
@@ -4696,6 +6568,7 @@ mod unix {
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            let (service_exit_waker, service_exit_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
@@ -4716,9 +6589,11 @@ mod unix {
                 cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
                 viewer_sizes: Mutex::new(HashMap::new()),
                 taps: Mutex::new(HashMap::new()),
+                taps_changed: Condvar::new(),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
                 next_client: AtomicU64::new(1),
+                active_clients: Arc::new(AtomicUsize::new(0)),
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
                 launch_owner_stream_ready: AtomicBool::new(false),
@@ -4735,10 +6610,15 @@ mod unix {
                 exit_publish_requests,
                 force_pty_drain: AtomicBool::new(false),
                 pty_drain_waker: Mutex::new(pty_drain_waker),
+                service_exit_waker: Mutex::new(service_exit_waker),
+                service_exit_waiter: Mutex::new(Some(service_exit_waiter)),
                 termination_started: AtomicBool::new(false),
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(false),
+                child_wait_ownership_lost: AtomicBool::new(false),
                 group_escalation_complete: AtomicBool::new(false),
+                normal_cleanup_failures: AtomicUsize::new(0),
+                normal_cleanup_attempts: AtomicUsize::new(0),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
             host
@@ -4767,12 +6647,31 @@ mod unix {
                 host_start_nonce: encode_hex(nonce.as_bytes()),
                 workspace_key: String::new(),
                 supports_set_defaults: true,
+                supports_terminate_only: true,
                 supports_clear_history: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
             write_record(&record_path, &record).unwrap();
             (record_path, record, lease)
+        }
+
+        fn accept_test_client_until(
+            listener: &UnixListener,
+            timeout: Duration,
+        ) -> Option<UnixStream> {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + timeout;
+            loop {
+                match listener.accept() {
+                    Ok((stream, _)) => return Some(stream),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        let remaining = deadline.checked_duration_since(Instant::now())?;
+                        thread::sleep(remaining.min(Duration::from_millis(1)));
+                    }
+                    Err(error) => panic!("test listener failed: {error}"),
+                }
+            }
         }
 
         #[test]
@@ -5255,6 +7154,46 @@ mod unix {
         }
 
         #[test]
+        fn liveness_lease_drop_unlocks_an_inherited_file_description() {
+            let (record_path, record, lease) = record_fixture("inherited-liveness");
+            let lease_fd = lease.file.as_raw_fd();
+            let mut command = Command::new("/bin/sleep");
+            command.arg("60");
+            // SAFETY: fcntl is async-signal-safe, and this only clears
+            // close-on-exec on the test-owned descriptor in the child between
+            // fork and exec. The parent descriptor remains close-on-exec.
+            unsafe {
+                command.pre_exec(move || {
+                    let flags = libc::fcntl(lease_fd, libc::F_GETFD);
+                    if flags == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::fcntl(lease_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let mut inheritor = command.spawn().unwrap();
+
+            drop(lease);
+            let observed = terminal_host_record_liveness(&record_path, &record).unwrap();
+
+            inheritor.kill().unwrap();
+            inheritor.wait().unwrap();
+            assert!(
+                remove_stale_terminal_host_record(&record_path, &record).unwrap(),
+                "test cleanup could not reclaim the released liveness record"
+            );
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+            assert_eq!(
+                observed,
+                TerminalHostLiveness::Dead,
+                "a forked child retained the terminal host's released liveness lock"
+            );
+        }
+
+        #[test]
         fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
             let (record_path, record, lease) = record_fixture("canonical");
             let root = record_path.parent().unwrap();
@@ -5272,6 +7211,157 @@ mod unix {
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
             let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn exact_record_loader_does_not_read_unrelated_host_files() {
+            let (record_path, record, lease) = record_fixture("exact-record");
+            let root = record_path.parent().unwrap();
+            fs::write(root.join("unrelated.json"), b"{invalid-json").unwrap();
+
+            let loaded = load_terminal_host_record(root, &record.terminal_id).unwrap();
+
+            assert_eq!(loaded, Some((record_path.clone(), record.clone())));
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn private_directory_setup_rejects_symlink_without_changing_target_permissions() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-private-dir-symlink-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let target = root.join("target");
+            fs::create_dir(&target).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+            let link = root.join("endpoint");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+
+            let result = prepare_private_dir(&link);
+            let target_mode = fs::metadata(&target).unwrap().mode() & 0o777;
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(result.is_err(), "private directory setup accepted a symlink");
+            assert_eq!(target_mode, 0o755, "private directory setup changed the symlink target");
+        }
+
+        #[test]
+        fn private_directory_setup_tightens_an_owned_directory() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-private-dir-owned-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+
+            prepare_private_dir(&root).unwrap();
+            let mode = fs::metadata(&root).unwrap().mode() & 0o777;
+            let _ = fs::remove_dir_all(&root);
+
+            assert_eq!(mode, 0o700);
+        }
+
+        #[test]
+        fn strict_record_loader_rejects_fifo_without_blocking() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-record-fifo-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let path = root.join(format!("{}.json", TerminalId::random().unwrap().to_hex()));
+            let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: c_path is a valid, NUL-terminated path owned by this test.
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+            let loader_root = root.clone();
+            let (result_tx, result_rx) = sync_channel(1);
+            let loader = thread::spawn(move || {
+                let _ = result_tx.send(load_terminal_host_records_strict(
+                    &loader_root,
+                    1,
+                    Instant::now() + Duration::from_secs(1),
+                ));
+            });
+            let completed = match result_rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(result) => Some(result),
+                Err(RecvTimeoutError::Timeout) => {
+                    let mut writer = OpenOptions::new().write(true).open(&path).unwrap();
+                    writer.write_all(b"{}").unwrap();
+                    None
+                }
+                Err(RecvTimeoutError::Disconnected) => panic!("record loader stopped"),
+            };
+            loader.join().unwrap();
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(completed.is_some(), "strict terminal-host scan blocked while opening a FIFO");
+            assert!(completed.unwrap().is_err(), "FIFO was accepted as a discovery record");
+        }
+
+        #[test]
+        fn adoption_record_loader_rejects_fifo_without_blocking() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-adoption-record-fifo-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let path = root.join(format!("{}.json", TerminalId::random().unwrap().to_hex()));
+            let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: c_path is a valid, NUL-terminated path owned by this test.
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+            let loader_root = root.clone();
+            let (result_tx, result_rx) = sync_channel(1);
+            let loader = thread::spawn(move || {
+                let _ = result_tx.send(load_terminal_host_records(&loader_root));
+            });
+            let completed = match result_rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(result) => Some(result),
+                Err(RecvTimeoutError::Timeout) => {
+                    let mut writer = OpenOptions::new().write(true).open(&path).unwrap();
+                    writer.write_all(b"{}").unwrap();
+                    None
+                }
+                Err(RecvTimeoutError::Disconnected) => panic!("record loader stopped"),
+            };
+            loader.join().unwrap();
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(completed.is_some(), "terminal-host adoption blocked while opening a FIFO");
+            assert!(completed.unwrap().unwrap().is_empty(), "FIFO was adopted as a host record");
+        }
+
+        #[test]
+        fn strict_record_loader_rejects_oversized_file_before_decoding() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-record-oversized-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let path = root.join(format!("{}.json", TerminalId::random().unwrap().to_hex()));
+            fs::write(&path, vec![b'x'; MAX_LAUNCH_PAYLOAD + 1]).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+            let error = load_terminal_host_records_strict(
+                &root,
+                1,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap_err();
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(
+                format!("{error:#}").contains("exceeds size limit"),
+                "oversized record reached JSON decoding: {error:#}"
+            );
         }
 
         #[test]
@@ -5390,6 +7480,7 @@ mod unix {
             legacy.host_pid = 0;
             legacy.host_start_nonce.clear();
             legacy.supports_set_defaults = false;
+            legacy.supports_terminate_only = false;
             legacy.supports_clear_history = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
@@ -5433,6 +7524,327 @@ mod unix {
         }
 
         #[test]
+        fn hosted_child_exit_retries_a_failed_session_cleanup() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            NEXT_HOST_NORMAL_CLEANUP_FAILURES.store(1, Ordering::Release);
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: "/tmp/cmux-host-reap-retry.sock".into(),
+                record_path: "/tmp/cmux-host-reap-retry.json".into(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+
+            let retry_deadline = Instant::now() + Duration::from_secs(3);
+            while (!host.child_reaped.load(Ordering::Acquire)
+                || host.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
+                && Instant::now() < retry_deadline
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let retried = host.normal_cleanup_attempts.load(Ordering::Acquire) >= 2;
+            let reaped = host.child_reaped.load(Ordering::Acquire);
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+
+            assert!(
+                retried,
+                "hosted PTY cleanup was not retried after a transient failure (attempts={})",
+                host.normal_cleanup_attempts.load(Ordering::Acquire)
+            );
+            assert!(reaped, "the hosted PTY leader remained unreaped after cleanup could succeed");
+        }
+
+        #[test]
+        fn hosted_session_kill_observes_the_waitable_leader_under_its_owner_lock() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let root = std::env::temp_dir()
+                .join(format!("cmux-host-owner-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "trap '' HUP TERM; while :; do sleep 60; done".into(),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            host.termination_started.store(true, Ordering::Release);
+
+            let started = Instant::now();
+            let killed = host
+                .kill_terminal_process_session_until(Instant::now() + Duration::from_secs(1))
+                .unwrap();
+            let elapsed = started.elapsed();
+
+            host.group_escalation_complete.store(true, Ordering::Release);
+            host.child_exit.1.notify_all();
+            host.wake_reserved_child_reaper();
+            let _ = host.wait_for_child_exit(Duration::from_secs(2));
+            let _ = fs::remove_dir_all(root);
+
+            assert!(killed, "host cleanup could not observe its SIGKILLed leader");
+            assert!(
+                elapsed < Duration::from_millis(500),
+                "host cleanup waited on the reaper while retaining its owner lock: {elapsed:?}"
+            );
+            assert!(host.child_reaped.load(Ordering::Acquire));
+        }
+
+        #[test]
+        fn hosted_child_observation_uses_the_reserved_shared_reaper() {
+            const CHILDREN: usize = 4;
+
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let worker_baseline = crate::process_session::dedicated_natural_reap_workers_for_test();
+            let observer_baseline = HOST_CHILD_OBSERVER_SPAWNS.load(Ordering::Acquire);
+            let mut hosts = Vec::new();
+            for index in 0..CHILDREN {
+                let bootstrap = HostBootstrap {
+                    min_version: PROTOCOL_VERSION,
+                    max_version: PROTOCOL_VERSION,
+                    terminal_id: TerminalId::random().unwrap(),
+                    owner_token: CapabilityToken::random().unwrap(),
+                };
+                let mut bootstrap_bytes = Vec::new();
+                write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+                let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                    &mut bootstrap_bytes.as_slice(),
+                    &mut Vec::new(),
+                )
+                .unwrap();
+                let launch = HostLaunch {
+                    endpoint: format!("/tmp/cmux-host-reap-bound-{index}.sock"),
+                    record_path: format!("/tmp/cmux-host-reap-bound-{index}.json"),
+                    term: "xterm-256color".into(),
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    scrollback: 100,
+                    cwd: Some("/tmp".into()),
+                    command: vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                    extra_env: Vec::new(),
+                    default_colors: DefaultColors::default(),
+                    kitty_graphics_limits: KittyGraphicsLimits::default(),
+                };
+                hosts.push(spawn_host_runtime(&launch, &bootstrapped).unwrap());
+            }
+
+            for host in &hosts {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while !host.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                assert!(
+                    host.child_reaped.load(Ordering::Acquire),
+                    "hosted PTY child was not reaped by the bounded shared worker"
+                );
+            }
+            let dedicated_workers =
+                crate::process_session::dedicated_natural_reap_workers_for_test()
+                    .saturating_sub(worker_baseline);
+            let dedicated_observers = HOST_CHILD_OBSERVER_SPAWNS
+                .load(Ordering::Acquire)
+                .saturating_sub(observer_baseline);
+
+            for host in hosts {
+                host.request_termination();
+                let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            }
+
+            assert!(
+                dedicated_workers <= 1,
+                "hosted PTY observation retained {dedicated_workers} shared retry workers"
+            );
+            assert_eq!(
+                dedicated_observers, 0,
+                "hosted PTY child observation retained one dedicated thread per child"
+            );
+        }
+
+        #[test]
+        fn hosted_child_exit_cleans_descendants_that_keep_the_slave_open() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let root = std::env::temp_dir()
+                .join(format!("cmux-host-reap-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let pid_path = root.join("descendant.pid");
+            let ready_path = root.join("descendant.ready");
+            let release_path = root.join("leader.release");
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!(
+                        "trap '' HUP TERM; terminal=$(tty); \
+                         sleep 30 3<>\"$terminal\" & child=$!; \
+                         : > {ready}; echo $child > {pid}; \
+                         while [ ! -e {release} ]; do sleep 0.01; done; exit 0",
+                        ready = ready_path.display(),
+                        pid = pid_path.display(),
+                        release = release_path.display(),
+                    ),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            let start_deadline = Instant::now() + Duration::from_secs(1);
+            while !pid_path.exists() && Instant::now() < start_deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let descendant =
+                fs::read_to_string(&pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            // SAFETY: signal 0 only probes the test-owned PID.
+            assert_eq!(unsafe { libc::kill(descendant, 0) }, 0);
+            fs::write(&release_path, b"ready").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !host.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let naturally_reaped = host.child_reaped.load(Ordering::Acquire);
+            // SAFETY: signal 0 only probes the test-owned PID.
+            let descendant_alive_before_cleanup = unsafe { libc::kill(descendant, 0) } == 0;
+
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            if unsafe { libc::kill(descendant, 0) } == 0 {
+                // SAFETY: this PID was written by the test-owned descendant.
+                unsafe {
+                    libc::kill(descendant, libc::SIGKILL);
+                }
+            }
+            let _ = fs::remove_dir_all(root);
+
+            assert!(
+                naturally_reaped,
+                "hosted PTY exit waited for EOF from a same-session descendant before cleanup"
+            );
+            assert!(
+                !descendant_alive_before_cleanup,
+                "hosted PTY exit left a same-session descendant holding the slave open"
+            );
+        }
+
+        #[test]
+        fn detached_host_process_retains_reap_ownership_when_worker_spawn_fails() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let child =
+                Command::new("/bin/sh").arg("-c").arg("exit 0").spawn().expect("spawn test child");
+            let pid = libc::pid_t::try_from(child.id()).expect("child PID fits pid_t");
+            let (process, completed) = SpawnedHostProcess::new_for_test(child);
+            NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(1, Ordering::Release);
+
+            process.detach_reaper();
+
+            let reaped_by_owner = completed.recv_timeout(Duration::from_secs(1)).is_ok();
+            NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(0, Ordering::Release);
+            if !reaped_by_owner {
+                // SAFETY: pid remains the exact test-owned child while its
+                // reaper reservation is still outstanding.
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+
+            assert!(
+                reaped_by_owner,
+                "detached terminal-host cleanup abandoned the child after thread spawn failed"
+            );
+            let mut status = 0;
+            // SAFETY: completion proves the reaper dropped its sole Child
+            // handle after observing exit, so this call only verifies ECHILD.
+            let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+            assert_eq!(result, -1);
+            assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
+        }
+
+        #[test]
+        fn spawned_host_process_drop_transfers_waiting_to_the_shared_reaper() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            HOST_PROCESS_INLINE_WAITS.store(0, Ordering::Release);
+            let child =
+                Command::new("/bin/sh").arg("-c").arg("exit 0").spawn().expect("spawn test child");
+            let (process, completed) = SpawnedHostProcess::new_for_test(child);
+
+            drop(process);
+
+            completed.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(
+                HOST_PROCESS_INLINE_WAITS.load(Ordering::Acquire),
+                0,
+                "dropping a launch guard waited for the child on the cancellation thread"
+            );
+        }
+
+        #[test]
         fn stalled_host_handshake_is_time_bounded() {
             let (record_path, record, lease) = record_fixture("handshake-timeout");
             let endpoint = PathBuf::from(&record.endpoint);
@@ -5440,8 +7852,11 @@ mod unix {
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
             let stalled = thread::spawn(move || {
-                let (_stream, _) = listener.accept().unwrap();
-                thread::sleep(Duration::from_millis(200));
+                if let Some(_stream) =
+                    accept_test_client_until(&listener, Duration::from_millis(500))
+                {
+                    thread::sleep(Duration::from_millis(200));
+                }
             });
 
             let started = Instant::now();
@@ -5459,6 +7874,46 @@ mod unix {
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
             let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn terminate_only_handshake_uses_one_absolute_deadline() {
+            let (record_path, record, lease) = record_fixture("terminate-deadline");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let stalled = thread::spawn(move || {
+                if let Some(mut stream) =
+                    accept_test_client_until(&listener, Duration::from_millis(500))
+                {
+                    for _ in 0..crate::terminal_host_protocol::HEADER_LEN {
+                        if stream.write_all(&[0]).is_err() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                }
+            });
+
+            let started = Instant::now();
+            let result = terminate_terminal_host_with_timeout(
+                &record,
+                &record_path,
+                Duration::from_millis(40),
+            );
+            let elapsed = started.elapsed();
+            stalled.join().unwrap();
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+
+            assert!(result.is_err());
+            assert!(
+                elapsed < Duration::from_millis(250),
+                "partial host frames restarted the shutdown timeout: {elapsed:?}"
+            );
         }
 
         #[test]
@@ -5807,7 +8262,6 @@ mod unix {
             assert!(!attachment.send_cell_pixel_size(9, 18).unwrap());
             drop(attachment);
             fake_host.join().unwrap();
-
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
@@ -6320,15 +8774,22 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
+    acquire_terminal_host_publication, adopt_terminal_host_with_kitty_limits,
+    decode_host_resize_payload_for_version, load_terminal_host_record,
 };
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
     isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_with_identity,
-    load_terminal_host_exit_records, load_terminal_host_records, remove_stale_terminal_host_record,
-    serve_terminal_host_stdio, terminal_host_exit_record, terminal_host_record_liveness,
-    terminal_host_root, validate_terminal_host_exit_record, validate_terminal_host_record,
+    load_terminal_host_exit_records, load_terminal_host_records, load_terminal_host_records_strict,
+    remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_exit_record,
+    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_exit_record,
+    validate_terminal_host_record,
+};
+#[cfg(unix)]
+pub(crate) use unix::{
+    launch_terminal_host_cancellable, launch_terminal_host_with_identity_cancellable,
+    terminate_and_confirm_terminal_host_record,
 };
 
 #[cfg(not(unix))]
@@ -6337,7 +8798,7 @@ pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
 }
 
 #[cfg(not(unix))]
-pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
+pub fn isolate_terminal_host_process_fds(_args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 

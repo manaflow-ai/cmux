@@ -123,7 +123,7 @@ impl OwnedUnixListener {
         };
         remove_stale_socket(&path).await?;
 
-        let listener = UnixListener::bind(&path).map_err(|error| {
+        let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path).map_err(|error| {
             contextual_io(error, format!("could not bind Unix socket {}", path.display()))
         })?;
         let metadata = match fs::symlink_metadata(&path) {
@@ -298,7 +298,12 @@ async fn remove_stale_socket(path: &Path) -> Result<(), UnixSocketError> {
             path.display()
         )));
     }
-    match tokio::time::timeout(SOCKET_PROBE_TIMEOUT, tokio::net::UnixStream::connect(path)).await {
+    match tokio::time::timeout(
+        SOCKET_PROBE_TIMEOUT,
+        cmux_tui_process::tokio_net::connect_unix_stream(path),
+    )
+    .await
+    {
         Ok(Ok(_)) => Err(UnixSocketError::Protocol(format!(
             "another process is listening at {}",
             path.display()

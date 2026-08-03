@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350'
+IR_SHA256 = '56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d'
 
 
 @dataclass(frozen=True)
@@ -1106,6 +1106,16 @@ COMMANDS = {
         None,
         {
             'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shutdown': CommandMetadata(
+        'shutdown',
+        'local-admin',
+        9,
+        'server-shutdown-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'shutdown-daemon': CommandMetadata(

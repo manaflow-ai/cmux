@@ -11,7 +11,10 @@ mod wire;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use cmux_tui_core::release::ReleaseIdentity;
+use cmux_tui_core::server::PROTOCOL_VERSION;
 use command::{CommandPlan, ParsedCommand};
+use serde_json::json;
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -73,8 +76,11 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
             "--socket" | "--session" | "--machine" => index += 2,
             "--json" | "--jsonl" | "--quiet" => index += 1,
             "-h" | "--help" | "help" => return true,
+            "server" => return true,
             value if PUBLIC_SCOPES.contains(&value) => return true,
-            value if value.starts_with('-') => index += 1,
+            // Any other option belongs to startup parsing (or is invalid).
+            // Do not inspect its values because they may match a CLI scope.
+            value if value.starts_with('-') => return false,
             _ => return false,
         }
     }
@@ -82,6 +88,9 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
+    if let Some(result) = run_server_lifecycle_if_requested(args) {
+        return result;
+    }
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
@@ -257,6 +266,7 @@ PROCESS HELP
   cmux attach --help
   cmux relay --help
   cmux machine-agent --help
+  cmux server status|stop
 
 RESOURCE SCOPES
   machine       Inspect the local machine and session route
@@ -436,6 +446,191 @@ USAGE
 escape for the legacy control protocol and provides no compatibility promise.
 ";
 
+fn run_server_lifecycle_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command) = match parse_globals(args) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            if args.iter().any(|value| value == "server") {
+                eprintln!("cmux: {error}");
+                return Some(2);
+            }
+            return None;
+        }
+    };
+    if command.first().map(String::as_str) != Some("server") {
+        return None;
+    }
+    let actions = &command[1..];
+    if actions.iter().any(|value| matches!(value.as_str(), "-h" | "--help" | "help")) {
+        let messages = &crate::localization::catalog().server;
+        let mut stdout = io::stdout().lock();
+        let _ = stdout.write_all(messages.help.as_bytes());
+        let _ = stdout.flush();
+        return Some(0);
+    }
+    Some(run_server_lifecycle(&global, actions))
+}
+
+fn run_server_lifecycle(global: &GlobalArgs, actions: &[String]) -> i32 {
+    let messages = &crate::localization::catalog().server;
+    let action = match actions {
+        [action] if matches!(action.as_str(), "status" | "stop") => action.as_str(),
+        [] => {
+            eprintln!("cmux: {}", messages.missing_action);
+            return 2;
+        }
+        [action] => {
+            eprintln!("cmux: {} {action:?}", messages.unknown_action);
+            return 2;
+        }
+        _ => {
+            eprintln!("cmux: {} {actions:?}", messages.unknown_action);
+            return 2;
+        }
+    };
+    if global.machine.is_some() {
+        eprintln!("cmux: {}", messages.machine_scope_unsupported);
+        return 2;
+    }
+    let socket_path = resolve_server_socket(global);
+    let lifecycle = match crate::server_lifecycle::ServerLifecycle::connect(socket_path) {
+        Ok(lifecycle) => lifecycle,
+        Err(error) => {
+            eprintln!("{error}");
+            return 3;
+        }
+    };
+    match action {
+        "status" => print_server_status(global.output, lifecycle.probe()),
+        "stop" => {
+            eprintln!("cmux: {}", messages.stopping_exits_panes);
+            match lifecycle.stop() {
+                Ok(()) => {
+                    match global.output {
+                        OutputMode::Json | OutputMode::JsonLines => {
+                            println!("{}", json!({"stopped": true}));
+                        }
+                        OutputMode::Human => println!("{}", messages.stopped),
+                        OutputMode::Quiet => {}
+                    }
+                    0
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    1
+                }
+            }
+        }
+        _ => unreachable!("server action was validated before connecting"),
+    }
+}
+
+fn print_server_status(output: OutputMode, probe: &crate::server_lifecycle::ServerProbe) -> i32 {
+    let messages = &crate::localization::catalog().server;
+    let server = &probe.identity;
+    let client = ReleaseIdentity::current(PROTOCOL_VERSION);
+    let mismatches = probe.mismatches();
+    let compatible = mismatches.is_empty();
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => {
+            let mismatch_reasons =
+                mismatches.iter().map(|mismatch| mismatch.code()).collect::<Vec<_>>();
+            let value = json!({
+                "running": true,
+                "compatible": compatible,
+                "mismatch_reasons": mismatch_reasons,
+                "server": {
+                    "version": server.release.version,
+                    "protocol": server.release.protocol,
+                    "shutdown_cleanup": {
+                        "pending": server.shutdown_cleanup.pending,
+                        "retrying": server.shutdown_cleanup.retrying,
+                        "degraded": server.shutdown_cleanup.degraded,
+                    },
+                },
+                "client": {"version": client.version, "protocol": client.protocol},
+            });
+            let mut stdout = io::stdout();
+            match serde_json::to_writer(&mut stdout, &value)
+                .map_err(io::Error::other)
+                .and_then(|_| stdout.write_all(b"\n"))
+            {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("stdout error: {error}");
+                    3
+                }
+            }
+        }
+        OutputMode::Quiet => 0,
+        OutputMode::Human => {
+            println!(
+                "{}: v{} {} {}",
+                messages.server_label,
+                server.release.version,
+                messages.protocol_label,
+                server.release.protocol,
+            );
+            println!(
+                "{}: v{} {} {}",
+                messages.client_label, client.version, messages.protocol_label, client.protocol,
+            );
+            println!(
+                "{}: {}",
+                messages.status_label,
+                if compatible { messages.compatible } else { messages.incompatible },
+            );
+            if !mismatches.is_empty() {
+                let reasons = mismatches
+                    .into_iter()
+                    .map(|mismatch| mismatch.message(messages))
+                    .collect::<Vec<_>>()
+                    .join(messages.reason_separator);
+                println!("{}: {}", messages.reason_label, reasons);
+            }
+            if server.shutdown_cleanup.pending != 0 {
+                let state = if server.shutdown_cleanup.degraded {
+                    messages.cleanup_degraded
+                } else {
+                    messages.cleanup_retrying
+                };
+                println!(
+                    "{}: {} ({}: {})",
+                    messages.cleanup_label,
+                    state,
+                    messages.cleanup_pending_label,
+                    server.shutdown_cleanup.pending,
+                );
+            }
+            0
+        }
+    }
+}
+
+fn resolve_server_socket(global: &GlobalArgs) -> PathBuf {
+    resolve_server_socket_with(global, |name| std::env::var_os(name).map(PathBuf::from))
+}
+
+fn resolve_server_socket_with(
+    global: &GlobalArgs,
+    ambient_socket: impl Fn(&str) -> Option<PathBuf>,
+) -> PathBuf {
+    if let Some(path) = &global.socket {
+        return path.clone();
+    }
+    if let Some(session) = global.session.as_deref() {
+        return cmux_tui_core::server::default_socket_path(session);
+    }
+    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
+        if let Some(path) = ambient_socket(name)
+            && !path.as_os_str().is_empty()
+        {
+            return path;
+        }
+    }
+    cmux_tui_core::server::default_socket_path("main")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,6 +667,33 @@ mod tests {
     }
 
     #[test]
+    fn startup_option_values_cannot_select_cli_mode() {
+        for args in [
+            &["--term", "server"][..],
+            &["--state", "server"][..],
+            &["--machine-provider-command", "server", "--"][..],
+            &["--machine-provider-command", "provider", "server", "--"][..],
+        ] {
+            assert!(
+                !is_cli_invocation(&strings(args)),
+                "startup invocation misclassified: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_session_overrides_ambient_server_socket() {
+        let global =
+            GlobalArgs { session: Some("explicit-session".into()), ..GlobalArgs::default() };
+        let ambient = PathBuf::from("/tmp/cmux-ambient-session.sock");
+
+        assert_eq!(
+            resolve_server_socket_with(&global, |_| Some(ambient.clone())),
+            cmux_tui_core::server::default_socket_path("explicit-session")
+        );
+    }
+
+    #[test]
     fn every_scope_has_dedicated_help() {
         for scope in PUBLIC_SCOPES {
             let help = scope_help(scope);
@@ -486,6 +708,7 @@ mod tests {
     #[test]
     fn startup_help_is_explicitly_discoverable() {
         assert!(ROOT_HELP.contains("cmux help start"));
+        assert!(ROOT_HELP.contains("cmux server status|stop"));
         assert!(ROOT_HELP.starts_with("cmux - "));
         assert!(!ROOT_HELP.contains("cmux-tui"));
         assert!(matches!(

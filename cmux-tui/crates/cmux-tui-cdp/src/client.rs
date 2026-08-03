@@ -1,9 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{
+    Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
+};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -18,6 +21,14 @@ use tungstenite::{Error as WsError, Message, WebSocket, client};
 /// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+const CDP_RESOLVER_QUEUE_CAPACITY: usize = 64;
+const CDP_RESOLVER_WORKERS: usize = 4;
+const CDP_RESOLVER_CHILD_CAPACITY: usize = CDP_RESOLVER_QUEUE_CAPACITY + CDP_RESOLVER_WORKERS;
+const CDP_RESOLVER_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const CDP_RESOLVER_REAP_MAX_BACKOFF: Duration = Duration::from_millis(250);
+const CDP_RESOLVER_REAP_RETRY_WINDOW: Duration = Duration::from_secs(2);
+const CDP_RESOLVER_OUTPUT_LIMIT: u64 = 64 * 1024;
+const CDP_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 // Navigation may invalidate a frame tree while its response is in flight.
 // Bound retries so a continuously navigating page cannot block the caller forever.
 const MAIN_FRAME_SNAPSHOT_ATTEMPTS: usize = 8;
@@ -34,6 +45,462 @@ const SCREENCAST_CLOCK_RECOVERY_BUDGET: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+type TestHostResolverCommand = Arc<dyn Fn(&str, u16) -> Command + Send + Sync>;
+#[cfg(test)]
+static TEST_HOST_RESOLVER_COMMAND: Mutex<Option<TestHostResolverCommand>> = Mutex::new(None);
+#[cfg(test)]
+static TEST_RESOLVER_REAPER_WAIT_ERROR: Mutex<Option<std::io::ErrorKind>> = Mutex::new(None);
+#[cfg(test)]
+static TEST_RESOLVER_REAPER_WAIT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
+    std::sync::OnceLock::new();
+static CDP_RESOLVER_CHILD_REAPER: std::sync::OnceLock<Mutex<Option<ResolverChildReaper>>> =
+    std::sync::OnceLock::new();
+
+struct CdpResolver {
+    workers: Arc<(Mutex<ResolverState>, Condvar)>,
+    _initializer: std::thread::JoinHandle<()>,
+}
+
+enum ResolverState {
+    Initializing,
+    Ready(SyncSender<ResolveRequest>),
+    Failed(String),
+}
+
+struct ResolveRequest {
+    host: String,
+    port: u16,
+    deadline: Instant,
+    response: SyncSender<std::io::Result<Vec<SocketAddr>>>,
+    #[cfg(test)]
+    delay: Duration,
+}
+
+struct ResolverChildReaper {
+    sender: Sender<ResolverChildReapRequest>,
+    active: Arc<AtomicUsize>,
+    degraded: Arc<AtomicBool>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+struct ResolverChildReaperLease {
+    sender: Sender<ResolverChildReapRequest>,
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for ResolverChildReaperLease {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct ResolverChildReapRequest {
+    child: Child,
+    _lease: ResolverChildReaperLease,
+    next_attempt: Instant,
+    retry_delay: Duration,
+    retry_deadline: Instant,
+}
+
+impl CdpResolver {
+    fn spawn() -> std::io::Result<Self> {
+        let workers = Arc::new((Mutex::new(ResolverState::Initializing), Condvar::new()));
+        let initializer_state = workers.clone();
+        let initializer = std::thread::Builder::new()
+            .name("cmux-tui-cdp-resolver-init".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    #[cfg(test)]
+                    {
+                        let delay_ms = NEXT_RESOLVER_INIT_DELAY_MS.swap(0, Ordering::AcqRel);
+                        if delay_ms != 0 {
+                            std::thread::sleep(Duration::from_millis(delay_ms));
+                        }
+                    }
+                    spawn_host_resolver_workers().map_err(|error| error.to_string())
+                }))
+                .unwrap_or_else(|_| Err("resolver initializer panicked".to_string()));
+                let (state, ready) = &*initializer_state;
+                *state.lock().unwrap() = match result {
+                    Ok(sender) => ResolverState::Ready(sender),
+                    Err(error) => ResolverState::Failed(error),
+                };
+                ready.notify_all();
+            })?;
+        Ok(Self { workers, _initializer: initializer })
+    }
+
+    fn submit(&self, request: ResolveRequest) -> anyhow::Result<()> {
+        let sender = self.workers_until(request.deadline)?;
+        sender.try_send(request).map_err(|error| match error {
+            TrySendError::Full(_) => anyhow::anyhow!("CDP resolver queue is full"),
+            TrySendError::Disconnected(_) => anyhow::anyhow!("CDP resolver workers stopped"),
+        })
+    }
+
+    fn workers_until(&self, deadline: Instant) -> anyhow::Result<SyncSender<ResolveRequest>> {
+        let (state, ready) = &*self.workers;
+        let mut state = state.lock().unwrap();
+        loop {
+            match &*state {
+                ResolverState::Ready(sender) => return Ok(sender.clone()),
+                ResolverState::Failed(error) => {
+                    anyhow::bail!("CDP resolver initialization failed: {error}")
+                }
+                ResolverState::Initializing => {}
+            }
+            let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
+            let (next, timeout) = ready.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && matches!(*state, ResolverState::Initializing) {
+                anyhow::bail!("CDP address resolution deadline expired");
+            }
+        }
+    }
+
+    fn initialization_failed(&self) -> bool {
+        let state = self.workers.0.lock().unwrap();
+        matches!(&*state, ResolverState::Failed(_))
+    }
+}
+
+fn spawn_host_resolver_workers() -> std::io::Result<SyncSender<ResolveRequest>> {
+    resolver_child_reaper()?;
+    let (sender, receiver) = sync_channel(CDP_RESOLVER_QUEUE_CAPACITY);
+    let receiver = Arc::new(Mutex::new(receiver));
+    for index in 0..CDP_RESOLVER_WORKERS {
+        let receiver = receiver.clone();
+        std::thread::Builder::new()
+            .name(format!("cmux-tui-cdp-resolver-{index}"))
+            .spawn(move || host_resolver_worker(receiver))?;
+    }
+    Ok(sender)
+}
+
+fn host_resolver_worker(receiver: Arc<Mutex<Receiver<ResolveRequest>>>) {
+    loop {
+        let request = {
+            let receiver = receiver.lock().unwrap();
+            let Ok(request) = receiver.recv() else {
+                return;
+            };
+            request
+        };
+        #[cfg(test)]
+        if !request.delay.is_zero() {
+            std::thread::sleep(request.delay);
+        }
+        let result = if request.deadline <= Instant::now() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "CDP address resolution deadline expired",
+            ))
+        } else {
+            resolve_host_addresses_until(&request.host, request.port, request.deadline)
+        };
+        let _ = request.response.send(result);
+    }
+}
+
+fn resolve_host_addresses_until(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+) -> std::io::Result<Vec<SocketAddr>> {
+    #[cfg(test)]
+    {
+        let test_command = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().clone();
+        if test_command.is_none() {
+            return (host, port).to_socket_addrs().map(Iterator::collect);
+        }
+    }
+
+    let reaper = reserve_resolver_child_reaper()?;
+    let mut command = host_resolver_command(host, port)?;
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmux_tui_process::spawn_until(&mut command, deadline)?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("host resolver helper stdout was unavailable"))?;
+    let (output_sender, output_receiver) = sync_channel(1);
+    // Resolver workers bound the number of concurrent helpers and readers.
+    // Timeout cleanup kills the owned helper, which closes this pipe even
+    // when the helper was blocked while producing output.
+    let output_reader =
+        std::thread::Builder::new().name("cmux-tui-cdp-resolver-output".into()).spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0_u8; 8 * 1024];
+            let limit = usize::try_from(CDP_RESOLVER_OUTPUT_LIMIT).unwrap_or(usize::MAX);
+            let result = loop {
+                match stdout.read(&mut buffer) {
+                    Ok(0) => break Ok(output),
+                    Ok(count) => {
+                        let retained =
+                            limit.saturating_add(1).saturating_sub(output.len()).min(count);
+                        output.extend_from_slice(&buffer[..retained]);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) => break Err(error),
+                }
+            };
+            let _ = output_sender.send(result);
+        });
+    if let Err(error) = output_reader {
+        handoff_resolver_child(child, reaper);
+        return Err(error);
+    }
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                drop(reaper);
+                if !status.success() {
+                    return Err(std::io::Error::other(format!(
+                        "host resolver helper exited with {status}"
+                    )));
+                }
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "CDP address resolution deadline expired",
+                    ));
+                };
+                let output = match output_receiver.recv_timeout(remaining) {
+                    Ok(output) => output?,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "CDP address resolution deadline expired",
+                        ));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(std::io::Error::other("host resolver output reader stopped"));
+                    }
+                };
+                if output.len() as u64 > CDP_RESOLVER_OUTPUT_LIMIT {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "host resolver helper output exceeded its limit",
+                    ));
+                }
+                let addresses = String::from_utf8_lossy(&output)
+                    .lines()
+                    .filter_map(|line| line.parse::<SocketAddr>().ok())
+                    .filter(|address| address.port() == port)
+                    .collect::<Vec<_>>();
+                if addresses.is_empty() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "host resolver helper returned no addresses",
+                    ));
+                }
+                return Ok(addresses);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                handoff_resolver_child(child, reaper);
+                return Err(error);
+            }
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            handoff_resolver_child(child, reaper);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "CDP address resolution deadline expired",
+            ));
+        };
+        std::thread::sleep(remaining.min(CDP_RESOLVER_POLL_INTERVAL));
+    }
+}
+
+fn host_resolver_command(host: &str, port: u16) -> std::io::Result<Command> {
+    #[cfg(test)]
+    if let Some(command) = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().clone() {
+        return Ok(command(host, port));
+    }
+    let mut command = Command::new(std::env::current_exe()?);
+    command.args(["__resolve-host", host, &port.to_string()]);
+    Ok(command)
+}
+
+fn resolver_child_reaper() -> std::io::Result<()> {
+    let mut slot = CDP_RESOLVER_CHILD_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    if slot.is_none() {
+        let (sender, receiver) = channel();
+        let active = Arc::new(AtomicUsize::new(0));
+        let degraded = Arc::new(AtomicBool::new(false));
+        let worker_degraded = degraded.clone();
+        let worker = std::thread::Builder::new()
+            .name("cmux-tui-cdp-resolver-reaper".into())
+            .spawn(move || run_resolver_child_reaper(receiver, worker_degraded))?;
+        *slot = Some(ResolverChildReaper { sender, active, degraded, _worker: worker });
+    }
+    Ok(())
+}
+
+fn reserve_resolver_child_reaper() -> std::io::Result<ResolverChildReaperLease> {
+    resolver_child_reaper()?;
+    let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+    let reaper = slot.as_ref().expect("resolver child reaper initialized");
+    if reaper.degraded.load(Ordering::Acquire) {
+        return Err(std::io::Error::other(
+            "host resolver child cleanup is temporarily unavailable",
+        ));
+    }
+    reaper
+        .active
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            (active < CDP_RESOLVER_CHILD_CAPACITY).then_some(active + 1)
+        })
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "host resolver child capacity exhausted",
+            )
+        })?;
+    if reaper.degraded.load(Ordering::Acquire) {
+        reaper.active.fetch_sub(1, Ordering::AcqRel);
+        return Err(std::io::Error::other(
+            "host resolver child cleanup is temporarily unavailable",
+        ));
+    }
+    Ok(ResolverChildReaperLease { sender: reaper.sender.clone(), active: reaper.active.clone() })
+}
+
+fn handoff_resolver_child(mut child: Child, lease: ResolverChildReaperLease) {
+    let _ = child.kill();
+    let sender = lease.sender.clone();
+    let now = Instant::now();
+    let request = ResolverChildReapRequest {
+        child,
+        _lease: lease,
+        next_attempt: now,
+        retry_delay: CDP_RESOLVER_POLL_INTERVAL,
+        retry_deadline: now + CDP_RESOLVER_REAP_RETRY_WINDOW,
+    };
+    if let Err(error) = sender.send(request) {
+        let mut request = error.0;
+        let _ = request.child.kill();
+        let _ = request.child.wait();
+    }
+}
+
+fn run_resolver_child_reaper(
+    receiver: Receiver<ResolverChildReapRequest>,
+    degraded: Arc<AtomicBool>,
+) {
+    let mut pending = Vec::new();
+    let mut disconnected = false;
+    loop {
+        if pending.is_empty() {
+            if disconnected {
+                return;
+            }
+            match receiver.recv() {
+                Ok(request) => pending.push(request),
+                Err(_) => return,
+            }
+        } else {
+            let now = Instant::now();
+            let wait = pending
+                .iter()
+                .map(|request| request.next_attempt.saturating_duration_since(now))
+                .min()
+                .unwrap_or_default();
+            if disconnected {
+                std::thread::sleep(wait);
+            } else {
+                match receiver.recv_timeout(wait) {
+                    Ok(request) => pending.push(request),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        disconnected = true;
+                    }
+                }
+            }
+        }
+        while let Ok(request) = receiver.try_recv() {
+            pending.push(request);
+        }
+        let now = Instant::now();
+        pending.retain_mut(|request| {
+            if request.next_attempt > now {
+                return true;
+            }
+            let _ = request.child.kill();
+            match resolver_child_try_wait(request) {
+                Ok(Some(_)) => false,
+                Err(error) if resolver_child_wait_lost_ownership(&error) => false,
+                Ok(None) | Err(_) => {
+                    if now >= request.retry_deadline {
+                        degraded.store(true, Ordering::Release);
+                    }
+                    request.next_attempt = now + request.retry_delay;
+                    request.retry_delay =
+                        request.retry_delay.saturating_mul(2).min(CDP_RESOLVER_REAP_MAX_BACKOFF);
+                    true
+                }
+            }
+        });
+        if pending.is_empty() {
+            degraded.store(false, Ordering::Release);
+        }
+    }
+}
+
+fn resolver_child_wait_lost_ownership(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ECHILD)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
+}
+
+fn resolver_child_try_wait(
+    request: &mut ResolverChildReapRequest,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    #[cfg(test)]
+    {
+        TEST_RESOLVER_REAPER_WAIT_CALLS.fetch_add(1, Ordering::AcqRel);
+        if let Some(kind) = *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() {
+            return Err(std::io::Error::from(kind));
+        }
+    }
+    request.child.try_wait()
+}
+
+#[doc(hidden)]
+pub fn run_host_resolver_helper(args: &[String]) -> anyhow::Result<()> {
+    let [host, port] = args else {
+        anyhow::bail!("host resolver helper requires a host and port");
+    };
+    let port = port.parse::<u16>()?;
+    let addresses = (host.as_str(), port).to_socket_addrs()?.take(257).collect::<Vec<_>>();
+    if addresses.is_empty() {
+        anyhow::bail!("host resolver returned no addresses");
+    }
+    if addresses.len() > 256 {
+        anyhow::bail!("host resolver returned too many addresses");
+    }
+    let stdout = std::io::stdout();
+    let mut output = std::io::BufWriter::new(stdout.lock());
+    for address in addresses {
+        writeln!(output, "{address}")?;
+    }
+    output.flush()?;
+    Ok(())
+}
 
 /// Monotonic browser-frame generation shared by CDP ingress and one surface.
 ///
@@ -278,6 +745,8 @@ struct Inner {
     next_screencast_capture_request_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+    web_socket_url: Arc<str>,
+    peer_addr: SocketAddr,
     #[cfg(test)]
     reader_stopped: Arc<AtomicBool>,
 }
@@ -530,25 +999,203 @@ enum Outbound {
     Flush(Sender<()>),
 }
 
+struct DeadlineTcpStream {
+    stream: TcpStream,
+    deadline: Option<Instant>,
+}
+
+impl DeadlineTcpStream {
+    fn new(stream: TcpStream, deadline: Instant) -> Self {
+        Self { stream, deadline: Some(deadline) }
+    }
+
+    fn clear_deadline(&mut self) {
+        self.deadline = None;
+    }
+
+    fn remaining(&self) -> std::io::Result<Option<Duration>> {
+        let Some(deadline) = self.deadline else {
+            return Ok(None);
+        };
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .map(Some)
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "CDP connection deadline expired")
+            })
+    }
+
+    fn set_nodelay(&self, nodelay: bool) -> std::io::Result<()> {
+        self.stream.set_nodelay(nodelay)
+    }
+
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl Read for DeadlineTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_read_timeout(Some(remaining))?;
+        }
+        self.stream.read(buffer)
+    }
+}
+
+impl Write for DeadlineTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_write_timeout(Some(remaining))?;
+        }
+        self.stream.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_write_timeout(Some(remaining))?;
+        }
+        self.stream.flush()
+    }
+}
+
+fn deadline_after(timeout: Duration, expired: &str) -> anyhow::Result<Instant> {
+    if timeout.is_zero() {
+        anyhow::bail!("{expired}");
+    }
+    Instant::now().checked_add(timeout).ok_or_else(|| anyhow::anyhow!("CDP deadline overflow"))
+}
+
+fn remaining_until(deadline: Instant, expired: &str) -> anyhow::Result<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| anyhow::anyhow!("{expired}"))
+}
+
+fn submit_resolve_request(request: ResolveRequest) -> anyhow::Result<()> {
+    let registry = CDP_RESOLVER.get_or_init(|| Mutex::new(None));
+    let resolver = {
+        let mut state = registry.lock().unwrap();
+        if state.is_none() {
+            *state = Some(Arc::new(CdpResolver::spawn()?));
+        }
+        state.as_ref().unwrap().clone()
+    };
+    let result = resolver.submit(request);
+    if result.is_err() && resolver.initialization_failed() {
+        let mut state = registry.lock().unwrap();
+        if state.as_ref().is_some_and(|current| Arc::ptr_eq(current, &resolver)) {
+            *state = None;
+        }
+    }
+    result
+}
+
+fn resolve_socket_addr_until(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+) -> anyhow::Result<SocketAddr> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        remaining_until(deadline, "CDP address resolution deadline expired")?;
+        return Ok(SocketAddr::new(ip, port));
+    }
+
+    let (response, receiver) = sync_channel(1);
+    submit_resolve_request(ResolveRequest {
+        host: host.to_string(),
+        port,
+        deadline,
+        response,
+        #[cfg(test)]
+        delay: Duration::from_millis(NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel)),
+    })?;
+    let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
+    let addresses = match receiver.recv_timeout(remaining) {
+        Ok(result) => result?,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            anyhow::bail!("CDP address resolution deadline expired")
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            anyhow::bail!("CDP resolver worker stopped")
+        }
+    };
+    remaining_until(deadline, "CDP address resolution deadline expired")?;
+    addresses
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))
+}
+
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
+        Self::connect_with_timeout(web_socket_url, events, Duration::from_secs(5))
+    }
+
+    pub fn connect_with_timeout(
+        web_socket_url: &str,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
         let endpoint = WsEndpoint::parse(web_socket_url)?;
-        let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
-        let addr = addrs.next().ok_or_else(|| {
-            anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
-        })?;
-        let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
+        let addr = resolve_socket_addr_until(&endpoint.host, endpoint.port, deadline)?;
+        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
+    }
+
+    pub fn reconnect_with_timeout(
+        &self,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        Self::connect_to_addr_with_timeout(
+            &self.inner.web_socket_url,
+            self.inner.peer_addr,
+            events,
+            timeout,
+        )
+    }
+
+    fn connect_to_addr_with_timeout(
+        web_socket_url: &str,
+        addr: SocketAddr,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
+        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
+    }
+
+    fn connect_to_addr_until(
+        web_socket_url: &str,
+        addr: SocketAddr,
+        events: SyncSender<CdpEvent>,
+        deadline: Instant,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        let remaining = remaining_until(deadline, "CDP connection deadline expired")?;
+        let stream = cmux_tui_process::tcp::connect_stream_timeout(&addr, remaining)?;
+        let stream = DeadlineTcpStream::new(stream, deadline);
         stream.set_nodelay(true)?;
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
-        let (ws, _) = client(request, stream)?;
+        let (mut ws, _) = client(request, stream)?;
+        ws.get_mut().clear_deadline();
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
         // read starts can wait for this window, but writers never contend
         // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
-        ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
+        anyhow::ensure!(
+            deadline.checked_duration_since(Instant::now()).is_some(),
+            "CDP connection deadline expired"
+        );
+        ws.get_ref().set_write_timeout(Some(timeout))?;
         let (outbound_tx, outbound_rx) = channel();
         let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
@@ -561,6 +1208,8 @@ impl CdpClient {
                 next_screencast_capture_request_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
+                web_socket_url: Arc::from(web_socket_url),
+                peer_addr: addr,
                 #[cfg(test)]
                 reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
@@ -571,7 +1220,7 @@ impl CdpClient {
 
     fn spawn_reader(
         &self,
-        ws: WebSocket<TcpStream>,
+        ws: WebSocket<DeadlineTcpStream>,
         outbound: Receiver<Outbound>,
         event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
@@ -594,7 +1243,17 @@ impl CdpClient {
         params: Value,
         session_id: Option<&str>,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, session_id, None, None)
+        self.call_inner(method, params, session_id, None, None, None)
+    }
+
+    pub fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: Option<&str>,
+        timeout: Duration,
+    ) -> anyhow::Result<Value> {
+        self.call_inner(method, params, session_id, None, None, Some(timeout))
     }
 
     fn call_before(
@@ -604,7 +1263,7 @@ impl CdpClient {
         session_id: Option<&str>,
         deadline: Instant,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, session_id, None, Some(deadline))
+        self.call_inner(method, params, session_id, None, Some(deadline), None)
     }
 
     fn call_with_frame_barrier(
@@ -614,7 +1273,7 @@ impl CdpClient {
         session_id: &str,
         frame_barrier: Arc<FrameEpoch>,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, Some(session_id), Some(frame_barrier), None)
+        self.call_inner(method, params, Some(session_id), Some(frame_barrier), None, None)
     }
 
     fn call_with_frame_barrier_before(
@@ -625,7 +1284,7 @@ impl CdpClient {
         frame_barrier: Arc<FrameEpoch>,
         deadline: Instant,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, Some(session_id), Some(frame_barrier), Some(deadline))
+        self.call_inner(method, params, Some(session_id), Some(frame_barrier), Some(deadline), None)
     }
 
     fn call_inner(
@@ -635,15 +1294,17 @@ impl CdpClient {
         session_id: Option<&str>,
         frame_barrier: Option<Arc<FrameEpoch>>,
         deadline: Option<Instant>,
+        timeout_override: Option<Duration>,
     ) -> anyhow::Result<Value> {
+        let timeout_limit = timeout_override.unwrap_or(self.inner.timeout);
         let timeout = match deadline {
             Some(deadline) => {
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                     anyhow::bail!("CDP call {method} timed out");
                 };
-                self.inner.timeout.min(remaining)
+                timeout_limit.min(remaining)
             }
-            None => self.inner.timeout,
+            None => timeout_limit,
         };
         if timeout.is_zero() {
             anyhow::bail!("CDP call {method} timed out");
@@ -732,7 +1393,54 @@ impl CdpClient {
     }
 
     pub fn close_target(&self, target_id: &str) -> anyhow::Result<()> {
-        self.call("Target.closeTarget", json!({ "targetId": target_id }), None).map(|_| ())
+        let result = self.call("Target.closeTarget", json!({ "targetId": target_id }), None)?;
+        require_target_close_success(&result)
+    }
+
+    pub fn close_target_with_timeout(
+        &self,
+        target_id: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let result = self.call_with_timeout(
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            None,
+            timeout,
+        )?;
+        require_target_close_success(&result)
+    }
+
+    pub fn target_exists_with_timeout(
+        &self,
+        target_id: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<bool> {
+        Ok(self.target_ids_with_timeout(timeout)?.iter().any(|candidate| candidate == target_id))
+    }
+
+    pub fn target_ids_with_timeout(&self, timeout: Duration) -> anyhow::Result<Vec<String>> {
+        let result = self.call_with_timeout("Target.getTargets", json!({}), None, timeout)?;
+        let targets = result
+            .get("targetInfos")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Target.getTargets response missing targetInfos"))?;
+        targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| {
+                target
+                    .get("targetId")
+                    .and_then(Value::as_str)
+                    .filter(|target_id| !target_id.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Target.getTargets targetInfos[{index}] missing a valid targetId"
+                        )
+                    })
+            })
+            .collect()
     }
 
     pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {
@@ -1357,6 +2065,14 @@ impl CdpClient {
     }
 }
 
+fn require_target_close_success(result: &Value) -> anyhow::Result<()> {
+    match result.get("success").and_then(Value::as_bool) {
+        Some(true) => Ok(()),
+        Some(false) => anyhow::bail!("Target.closeTarget reported success=false"),
+        None => anyhow::bail!("Target.closeTarget response missing success"),
+    }
+}
+
 pub fn resolve_browser_ws_url(input: &str) -> anyhow::Result<String> {
     let trimmed = input.trim();
     if trimmed.starts_with("ws://") {
@@ -1375,7 +2091,7 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
 
 fn reader_loop(
     weak: &Weak<Inner>,
-    mut ws: WebSocket<TcpStream>,
+    mut ws: WebSocket<DeadlineTcpStream>,
     outbound: &Receiver<Outbound>,
     event_output: &SyncSender<CdpEvent>,
 ) {
@@ -1424,7 +2140,7 @@ fn reader_loop(
 }
 
 fn drain_outbound(
-    ws: &mut WebSocket<TcpStream>,
+    ws: &mut WebSocket<DeadlineTcpStream>,
     outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {
@@ -1890,19 +2606,23 @@ impl HttpEndpoint {
 }
 
 fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
-    let mut addrs = (host, port).to_socket_addrs()?;
-    let addr =
-        addrs.next().ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))?;
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))?;
-    stream.set_nodelay(true)?;
-    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-    stream.set_write_timeout(Some(Duration::from_millis(500)))?;
-    write!(
-        stream,
-        "GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+    let deadline = deadline_after(CDP_DISCOVERY_TIMEOUT, "CDP discovery deadline exceeded")?;
+    let addr = resolve_socket_addr_until(host, port, deadline)?;
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    let mut stream = cmux_tui_process::tcp::connect_stream_timeout(
+        &addr,
+        remaining.min(Duration::from_millis(250)),
     )?;
+    stream.set_nodelay(true)?;
+    let request =
+        format!("GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    stream.set_write_timeout(Some(remaining.min(Duration::from_millis(500))))?;
+    stream.write_all(request.as_bytes())?;
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    stream.set_write_timeout(Some(remaining.min(Duration::from_millis(500))))?;
     stream.flush()?;
-    let response = read_http_response(&mut stream)?;
+    let response = read_http_response_until(&mut stream, 64 * 1024, deadline)?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
@@ -1915,22 +2635,30 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("/json/version missing webSocketDebuggerUrl"))
 }
 
+#[cfg(test)]
 fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
     read_http_response_with_limits(stream, 64 * 1024, Duration::from_secs(2))
 }
 
+#[cfg(test)]
 fn read_http_response_with_limits(
     stream: &mut TcpStream,
     max_bytes: usize,
     timeout: Duration,
 ) -> anyhow::Result<String> {
-    let deadline = Instant::now() + timeout;
+    let deadline = deadline_after(timeout, "CDP discovery deadline exceeded")?;
+    read_http_response_until(stream, max_bytes, deadline)
+}
+
+fn read_http_response_until(
+    stream: &mut TcpStream,
+    max_bytes: usize,
+    deadline: Instant,
+) -> anyhow::Result<String> {
     let mut bytes = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .ok_or_else(|| anyhow::anyhow!("CDP discovery deadline exceeded"))?;
+        let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
         stream.set_read_timeout(Some(remaining.min(Duration::from_millis(500))))?;
         match stream.read(&mut buf) {
             Ok(0) => break,
@@ -2007,16 +2735,91 @@ impl WsEndpoint {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc::sync_channel;
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use tungstenite::{Message, accept};
 
     use super::*;
+
+    static RESOLVE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn scaled_test_duration(duration: Duration) -> Duration {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        duration.saturating_mul(scale)
+    }
+
+    struct TestHostResolverCommandGuard(Option<TestHostResolverCommand>);
+
+    impl TestHostResolverCommandGuard {
+        fn install(command: TestHostResolverCommand) -> Self {
+            let previous = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().replace(command);
+            Self(previous)
+        }
+    }
+
+    impl Drop for TestHostResolverCommandGuard {
+        fn drop(&mut self) {
+            *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = self.0.take();
+        }
+    }
+
+    fn warm_resolver() {
+        let _command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
+        resolve_socket_addr_until(
+            "cmux-warm-resolver.invalid",
+            0,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("initialize test resolver");
+    }
+
+    fn resolver_fixture_command(host: &str, port: u16) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "client::tests::host_resolver_process_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(
+                "CMUX_TUI_TEST_HOST_RESOLVER_MODE",
+                if host.starts_with("cmux-blocked-") {
+                    "blocked"
+                } else if host.starts_with("cmux-oversized-") {
+                    "oversized"
+                } else {
+                    "success"
+                },
+            )
+            .env("CMUX_TUI_TEST_HOST_RESOLVER_PORT", port.to_string());
+        command
+    }
+
+    #[test]
+    #[ignore]
+    fn host_resolver_process_fixture() {
+        if std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_MODE").as_deref() == Ok("blocked") {
+            thread::sleep(Duration::from_secs(30));
+            return;
+        }
+        if std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_MODE").as_deref() == Ok("oversized") {
+            let output = vec![b'x'; usize::try_from(CDP_RESOLVER_OUTPUT_LIMIT).unwrap() + 1];
+            std::io::stdout().write_all(&output).unwrap();
+            return;
+        }
+        let port = std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_PORT").unwrap();
+        println!("127.0.0.1:{port}");
+    }
 
     fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
         let (outbound, outbound_rx) = channel();
@@ -2030,6 +2833,8 @@ mod tests {
                 next_screencast_capture_request_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(1),
+                web_socket_url: Arc::from("ws://127.0.0.1:1/devtools/browser/test"),
+                peer_addr: "127.0.0.1:1".parse().unwrap(),
                 reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
             outbound_rx,
@@ -3400,6 +4205,422 @@ mod tests {
     }
 
     #[test]
+    fn websocket_handshake_uses_one_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                if stream.read(&mut byte).unwrap_or(0) == 0 {
+                    return;
+                }
+                request.push(byte[0]);
+            }
+            for byte in b"HTTP/1.1 400 Bad Request\r\n\r\n" {
+                if stream.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let (events, _receiver) = sync_channel(1);
+
+        let started = Instant::now();
+        let error = match CdpClient::connect_to_addr_with_timeout(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            addr,
+            events,
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("invalid WebSocket handshake unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        let elapsed = started.elapsed();
+        server.join().unwrap();
+
+        assert!(!error.to_string().is_empty());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "WebSocket handshake exceeded its absolute deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn websocket_resolution_uses_the_connection_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
+        let (events, _receiver) = sync_channel(1);
+
+        let started = Instant::now();
+        let result = CdpClient::connect_with_timeout(
+            "ws://localhost:0/devtools/browser/fake",
+            events,
+            Duration::from_millis(50),
+        );
+        let elapsed = started.elapsed();
+        NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(result.is_err(), "invalid local endpoint unexpectedly connected");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "hostname resolution exceeded the connection deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn reconnect_uses_the_cached_peer_without_resolving_again() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut connections = 0;
+            while connections < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        let mut ws = accept(stream).unwrap();
+                        ws.close(None).unwrap();
+                        connections += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("reconnect test listener failed: {error}"),
+                }
+            }
+            connections
+        });
+        let command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
+        let (initial_events, _initial_receiver) = sync_channel(1);
+        let client = CdpClient::connect(
+            &format!("ws://cmux-cached-peer.invalid:{port}/devtools/browser/fake"),
+            initial_events,
+        )
+        .unwrap();
+        drop(command);
+        let close_deadline = Instant::now() + Duration::from_secs(1);
+        while !client.inner.reader_stopped.load(Ordering::Acquire) {
+            assert!(Instant::now() < close_deadline, "initial CDP reader did not stop");
+            thread::yield_now();
+        }
+
+        NEXT_RESOLVE_DELAY_MS.store(250, Ordering::Release);
+        let (reconnect_events, _reconnect_receiver) = sync_channel(1);
+        let reconnect = client.reconnect_with_timeout(reconnect_events, Duration::from_millis(100));
+        let unused_delay = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
+
+        let reconnected = reconnect.is_ok();
+        drop(reconnect);
+        drop(client);
+        let connections = server.join().unwrap();
+        assert!(reconnected, "cached-peer reconnect did not complete");
+        assert_eq!(connections, 2, "cached-peer reconnect did not reach the server");
+        assert_eq!(unused_delay, 250, "reconnect invoked the hostname resolver");
+    }
+
+    #[test]
+    fn resolver_initialization_obeys_the_first_request_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        *CDP_RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;
+        NEXT_RESOLVER_INIT_DELAY_MS.store(300, Ordering::Release);
+
+        let started = Instant::now();
+        let result =
+            resolve_socket_addr_until("localhost", 1, Instant::now() + Duration::from_millis(50));
+        let elapsed = started.elapsed();
+        // A bounded initializer may still be completing after the caller's
+        // deadline. Let the one process-wide initialization finish before a
+        // later resolver test starts.
+        thread::sleep(Duration::from_millis(350));
+        NEXT_RESOLVER_INIT_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(result.is_err(), "expired first resolution unexpectedly completed");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "resolver initialization escaped the first request deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn expired_resolution_does_not_block_the_next_request() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        let _command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
+        let slow_delay = scaled_test_duration(Duration::from_millis(300));
+        NEXT_RESOLVE_DELAY_MS.store(
+            u64::try_from(slow_delay.as_millis()).expect("test delay exceeds u64 milliseconds"),
+            Ordering::Release,
+        );
+
+        let first = resolve_socket_addr_until(
+            "cmux-expired-first.invalid",
+            1,
+            Instant::now() + scaled_test_duration(Duration::from_millis(50)),
+        );
+        let started = Instant::now();
+        let second = resolve_socket_addr_until(
+            "cmux-expired-second.invalid",
+            2,
+            Instant::now() + scaled_test_duration(Duration::from_millis(100)),
+        );
+        let elapsed = started.elapsed();
+
+        NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
+        // Let the deliberately expired request leave its worker before the
+        // process-wide resolver is shared with the next test.
+        thread::sleep(slow_delay);
+
+        assert!(first.is_err(), "injected slow resolution unexpectedly completed");
+        assert!(second.is_ok(), "expired DNS work blocked the next request: {second:?}");
+        assert!(
+            elapsed < scaled_test_duration(Duration::from_millis(200)),
+            "the next DNS request waited behind expired work: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn local_network_endpoint_uses_the_host_resolver() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        let called = Arc::new(AtomicBool::new(false));
+        let called_from_command = called.clone();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(move |host, port| {
+            called_from_command.store(true, Ordering::Release);
+            assert_eq!(host, "cmux-host-resolver.invalid");
+            resolver_fixture_command(host, port)
+        }));
+
+        let result = resolve_socket_addr_until(
+            "cmux-host-resolver.invalid",
+            9222,
+            Instant::now() + Duration::from_secs(2),
+        );
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+
+        assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
+        assert!(called.load(Ordering::Acquire), "host resolver was bypassed");
+    }
+
+    #[test]
+    fn resolver_drains_output_before_waiting_for_helper_exit() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+
+        let started = Instant::now();
+        let result = resolve_host_addresses_until(
+            "cmux-oversized-output.invalid",
+            9222,
+            started + Duration::from_secs(1),
+        );
+        let elapsed = started.elapsed();
+
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "resolver helper blocked on its undrained output pipe: {elapsed:?}"
+        );
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolver_spawn_obeys_the_absolute_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+        let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let resolver = thread::spawn(move || {
+            let started = Instant::now();
+            let result = resolve_host_addresses_until(
+                "cmux-success.invalid",
+                9222,
+                started + Duration::from_millis(40),
+            );
+            result_sender.send((started.elapsed(), result)).unwrap();
+        });
+
+        let before_release = result_receiver.recv_timeout(Duration::from_millis(150));
+        drop(process_barrier);
+        let completed_before_release = before_release.is_ok();
+        let (elapsed, result) = before_release.unwrap_or_else(|_| {
+            result_receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("resolver did not finish after the process barrier was released")
+        });
+        resolver.join().unwrap();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+
+        assert!(
+            completed_before_release,
+            "resolver helper spawn waited past its absolute deadline"
+        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "resolver helper spawn exceeded its wall-clock bound: {elapsed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolver_reaper_releases_capacity_after_child_ownership_is_lost() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        assert_eq!(active.load(Ordering::Acquire), baseline + 1);
+
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        let mut child = cmux_tui_process::spawn(&mut command).unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let mut status = 0;
+        // SAFETY: pid identifies this live test child, status points to valid
+        // writable storage, and this call intentionally consumes wait ownership.
+        assert_eq!(unsafe { libc::waitpid(pid, &raw mut status, 0) }, pid);
+        assert_eq!(child.try_wait().unwrap_err().raw_os_error(), Some(libc::ECHILD));
+
+        handoff_resolver_child(child, lease);
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            baseline,
+            "terminal wait errors permanently retained resolver capacity"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolver_reaper_backs_off_retryable_wait_errors() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 30"]);
+        let child = cmux_tui_process::spawn(&mut command).unwrap();
+
+        TEST_RESOLVER_REAPER_WAIT_CALLS.store(0, Ordering::Release);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = Some(std::io::ErrorKind::Interrupted);
+        handoff_resolver_child(child, lease);
+        let observation_deadline = Instant::now() + Duration::from_millis(250);
+        while TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire) < 12
+            && Instant::now() < observation_deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let wait_calls = TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = None;
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+        assert!(wait_calls < 12, "retryable child wait errors were hot-polled {wait_calls} times");
+    }
+
+    #[test]
+    fn resolver_reaper_retains_capacity_after_inconclusive_wait_error() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 30"]);
+        let child = cmux_tui_process::spawn(&mut command).unwrap();
+
+        TEST_RESOLVER_REAPER_WAIT_CALLS.store(0, Ordering::Release);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() =
+            Some(std::io::ErrorKind::PermissionDenied);
+        handoff_resolver_child(child, lease);
+        let observation_deadline = Instant::now() + Duration::from_millis(250);
+        while TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire) == 0
+            && Instant::now() < observation_deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let retained = active.load(Ordering::Acquire) == baseline + 1;
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = None;
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+        assert!(retained, "inconclusive child wait error discarded resolver ownership");
+    }
+
+    #[test]
+    fn timed_out_host_lookups_do_not_strand_resolver_capacity() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+
+        let callers_ready = Arc::new(Barrier::new(CDP_RESOLVER_WORKERS + 1));
+        let mut callers = Vec::new();
+        for index in 0..CDP_RESOLVER_WORKERS {
+            let callers_ready = callers_ready.clone();
+            callers.push(thread::spawn(move || {
+                callers_ready.wait();
+                resolve_socket_addr_until(
+                    &format!("cmux-blocked-{index}.invalid"),
+                    9222,
+                    Instant::now() + Duration::from_millis(500),
+                )
+            }));
+        }
+        callers_ready.wait();
+        for caller in callers {
+            assert!(caller.join().unwrap().is_err());
+        }
+
+        let next = resolve_socket_addr_until(
+            "cmux-success.invalid",
+            9333,
+            Instant::now() + Duration::from_secs(1),
+        );
+
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+        thread::sleep(Duration::from_millis(100));
+
+        assert_eq!(next.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9333)));
+    }
+
+    #[test]
     fn concurrent_calls_complete_while_reader_receives_events() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -3602,6 +4823,45 @@ mod tests {
             matches!(retained_event, Ok(CdpEvent::Other { .. })),
             "critical event was lost: {retained_event:?}"
         );
+    }
+
+    #[test]
+    fn malformed_target_listing_never_confirms_absence() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["method"], "Target.getTargets");
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {
+                        "targetInfos": [
+                            {"targetId": "known-target"},
+                            {"type": "page"},
+                            {"targetId": 7}
+                        ]
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+
+        let result =
+            client.target_exists_with_timeout("missing-target", Duration::from_millis(500));
+
+        drop(client);
+        server.join().unwrap();
+        assert!(result.is_err(), "malformed target metadata confirmed target absence");
     }
 
     #[test]

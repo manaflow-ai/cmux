@@ -423,6 +423,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult shutdown() throws CmuxException {
+        Object result = execute(Commands.SHUTDOWN, Map.of());
+        return EmptyResult.fromWire(result);
+    }
+
     public final ShutdownDaemonResult shutdownDaemon(ShutdownDaemonRequest request) throws CmuxException {
         Object result = execute(Commands.SHUTDOWN_DAEMON, request.toWire());
         return ShutdownDaemonResult.fromWire(result);

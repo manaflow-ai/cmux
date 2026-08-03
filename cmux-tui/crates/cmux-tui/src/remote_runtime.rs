@@ -339,6 +339,11 @@ pub struct DaemonRuntimeHandle {
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
 }
 
+pub(crate) enum DaemonRuntimeShutdown {
+    Complete(anyhow::Result<()>),
+    Pending,
+}
+
 impl DaemonRuntimeHandle {
     pub fn info(&self) -> &DaemonRuntimeInfo {
         &self.info
@@ -348,12 +353,82 @@ impl DaemonRuntimeHandle {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }
 
-    pub fn shutdown(mut self) -> anyhow::Result<()> {
+    fn request_shutdown(&self) {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("daemon runtime thread is present").join() {
+    }
+
+    pub(crate) fn shutdown_until(&mut self, deadline: std::time::Instant) -> DaemonRuntimeShutdown {
+        self.request_shutdown();
+        loop {
+            let Some(worker) = self.thread.as_ref() else {
+                return DaemonRuntimeShutdown::Complete(Err(anyhow!(
+                    "remote daemon runtime thread is absent"
+                )));
+            };
+            if worker.is_finished() {
+                return DaemonRuntimeShutdown::Complete(self.join_runtime_thread());
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return DaemonRuntimeShutdown::Pending;
+            };
+            thread::sleep(remaining.min(Duration::from_millis(10)));
+        }
+    }
+
+    fn join_runtime_thread(&mut self) -> anyhow::Result<()> {
+        match self
+            .thread
+            .take()
+            .ok_or_else(|| anyhow!("remote daemon runtime thread is absent"))?
+            .join()
+        {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_thread(thread: thread::JoinHandle<anyhow::Result<()>>) -> Self {
+        let (shutdown, _) = watch::channel(false);
+        Self {
+            info: DaemonRuntimeInfo {
+                session: "test".into(),
+                state_dir: PathBuf::new(),
+                link_socket: PathBuf::new(),
+                admin_socket: PathBuf::new(),
+                daemon_fingerprint: String::new(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: None,
+                replaceable_sidecar: false,
+            },
+            shutdown,
+            thread: Some(thread),
+        }
+    }
+
+    pub fn shutdown(mut self) -> anyhow::Result<()> {
+        #[cfg(debug_assertions)]
+        let shutdown_marker = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER");
+        #[cfg(debug_assertions)]
+        if let Some(marker) = shutdown_marker.as_ref() {
+            let _ = fs::write(marker, b"started");
+        }
+        #[cfg(debug_assertions)]
+        if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            thread::sleep(Duration::from_millis(milliseconds));
+        }
+        self.request_shutdown();
+        let result = self.join_runtime_thread();
+        #[cfg(debug_assertions)]
+        if let Some(marker) = shutdown_marker {
+            let _ = fs::write(marker, b"complete");
+        }
+        result
     }
 }
 
@@ -691,7 +766,7 @@ impl ClientSocketLease {
     fn bind_locked(path: PathBuf) -> std::io::Result<Self> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-        let listener = tokio::net::UnixListener::bind(&path)?;
+        let listener = cmux_tui_process::tokio_net::bind_unix_listener(&path)?;
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) => {
@@ -1479,7 +1554,7 @@ async fn prepare_client_socket_with_shutdown(
             }
             match tokio::time::timeout(
                 UNIX_SOCKET_PROBE_TIMEOUT,
-                tokio::net::UnixStream::connect(path),
+                cmux_tui_process::tokio_net::connect_unix_stream(path),
             )
             .await
             {
@@ -2671,7 +2746,9 @@ async fn verify_recovery_sockets_inactive(
         }
     }
     for socket in sockets {
-        match bounded_unix_socket_connect(tokio::net::UnixStream::connect(socket)).await {
+        match bounded_unix_socket_connect(cmux_tui_process::tokio_net::connect_unix_stream(socket))
+            .await
+        {
             Ok(_) => {
                 return Err(anyhow!(
                     catalog()

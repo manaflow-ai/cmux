@@ -11,6 +11,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::Context;
 use fs4::FileExt;
@@ -356,6 +358,10 @@ pub struct WorkspaceRegistry {
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     _lease: Option<SessionLease>,
+    #[cfg(test)]
+    terminal_snapshot_count: AtomicUsize,
+    #[cfg(test)]
+    fail_terminal_record_reads: AtomicBool,
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
@@ -657,6 +663,10 @@ impl WorkspaceRegistry {
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             _lease: lease,
+            #[cfg(test)]
+            terminal_snapshot_count: AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_terminal_record_reads: AtomicBool::new(false),
         })
     }
 
@@ -788,6 +798,10 @@ impl WorkspaceRegistry {
         &self.generation
     }
 
+    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
+        current_terminal_revision(&self.connection)
+    }
+
     pub fn session_id(&self) -> &SessionPublicId {
         &self.session_id
     }
@@ -799,6 +813,8 @@ impl WorkspaceRegistry {
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
+        #[cfg(test)]
+        self.terminal_snapshot_count.fetch_add(1, Ordering::Relaxed);
         let revision = current_terminal_revision(&self.connection)?;
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
@@ -827,11 +843,42 @@ impl WorkspaceRegistry {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_terminal_snapshot_count_for_test(&self) {
+        self.terminal_snapshot_count.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_snapshot_count_for_test(&self) -> usize {
+        self.terminal_snapshot_count.load(Ordering::Relaxed)
+    }
+
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
+        #[cfg(test)]
+        if self.fail_terminal_record_reads.load(Ordering::Relaxed) {
+            anyhow::bail!("forced terminal record read failure");
+        }
         validate_terminal_identity("terminal id", terminal_id)?;
         read_terminal(&self.connection, terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_terminal_record_read_failure_for_test(&self, enabled: bool) {
+        self.fail_terminal_record_reads.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(crate) fn terminal_ids_including_tombstones(&self) -> anyhow::Result<Vec<String>> {
+        #[cfg(test)]
+        self.terminal_snapshot_count.fetch_add(1, Ordering::Relaxed);
+        let mut statement = self
+            .connection
+            .prepare("SELECT terminal_id FROM terminal_placements ORDER BY terminal_id ASC")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn replay_terminal(

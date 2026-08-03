@@ -43,6 +43,7 @@ struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
     terminals: Vec<(String, Option<String>)>,
+    unmaterialized_terminals: Vec<(String, Option<String>)>,
     workspace_close: Option<ResourceWorkspaceClose>,
     closed_workspace_key: Option<String>,
     delta: TreeDelta,
@@ -1785,7 +1786,9 @@ impl Mux {
         };
         match preparation {
             ResourceEffectPreparation::Committed { outcome, revision } => match outcome {
-                ResourceEffectOutcome::Success(result) => {
+                ResourceEffectOutcome::Success(mut result) => {
+                    self.terminate_workspace_hosts_from_receipt(&result)?;
+                    remove_terminal_host_cleanup_receipt(&mut result);
                     Ok(ResourcePatchCommit { revision, result, replayed: true })
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
@@ -1984,9 +1987,13 @@ impl Mux {
         )
     }
 
-    pub(crate) fn commit_resource_surface_close_effect(
+    /// Commit a content close against its durable tab slot. A restored
+    /// terminal can occupy the slot before startup adoption attaches its
+    /// runtime surface, so identity and topology ownership are authoritative.
+    pub(crate) fn commit_resource_content_close_effect(
         &self,
-        surface: SurfaceId,
+        slot: SurfaceId,
+        content_id: &ContentPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
@@ -1994,7 +2001,8 @@ impl Mux {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let workspace =
-            self.surface_workspace(surface).context("content close target has no workspace")?;
+            self.surface_workspace(slot).context("content close target has no workspace")?;
+        let content_id = content_id.clone();
         self.commit_resource_close_with(
             ResourceOperation::TabClose,
             workspace,
@@ -2002,15 +2010,18 @@ impl Mux {
             operation_name,
             fingerprint,
             move |state| {
-                anyhow::ensure!(state.surfaces.contains_key(&surface), "content disappeared");
-                let pane = state.pane_of(surface).context("content has no pane")?;
+                anyhow::ensure!(
+                    state.resource_indexes.content_ids.get(&slot) == Some(&content_id),
+                    "content identity changed before close"
+                );
+                let pane = state.pane_of(slot).context("content has no pane")?;
                 let (workspace_index, screen_index) =
                     state.screen_of(pane).context("content pane has no screen")?;
                 Ok(EffectSlots {
                     workspace: Some(state.workspaces[workspace_index].id),
                     screen: Some(state.workspaces[workspace_index].screens[screen_index].id),
                     pane: Some(pane),
-                    tab: Some(surface),
+                    tab: Some(slot),
                 })
             },
         )
@@ -2026,6 +2037,7 @@ impl Mux {
         fingerprint: &Value,
         resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        let terminal_host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
@@ -2038,8 +2050,41 @@ impl Mux {
         );
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
+        let workspace_host_identities =
+            if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
+                registry.terminal_host_identities_in_workspace(workspace_key)?
+            } else {
+                Vec::new()
+            };
+        if let Some(workspace_close) = plan.workspace_close.as_mut() {
+            workspace_close
+                .legacy_result
+                .as_object_mut()
+                .expect("workspace close result is an object")
+                .insert(
+                    TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
+                    terminal_host_cleanup_receipt(&workspace_host_identities),
+                );
+        }
+        let cleanup_identities = if plan.closed_workspace_key.is_some() {
+            workspace_host_identities
+        } else {
+            std::mem::take(&mut plan.unmaterialized_terminals)
+        };
+        let host_cleanup = self.prepare_terminal_host_cleanup_at_root(
+            terminal_host_root.as_deref(),
+            &cleanup_identities,
+        )?;
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        projection
+            .result
+            .as_object_mut()
+            .context("resource close result is not an object")?
+            .insert(
+                TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
+                terminal_host_cleanup_receipt(&cleanup_identities),
+            );
         let closed_public_ids = if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
             registry.terminal_resource_ids_in_workspace(workspace_key)?
         } else {
@@ -2049,7 +2094,7 @@ impl Mux {
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
-        let close = registry.commit_resource_close_patch(
+        let mut close = registry.commit_resource_close_patch(
             idempotency_key,
             operation_name,
             fingerprint,
@@ -2080,18 +2125,18 @@ impl Mux {
 
         self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
-        for surface in plan.removed {
+        for surface in &plan.removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
         }
-        if let Some(workspace_key) = plan.closed_workspace_key {
-            self.terminate_tombstoned_workspace_hosts(&workspace_key);
-        }
+        self.retire_surface_runtimes(plan.removed);
+        let host_termination = self.terminate_prepared_terminal_hosts(host_cleanup);
         self.emit_tree_delta(plan.delta, plan.selection_resync);
         for screen in plan.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
         self.emit_empty_if_current(empty_revision);
+        host_termination?;
+        remove_terminal_host_cleanup_receipt(&mut close.resource.result);
         Ok(close.resource)
     }
 
@@ -2162,6 +2207,7 @@ impl Mux {
 
         let mut removed = Vec::new();
         let mut terminals = Vec::new();
+        let mut unmaterialized_terminals = Vec::new();
         for surface_id in &surface_ids {
             if let Some(surface) = state.surfaces.get(surface_id).cloned() {
                 if let Some(identity) = self.resource_terminal_host_identity(&surface) {
@@ -2177,7 +2223,9 @@ impl Mux {
                 let incarnation = registry
                     .terminal_record(&terminal_id)?
                     .and_then(|terminal| terminal.incarnation);
-                terminals.push((terminal_id, incarnation));
+                let identity = (terminal_id, incarnation);
+                terminals.push(identity.clone());
+                unmaterialized_terminals.push(identity);
             }
         }
         let mut split_index_changed = false;
@@ -2239,6 +2287,7 @@ impl Mux {
             state: projected,
             removed,
             terminals,
+            unmaterialized_terminals,
             workspace_close,
             closed_workspace_key,
             delta,
@@ -2275,6 +2324,10 @@ impl Mux {
             )? {
                 preparation
             } else {
+                // Reject known exhaustion before persisting a new external-effect
+                // intent. The spawn path still reserves atomically, so a later
+                // concurrent admission remains bounded and recoverable.
+                self.ensure_surface_owner_capacity()?;
                 let mut state = self.state.lock().unwrap();
                 let intent = self.resource_topology_effect_intent(
                     operation,
@@ -3469,6 +3522,13 @@ impl Mux {
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
+        #[cfg(test)]
+        if split_direction.is_none()
+            && viewport_width.is_none()
+            && let Some(hook) = self.new_pane_after_spawn.lock().unwrap().clone()
+        {
+            hook(surface.clone());
+        }
         #[cfg(test)]
         if viewport_width.is_some()
             && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
@@ -5452,7 +5512,7 @@ mod creation_recovery_tests {
                     "recovery":"retry_new_idempotency_key",
                 })
             );
-            mux.shutdown();
+            let _ = mux.shutdown();
             drop(mux);
             std::fs::remove_dir_all(root).unwrap();
         }
@@ -5507,7 +5567,7 @@ mod creation_recovery_tests {
             true,
         ) {
             Ok(mux) => {
-                mux.shutdown();
+                let _ = mux.shutdown();
                 panic!("multiple interrupted creations unexpectedly started")
             }
             Err(error) => error,

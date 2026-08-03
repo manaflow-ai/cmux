@@ -419,6 +419,7 @@ class IdentifyResult:
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    shutdown_cleanup: Union[ShutdownCleanupStatus, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -753,6 +754,14 @@ class SetCellPixelsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetCellPixelsResult'
     failures: List[CellPixelFailure]
     resizes: List[CellPixelResize]
+
+
+@dataclass(frozen=True)
+class ShutdownCleanupStatus:
+    __cmux_schema_path__: ClassVar[str] = 'types/ShutdownCleanupStatus'
+    degraded: bool
+    pending: int
+    retrying: bool
 
 
 @dataclass(frozen=True)
@@ -1632,6 +1641,12 @@ class SetWindowTitleRequest:
 
 
 @dataclass(frozen=True)
+class ShutdownRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shutdown/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/shutdown-daemon/request'
     pid: int
@@ -2301,6 +2316,7 @@ __all__ = [
     'RunResult',
     'Screen',
     'SetCellPixelsResult',
+    'ShutdownCleanupStatus',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -2402,6 +2418,7 @@ __all__ = [
     'SetSplitRatioRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
+    'ShutdownRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
     'SplitRequest',

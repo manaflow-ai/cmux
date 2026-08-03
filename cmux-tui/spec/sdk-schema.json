@@ -1230,6 +1230,36 @@
       },
       "additional_properties": false
     },
+    "ShutdownCleanupStatus": {
+      "kind": "object",
+      "fields": {
+        "pending": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "retrying": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "degraded": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "IdentifyResult": {
       "kind": "object",
       "fields": {
@@ -1345,6 +1375,15 @@
           "presence": "required",
           "nullable": false,
           "since": 9
+        },
+        "shutdown_cleanup": {
+          "type": {
+            "kind": "ref",
+            "name": "ShutdownCleanupStatus"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false
@@ -8044,6 +8083,25 @@
         "terminal_event": "detached"
       },
       "constraints": []
+    },
+    "shutdown": {
+      "authority": "local-admin",
+      "since": 9,
+      "capability": "server-shutdown-v1",
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "The command is accepted only on a trusted Unix-classified transport.",
+        "Success means every tracked pane process terminated before the bounded shutdown deadline."
+      ]
     },
     "shutdown-daemon": {
       "authority": "local-admin",

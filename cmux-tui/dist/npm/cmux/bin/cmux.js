@@ -8,6 +8,7 @@
 // signals so cmux behaves exactly like the native binary.
 
 const { spawnSync } = require("child_process");
+const { version } = require("../package.json");
 
 const PACKAGE_BY_PLATFORM = {
   "darwin-arm64": "cmux-tui-darwin-arm64",
@@ -28,6 +29,8 @@ if (!pkg) {
 }
 
 const binName = process.platform === "win32" ? "cmux-tui.exe" : "cmux-tui";
+const launcherCommand =
+  process.env.npm_command === "exec" ? `npx cmux@${version}` : "cmux";
 
 let binPath;
 try {
@@ -40,7 +43,14 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+const result = spawnSync(binPath, process.argv.slice(2), {
+  argv0: "cmux",
+  env: {
+    ...process.env,
+    CMUX_TUI_LAUNCHER_COMMAND: launcherCommand,
+  },
+  stdio: "inherit",
+});
 
 if (result.error) {
   console.error(`cmux: failed to launch ${binPath}: ${result.error.message}`);

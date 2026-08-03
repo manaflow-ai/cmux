@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
+pub const ir_sha256 = "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -350,12 +350,14 @@ pub const IdentifyResult = struct {
     protocol: u32,
     registry_id: []const u8,
     session: []const u8,
+    shutdown_cleanup: ?ShutdownCleanupStatus = null,
     terminal_revision: u64,
     version: []const u8,
     workspace_revision: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
+        "shutdown_cleanup",
     };
 };
 
@@ -823,6 +825,12 @@ pub const Screen = struct {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const ShutdownCleanupStatus = struct {
+    degraded: bool,
+    pending: u64,
+    retrying: bool,
 };
 
 pub const ShutdownDaemonResult = struct {
@@ -3372,6 +3380,23 @@ pub fn setWindowTitle(client: anytype, request: SetWindowTitleRequest) !wire.Dec
     );
 }
 
+pub const ShutdownRequest = struct {};
+
+pub const ShutdownResult = EmptyResult;
+
+pub fn shutdown(client: anytype, request: ShutdownRequest) !wire.Decoded(ShutdownResult) {
+    return client.callTyped(
+        ShutdownResult,
+        .{
+            .name = "shutdown",
+            .authority = "local-admin",
+            .since = 9,
+            .capability = "server-shutdown-v1",
+        },
+        request,
+    );
+}
+
 pub const ShutdownDaemonRequest = struct {
     force: ?bool = null,
     generation: []const u8,
@@ -4459,7 +4484,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 92;
+pub const command_count: usize = 93;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4543,6 +4568,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "shutdown", .authority = "local-admin", .since = 9, .capability = "server-shutdown-v1", .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "split", .authority = "control", .since = 5, .capability = null, .stream = null },

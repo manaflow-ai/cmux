@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
+inline constexpr std::string_view kProtocolIrSha256 = "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -84,6 +84,7 @@ struct ResolveTerminalResult;
 struct RunResult;
 struct Screen;
 struct SetCellPixelsResult;
+struct ShutdownCleanupStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -190,6 +191,7 @@ struct SetRatioRequest;
 struct SetSplitRatioRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
+struct ShutdownRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
 struct SplitRequest;
@@ -1061,6 +1063,13 @@ struct IdentifyRequest {
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
+struct ShutdownCleanupStatus {
+    bool degraded{};
+    std::uint64_t pending{};
+    bool retrying{};
+    friend bool operator==(const ShutdownCleanupStatus&, const ShutdownCleanupStatus&) = default;
+};
+
 struct IdentifyResult {
     Field<std::string> build_commit{};
     std::optional<std::vector<std::string>> capabilities{};
@@ -1070,6 +1079,7 @@ struct IdentifyResult {
     std::uint32_t protocol{};
     std::string registry_id{};
     std::string session{};
+    std::optional<ShutdownCleanupStatus> shutdown_cleanup{};
     std::uint64_t terminal_revision{};
     std::string version{};
     std::uint64_t workspace_revision{};
@@ -1951,6 +1961,10 @@ struct ShutdownDaemonResult {
     friend bool operator==(const ShutdownDaemonResult&, const ShutdownDaemonResult&) = default;
 };
 
+struct ShutdownRequest {
+    friend bool operator==(const ShutdownRequest&, const ShutdownRequest&) = default;
+};
+
 struct SidebarPluginRequest {
     std::uint16_t cols{};
     std::optional<bool> relaunch{};
@@ -2674,6 +2688,12 @@ struct Codec<SetCellPixelsResult> {
 };
 
 template <>
+struct Codec<ShutdownCleanupStatus> {
+    static Result<Json> encode(const ShutdownCleanupStatus& value);
+    static Result<ShutdownCleanupStatus> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonResult> {
     static Result<Json> encode(const ShutdownDaemonResult& value);
     static Result<ShutdownDaemonResult> decode(const Json& value);
@@ -3307,6 +3327,12 @@ template <>
 struct Codec<SetWindowTitleRequest> {
     static Result<Json> encode(const SetWindowTitleRequest& value);
     static Result<SetWindowTitleRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShutdownRequest> {
+    static Result<Json> encode(const ShutdownRequest& value);
+    static Result<ShutdownRequest> decode(const Json& value);
 };
 
 template <>

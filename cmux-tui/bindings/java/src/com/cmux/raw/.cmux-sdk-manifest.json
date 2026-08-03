@@ -272,8 +272,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "de0a2a553db5edba17b4b28c472059e9403dd407b4ea0d93ca3e2d59114f5ce2",
-      "size": 21994
+      "sha256": "d5054a325b2bfe0dfae71b3095623711aa15d691ca291fa05444ba06ad0a9937",
+      "size": 22205
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -422,8 +422,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "7fca834f19533a0fb525d2bbac09930f5aad1a018035d60035b8ce170a1d9664",
-      "size": 21326
+      "sha256": "0c74d5f7d9ebb20dcb66535aa49afa01a77cf9b322a1167101dec45e9cc4f59e",
+      "size": 21503
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -467,8 +467,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "c15df399314639229bf9e16b856613e1690f0a6e1b1f94450696c30d6e3be3ec",
-      "size": 10038
+      "sha256": "7eca17b7d1ee7967fe3ca60175312ca169c9bf1251a848187fd68660907a0532",
+      "size": 10847
     },
     {
       "path": "IdsRequest.java",
@@ -737,7 +737,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fa738484567eb60411b02de02f126c89473a8a9ab7d1bce1a10b9b8d4a1b7423",
+      "sha256": "cb2ba912ffe131f6a3796cfe8fe1eb62c0914ec82fbc7340971c22ab8566d33d",
       "size": 3967
     },
     {
@@ -1026,6 +1026,11 @@
       "size": 2021
     },
     {
+      "path": "ShutdownCleanupStatus.java",
+      "sha256": "92f639034ae93e376ac02c7d935a5190ce177757cb32418af096cdaf7f74b545",
+      "size": 3389
+    },
+    {
       "path": "ShutdownDaemonRequest.java",
       "sha256": "b60b647ed6dc21658f10c7428df62efe67b766309b4878336d6eef4d360ec051",
       "size": 3299
@@ -1034,6 +1039,11 @@
       "path": "ShutdownDaemonResult.java",
       "sha256": "60b706d96bb14141e7ec088ebdf27927c9a826d43a3af90b20930cb8a3066e90",
       "size": 2869
+    },
+    {
+      "path": "ShutdownRequest.java",
+      "sha256": "cb80759f59ed02b4abf7bb7d8e4dfaad86ab02db49f929824ad3d958c919a1d0",
+      "size": 1325
     },
     {
       "path": "SidebarPluginRequest.java",
@@ -1312,7 +1322,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350",
+  "ir_sha256": "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

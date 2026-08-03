@@ -7,6 +7,7 @@ use super::{Mux, ResourceMutationMetrics, ResourceMutationPlan};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{ContentPublicId, PanePublicId, SplitPublicId, WorkspacePublicId};
+use crate::resource_api::{public_browser_snapshot, public_terminal_snapshot};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
@@ -413,6 +414,11 @@ impl Mux {
             .iter()
             .map(|browser| (browser.public_id.clone(), browser.clone()))
             .collect::<HashMap<_, _>>();
+        let before_tabs = before
+            .tabs
+            .iter()
+            .map(|tab| (tab.public_id.clone(), tab.clone()))
+            .collect::<HashMap<_, _>>();
         let before_pane_ordinals = before
             .panes
             .iter()
@@ -521,9 +527,95 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        let surface = state.surfaces.get(surface_slot).with_context(|| {
-                            format!("pane references missing surface {surface_slot}")
-                        })?;
+                        let Some(surface) = state.surfaces.get(surface_slot) else {
+                            let tab_id = state
+                                .resource_indexes
+                                .tab_ids
+                                .get(surface_slot)
+                                .cloned()
+                                .with_context(|| {
+                                    format!(
+                                        "pane references missing surface {surface_slot} without a tab identity"
+                                    )
+                                })?;
+                            let content_id = state
+                                .resource_indexes
+                                .content_ids
+                                .get(surface_slot)
+                                .cloned()
+                                .with_context(|| {
+                                    format!(
+                                        "pane references missing surface {surface_slot} without a content identity"
+                                    )
+                                })?;
+                            let mut tab = before_tabs.get(&tab_id).cloned().with_context(|| {
+                                format!("restored tab {tab_id} has no durable record")
+                            })?;
+                            anyhow::ensure!(
+                                tab.content_id == content_id,
+                                "restored tab {tab_id} changed content identity"
+                            );
+                            tab.pane_id = pane.public_id.clone();
+                            tab.position = position;
+                            live_tabs.insert(tab_id.clone());
+                            tab_order.push(tab_id);
+
+                            let public_content = match &tab.content_id {
+                                ContentPublicId::Terminal(terminal_id) => {
+                                    live_terminals.insert(terminal_id.clone());
+                                    let host_id = tab.terminal_id.as_deref().context(
+                                        "restored terminal tab omitted its durable host identity",
+                                    )?;
+                                    let terminal = terminal_records
+                                        .get(host_id)
+                                        .cloned()
+                                        .with_context(|| {
+                                            format!(
+                                                "restored terminal tab references missing {host_id}"
+                                            )
+                                        })?;
+                                    let value = public_terminal_snapshot(&tab, &terminal, None)?;
+                                    changes.push(ResourceChange::UpsertTerminal {
+                                        public_id: terminal_id.clone(),
+                                        terminal,
+                                    });
+                                    ("terminal", terminal_id.to_string(), value)
+                                }
+                                ContentPublicId::Browser(browser_id) => {
+                                    live_browsers.insert(browser_id.clone());
+                                    let browser = before_browsers
+                                        .get(browser_id)
+                                        .cloned()
+                                        .with_context(|| {
+                                            format!(
+                                                "restored browser tab references missing {browser_id}"
+                                            )
+                                        })?;
+                                    let value = public_browser_snapshot(&tab, &browser, None);
+                                    changes.push(ResourceChange::UpsertBrowser(browser));
+                                    ("browser", browser_id.to_string(), value)
+                                }
+                            };
+                            changes.push(ResourceChange::UpsertTab(tab.clone()));
+                            let content_kind = match &tab.content_id {
+                                ContentPublicId::Terminal(_) => "terminal",
+                                ContentPublicId::Browser(_) => "browser",
+                            };
+                            public.push((
+                                "tab",
+                                tab.public_id.to_string(),
+                                json!({
+                                    "id":tab.public_id,
+                                    "pane_id":tab.pane_id,
+                                    "index":tab.position,
+                                    "name":tab.name,
+                                    "content_kind":content_kind,
+                                    "content_id":tab.content_id.as_str(),
+                                }),
+                            ));
+                            public.push(public_content);
+                            continue;
+                        };
                         let identity = surface.resource_identity().with_context(|| {
                             format!("pane surface {surface_slot} has no resource identity")
                         })?;

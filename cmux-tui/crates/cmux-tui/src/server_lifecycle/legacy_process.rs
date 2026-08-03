@@ -1,0 +1,1127 @@
+use std::collections::HashSet;
+use std::io;
+use std::time::{Duration, Instant};
+
+use cmux_tui_core::process_session::StableProcessHandle;
+
+const PROCESS_TREE_MAX_ROUNDS: usize = 64;
+const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+#[cfg(test)]
+const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
+
+#[cfg(test)]
+thread_local! {
+    static STABLE_HANDLE_CAPTURE_BUDGET: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn ensure_helper_active() -> io::Result<()> {
+    if super::legacy_helper_cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "legacy cleanup helper was cancelled",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ProcessIdentity {
+    pid: libc::pid_t,
+    started_at: u128,
+}
+
+impl ProcessIdentity {
+    pub(super) fn from_parts(pid: libc::pid_t, started_at: u128) -> Self {
+        Self { pid, started_at }
+    }
+
+    pub(super) fn pid(self) -> libc::pid_t {
+        self.pid
+    }
+
+    pub(super) fn started_at(self) -> u128 {
+        self.started_at
+    }
+
+    pub(super) fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        process_snapshot(pid).map(|snapshot| snapshot.map(|snapshot| snapshot.identity))
+    }
+
+    #[cfg(test)]
+    fn signal(self, signal: libc::c_int) -> io::Result<ExactSignalResult> {
+        let Some(process) = self.stable_handle()? else {
+            return Ok(ExactSignalResult::Gone);
+        };
+        if process.signal(signal)? {
+            Ok(ExactSignalResult::Signaled)
+        } else {
+            Ok(ExactSignalResult::Gone)
+        }
+    }
+
+    fn stable_handle(self) -> io::Result<Option<StableProcessHandle>> {
+        #[cfg(test)]
+        STABLE_HANDLE_CAPTURE_BUDGET.with(|budget| {
+            if let Some(remaining) = budget.get() {
+                if remaining == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "forced stable-handle capture failure",
+                    ));
+                }
+                budget.set(Some(remaining - 1));
+            }
+            Ok(())
+        })?;
+        let process = match StableProcessHandle::capture(self.pid) {
+            Ok(Some(process)) => process,
+            Ok(None) => return Ok(None),
+            Err(error) => match Self::capture(self.pid) {
+                Ok(None) => return Ok(None),
+                Ok(Some(current)) if current != self => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "process identity changed",
+                    ));
+                }
+                Ok(Some(_)) | Err(_) => return Err(error),
+            },
+        };
+        let Some(current) = Self::capture(self.pid)? else {
+            return Ok(None);
+        };
+        if current != self {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+        }
+        if !process.matches_current()? {
+            return Ok(None);
+        }
+        Ok(Some(process))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ProcessSnapshot {
+    identity: ProcessIdentity,
+    parent: libc::pid_t,
+    stopped: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExactSignalResult {
+    Signaled,
+    Gone,
+}
+
+struct ProcessFence {
+    identity: ProcessIdentity,
+    process: StableProcessHandle,
+    armed: bool,
+}
+
+impl ProcessFence {
+    fn acquire(identity: ProcessIdentity, deadline: Instant) -> io::Result<Option<Self>> {
+        let Some(initial) = process_snapshot(identity.pid)? else { return Ok(None) };
+        if initial.identity != identity {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+        }
+        let Some(process) = identity.stable_handle()? else { return Ok(None) };
+        // POSIX coalesces repeated stop signals and does not expose their
+        // sender. Restore only a process observed running before this fence,
+        // so an aborted cleanup cannot strand a process that we stopped.
+        let armed = !initial.stopped;
+        if armed && !process.signal(libc::SIGSTOP)? {
+            return Ok(None);
+        }
+        let fence = Self { identity, process, armed };
+        loop {
+            ensure_helper_active()?;
+            let Some(current) = process_snapshot(identity.pid)? else { return Ok(None) };
+            if current.identity != identity {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+            }
+            if current.stopped {
+                return Ok(Some(fence));
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "process did not stop before the legacy shutdown deadline",
+                ));
+            }
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+            );
+        }
+    }
+
+    fn acquire_in_session(
+        identity: ProcessIdentity,
+        session: libc::pid_t,
+        deadline: Instant,
+    ) -> io::Result<Option<Self>> {
+        let Some(process) = Self::acquire(identity, deadline)? else { return Ok(None) };
+        // SAFETY: the exact process is now confirmed stopped, so this
+        // reusable-PID query cannot race process exit or replacement.
+        let current_session = unsafe { libc::getsid(identity.pid) };
+        if current_session < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+        }
+        if current_session != session
+            || ProcessIdentity::capture(identity.pid)? != Some(identity)
+            || !process.process.matches_current()?
+        {
+            return Ok(None);
+        }
+        Ok(Some(process))
+    }
+
+    fn still_in_session(&self, session: libc::pid_t) -> io::Result<bool> {
+        if ProcessIdentity::capture(self.identity.pid)? != Some(self.identity) {
+            return Ok(false);
+        }
+        // SAFETY: a confirmed stopped process cannot exit or be replaced
+        // without an external signal; exact identity probes bracket getsid.
+        let current_session = unsafe { libc::getsid(self.identity.pid) };
+        if current_session < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) };
+        }
+        Ok(current_session == session
+            && self.process.matches_current()?
+            && ProcessIdentity::capture(self.identity.pid)? == Some(self.identity))
+    }
+
+    fn kill(&mut self) -> io::Result<()> {
+        let result = self.process.signal(libc::SIGKILL);
+        if result.is_ok() {
+            self.armed = false;
+        }
+        result.map(|_| ())
+    }
+}
+
+impl Drop for ProcessFence {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.process.signal(libc::SIGCONT);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()> {
+    terminate_process_tree_until(process, Instant::now() + PROCESS_TREE_RETRY_TIMEOUT)
+}
+
+#[cfg(test)]
+pub(super) fn terminate_process_tree_until(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<()> {
+    retry_process_tree_termination(process, deadline, |_| {
+        let tree = FrozenProcessTree::freeze(process, deadline)?;
+        tree.terminate_until(deadline)
+    })
+}
+
+#[cfg(test)]
+fn retry_process_tree_termination(
+    process: ProcessIdentity,
+    deadline: Instant,
+    mut attempt: impl FnMut(Instant) -> io::Result<()>,
+) -> io::Result<()> {
+    loop {
+        ensure_helper_active()?;
+        let error = match attempt(deadline) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        match ProcessIdentity::capture(process.pid) {
+            Ok(None) => return Ok(()),
+            Ok(Some(current)) if current != process => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "server process identity changed during termination",
+                ));
+            }
+            Ok(Some(_)) | Err(_) => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+        );
+    }
+}
+
+pub(super) fn capture_process_tree_until(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<CapturedProcessTree> {
+    let tree = freeze_process_tree_until(process, deadline)?;
+    let sessions = tree.sessions.clone();
+    drop(tree);
+    Ok(CapturedProcessTree { sessions })
+}
+
+pub(super) fn freeze_process_tree_until(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<FrozenProcessTree> {
+    loop {
+        ensure_helper_active()?;
+        let error = match FrozenProcessTree::freeze(process, deadline) {
+            Ok(tree) => return Ok(tree),
+            Err(error) => error,
+        };
+        match ProcessIdentity::capture(process.pid) {
+            Ok(None) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "server exited before its process tree was fenced",
+                ));
+            }
+            Ok(Some(current)) if current != process => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "server process identity changed during termination",
+                ));
+            }
+            Ok(Some(_)) | Err(_) => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(PROCESS_TREE_RETRY_INTERVAL);
+    }
+}
+
+pub(super) struct CapturedProcessTree {
+    sessions: Vec<CapturedSession>,
+}
+
+impl CapturedProcessTree {
+    fn session_process(&self, pid: libc::pid_t) -> Option<(&CapturedSession, ProcessIdentity)> {
+        self.sessions.iter().find_map(|session| {
+            session
+                .members
+                .iter()
+                .copied()
+                .find(|process| process.pid == pid)
+                .map(|process| (session, process))
+        })
+    }
+}
+
+pub(super) struct CapturedProcessSession {
+    session: CapturedSession,
+    _fences: Vec<ProcessFence>,
+}
+
+impl CapturedProcessSession {
+    pub(super) fn id(&self) -> libc::pid_t {
+        self.session.id
+    }
+
+    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
+        if self.session.kill_until_empty(deadline)? {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                "captured PTY session did not exit before the legacy shutdown deadline",
+            ))
+        }
+    }
+}
+
+pub(super) fn capture_process_session(
+    pid: libc::pid_t,
+    server: ProcessIdentity,
+    captured: &CapturedProcessTree,
+    deadline: Instant,
+) -> io::Result<Option<CapturedProcessSession>> {
+    if pid <= 1
+        || pid == server.pid
+        || pid == libc::pid_t::try_from(std::process::id()).unwrap_or(0)
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid PTY owner process"));
+    }
+    let Some((captured_session, process)) = captured.session_process(pid) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "PTY owner was not captured in the verified server process tree",
+        ));
+    };
+    if ProcessIdentity::capture(pid)?.is_some_and(|current| current != process) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "PTY owner process identity changed after the verified tree capture",
+        ));
+    }
+    let session = captured_session.id;
+    // SAFETY: the server identity remains validated by the caller.
+    let server_session = unsafe { libc::getsid(server.pid) };
+    if server_session < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: getsid(0) only queries the detached helper.
+    let helper_session = unsafe { libc::getsid(0) };
+    if helper_session < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if session == server_session || session == helper_session {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "PTY owner shares a protected process session",
+        ));
+    }
+
+    // Retain every exact process fence across the legacy close mutation.
+    // Once every live member is stopped, the session cannot fork and at
+    // least one fence pins its numeric ID until owned termination begins.
+    let mut fences = Vec::new();
+    for process in &captured_session.members {
+        ensure_helper_active()?;
+        if let Some(fence) = ProcessFence::acquire_in_session(*process, session, deadline)? {
+            fences.push(fence);
+        }
+    }
+    loop {
+        ensure_helper_active()?;
+        let mut pinned = false;
+        for fence in &fences {
+            pinned |= fence.still_in_session(session)?;
+        }
+        let member_pids =
+            cmux_tui_core::process_session::session_member_pids_until(session, deadline)?;
+        if !pinned {
+            if member_pids.is_empty() {
+                return Ok(Some(CapturedProcessSession {
+                    session: CapturedSession { id: session, members: Vec::new() },
+                    _fences: fences,
+                }));
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PTY session lost every captured process before ownership could be fenced",
+            ));
+        }
+
+        let mut members = Vec::new();
+        for member in member_pids {
+            if let Some(identity) = ProcessIdentity::capture(member)? {
+                members.push(identity);
+            }
+        }
+        for fence in &fences {
+            if fence.still_in_session(session)? {
+                members.push(fence.identity);
+            }
+        }
+        members.sort_by_key(|member| member.pid);
+        members.dedup();
+
+        let mut stable = !members.is_empty();
+        for member in &members {
+            let held = fences
+                .iter()
+                .find(|fence| fence.identity == *member)
+                .map(|fence| fence.still_in_session(session))
+                .transpose()?
+                .unwrap_or(false);
+            if held {
+                continue;
+            }
+            stable = false;
+            if let Some(fence) = ProcessFence::acquire_in_session(*member, session, deadline)? {
+                fences.push(fence);
+            }
+        }
+        if stable {
+            return Ok(Some(CapturedProcessSession {
+                session: CapturedSession { id: session, members },
+                _fences: fences,
+            }));
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PTY session ownership did not stabilize before the legacy shutdown deadline",
+            ));
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+        );
+    }
+}
+
+#[derive(Clone)]
+struct CapturedSession {
+    id: libc::pid_t,
+    members: Vec<ProcessIdentity>,
+}
+
+impl CapturedSession {
+    fn kill_until_empty(&self, deadline: Instant) -> io::Result<bool> {
+        loop {
+            ensure_helper_active()?;
+            let error = match SessionProbe::acquire(self, deadline) {
+                Ok(Some(mut probe)) => {
+                    match cmux_tui_core::process_session::kill_until_only_reserved(
+                        self.id,
+                        probe.process.identity.pid,
+                        deadline,
+                    ) {
+                        Ok(true) => match probe.kill() {
+                            Ok(()) => return Ok(true),
+                            Err(error) => error,
+                        },
+                        Ok(false) => return Ok(false),
+                        Err(error) => error,
+                    }
+                }
+                Ok(None) => {
+                    match cmux_tui_core::process_session::session_is_empty_until(self.id, deadline)
+                    {
+                        Ok(true) => return Ok(true),
+                        Ok(false) => io::Error::other(
+                            "captured PTY session lost every exact process before termination",
+                        ),
+                        Err(error) => error,
+                    }
+                }
+                Err(error) => error,
+            };
+            if Instant::now() >= deadline {
+                return Err(error);
+            }
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+            );
+        }
+    }
+}
+
+struct SessionProbe {
+    process: ProcessFence,
+}
+
+impl SessionProbe {
+    fn acquire(session: &CapturedSession, deadline: Instant) -> io::Result<Option<Self>> {
+        for process in &session.members {
+            ensure_helper_active()?;
+            let Some(process) = ProcessFence::acquire_in_session(*process, session.id, deadline)?
+            else {
+                continue;
+            };
+            return Ok(Some(Self { process }));
+        }
+        Ok(None)
+    }
+
+    fn kill(&mut self) -> io::Result<()> {
+        self.process.kill()
+    }
+}
+
+pub(super) struct FrozenProcessTree {
+    root: ProcessFence,
+    descendants: Vec<ProcessFence>,
+    sessions: Vec<CapturedSession>,
+}
+
+impl FrozenProcessTree {
+    fn freeze(root: ProcessIdentity, deadline: Instant) -> io::Result<Self> {
+        ensure_helper_active()?;
+        let Some(root) = ProcessFence::acquire(root, deadline)? else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "server exited before its process tree was fenced",
+            ));
+        };
+        let mut tree = Self { root, descendants: Vec::new(), sessions: Vec::new() };
+
+        let helper_pid = libc::pid_t::try_from(std::process::id())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid helper process id"))?;
+        let mut known = HashSet::from([tree.root.identity.pid, helper_pid]);
+        for _ in 0..PROCESS_TREE_MAX_ROUNDS {
+            ensure_helper_active()?;
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "legacy process tree did not stabilize before the shutdown deadline",
+                ));
+            }
+            let parents = std::iter::once(tree.root.identity)
+                .chain(tree.descendants.iter().map(|process| process.identity))
+                .collect::<Vec<_>>();
+            let mut added = false;
+            for parent in parents {
+                ensure_helper_active()?;
+                for pid in direct_child_pids(parent.pid)? {
+                    ensure_helper_active()?;
+                    if known.contains(&pid) {
+                        continue;
+                    }
+                    let Some(snapshot) = process_snapshot(pid)? else {
+                        continue;
+                    };
+                    if snapshot.parent != parent.pid {
+                        continue;
+                    }
+                    let Some(process) = ProcessFence::acquire(snapshot.identity, deadline)? else {
+                        continue;
+                    };
+                    known.insert(pid);
+                    tree.descendants.push(process);
+                    added = true;
+                }
+            }
+            if !added {
+                tree.sessions = tree.current_sessions()?;
+                return Ok(tree);
+            }
+        }
+        Err(io::Error::other("legacy process tree did not stabilize"))
+    }
+
+    fn current_sessions(&self) -> io::Result<Vec<CapturedSession>> {
+        // SAFETY: getsid only queries live, exact processes held stopped by
+        // this FrozenProcessTree.
+        let root_session = unsafe { libc::getsid(self.root.identity.pid) };
+        if root_session < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: getsid(0) only queries the detached helper.
+        let helper_session = unsafe { libc::getsid(0) };
+        if helper_session < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut sessions = Vec::<CapturedSession>::new();
+        for process in &self.descendants {
+            // SAFETY: every descendant remains stopped and exact until this
+            // FrozenProcessTree is dropped.
+            let session = unsafe { libc::getsid(process.identity.pid) };
+            if session < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if session > 1 && session != root_session && session != helper_session {
+                if let Some(captured) = sessions.iter_mut().find(|captured| captured.id == session)
+                {
+                    captured.members.push(process.identity);
+                } else {
+                    sessions.push(CapturedSession { id: session, members: vec![process.identity] });
+                }
+            }
+        }
+        sessions.sort_by_key(|session| session.id);
+        for session in &mut sessions {
+            session.members.sort_by_key(|process| process.pid);
+            session.members.dedup();
+        }
+        Ok(sessions)
+    }
+
+    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
+        for session in &self.sessions {
+            if !session.kill_until_empty(deadline)? {
+                return Err(io::Error::other(
+                    "frozen PTY session did not exit before the legacy shutdown deadline",
+                ));
+            }
+        }
+        self.kill()
+    }
+
+    fn kill(mut self) -> io::Result<()> {
+        for process in self.descendants.iter_mut().rev() {
+            process.kill()?;
+        }
+        self.root.kill()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
+    use std::mem::{size_of, zeroed};
+
+    let mut info = unsafe { zeroed::<libc::proc_bsdinfo>() };
+    let expected = i32::try_from(size_of::<libc::proc_bsdinfo>())
+        .map_err(|_| io::Error::other("process metadata size overflow"))?;
+    // SAFETY: `info` is a writable buffer of exactly `expected` bytes.
+    let result = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), expected)
+    };
+    if result != expected {
+        match macos_process_status(pid)? {
+            None | Some(libc::SZOMB) => return Ok(None),
+            Some(_) => {}
+        }
+        return Err(io::Error::other("could not read process birth identity"));
+    }
+    let info_pid =
+        libc::pid_t::try_from(info.pbi_pid).map_err(|_| io::Error::other("invalid process id"))?;
+    if info_pid != pid {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    let parent = libc::pid_t::try_from(info.pbi_ppid)
+        .map_err(|_| io::Error::other("invalid parent process id"))?;
+    if info.pbi_status == libc::SZOMB {
+        return Ok(None);
+    }
+    let started_at = (u128::from(info.pbi_start_tvsec) << 64) | u128::from(info.pbi_start_tvusec);
+    Ok(Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started_at },
+        parent,
+        stopped: info.pbi_status == libc::SSTOP,
+    }))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_status(pid: libc::pid_t) -> io::Result<Option<u32>> {
+    use std::ffi::c_void;
+    use std::mem::{ManuallyDrop, offset_of, size_of};
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    union ProcessStart {
+        links: [*mut c_void; 2],
+        started_at: ManuallyDrop<libc::timeval>,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct ExternProcessPrefix {
+        start: ProcessStart,
+        vmspace: *mut c_void,
+        signal_actions: *mut c_void,
+        flags: libc::c_int,
+        status: libc::c_char,
+        pid: libc::pid_t,
+    }
+
+    let mut query = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
+    let query_len = libc::c_uint::try_from(query.len())
+        .map_err(|_| io::Error::other("process status query overflow"))?;
+    let mut record_len = 0;
+    // SAFETY: the query is a valid KERN_PROC_PID MIB and a null output
+    // buffer asks the kernel for the record size.
+    if unsafe {
+        libc::sysctl(
+            query.as_mut_ptr(),
+            query_len,
+            std::ptr::null_mut(),
+            &raw mut record_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        let error = io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ESRCH) | Some(libc::ENOENT)) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    if record_len == 0 {
+        return Ok(None);
+    }
+    let mut record = vec![0_u8; record_len];
+    // SAFETY: `record` owns a writable buffer of `record_len` bytes.
+    if unsafe {
+        libc::sysctl(
+            query.as_mut_ptr(),
+            query_len,
+            record.as_mut_ptr().cast(),
+            &raw mut record_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        let error = io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ESRCH) | Some(libc::ENOENT)) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    if record_len < size_of::<ExternProcessPrefix>() {
+        if record_len == 0 {
+            return Ok(None);
+        }
+        return Err(io::Error::other("process status record was truncated"));
+    }
+    // KERN_PROC_PID returns `kinfo_proc`, whose first field is
+    // `extern_proc`. Read only the stable prefix that contains status and
+    // PID, without depending on the private remainder of either structure.
+    let record_pid = unsafe {
+        record
+            .as_ptr()
+            .add(offset_of!(ExternProcessPrefix, pid))
+            .cast::<libc::pid_t>()
+            .read_unaligned()
+    };
+    if record_pid != pid {
+        return Err(io::Error::other("process status id mismatch"));
+    }
+    let status = unsafe {
+        record.as_ptr().add(offset_of!(ExternProcessPrefix, status)).cast::<libc::c_char>().read()
+    };
+    u32::try_from(status).map(Some).map_err(|_| io::Error::other("invalid process status"))
+}
+
+#[cfg(target_os = "macos")]
+fn direct_child_pids(parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    use std::ffi::c_void;
+    use std::mem::size_of;
+
+    // SAFETY: a null buffer with length zero asks libproc for the count.
+    let count = unsafe { libc::proc_listchildpids(parent, std::ptr::null_mut(), 0) };
+    if count < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let mut capacity = usize::try_from(count)
+        .map_err(|_| io::Error::other("invalid child process count"))?
+        .saturating_add(16);
+    for _ in 0..4 {
+        let mut pids = vec![0; capacity];
+        let bytes = capacity
+            .checked_mul(size_of::<libc::pid_t>())
+            .and_then(|bytes| i32::try_from(bytes).ok())
+            .ok_or_else(|| io::Error::other("child process buffer overflow"))?;
+        // SAFETY: `pids` owns a writable buffer of `bytes` bytes.
+        let listed =
+            unsafe { libc::proc_listchildpids(parent, pids.as_mut_ptr().cast::<c_void>(), bytes) };
+        if listed < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let listed =
+            usize::try_from(listed).map_err(|_| io::Error::other("invalid child process count"))?;
+        if listed < capacity {
+            pids.truncate(listed);
+            pids.retain(|pid| *pid > 1);
+            return Ok(pids);
+        }
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or_else(|| io::Error::other("child process buffer overflow"))?;
+    }
+    Err(io::Error::other("child process list did not stabilize"))
+}
+
+#[cfg(target_os = "linux")]
+fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
+    let path = format!("/proc/{pid}/stat");
+    let stat = match std::fs::read(path) {
+        Ok(stat) => stat,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let fields = linux_process_stat_fields(pid, &stat)?;
+    let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
+    if state == b"Z" {
+        return Ok(None);
+    }
+    let parent = fields
+        .get(1)
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .and_then(|value| value.parse::<libc::pid_t>().ok())
+        .ok_or_else(|| io::Error::other("invalid parent process id"))?;
+    let started_at = fields
+        .get(19)
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .and_then(|value| value.parse::<u128>().ok())
+        .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
+    Ok(Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started_at },
+        parent,
+        stopped: matches!(state, b"T" | b"t"),
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_stat_fields(pid: libc::pid_t, stat: &[u8]) -> io::Result<Vec<&[u8]>> {
+    let name_start = stat
+        .windows(2)
+        .position(|window| window == b" (")
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let name_end = stat
+        .windows(2)
+        .rposition(|window| window == b") ")
+        .filter(|name_end| *name_end > name_start)
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let pid_text = std::str::from_utf8(&stat[..name_start])
+        .map_err(|_| io::Error::other("invalid process metadata id"))?;
+    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    Ok(stat[name_end + 2..]
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect())
+}
+
+#[cfg(target_os = "linux")]
+fn direct_child_pids(parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    let task_root = format!("/proc/{parent}/task");
+    let tasks = match std::fs::read_dir(task_root) {
+        Ok(tasks) => tasks,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut pids = HashSet::new();
+    for task in tasks {
+        let task = match task {
+            Ok(task) => task,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let children = match std::fs::read_to_string(task.path().join("children")) {
+            Ok(children) => children,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for pid in children.split_whitespace() {
+            let pid = pid
+                .parse::<libc::pid_t>()
+                .map_err(|_| io::Error::other("invalid child process id"))?;
+            if pid > 1 {
+                pids.insert(pid);
+            }
+        }
+    }
+    let mut pids = pids.into_iter().collect::<Vec<_>>();
+    pids.sort_unstable();
+    Ok(pids)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn process_snapshot(_pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "stable process identity is unavailable"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn direct_child_pids(_parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "process tree enumeration is unavailable"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    #[cfg(target_os = "linux")]
+    use std::sync::mpsc;
+
+    use super::*;
+
+    #[test]
+    fn stable_identity_refuses_to_signal_the_same_pid_with_a_different_birth() {
+        let mut child =
+            Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        let stale =
+            ProcessIdentity { pid: process.pid, started_at: process.started_at.wrapping_add(1) };
+
+        assert!(stale.signal(libc::SIGKILL).is_err());
+        assert!(child.try_wait().unwrap().is_none());
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn frozen_tree_drop_resumes_with_its_original_process_proof() {
+        use std::io::Read as _;
+        use std::os::fd::AsRawFd as _;
+
+        let mut child =
+            Command::new("yes").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let descriptor = stdout.as_raw_fd();
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) }, 0);
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let process = ProcessIdentity::capture(pid).unwrap().unwrap();
+        STABLE_HANDLE_CAPTURE_BUDGET.set(Some(1));
+
+        let tree =
+            FrozenProcessTree::freeze(process, Instant::now() + Duration::from_secs(1)).unwrap();
+        let mut output = [0_u8; 4_096];
+        loop {
+            match stdout.read(&mut output) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("failed to drain stopped child output: {error}"),
+            }
+        }
+        drop(tree);
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut resumed = false;
+        while Instant::now() < deadline {
+            match stdout.read(&mut output) {
+                Ok(0) => break,
+                Ok(_) => {
+                    resumed = true;
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => panic!("failed to read resumed child output: {error}"),
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        STABLE_HANDLE_CAPTURE_BUDGET.set(None);
+        // SAFETY: only the exact test-owned child can still use this unreaped PID.
+        unsafe {
+            libc::kill(pid, libc::SIGCONT);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(resumed, "dropping a process fence left its exact process stopped");
+    }
+
+    #[test]
+    fn termination_accepts_a_verified_process_that_already_exited() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        terminate_process_tree(process).unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn process_tree_termination_retries_post_freeze_metadata_errors() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        let mut attempts = 0;
+
+        let result = retry_process_tree_termination(
+            process,
+            Instant::now() + Duration::from_secs(1),
+            |_| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::other("transient process metadata read"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn captured_session_waits_for_an_unavailable_exact_member_to_exit() {
+        let mut command = Command::new("sleep");
+        command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let process = ProcessIdentity::capture(pid).unwrap().unwrap();
+        let unavailable =
+            ProcessIdentity { pid: process.pid, started_at: process.started_at.wrapping_add(1) };
+        let session = CapturedSession { id: pid, members: vec![unavailable] };
+        let reaper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            child.kill().unwrap();
+            child.wait().unwrap()
+        });
+
+        let result = session.kill_until_empty(Instant::now() + Duration::from_secs(1));
+        reaper.join().unwrap();
+
+        assert!(result.unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_snapshot_accepts_a_non_utf8_process_name() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_LEGACY_NON_UTF8_PROCESS_NAME";
+        const TEST_NAME: &str = "server_lifecycle::legacy_process::tests::linux_process_snapshot_accepts_a_non_utf8_process_name";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "non-UTF-8 legacy proc subprocess failed: {status}");
+            return;
+        }
+
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        std::fs::write(format!("/proc/self/task/{pid}/comm"), b"cmux-\xff").unwrap();
+
+        let snapshot = process_snapshot(pid).expect("a valid non-UTF-8 proc name was rejected");
+        assert!(snapshot.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_child_enumeration_includes_children_spawned_by_worker_threads() {
+        let (child_tx, child_rx) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let child =
+                Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+            child_tx.send(child.id()).unwrap();
+            child
+        });
+        let child_pid = child_rx.recv().unwrap();
+        let parent = libc::pid_t::try_from(std::process::id()).unwrap();
+        let child_pid = libc::pid_t::try_from(child_pid).unwrap();
+
+        let children = direct_child_pids(parent).unwrap();
+
+        let mut child = worker.join().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(
+            children.contains(&child_pid),
+            "worker child {child_pid} missing from {children:?}"
+        );
+    }
+}

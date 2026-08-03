@@ -11,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 
 use crate::link::{FrameLink, LinkError};
@@ -121,7 +121,21 @@ pub async fn connect_websocket(
     let description = sanitized_route(endpoint);
     let config =
         WebSocketConfig::default().max_message_size(Some(maximum)).max_frame_size(Some(maximum));
-    let (socket, _) = connect_async_with_config(endpoint.as_str(), Some(config), true)
+    let host = endpoint
+        .host_str()
+        .ok_or_else(|| LinkError::Transport("WebSocket endpoint has no host".into()))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or_else(|| LinkError::Transport("WebSocket endpoint has no port".into()))?;
+    let addresses = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|error| LinkError::Transport(error.to_string()))?
+        .collect::<Vec<_>>();
+    let stream = cmux_tui_process::tokio_net::connect_tcp_stream(&addresses)
+        .await
+        .map_err(|error| LinkError::Transport(error.to_string()))?;
+    stream.set_nodelay(true).map_err(|error| LinkError::Transport(error.to_string()))?;
+    let (socket, _) = client_async_tls_with_config(endpoint.as_str(), stream, Some(config), None)
         .await
         .map_err(|error| LinkError::Transport(error.to_string()))?;
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))

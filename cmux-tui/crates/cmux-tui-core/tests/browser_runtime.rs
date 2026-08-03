@@ -28,6 +28,16 @@ fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value
     ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
+fn write_target_list(
+    ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
+    id: Value,
+    targets: &[&str],
+) {
+    let target_infos =
+        targets.iter().map(|target_id| json!({"targetId": target_id})).collect::<Vec<_>>();
+    write_json(ws, json!({"id": id, "result": {"targetInfos": target_infos}}));
+}
+
 fn write_main_frame_commit(
     ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
     session_id: &str,
@@ -487,6 +497,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1", "target-popup"]);
+                }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     closed += 1;
@@ -944,7 +957,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -985,6 +998,9 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                     // Deliberately never respond. The browser worker may
                     // sit in CdpClient::call until timeout, but this mux
                     // socket connection must remain usable.
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
@@ -1082,7 +1098,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
         "wedged browser close blocked for {:?}",
         close_started.elapsed()
     );
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -1170,6 +1186,9 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                         }),
                     );
                 }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
+                }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     break;
@@ -1233,7 +1252,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     );
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -1283,6 +1302,9 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 }
                 "Page.reload" | "Page.navigateToHistoryEntry" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
@@ -1351,7 +1373,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     );
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -1387,6 +1409,9 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 | "Emulation.setDeviceMetricsOverride"
                 | "Input.dispatchMouseEvent" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
@@ -1436,18 +1461,15 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(screencast["params"]["maxWidth"], 100);
     assert_eq!(screencast["params"]["maxHeight"], 100);
 
-    wait_for(
-        || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
-        Duration::from_secs(10),
-    )
-    .expect("browser went live");
+    wait_for(|| surface.browser_frame_seq(), Duration::from_secs(10))
+        .expect("browser never published pointer authority for its first frame");
     surface.browser_mouse_event("mousePressed", 5_000.0, 5_000.0, Some("left"), Some(1)).unwrap();
     let mouse = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse["sessionId"], "session-1");
     assert_eq!(mouse["params"]["x"], 50.0);
     assert_eq!(mouse["params"]["y"], 50.0);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server.join().unwrap();
 }
 
@@ -1484,6 +1506,9 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 | "Page.bringToFront"
                 | "Input.dispatchMouseEvent" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
@@ -1546,7 +1571,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     assert_eq!(second_mouse["method"], "Input.dispatchMouseEvent");
     assert_eq!(second_mouse["params"]["x"], 13.0);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server.join().unwrap();
 }
 
@@ -1589,5 +1614,5 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
             || status.contains("timed out"),
         "{status}"
     );
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }

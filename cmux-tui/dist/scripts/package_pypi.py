@@ -19,6 +19,17 @@ VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+MACOS_DEPLOYMENT_TARGET = (
+    Path(__file__).resolve().parents[1] / "macos-deployment-target.txt"
+).read_text().strip()
+if not re.fullmatch(r"[0-9]+\.[0-9]+", MACOS_DEPLOYMENT_TARGET):
+    raise RuntimeError("invalid macOS deployment target")
+macos_major, macos_minor = (int(part) for part in MACOS_DEPLOYMENT_TARGET.split("."))
+if macos_major >= 11 and macos_minor != 0:
+    raise RuntimeError(
+        "macOS 11+ wheel compatibility floors must use a major .0 release"
+    )
+MACOS_WHEEL_VERSION = MACOS_DEPLOYMENT_TARGET.replace(".", "_")
 
 
 @dataclass(frozen=True)
@@ -28,8 +39,8 @@ class Target:
 
 
 TARGETS = [
-    Target("aarch64-apple-darwin", ("macosx_11_0_arm64",)),
-    Target("x86_64-apple-darwin", ("macosx_10_12_x86_64",)),
+    Target("aarch64-apple-darwin", (f"macosx_{MACOS_WHEEL_VERSION}_arm64",)),
+    Target("x86_64-apple-darwin", (f"macosx_{MACOS_WHEEL_VERSION}_x86_64",)),
     Target(
         "x86_64-unknown-linux-musl",
         (
@@ -99,15 +110,61 @@ def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes,
         (
             f"{PACKAGE_NAME}/_main.py",
             text_bytes(
-                """from __future__ import annotations
+                f"""from __future__ import annotations
 
 import os
 import pathlib
+import shlex
 import sys
+
+PACKAGE_VERSION = {version!r}
+
+
+def _launcher_command(argv0: str) -> str:
+    parts = pathlib.PurePath(argv0).parts
+    uv_cache = os.environ.get("UV_CACHE_DIR")
+    if uv_cache and argv0:
+        executable = pathlib.PurePath(os.path.abspath(os.path.expanduser(argv0)))
+        cache = pathlib.PurePath(os.path.abspath(os.path.expanduser(uv_cache)))
+        try:
+            relative = executable.relative_to(cache)
+        except ValueError:
+            pass
+        else:
+            if any(
+                candidate.startswith("archive-v")
+                and candidate[len("archive-v") :].isdigit()
+                for candidate in relative.parts
+            ):
+                return "uvx cmux==" + PACKAGE_VERSION
+    for index, part in enumerate(parts):
+        if part != "uv":
+            continue
+        if any(
+            candidate.startswith("archive-v")
+            and candidate[len("archive-v") :].isdigit()
+            for candidate in parts[index + 1 :]
+        ):
+            return "uvx cmux==" + PACKAGE_VERSION
+    pipx_seen = False
+    for index, part in enumerate(parts):
+        if part == "pipx":
+            pipx_seen = True
+            continue
+        if (
+            pipx_seen
+            and len(part) == 15
+            and all(character in "0123456789abcdef" for character in part)
+            and index + 1 < len(parts)
+            and parts[index + 1] == "bin"
+        ):
+            return "pipx run --spec cmux==" + PACKAGE_VERSION + " cmux"
+    return shlex.quote(argv0) if argv0 else "cmux"
 
 
 def main() -> None:
     binary = pathlib.Path(__file__).resolve().parent / "bin" / "cmux-tui"
+    os.environ["CMUX_TUI_LAUNCHER_COMMAND"] = _launcher_command(sys.argv[0])
     os.execv(str(binary), ["cmux", *sys.argv[1:]])
 """
             ),

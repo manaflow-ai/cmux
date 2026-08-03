@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350" as const;
+export const SDK_IR_SHA256 = "56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -967,6 +967,17 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "shutdown": {
+    "authority": "local-admin",
+    "since": 9,
+    "capability": "server-shutdown-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The command is accepted only on a trusted Unix-classified transport.",
+      "Success means every tracked pane process terminated before the bounded shutdown deadline."
+    ]
   },
   "shutdown-daemon": {
     "authority": "local-admin",
@@ -2459,6 +2470,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "shutdown_cleanup": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "ShutdownCleanupStatus"
         }
       },
       "terminal_revision": {
@@ -4157,6 +4177,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ShutdownCleanupStatus": {
+    "additional_properties": false,
+    "fields": {
+      "degraded": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pending": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "retrying": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -8849,6 +8899,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         }
       },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "shutdown": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
       "kind": "object"
     },
     "result": {

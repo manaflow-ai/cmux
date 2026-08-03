@@ -43,9 +43,18 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
+Local clients require the running server to have the same release identity. Inspect a session without attaching, or stop it before starting an upgraded binary:
+
+```bash
+cargo run -p cmux-tui -- server status --session agents
+cargo run -p cmux-tui -- server stop --session agents
+```
+
+Stopping the server exits its pane processes. `identify`, `server status`, and `server stop` remain available when client and server releases differ.
+
 PTY programs may emit inline images with the Kitty graphics protocol. cmux-tui preserves those images across local, attached, and remote sessions when the outer terminal supports Kitty graphics, subject to the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
 
-Attach one terminal without the sidebar, status bar, pane border, or other tabs:
+Attach only one terminal by its stable ID. The terminal-only attachment omits the sidebar, status bar, pane border, and other tabs:
 
 ```bash
 cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>

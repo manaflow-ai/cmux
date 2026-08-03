@@ -709,7 +709,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(current["name"], "later name");
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -767,7 +767,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(current["index"], 0);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -822,7 +822,7 @@ mod tests {
             )
             .is_err()
         );
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -851,7 +851,7 @@ mod tests {
         assert_eq!(replay["revision"], created["revision"]);
         assert_eq!(replay["replayed"], true);
         assert_eq!(mux.resource_events_after(0).unwrap().batches.len(), 1);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -917,7 +917,7 @@ mod tests {
             assert_eq!(replay["revision"], closed["revision"], "{operation:?}");
             assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
             assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
-            mux.shutdown();
+            let _ = mux.shutdown();
         }
     }
 
@@ -1021,7 +1021,7 @@ mod tests {
         assert_eq!(terminal_id, unrelated_terminal);
         assert!(result.unwrap_err().to_string().contains("is not live"));
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 6);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -1056,7 +1056,7 @@ mod tests {
         let snapshot = public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["terminals"].as_array().unwrap().len(), 1);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -1179,7 +1179,7 @@ mod tests {
             mux.resource_creation_resolution("projection-retry-correlation").unwrap()["state"],
             "created"
         );
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -1281,7 +1281,7 @@ mod tests {
             assert_eq!(mux.resource_creation_resolution(correlation).unwrap()["state"], "created");
         }
         mux.set_resource_terminal_reservation_hook_for_test(None);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

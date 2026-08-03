@@ -11,6 +11,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 jobs:
   web-frontend:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -50,6 +53,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify Rust workflow toolchain
+        run: python3 tests/test_tui_workflow_toolchain.py
+
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
@@ -61,13 +67,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Build test binaries
         working-directory: cmux-tui
@@ -113,10 +117,64 @@ jobs:
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
           # Process-exit and PTY-reader tests also use bounded polling. Keep
           # their normal deadlines strict while allowing for instrumentation.
-          CMUX_TEST_TIMEOUT_SCALE: "4"
+          CMUX_TEST_TIMEOUT_SCALE: "8"
         run: |
+          pidfd_probe=
+          while IFS= read -r bin; do
+            case "${bin##*/}" in
+              cmux_tui_core-*)
+                pidfd_probe="$bin"
+                break
+                ;;
+            esac
+          done < target/valgrind-test-binaries.txt
+          test -n "$pidfd_probe"
+          probe_test=process_session::tests::successful_preflight_survives_a_transient_initializer_failure
+          "$pidfd_probe" --exact "$probe_test" >/dev/null
+          valgrind_pidfd_supported=true
+          if ! valgrind \
+            --tool=none \
+            --quiet \
+            --trace-children=yes \
+            --error-exitcode=1 \
+            -- "$pidfd_probe" --exact "$probe_test" >/dev/null 2>&1; then
+            valgrind_pidfd_supported=false
+            echo "Valgrind cannot emulate pidfd_send_signal; native Linux CI covers process-owning tests"
+          fi
+
+          declare -A seen_skip_scopes=()
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
+            test_args=()
+            if [ "$valgrind_pidfd_supported" = false ]; then
+              test_list="$("$bin" --list 2>/dev/null || true)"
+              test_scope=
+              case "$test_list" in
+                *"browser_capture_scale_applies_to_metrics_screencast_and_input: test"*)
+                  test_scope=browser_runtime
+                  ;;
+                *"process_session::tests::"*) test_scope=cmux_tui_core ;;
+                *"app::tests::"*) test_scope=cmux_tui ;;
+                *"attach_stream_orders_resize_between_output_frames: test"*) test_scope=pty ;;
+                *"websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect: test"*)
+                  test_scope=websocket_transport
+                  ;;
+              esac
+              if [ -n "$test_scope" ]; then
+                seen_skip_scopes["$test_scope"]=1
+                while read -r skip_scope test_name; do
+                  [ -n "$skip_scope" ] || continue
+                  [[ "$skip_scope" == \#* ]] && continue
+                  [ "$skip_scope" = "$test_scope" ] || continue
+                  if ! grep -Fqx -- "$test_name: test" <<<"$test_list"; then
+                    echo "Unknown $test_scope Valgrind skip: $test_name" >&2
+                    exit 1
+                  fi
+                  test_args+=(--skip "$test_name")
+                done < dist/valgrind-pidfd-skips.txt
+                echo "Applying ${#test_args[@]} named pidfd skip arguments for $bin"
+              fi
+            fi
             echo "Running valgrind for $bin"
             if ! valgrind \
               --error-exitcode=1 \
@@ -124,11 +182,19 @@ jobs:
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
               --track-origins=yes \
-              -- "$bin"; then
+              -- "$bin" "${test_args[@]}"; then
               echo "Valgrind failed for $bin" >&2
               exit 1
             fi
           done < target/valgrind-test-binaries.txt
+          if [ "$valgrind_pidfd_supported" = false ]; then
+            while read -r skip_scope; do
+              if [ -z "${seen_skip_scopes[$skip_scope]:-}" ]; then
+                echo "No test binary matched Valgrind skip scope: $skip_scope" >&2
+                exit 1
+              fi
+            done < <(awk '!/^#/ && NF { print $1 }' dist/valgrind-pidfd-skips.txt | sort -u)
+          fi
 
   test:
     name: test (${{ matrix.os }})
@@ -153,13 +219,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: cargo fmt
         working-directory: cmux-tui
@@ -171,7 +235,14 @@ jobs:
 
       - name: cargo test
         working-directory: cmux-tui
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          args=()
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CMUX_TEST_TIMEOUT_SCALE="4"
+            args+=(-- --test-threads=1)
+          fi
+          cargo test --workspace --locked "${args[@]}"
 
       - name: crossterm parser tests
         working-directory: cmux-tui
@@ -206,13 +277,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Java version
         run: |
@@ -236,7 +305,6 @@ jobs:
     name: windows experimental (x86_64-gnu)
     runs-on: windows-latest
     timeout-minutes: 40
-    continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -255,10 +323,17 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
       - name: Install Rust GNU target
         shell: bash
         run: |
-          rustup target add x86_64-pc-windows-gnu
+          rustup target add --toolchain "$RUST_TOOLCHAIN" x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
       - name: Build libghostty-vt for Windows GNU

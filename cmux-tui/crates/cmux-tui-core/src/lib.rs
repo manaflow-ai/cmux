@@ -13,7 +13,10 @@ mod event_bus;
 mod model;
 mod mux;
 mod pairing;
+#[cfg(unix)]
+pub mod process_session;
 pub mod provider_management;
+mod publication;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -21,11 +24,13 @@ mod resource_router;
 mod resource_selector;
 mod short_id;
 mod sidebar_resource;
+mod spawned_pty_child;
 mod surface;
 mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
+pub mod release;
 pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
@@ -47,11 +52,12 @@ pub use mux::{
     LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    ShutdownRequestWatch, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
+    WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use publication::PublicationGuard;
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
@@ -79,6 +85,20 @@ pub type PaneId = u64;
 pub type SplitId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
+
+#[cfg(test)]
+pub(crate) fn test_timeout_scale() -> u32 {
+    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1)
+}
+
+#[cfg(test)]
+pub(crate) fn test_timeout(duration: std::time::Duration) -> std::time::Duration {
+    duration.saturating_mul(test_timeout_scale())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitDir {

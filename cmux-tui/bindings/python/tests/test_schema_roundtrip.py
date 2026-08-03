@@ -86,6 +86,32 @@ def _sample(
 
 
 class SchemaRoundTripTests(unittest.TestCase):
+    def test_identify_decodes_shutdown_cleanup_health(self) -> None:
+        result = decode_command_result(
+            "identify",
+            {
+                "app": "cmux-tui",
+                "version": "0.1.0",
+                "protocol": 10,
+                "session": "main",
+                "pid": 12345,
+                "registry_id": "registry",
+                "generation": "generation",
+                "workspace_revision": 1,
+                "terminal_revision": 2,
+                "daemon_handoff": 1,
+                "shutdown_cleanup": {
+                    "pending": 3,
+                    "retrying": True,
+                    "degraded": False,
+                },
+            },
+        )
+
+        self.assertEqual(result.shutdown_cleanup.pending, 3)
+        self.assertTrue(result.shutdown_cleanup.retrying)
+        self.assertFalse(result.shutdown_cleanup.degraded)
+
     def test_every_command_request_encodes(self) -> None:
         for command, definition in SCHEMA["commands"].items():
             with self.subTest(command=command):

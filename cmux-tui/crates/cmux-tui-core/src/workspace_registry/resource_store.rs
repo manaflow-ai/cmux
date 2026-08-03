@@ -438,6 +438,24 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    pub(crate) fn terminal_host_identities_in_workspace(
+        &self,
+        workspace_key: &str,
+    ) -> anyhow::Result<Vec<(String, Option<String>)>> {
+        validate_workspace_key(workspace_key)?;
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, incarnation
+             FROM terminal_placements
+             WHERE workspace_key = ?1
+               AND lifecycle != 'tombstoned'
+             ORDER BY created_revision ASC, terminal_id ASC",
+        )?;
+        statement
+            .query_map([workspace_key], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
         self.connection
             .query_row(

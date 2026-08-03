@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d. */
 
 
 import type * as T from "./types.js";
@@ -748,6 +748,12 @@ export interface SetWindowTitleRequest extends CmuxRequestBase {
 export type SetWindowTitleResult = T.EmptyResult;
 
 /** Protocol v9; authority: local-admin. */
+export interface ShutdownRequest extends CmuxRequestBase {
+  cmd: "shutdown";
+}
+export type ShutdownResult = T.EmptyResult;
+
+/** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
   "force"?: boolean;
@@ -911,6 +917,7 @@ export type CmuxRequest =
   | SetSplitRatioRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
+  | ShutdownRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
   | SplitRequest
@@ -1578,6 +1585,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "shutdown": {
+    request: ShutdownRequest;
+    result: ShutdownResult;
+    authority: "local-admin";
+    since: 9;
+    capability: "server-shutdown-v1";
     stream: null;
   };
   "shutdown-daemon": {

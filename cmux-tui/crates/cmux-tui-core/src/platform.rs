@@ -6,13 +6,18 @@ pub mod transport {
     use std::io::{self, Read, Write};
     use std::net::Shutdown;
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
+        fn read_timeout(&self) -> io::Result<Option<Duration>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn write_timeout(&self) -> io::Result<Option<Duration>>;
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn shutdown(&self, how: Shutdown) -> io::Result<()>;
+        fn peer_process_id(&self) -> io::Result<Option<u32>> {
+            Ok(None)
+        }
     }
 
     pub struct Listener {
@@ -27,6 +32,18 @@ pub mod transport {
         imp::connect(path)
     }
 
+    pub fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+        imp::connect_until(path, deadline)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn connect_unix_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> io::Result<std::os::unix::net::UnixStream> {
+        imp::connect_unix_until(path, deadline)
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -36,11 +53,410 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io;
+        use std::mem::{offset_of, size_of};
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
+
+        #[cfg(test)]
+        type SocketCreatedHook = std::sync::Arc<dyn Fn(libc::c_int) + Send + Sync>;
+        #[cfg(test)]
+        static SOCKET_CREATED_HOOK: std::sync::OnceLock<
+            std::sync::Mutex<Option<SocketCreatedHook>>,
+        > = std::sync::OnceLock::new();
+
+        pub(super) struct Listener {
+            inner: UnixListener,
+        }
+
+        #[cfg(test)]
+        pub(super) fn set_socket_created_hook(hook: Option<SocketCreatedHook>) {
+            *SOCKET_CREATED_HOOK
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = hook;
+        }
+
+        #[cfg(test)]
+        fn socket_created_hook() -> Option<SocketCreatedHook> {
+            SOCKET_CREATED_HOOK
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+
+        #[cfg(target_os = "linux")]
+        fn create_close_on_exec_socket(_deadline: Instant) -> io::Result<OwnedFd> {
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success. SOCK_CLOEXEC sets the inheritance flag
+            // atomically with descriptor creation.
+            let descriptor =
+                unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+            if descriptor < 0 {
+                let error = io::Error::last_os_error();
+                if matches!(error.raw_os_error(), Some(libc::EINVAL) | Some(libc::EPROTONOSUPPORT))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        format!("atomic close-on-exec sockets are unavailable: {error}"),
+                    ));
+                }
+                return Err(error);
+            }
+            // SAFETY: descriptor is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+            #[cfg(test)]
+            if let Some(hook) = socket_created_hook() {
+                hook(descriptor.as_raw_fd());
+            }
+            Ok(descriptor)
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        fn create_close_on_exec_socket(deadline: Instant) -> io::Result<OwnedFd> {
+            let _process_creation =
+                cmux_tui_process::ProcessCreationGuard::acquire_until(deadline)?;
+            // Unix platforms without the Linux atomic socket flag share this
+            // barrier with every cmux-tui process launch, so no child can start
+            // until fcntl marks the fresh descriptor close-on-exec.
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+            if descriptor < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: descriptor is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+            #[cfg(test)]
+            if let Some(hook) = socket_created_hook() {
+                hook(descriptor.as_raw_fd());
+            }
+            // SAFETY: F_GETFD only reads flags from this valid descriptor.
+            let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+            if descriptor_flags < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: F_SETFD updates flags while the process barrier excludes
+            // process creation from this setup window.
+            if unsafe {
+                libc::fcntl(
+                    descriptor.as_raw_fd(),
+                    libc::F_SETFD,
+                    descriptor_flags | libc::FD_CLOEXEC,
+                )
+            } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(descriptor)
+        }
+
+        pub(super) fn listen(path: &Path) -> io::Result<Listener> {
+            cmux_tui_process::unix::bind_listener(path).map(|inner| Listener { inner })
+        }
+
+        pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
+            Ok(Box::new(cmux_tui_process::unix::connect_stream(path)?))
+        }
+
+        pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+            connect_unix_until(path, deadline).map(|stream| Box::new(stream) as Box<dyn Stream>)
+        }
+
+        pub(super) fn connect_unix_until(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
+            ensure_connect_time_remaining(deadline)?;
+            let (address, address_len) = unix_socket_address(path)?;
+            let descriptor = create_close_on_exec_socket(deadline)?;
+            let stream = UnixStream::from(descriptor);
+            stream.set_nonblocking(true)?;
+            loop {
+                ensure_connect_time_remaining(deadline)?;
+                // SAFETY: address is an initialized sockaddr_un with its
+                // exact kernel-visible length, and stream owns a valid
+                // AF_UNIX socket.
+                let connected = unsafe {
+                    libc::connect(
+                        stream.as_raw_fd(),
+                        (&raw const address).cast::<libc::sockaddr>(),
+                        address_len,
+                    )
+                };
+                if connected == 0 {
+                    break;
+                }
+                let error = io::Error::last_os_error();
+                let code = error.raw_os_error();
+                if retry_connect_after_would_block(code, deadline)? {
+                    continue;
+                }
+                let pending = [
+                    Some(libc::EAGAIN),
+                    Some(libc::EINPROGRESS),
+                    Some(libc::EWOULDBLOCK),
+                    Some(libc::EALREADY),
+                    Some(libc::EINTR),
+                ]
+                .contains(&code);
+                if !pending {
+                    return Err(error);
+                }
+                wait_for_connect(&stream, deadline)?;
+                break;
+            }
+            stream.set_nonblocking(false)?;
+            Ok(stream)
+        }
+
+        fn retry_connect_after_would_block(
+            code: Option<i32>,
+            deadline: Instant,
+        ) -> io::Result<bool> {
+            #[cfg(target_os = "linux")]
+            if code == Some(libc::EAGAIN) || code == Some(libc::EWOULDBLOCK) {
+                // Linux leaves a nonblocking AF_UNIX socket unconnected when
+                // the listener queue is full. The socket still polls writable
+                // with SO_ERROR zero, so retry connect instead of treating
+                // writability as completion.
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                std::thread::sleep(remaining.min(Duration::from_millis(5)));
+                return Ok(true);
+            }
+            let _ = (code, deadline);
+            Ok(false)
+        }
+
+        fn ensure_connect_time_remaining(deadline: Instant) -> io::Result<Duration> {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "transport connection exceeded its deadline",
+                    )
+                })
+        }
+
+        fn wait_for_connect(stream: &UnixStream, deadline: Instant) -> io::Result<()> {
+            loop {
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor =
+                    libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                // SAFETY: descriptor points to one initialized pollfd for the
+                // duration of this call.
+                let result = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                if result == 0 {
+                    continue;
+                }
+                if result < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & libc::POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "transport connection socket became invalid",
+                    ));
+                }
+                let mut socket_error = 0;
+                let mut socket_error_len =
+                    libc::socklen_t::try_from(size_of::<libc::c_int>()).unwrap();
+                // SAFETY: socket_error and its length describe a writable
+                // c_int, and stream owns a valid socket descriptor.
+                if unsafe {
+                    libc::getsockopt(
+                        stream.as_raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_ERROR,
+                        (&raw mut socket_error).cast(),
+                        &raw mut socket_error_len,
+                    )
+                } != 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                return if socket_error == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::from_raw_os_error(socket_error))
+                };
+            }
+        }
+
+        pub(super) fn unix_socket_address(
+            path: &Path,
+        ) -> io::Result<(libc::sockaddr_un, libc::socklen_t)> {
+            const SUN_PATH_CAPACITY: usize =
+                size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+            let path = path.as_os_str().as_bytes();
+            if path.is_empty() || path.len() >= SUN_PATH_CAPACITY || path.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid transport Unix socket path",
+                ));
+            }
+            // SAFETY: all-zero is a valid starting representation for
+            // sockaddr_un; family, path, and platform length are set below.
+            let mut address = unsafe { std::mem::zeroed::<libc::sockaddr_un>() };
+            address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+            for (destination, source) in address.sun_path.iter_mut().zip(path) {
+                *destination = *source as libc::c_char;
+            }
+            let address_len = offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "macos",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            {
+                address.sun_len = u8::try_from(address_len).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?;
+            }
+            Ok((
+                address,
+                libc::socklen_t::try_from(address_len).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?,
+            ))
+        }
+
+        impl Listener {
+            pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
+                let (stream, _) = cmux_tui_process::unix::accept_stream(&self.inner)?;
+                Ok(Box::new(stream))
+            }
+        }
+
+        impl Stream for UnixStream {
+            fn try_clone_box(&self) -> io::Result<Box<dyn Stream>> {
+                Ok(Box::new(cmux_tui_process::unix::clone_stream(self)?))
+            }
+
+            fn read_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::read_timeout(self)
+            }
+
+            fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn write_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::write_timeout(self)
+            }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
+
+            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
+                UnixStream::shutdown(self, how)
+            }
+
+            fn peer_process_id(&self) -> io::Result<Option<u32>> {
+                peer_process_id(self)
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        fn peer_process_id(stream: &UnixStream) -> io::Result<Option<u32>> {
+            use std::mem::size_of;
+            use std::os::fd::AsRawFd;
+
+            let mut pid: libc::pid_t = 0;
+            let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
+            let result = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_LOCAL,
+                    libc::LOCAL_PEERPID,
+                    (&raw mut pid).cast(),
+                    &raw mut length,
+                )
+            };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::pid_t>() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"));
+            }
+            u32::try_from(pid)
+                .map(Some)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"))
+        }
+
+        #[cfg(target_os = "linux")]
+        fn peer_process_id(stream: &UnixStream) -> io::Result<Option<u32>> {
+            use std::mem::{size_of, zeroed};
+            use std::os::fd::AsRawFd;
+
+            let mut credentials = unsafe { zeroed::<libc::ucred>() };
+            let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+            let result = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_PEERCRED,
+                    (&raw mut credentials).cast(),
+                    &raw mut length,
+                )
+            };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::ucred>() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+            }
+            u32::try_from(credentials.pid)
+                .map(Some)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"))
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        fn peer_process_id(_stream: &UnixStream) -> io::Result<Option<u32>> {
+            Ok(None)
+        }
+    }
+
+    #[cfg(windows)]
+    mod imp {
+        use std::io;
+        use std::mem::{offset_of, size_of};
+        use std::os::windows::io::{
+            AsRawSocket, FromRawSocket, IntoRawSocket, OwnedSocket, RawSocket,
+        };
+        use std::path::Path;
+        use std::sync::OnceLock;
+        use std::time::{Duration, Instant};
+
+        use super::Stream;
+        use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            AF_UNIX, FIONBIO, INVALID_SOCKET, POLLNVAL, POLLWRNORM, SO_ERROR, SOCK_STREAM,
+            SOCKADDR, SOCKADDR_UN, SOCKET, SOCKET_ERROR, SOL_SOCKET, WSA_FLAG_NO_HANDLE_INHERIT,
+            WSA_FLAG_OVERLAPPED, WSADATA, WSAEALREADY, WSAEINPROGRESS, WSAEINTR, WSAEWOULDBLOCK,
+            WSAGetLastError, WSAPOLLFD, WSAPoll, WSASocketW, WSAStartup,
+            connect as winsock_connect, getsockopt, ioctlsocket,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -52,6 +468,185 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+            ensure_connect_time_remaining(deadline)?;
+            initialize_winsock()?;
+            let (address, address_len) = unix_socket_address(path)?;
+            // SAFETY: WSASocketW receives no borrowed protocol descriptor and
+            // returns a new socket handle on success.
+            let socket = unsafe {
+                WSASocketW(
+                    AF_UNIX as i32,
+                    SOCK_STREAM,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT,
+                )
+            };
+            if socket == INVALID_SOCKET {
+                return Err(last_winsock_error());
+            }
+            // SAFETY: socket is a fresh successful WSASocketW result and this
+            // OwnedSocket takes its sole ownership.
+            let socket = unsafe { OwnedSocket::from_raw_socket(socket as RawSocket) };
+            let socket_handle = winsock_handle(&socket)?;
+            let mut nonblocking = 1;
+            // SAFETY: socket is valid and nonblocking points to a writable
+            // u32 for the duration of the call.
+            if unsafe { ioctlsocket(socket_handle, FIONBIO, &raw mut nonblocking) } == SOCKET_ERROR
+            {
+                return Err(last_winsock_error());
+            }
+            // SAFETY: address is an initialized SOCKADDR_UN with its exact
+            // Winsock-visible length.
+            let connected = unsafe {
+                winsock_connect(socket_handle, (&raw const address).cast::<SOCKADDR>(), address_len)
+            };
+            if connected == SOCKET_ERROR {
+                let error = last_winsock_error();
+                let code = error.raw_os_error();
+                let pending =
+                    [Some(WSAEALREADY), Some(WSAEINPROGRESS), Some(WSAEINTR), Some(WSAEWOULDBLOCK)]
+                        .contains(&code);
+                if !pending {
+                    return Err(error);
+                }
+                wait_for_connect(socket_handle, deadline)?;
+            }
+            nonblocking = 0;
+            // SAFETY: socket remains valid and nonblocking points to a
+            // writable u32 for the duration of the call.
+            if unsafe { ioctlsocket(socket_handle, FIONBIO, &raw mut nonblocking) } == SOCKET_ERROR
+            {
+                return Err(last_winsock_error());
+            }
+            let raw = socket.into_raw_socket();
+            // SAFETY: ownership was transferred out of OwnedSocket exactly
+            // once and UnixStream accepts that same Winsock socket handle.
+            Ok(Box::new(unsafe { UnixStream::from_raw_socket(raw) }))
+        }
+
+        fn winsock_handle(socket: &OwnedSocket) -> io::Result<SOCKET> {
+            SOCKET::try_from(socket.as_raw_socket()).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "transport socket handle does not fit the Winsock ABI",
+                )
+            })
+        }
+
+        fn initialize_winsock() -> io::Result<()> {
+            static STARTUP: OnceLock<i32> = OnceLock::new();
+            let result = *STARTUP.get_or_init(|| {
+                // SAFETY: data is writable and lives for the duration of
+                // WSAStartup. Version 2.2 is the Winsock API used below.
+                unsafe {
+                    let mut data = std::mem::zeroed::<WSADATA>();
+                    WSAStartup(0x0202, &raw mut data)
+                }
+            });
+            if result == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(result)) }
+        }
+
+        fn ensure_connect_time_remaining(deadline: Instant) -> io::Result<Duration> {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "transport connection exceeded its deadline",
+                    )
+                })
+        }
+
+        fn wait_for_connect(socket: SOCKET, deadline: Instant) -> io::Result<()> {
+            loop {
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = WSAPOLLFD { fd: socket, events: POLLWRNORM, revents: 0 };
+                // SAFETY: descriptor points to one initialized WSAPOLLFD for
+                // the duration of this call.
+                let result = unsafe { WSAPoll(&raw mut descriptor, 1, timeout_ms) };
+                if result == 0 {
+                    continue;
+                }
+                if result == SOCKET_ERROR {
+                    let error = last_winsock_error();
+                    if error.raw_os_error() == Some(WSAEINTR) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "transport connection socket became invalid",
+                    ));
+                }
+                let mut socket_error = 0i32;
+                let mut socket_error_len = i32::try_from(size_of::<i32>()).unwrap();
+                // SAFETY: socket_error and its length describe one writable
+                // i32, and socket remains a valid Winsock handle.
+                if unsafe {
+                    getsockopt(
+                        socket,
+                        SOL_SOCKET,
+                        SO_ERROR,
+                        (&raw mut socket_error).cast(),
+                        &raw mut socket_error_len,
+                    )
+                } == SOCKET_ERROR
+                {
+                    return Err(last_winsock_error());
+                }
+                return if socket_error == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::from_raw_os_error(socket_error))
+                };
+            }
+        }
+
+        fn unix_socket_address(path: &Path) -> io::Result<(SOCKADDR_UN, i32)> {
+            let path = path.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "transport Unix socket path is not valid UTF-8",
+                )
+            })?;
+            let path = path.as_bytes();
+            let capacity = size_of::<SOCKADDR_UN>() - offset_of!(SOCKADDR_UN, sun_path);
+            if path.is_empty() || path.len() >= capacity || path.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid transport Unix socket path",
+                ));
+            }
+            let mut address = SOCKADDR_UN::default();
+            address.sun_family = AF_UNIX;
+            for (destination, source) in address.sun_path.iter_mut().zip(path) {
+                *destination = *source as i8;
+            }
+            let length = offset_of!(SOCKADDR_UN, sun_path) + path.len() + 1;
+            Ok((
+                address,
+                i32::try_from(length).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?,
+            ))
+        }
+
+        fn last_winsock_error() -> io::Error {
+            // SAFETY: WSAGetLastError has no pointer arguments and reads the
+            // calling thread's Winsock error state.
+            io::Error::from_raw_os_error(unsafe { WSAGetLastError() })
         }
 
         impl Listener {
@@ -66,8 +661,16 @@ pub mod transport {
                 Ok(Box::new(self.try_clone()?))
             }
 
+            fn read_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::read_timeout(self)
+            }
+
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn write_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::write_timeout(self)
             }
 
             fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
@@ -80,50 +683,409 @@ pub mod transport {
         }
     }
 
-    #[cfg(windows)]
-    mod imp {
-        use std::io;
-        use std::path::Path;
-        use std::time::Duration;
+    #[cfg(test)]
+    mod tests {
+        use super::*;
 
-        use super::Stream;
-        use uds_windows::{UnixListener, UnixStream};
+        #[cfg(unix)]
+        static SOCKET_CREATED_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-        pub(super) struct Listener {
-            inner: UnixListener,
-        }
+        #[cfg(unix)]
+        struct SocketCreatedHookReset;
 
-        pub(super) fn listen(path: &Path) -> io::Result<Listener> {
-            UnixListener::bind(path).map(|inner| Listener { inner })
-        }
-
-        pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
-            Ok(Box::new(UnixStream::connect(path)?))
-        }
-
-        impl Listener {
-            pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
-                let (stream, _) = self.inner.accept()?;
-                Ok(Box::new(stream))
+        #[cfg(unix)]
+        impl Drop for SocketCreatedHookReset {
+            fn drop(&mut self) {
+                imp::set_socket_created_hook(None);
             }
         }
 
-        impl Stream for UnixStream {
-            fn try_clone_box(&self) -> io::Result<Box<dyn Stream>> {
-                Ok(Box::new(self.try_clone()?))
-            }
+        #[cfg(unix)]
+        fn socket_created_test_lock() -> std::sync::MutexGuard<'static, ()> {
+            SOCKET_CREATED_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        }
 
-            fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-                UnixStream::set_read_timeout(self, timeout)
-            }
+        #[test]
+        fn expired_connect_deadline_fails_before_socket_resolution() {
+            let error = connect_until(
+                Path::new("deadline-expired-before-address-resolution"),
+                Instant::now() - Duration::from_millis(1),
+            )
+            .err()
+            .expect("expired transport connect unexpectedly succeeded");
 
-            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-                UnixStream::set_write_timeout(self, timeout)
-            }
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        }
 
-            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
-                UnixStream::shutdown(self, how)
+        #[cfg(unix)]
+        #[test]
+        fn deadline_connect_preserves_the_stream_contract() {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-connect-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+
+            let stream = connect_until(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+            let (_accepted, _) = listener.accept().unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn deadline_connect_is_close_on_exec_at_socket_creation() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-cloexec-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let close_on_exec = Arc::new(AtomicBool::new(false));
+            imp::set_socket_created_hook(Some(Arc::new({
+                let close_on_exec = close_on_exec.clone();
+                move |descriptor| {
+                    // SAFETY: the hook receives the fresh live socket
+                    // descriptor before connect_until performs any fallback.
+                    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+                    close_on_exec
+                        .store(flags >= 0 && flags & libc::FD_CLOEXEC != 0, Ordering::Release);
+                }
+            })));
+
+            let stream = connect_until(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+            imp::set_socket_created_hook(None);
+            let (_accepted, _) = listener.accept().unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+            assert!(
+                close_on_exec.load(Ordering::Acquire),
+                "deadline connector exposed an inheritable descriptor before setting close-on-exec"
+            );
+        }
+
+        #[cfg(all(unix, not(target_os = "linux")))]
+        #[test]
+        fn deadline_connect_confines_inheritable_descriptor_to_process_barrier() {
+            use std::os::fd::AsRawFd as _;
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
+            let path = std::path::PathBuf::from("/tmp").join(format!(
+                "cmux-cxfb-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let descriptor_was_inheritable = Arc::new(AtomicBool::new(false));
+            imp::set_socket_created_hook(Some(Arc::new({
+                let descriptor_was_inheritable = descriptor_was_inheritable.clone();
+                move |descriptor| {
+                    // SAFETY: the hook receives the fresh live socket before
+                    // the process barrier is released.
+                    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+                    descriptor_was_inheritable
+                        .store(flags >= 0 && flags & libc::FD_CLOEXEC == 0, Ordering::Release);
+                }
+            })));
+
+            let stream =
+                connect_unix_until(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+            imp::set_socket_created_hook(None);
+            let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFD) };
+            let (_accepted, _) = listener.accept().unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+            assert!(
+                descriptor_was_inheritable.load(Ordering::Acquire),
+                "test did not observe the non-atomic macOS descriptor setup window"
+            );
+            assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn deadline_connect_excludes_concurrent_browser_process_creation() {
+            use std::os::unix::fs::PermissionsExt as _;
+            use std::sync::Arc;
+            use std::sync::mpsc;
+
+            let _guard = socket_created_test_lock();
+            let _hook_reset = SocketCreatedHookReset;
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::path::PathBuf::from("/tmp")
+                .join(format!("cmux-cxspawn-{}-{nonce}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            let socket_path = root.join("server.sock");
+            let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+            let marker_path = root.join("descriptor-state");
+            let browser_path = root.join("browser");
+            let profile_path = root.join("profile");
+            let (descriptor_sender, descriptor_receiver) = mpsc::sync_channel(1);
+            let (release_sender, release_receiver) = mpsc::sync_channel(1);
+            let release_receiver = Arc::new(std::sync::Mutex::new(release_receiver));
+            let (connector_id_sender, connector_id_receiver) = mpsc::sync_channel(1);
+            let (connector_start_sender, connector_start_receiver) = mpsc::sync_channel(1);
+            let connector = std::thread::spawn(move || {
+                connector_id_sender.send(std::thread::current().id()).unwrap();
+                connector_start_receiver.recv().unwrap();
+                connect_unix_until(&socket_path, Instant::now() + Duration::from_secs(15))
+            });
+            let connector_id = connector_id_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            imp::set_socket_created_hook(Some(Arc::new({
+                move |descriptor| {
+                    if std::thread::current().id() != connector_id {
+                        return;
+                    }
+                    descriptor_sender.send(descriptor).unwrap();
+                    release_receiver
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(15))
+                        .expect("test did not release descriptor setup");
+                }
+            })));
+
+            connector_start_sender.send(()).unwrap();
+            let descriptor = descriptor_receiver
+                .recv_timeout(Duration::from_secs(15))
+                .expect("connector did not expose its descriptor setup window");
+            std::fs::write(
+                &browser_path,
+                format!(
+                    "#!/bin/sh\n\
+                     if [ -e /dev/fd/{descriptor} ]; then\n\
+                       printf inherited > {}\n\
+                     else\n\
+                       printf closed > {}\n\
+                     fi\n\
+                     printf 'DevTools listening on ws://127.0.0.1:1/devtools/browser/test\\n' >&2\n\
+                     exec /bin/sleep 30\n",
+                    marker_path.display(),
+                    marker_path.display()
+                ),
+            )
+            .unwrap();
+            let mut permissions = std::fs::metadata(&browser_path).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&browser_path, permissions).unwrap();
+
+            let (launch_started_sender, launch_started_receiver) = mpsc::sync_channel(1);
+            let (launch_result_sender, launch_result_receiver) = mpsc::sync_channel(1);
+            let launcher = std::thread::spawn(move || {
+                launch_started_sender.send(()).unwrap();
+                let result =
+                    cmux_tui_cdp::Chrome::launch_with(&cmux_tui_cdp::ChromeLaunchOptions {
+                        binary: browser_path,
+                        mode: cmux_tui_cdp::BrowserMode::Headless,
+                        user_data_dir: Some(profile_path),
+                        ephemeral: false,
+                    })
+                    .map(drop)
+                    .map_err(|error| error.to_string());
+                launch_result_sender.send(result).unwrap();
+            });
+            launch_started_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            let launch_result_before_close_on_exec =
+                launch_result_receiver.recv_timeout(Duration::from_millis(500)).ok();
+            let launched_before_close_on_exec = launch_result_before_close_on_exec.is_some();
+
+            release_sender.send(()).unwrap();
+            let stream = connector.join().unwrap().unwrap();
+            imp::set_socket_created_hook(None);
+            let (_accepted, _) = listener.accept().unwrap();
+            let launch_result = launch_result_before_close_on_exec.unwrap_or_else(|| {
+                launch_result_receiver
+                    .recv_timeout(Duration::from_secs(15))
+                    .expect("browser process did not launch after descriptor setup completed")
+            });
+            launcher.join().unwrap();
+            let descriptor_state = std::fs::read_to_string(&marker_path).unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_dir_all(&root).unwrap();
+            launch_result.unwrap();
+            assert!(
+                !launched_before_close_on_exec,
+                "browser process launched while the connector descriptor was still inheritable"
+            );
+            assert_eq!(
+                descriptor_state, "closed",
+                "browser process inherited the connector descriptor"
+            );
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn deadline_connect_bounds_process_barrier_wait() {
+            use std::sync::mpsc;
+
+            let _serial = socket_created_test_lock();
+            let path = std::path::PathBuf::from("/tmp").join(format!(
+                "cmux-connect-barrier-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (result_sender, result_receiver) = mpsc::sync_channel(1);
+            let connector = std::thread::spawn({
+                let path = path.clone();
+                move || {
+                    let started = Instant::now();
+                    let result =
+                        connect_unix_until(&path, started + Duration::from_millis(40)).map(drop);
+                    result_sender.send((started.elapsed(), result)).unwrap();
+                }
+            });
+
+            let before_release = result_receiver.recv_timeout(Duration::from_millis(150));
+            drop(process_barrier);
+            let completed_before_release = before_release.is_ok();
+            let (elapsed, result) = before_release.unwrap_or_else(|_| {
+                result_receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("connector did not finish after the process barrier was released")
+            });
+            connector.join().unwrap();
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+
+            assert!(
+                completed_before_release,
+                "deadline connector waited for an unbounded process barrier"
+            );
+            assert_eq!(
+                result.unwrap_err().kind(),
+                io::ErrorKind::TimedOut,
+                "barrier deadline returned the wrong transport error"
+            );
+            assert!(
+                elapsed < Duration::from_millis(150),
+                "barrier deadline exceeded its wall-clock bound: {elapsed:?}"
+            );
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn transport_listener_creation_waits_for_the_process_barrier() {
+            use std::sync::mpsc;
+
+            let _serial = socket_created_test_lock();
+            let path = std::path::PathBuf::from("/tmp").join(format!(
+                "cmux-listen-barrier-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (result_sender, result_receiver) = mpsc::sync_channel(1);
+            let creator = std::thread::spawn({
+                let path = path.clone();
+                move || result_sender.send(listen(&path)).unwrap()
+            });
+
+            assert!(
+                result_receiver.recv_timeout(Duration::from_millis(250)).is_err(),
+                "Unix listener creation bypassed the process-wide descriptor barrier"
+            );
+            drop(process_barrier);
+            let listener = result_receiver.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+            creator.join().unwrap();
+
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn deadline_connect_times_out_while_listener_backlog_is_saturated() {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-backlog-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let (address, address_len) = imp::unix_socket_address(&path).unwrap();
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let listener =
+                unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+            assert!(listener >= 0, "failed to create the test listener");
+            // SAFETY: listener is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let listener = unsafe { OwnedFd::from_raw_fd(listener) };
+            // SAFETY: address is initialized for this exact filesystem path
+            // and listener owns a valid AF_UNIX descriptor.
+            let result = unsafe {
+                libc::bind(
+                    listener.as_raw_fd(),
+                    (&raw const address).cast::<libc::sockaddr>(),
+                    address_len,
+                )
+            };
+            assert_eq!(result, 0, "failed to bind the test listener");
+            // SAFETY: listener remains a valid bound AF_UNIX descriptor.
+            let result = unsafe { libc::listen(listener.as_raw_fd(), 0) };
+            assert_eq!(result, 0, "failed to create a zero-backlog test listener");
+            let mut queued = Vec::new();
+            let mut timeout_elapsed = None;
+            for _ in 0..32 {
+                let started = Instant::now();
+                match connect_until(&path, started + Duration::from_millis(75)) {
+                    Ok(stream) => queued.push(stream),
+                    Err(error) => {
+                        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+                        timeout_elapsed = Some(started.elapsed());
+                        break;
+                    }
+                }
             }
+            let elapsed =
+                timeout_elapsed.expect("could not saturate the listener backlog with 32 clients");
+            assert!(
+                elapsed < Duration::from_secs(1),
+                "saturated listener connect exceeded its deadline bound: {elapsed:?}"
+            );
+            drop(queued);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
         }
     }
 }
@@ -795,6 +1757,19 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn unix_transport_reports_the_kernel_peer_process() {
+        use std::os::unix::net::UnixStream;
+
+        use transport::Stream as _;
+
+        let (client, server) = UnixStream::pair().unwrap();
+
+        assert_eq!(client.peer_process_id().unwrap(), Some(std::process::id()));
+        assert_eq!(server.peer_process_id().unwrap(), Some(std::process::id()));
+    }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {
         let expected = expected.as_ref();

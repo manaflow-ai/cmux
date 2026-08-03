@@ -274,12 +274,12 @@ fn spawn_transport_process(
     command: &mut Command,
 ) -> anyhow::Result<(ChildStdin, ChildStdout, Arc<Process>)> {
     #[cfg(unix)]
-    let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()
+    let (stderr_cancel, stderr_cancel_worker) = cmux_tui_process::unix::pair_stream()
         .map_err(|error| anyhow::anyhow!("cannot create ssh diagnostics cancellation: {error}"))?;
     #[cfg(unix)]
     command.process_group(0);
-    let mut child =
-        command.spawn().map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
+    let mut child = cmux_tui_process::spawn(command)
+        .map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
     #[cfg(unix)]
     let process_group = match libc::pid_t::try_from(child.id()) {
         Ok(process_group) => process_group,
@@ -540,6 +540,54 @@ mod tests {
             process.diagnostic_after_stdout_eof().as_deref(),
             Some("permission denied retry later")
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn diagnostics_socket_pair_waits_for_the_process_barrier() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_DIAGNOSTICS_PAIR_BARRIER";
+        const TEST_NAME: &str =
+            "machine_runtime::tests::diagnostics_socket_pair_waits_for_the_process_barrier";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "descriptor-barrier subprocess failed: {status}");
+            return;
+        }
+
+        fn descriptor_count() -> usize {
+            std::fs::read_dir("/dev/fd").unwrap().count()
+        }
+
+        let baseline = descriptor_count();
+        let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let mut command = Command::new("/usr/bin/true");
+            command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+            started_sender.send(()).unwrap();
+            spawn_transport_process(&mut command)
+        });
+        started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut observed = baseline;
+        while observed == baseline && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+            observed = descriptor_count();
+        }
+
+        assert_eq!(
+            observed, baseline,
+            "UnixStream::pair created inheritable descriptors outside the process barrier"
+        );
+        drop(process_barrier);
+        let (stdin, stdout, process) = worker.join().unwrap().unwrap();
+        drop(stdin);
+        drop(stdout);
+        drop(process);
     }
 
     #[cfg(unix)]

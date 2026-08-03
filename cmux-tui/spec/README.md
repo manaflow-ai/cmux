@@ -6,7 +6,67 @@ separate internal or privileged protocols.
 ## Public API
 
 `cmux.protocol/1` is the compatibility boundary for the noun-first CLI and
-high-level SDKs:
+high-level SDKs.
+
+## Raw protocol versioning
+
+The spec version tracks the mux protocol version.
+
+| Change type | Version rule |
+| --- | --- |
+| Clarification that does not change wire behavior | Patch level of the spec text only |
+| Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
+| Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
+
+Protocol v8 adds stable ids to canonical split nodes and exact split-ratio mutation while preserving the protocol-v5 `set-ratio` command. Protocol-v7 layout nodes do not carry `split`, so clients must negotiate v8 before requiring that field or sending `set-split-ratio`.
+
+Protocol v9 adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`.
+
+Protocol v10 is the implemented baseline. It scopes client-sizing participation
+to one terminal attachment, requires an explicit terminal selector on
+`set-client-sizing`, and reports `size_participating` on each
+`list-clients.sizes` entry. Proposed additions in this directory target the
+next minor protocol unless a later spec says otherwise.
+
+Protocol v7 is additive for v6 clients: the raw attachment `mode` field
+defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so
+absent v7 selectors retain exact v6 attach and tree-event behavior. A v7
+server reports `identify.protocol == 7`; clients must require that value before
+selecting render mode or using other v7-only fields and commands.
+
+Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
+
+`identify.capabilities` negotiates additive build-level features within one
+protocol version. Clients must treat a missing capability list as empty. Exact
+raw capability names are documented in [`commands.md`](commands.md). Clients
+must negotiate initial attachment sizing before sending initial `cols` or
+`rows`, terminal-scoped subscription filtering before sending a terminal
+selector on `subscribe`, `workspace-registry-v1` before using registry
+creation, placement, stable-key, or revision-CAS APIs, `viewport-splits-v1`
+before creating horizontal viewport columns, `viewport-column-resize-v1`
+before resizing those columns, `layout-undo-v1` before sending `undo-layout`,
+`clear-history-v1` before sending `clear-history`, both `clear-history-v1` and
+`clear-history-key-v1` before including its structured `fallback_key`,
+`provider-managed-workspace-authority-v2` before committing provider-owned
+workspace mirrors with a pre-provisioned authority, and `server-shutdown-v1`
+before assuming `shutdown` is implemented.
+
+## SDK model
+
+The noun-first CLI and high-level SDK facades are handwritten against the
+resource operation catalog. Raw SDK namespaces are generated from the
+protocol schema, and their checked-in manifests make schema drift visible.
+
+The acceptance gate is the conformance suite described in `bindings.md`. A
+binding is conformant only when it can replay the fixture request/response
+pairs, event transcripts, and end-to-end scenario against a real headless mux
+server.
+
+Raw-layer generators preserve wire command names, parameter names, result
+shapes, and error handling rules. High-level language APIs may be idiomatic,
+but they map to the operations and schemas declared here.
+
+## File Map
 
 | File | Purpose |
 | --- | --- |

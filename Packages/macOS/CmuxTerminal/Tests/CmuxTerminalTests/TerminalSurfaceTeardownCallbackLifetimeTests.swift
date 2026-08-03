@@ -51,6 +51,25 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func teardownSurfaceReturnsTicketThatFencesNativeFree() async throws {
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let allowFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            allowFree.wait()
+        }
+        defer {
+            allowFree.signal()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let ticket = try #require(surface.teardownSurface())
+
+        #expect(await ticket.wait(timeout: .zero) == false)
+        allowFree.signal()
+        #expect(await ticket.wait(timeout: .seconds(1)))
+    }
+
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let registry = TerminalSurfaceRegistry()
@@ -104,6 +123,37 @@ import Testing
         allowFree.signal()
         #expect(await surface.waitForAgentHibernationRuntimeTeardown(timeout: .seconds(1)))
         #expect(surface.prepareAgentHibernationResume(initialInput: nil))
+        freeStarted.continuation.finish()
+    }
+
+    @Test func closeDuringAgentHibernationWaitsForNativeFreeCompletion() async throws {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let allowFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            freeStarted.continuation.yield()
+            allowFree.wait()
+        }
+        defer {
+            allowFree.signal()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate"))
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+
+        let closeTicket = try #require(surface.teardownSurface())
+        #expect(await closeTicket.wait(timeout: .zero) == false)
+        #expect(await surface.waitForCloseRuntimeTeardown(timeout: .zero) == false)
+
+        allowFree.signal()
+        #expect(await surface.waitForCloseRuntimeTeardown(timeout: .seconds(1)))
         freeStarted.continuation.finish()
     }
 

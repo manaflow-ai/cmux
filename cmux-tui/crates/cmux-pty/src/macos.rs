@@ -28,6 +28,7 @@ impl DescriptorCleanup {
 }
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
+    let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
     let mut master_fd = -1;
     let mut slave_fd = -1;
     let mut window_size = libc::winsize {
@@ -61,6 +62,7 @@ pub(crate) fn spawn(
     slave: &Slave,
     command: PtyCommand,
 ) -> anyhow::Result<Box<dyn Child + Send + Sync>> {
+    let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
     let shell = resolved_shell(&command);
     let mut process = Command::new(&command.program);
     process.args(&command.args);
@@ -71,6 +73,9 @@ pub(crate) fn spawn(
     }
     if command.clean_environment {
         process.env_clear();
+    }
+    for key in &command.removed_environment {
+        process.env_remove(key);
     }
     process.envs(&command.environment);
     process.env("SHELL", shell);

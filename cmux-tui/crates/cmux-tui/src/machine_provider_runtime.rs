@@ -3915,7 +3915,7 @@ mod tests {
                 &protocol::ResponseEnvelope::success(
                     request.id,
                     protocol::ConnectExternalMachineResult {
-                        machine_id: id("machine-1"),
+                        machine_id: id("machine-2"),
                         revision: server_catalog.revision,
                         notice: None,
                     },
@@ -3957,7 +3957,7 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
         controller.close();
         server.join().unwrap();
     }
@@ -4396,9 +4396,15 @@ mod tests {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(request["cmd"], expected_command);
                 let data = if expected_command == "identify" {
+                    let release = cmux_tui_core::release::ReleaseIdentity::current(
+                        cmux_tui_core::server::PROTOCOL_VERSION,
+                    );
                     json!({
                         "app": "cmux-tui",
-                        "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                        "version": release.version,
+                        "build_commit": release.build_commit,
+                        "ghostty_commit": release.ghostty_commit,
+                        "protocol": release.protocol,
                         "capabilities": ["browser-pointer-frame-guard-v1"],
                     })
                 } else {

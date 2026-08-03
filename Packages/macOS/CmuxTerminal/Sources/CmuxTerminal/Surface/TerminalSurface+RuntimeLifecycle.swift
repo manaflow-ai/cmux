@@ -134,6 +134,9 @@ extension TerminalSurface {
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
+            let runtimeOwnershipReservation =
+                runtimeSurfaceOwnershipReservation
+            self.runtimeSurfaceOwnershipReservation = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -150,6 +153,11 @@ extension TerminalSurface {
 #endif
             callbackContext?.release()
             teeLease?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return nil
         }
         return surface
@@ -200,6 +208,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         // Parked wake-ups are for re-anchoring live content; a closing surface
         // has none, and the park guard refuses new entries from here on.
         clearPortalHostVacancyRetries()
@@ -216,6 +225,7 @@ extension TerminalSurface {
     func markPortalLifecycleClosed(reason: String) {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         portalLifecycleGeneration &+= 1
         clearPortalHostVacancyRetries()
 #if DEBUG
@@ -229,8 +239,12 @@ extension TerminalSurface {
 
     /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
     /// before deinit; deinit will skip the free if already torn down.
+    ///
+    /// - Returns: A ticket that completes after the native free and callback
+    ///   userdata releases, or the existing ticket when teardown already began.
+    @discardableResult
     @MainActor
-    public func teardownSurface() {
+    public func teardownSurface() -> TerminalSurfaceRuntimeTeardownTicket? {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
@@ -243,6 +257,9 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let runtimeOwnershipReservation =
+            runtimeSurfaceOwnershipReservation
+        self.runtimeSurfaceOwnershipReservation = nil
         byteTee.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
@@ -255,7 +272,16 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
+            if closeRuntimeTeardownTicket == nil {
+                closeRuntimeTeardownTicket =
+                    agentHibernationRuntimeTeardownTicket
+            }
+            return closeRuntimeTeardownTicket
         }
 
 #if DEBUG
@@ -264,16 +290,27 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
+            return closeRuntimeTeardownTicket
         }
 #endif
+
+        guard let runtimeOwnershipReservation else {
+            preconditionFailure(
+                "A native terminal surface requires bounded runtime ownership"
+            )
+        }
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
+            let ticket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
@@ -281,20 +318,53 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                runtimeOwnershipReservation: runtimeOwnershipReservation,
                 freeSurface: freeSurface
             )
-            return
+            guard let ticket else {
+                preconditionFailure(
+                    "Transferred runtime ownership must remain admitted"
+                )
+            }
+            closeRuntimeTeardownTicket = ticket
+            return ticket
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
+        let ticket = runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease,
+            runtimeOwnershipReservation: runtimeOwnershipReservation
+        )
+        guard let ticket else {
+            preconditionFailure(
+                "Transferred runtime ownership must remain admitted"
+            )
         }
+        closeRuntimeTeardownTicket = ticket
+        return ticket
+    }
+
+    /// Waits for an explicit close teardown to release its native surface.
+    ///
+    /// - Parameter timeout: Maximum wait, or `nil` for an event-driven wait.
+    /// - Returns: `true` when no close teardown is pending or it completed.
+    @MainActor
+    public func waitForCloseRuntimeTeardown(timeout: Duration?) async -> Bool {
+        guard let ticket = closeRuntimeTeardownTicket else { return true }
+        let completed = await ticket.wait(timeout: timeout)
+        if completed, closeRuntimeTeardownTicket?.id == ticket.id {
+            closeRuntimeTeardownTicket = nil
+        }
+        if completed, agentHibernationRuntimeTeardownTicket?.id == ticket.id {
+            agentHibernationRuntimeTeardownTicket = nil
+        }
+        return completed
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -314,6 +384,7 @@ extension TerminalSurface {
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
         runtimeSurfaceSuspendedForAgentHibernation = true
+        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
@@ -324,6 +395,9 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let runtimeOwnershipReservation =
+            runtimeSurfaceOwnershipReservation
+        self.runtimeSurfaceOwnershipReservation = nil
         byteTee.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
@@ -346,7 +420,21 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
+            if let runtimeOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    runtimeOwnershipReservation
+                )
+            }
             return true
+        }
+
+        guard let runtimeOwnershipReservation else {
+            runtimeTeardown.cancelIsolatedHibernationTeardown(
+                teardownReservation
+            )
+            preconditionFailure(
+                "A native terminal surface requires bounded runtime ownership"
+            )
         }
 
 #if DEBUG
@@ -369,9 +457,14 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                runtimeOwnershipReservation: runtimeOwnershipReservation,
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
+            )
+            precondition(
+                agentHibernationRuntimeTeardownTicket != nil,
+                "Transferred runtime ownership must remain admitted"
             )
             return true
         }
@@ -385,8 +478,13 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            runtimeOwnershipReservation: runtimeOwnershipReservation,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
+        )
+        precondition(
+            agentHibernationRuntimeTeardownTicket != nil,
+            "Transferred runtime ownership must remain admitted"
         )
         return true
     }
@@ -601,7 +699,96 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func reserveRuntimeSurfaceOwnershipForCreation(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource
+    ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+        runtimeSurfaceAdmissionDeferredCreationSource =
+            (
+                runtimeSurfaceAdmissionDeferredCreationSource
+                ?? source
+            ).promoted(with: source)
+        runtimeSurfaceAdmissionDeferredCreationView = view
+        let teardownCoordinator = runtimeTeardown
+        guard let reservation =
+                teardownCoordinator.reserveRuntimeSurfaceOwnership(
+                    recoveryID: id,
+                    onRecovery: { [weak self, teardownCoordinator] reservation in
+                        guard let self else {
+                            teardownCoordinator.cancelRuntimeSurfaceOwnership(
+                                reservation
+                            )
+                            return
+                        }
+                        self.resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+                            reservation: reservation
+                        )
+                    }
+                ) else {
+            return nil
+        }
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+        return reservation
+    }
+
+    @MainActor
+    private func resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
+        reservation: TerminalSurfaceRuntimeOwnershipReservation
+    ) {
+        let source =
+            runtimeSurfaceAdmissionDeferredCreationSource
+            ?? .normal
+        let view =
+            runtimeSurfaceAdmissionDeferredCreationView
+            ?? attachedView
+            ?? surfaceView
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+        if requiresRestoreSpawnPacing, source == .scheduledRestore {
+            // The failed attempt already consumed its prior restore cadence
+            // slot. Return admission ownership and use the shared normal
+            // entrypoint to queue a fresh paced slot before retrying Ghostty.
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(reservation)
+            createSurface(for: view, source: .normal)
+            return
+        }
+        createSurface(
+            for: view,
+            source: source,
+            recoveredOwnershipReservation: reservation
+        )
+    }
+
+    private func cancelRuntimeSurfaceCreationAfterAdmissionRecovery() {
+        runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
+        runtimeSurfaceAdmissionDeferredCreationSource = nil
+        runtimeSurfaceAdmissionDeferredCreationView = nil
+    }
+
+    @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
+        createSurface(
+            for: view,
+            source: source,
+            recoveredOwnershipReservation: nil
+        )
+    }
+
+    @MainActor
+    private func createSurface(
+        for view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource,
+        recoveredOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation?
+    ) {
+        var recoveredOwnershipReservation = recoveredOwnershipReservation
+        defer {
+            if let recoveredOwnershipReservation {
+                runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                    recoveredOwnershipReservation
+                )
+            }
+        }
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
             logDebugEvent(
@@ -614,6 +801,7 @@ extension TerminalSurface {
 #endif
             return
         }
+        guard surface == nil else { return }
         if deferRuntimeSurfaceCreationForConfigurationReload(
             view: view,
             source: source
@@ -638,7 +826,29 @@ extension TerminalSurface {
         Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
         #endif
 
+        let runtimeOwnershipReservation: TerminalSurfaceRuntimeOwnershipReservation
+        if let recoveredReservation = recoveredOwnershipReservation {
+            runtimeOwnershipReservation = recoveredReservation
+            recoveredOwnershipReservation = nil
+        } else if let reservation = reserveRuntimeSurfaceOwnershipForCreation(
+            view: view,
+            source: source
+        ) {
+            runtimeOwnershipReservation = reservation
+        } else {
+#if DEBUG
+            logDebugEvent(
+                "ghostty.surface.create.failed reason=teardownAdmissionDegraded " +
+                "surface=\(id.uuidString)"
+            )
+#endif
+            return
+        }
+
         guard let app = engine.runtimeApp else {
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                runtimeOwnershipReservation
+            )
             #if DEBUG
             logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
             #endif
@@ -660,6 +870,9 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            runtimeTeardown.cancelRuntimeSurfaceOwnership(
+                runtimeOwnershipReservation
+            )
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             manualIOContext?.release()
@@ -683,6 +896,8 @@ extension TerminalSurface {
             #endif
             return
         }
+        self.runtimeSurfaceOwnershipReservation =
+            runtimeOwnershipReservation
         guard let createdSurface = surface else { return }
         guard let surfaceCallbackContext else {
             preconditionFailure(

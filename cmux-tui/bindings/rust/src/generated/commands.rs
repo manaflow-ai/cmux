@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 10, IR 56597ffacc6ef7d83023966ca55a6f176ebc27d34f45256d41dff5985684105d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1046,6 +1046,14 @@ pub struct SetWindowTitleRequest {
 pub type SetWindowTitleResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ShutdownRequest {
+}
+
+#[rustfmt::skip]
+pub type ShutdownResult = T::EmptyResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1593,6 +1601,10 @@ impl CmuxClient {
 
     pub fn set_window_title(&mut self, request: SetWindowTitleRequest) -> Result<SetWindowTitleResult> {
         self.execute(&SET_WINDOW_TITLE_METADATA, &request)
+    }
+
+    pub fn shutdown(&mut self, request: ShutdownRequest) -> Result<ShutdownResult> {
+        self.execute(&SHUTDOWN_METADATA, &request)
     }
 
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {

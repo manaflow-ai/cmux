@@ -256,7 +256,7 @@ pub async fn call_admin(
     path: impl AsRef<Path>,
     request: &AdminRequest,
 ) -> Result<AdminResponse, AdminError> {
-    let stream = UnixStream::connect(path).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
     verify_unix_peer_owner(&stream)?;
     call_admin_over_stream(stream, request).await
 }
@@ -271,7 +271,7 @@ pub async fn call_admin_with_peer_exit(
     path: impl AsRef<Path>,
     request: &AdminRequest,
 ) -> Result<(AdminResponse, UnixPeerProcessExit), AdminError> {
-    let stream = UnixStream::connect(path).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
     verify_unix_peer_owner(&stream)?;
     let peer_pid = stream.peer_cred()?.pid().ok_or_else(|| {
         io::Error::new(
@@ -567,7 +567,7 @@ async fn call_admin_with_expected_uid(
     request: &AdminRequest,
     expected_uid: u32,
 ) -> Result<AdminResponse, AdminError> {
-    let stream = UnixStream::connect(path).await?;
+    let stream = cmux_tui_process::tokio_net::connect_unix_stream(path).await?;
     verify_unix_peer_uid(&stream, expected_uid)?;
     call_admin_over_stream(stream, request).await
 }
