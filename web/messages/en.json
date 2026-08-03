@@ -4643,6 +4643,7 @@
       "claude": "A terminal for Claude Code",
       "codex": "A terminal for Codex CLI",
       "opencode": "A terminal for OpenCode",
+      "pi": "The best terminal for Pi coding agent",
       "getStarted": "Get started with cmux",
       "configuration": "Configuration (Ghostty config)",
       "ohMyCodex": "oh-my-codex",
