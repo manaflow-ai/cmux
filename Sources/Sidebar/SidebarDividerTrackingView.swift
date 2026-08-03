@@ -1,35 +1,14 @@
 import AppKit
 import QuartzCore
-import SwiftUI
 
 /// Native divider tracking for the sidebar resizers.
 ///
 /// Runs the same synchronous mouse-tracking loop NSSplitView uses: from
 /// mouseDown, events are pulled with `nextEvent(matching:)` until mouse-up,
-/// and after each width update the runloop sleeps briefly in `.eventTracking`
-/// mode so SwiftUI/Core Animation commit the new layout inside the loop,
+/// and after each width update the runloop advances briefly in `.eventTracking`
+/// mode so Core Animation commits the new layout inside the loop,
 /// then the window presents. The divider therefore stays glued to the
-/// cursor with no async runloop hop, while the panes remain SwiftUI-owned
-/// (both blend modes keep their existing geometry).
-struct SidebarDividerTracker: NSViewRepresentable {
-    let onBegan: () -> Void
-    let onChanged: (CGFloat) -> Void
-    let onEnded: () -> Void
-
-    func makeNSView(context: Context) -> SidebarDividerTrackingView {
-        let view = SidebarDividerTrackingView()
-        view.onBegan = onBegan
-        view.onChanged = onChanged
-        view.onEnded = onEnded
-        return view
-    }
-
-    func updateNSView(_ nsView: SidebarDividerTrackingView, context: Context) {
-        nsView.onBegan = onBegan
-        nsView.onChanged = onChanged
-        nsView.onEnded = onEnded
-    }
-}
+/// cursor with no async runloop hop.
 
 @MainActor
 final class SidebarDividerTrackingView: NSView {
@@ -39,7 +18,7 @@ final class SidebarDividerTrackingView: NSView {
 
 #if DEBUG
     // Routing diagnosis: sidebar-resize bugs have historically been fights
-    // over who wins pointer hit-testing (portal vs SwiftUI vs this view).
+    // over who wins pointer hit-testing (portal vs content tree vs this view).
     // Log the winning view class for each left mouse-down so a stolen drag
     // is attributable from the debug log alone.
     private static var diagnosticsInstalled = false
@@ -128,7 +107,7 @@ final class SidebarDividerTrackingView: NSView {
             onChanged?(next.locationInWindow.x - startX)
             let t1 = CACurrentMediaTime()
             // A zero-deadline runloop pass returns before the before-waiting
-            // phase, which is where SwiftUI and Core Animation register their
+            // phase, which is where the renderer and Core Animation register their
             // commit observers — so the width write would present a frame (or
             // more) late. A real 1ms deadline lets the loop reach that phase
             // and commit inside this event; then present.

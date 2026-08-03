@@ -189,7 +189,7 @@ func resolvedBrowserChromeColorScheme(
     let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
         ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
         : themeBackgroundColor
-    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
+    return cmuxReadableColorScheme(for: perceivedBackgroundColor) == .dark ? .dark : .light
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(

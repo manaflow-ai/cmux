@@ -2,7 +2,6 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
-import SwiftUI
 import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
@@ -14,18 +13,6 @@ enum SidebarTabItemFontScale {
     static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
         GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
             / GhosttyConfig.defaultSidebarFontSize
-    }
-}
-
-extension Color {
-    init?(hex: String) {
-        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
-        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
-        self.init(
-            red:   Double((value >> 16) & 0xFF) / 255.0,
-            green: Double((value >> 8)  & 0xFF) / 255.0,
-            blue:  Double( value        & 0xFF) / 255.0
-        )
     }
 }
 
@@ -75,7 +62,7 @@ func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppear
     )
 }
 
-func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
+func cmuxAccentNSColor(for colorScheme: WindowChromeColorScheme) -> NSColor {
     switch colorScheme {
     case .dark:
         return NSColor(
@@ -84,7 +71,7 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
             blue: 1.0,
             alpha: 1.0
         )
-    default:
+    case .light:
         return NSColor(
             srgbRed: 0,
             green: 136.0 / 255.0,
@@ -94,13 +81,9 @@ func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     }
 }
 
-func cmuxAccentNSColor(for colorScheme: WindowChromeColorScheme) -> NSColor {
-    cmuxAccentNSColor(for: colorScheme == .dark ? ColorScheme.dark : .light)
-}
-
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
     let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-    let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
+    let scheme: WindowChromeColorScheme = (bestMatch == .darkAqua) ? .dark : .light
     return cmuxAccentNSColor(for: scheme)
 }
 
@@ -110,11 +93,7 @@ func cmuxAccentNSColor() -> NSColor {
     }
 }
 
-func cmuxAccentColor() -> Color {
-    Color(nsColor: cmuxAccentNSColor())
-}
-
-func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
+func cmuxReadableColorScheme(for backgroundColor: NSColor) -> WindowChromeColorScheme {
     let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
     let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
     let blackContrast = cmuxContrastRatio(backgroundLuminance, 0.0)
@@ -240,7 +219,7 @@ enum SidebarRemoteErrorCopySupport {
 }
 
 func sidebarSelectedWorkspaceBackgroundNSColor(
-    for colorScheme: ColorScheme,
+    for colorScheme: WindowChromeColorScheme,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
@@ -248,16 +227,6 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
         return parsed
     }
     return cmuxAccentNSColor(for: colorScheme)
-}
-
-func sidebarSelectedWorkspaceBackgroundNSColor(
-    for colorScheme: WindowChromeColorScheme,
-    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
-) -> NSColor {
-    sidebarSelectedWorkspaceBackgroundNSColor(
-        for: colorScheme == .dark ? ColorScheme.dark : .light,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
-    )
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -289,22 +258,6 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
-    colorScheme: ColorScheme
-) -> NSColor? {
-    guard activeTabIndicatorStyle == .leftRail,
-          let customColorHex else {
-        return nil
-    }
-    return WorkspaceTabColorSettings.displayNSColor(
-        hex: customColorHex,
-        colorScheme: colorScheme.nativeWindowChromeColorScheme,
-        forceBright: true
-    )
-}
-
-func sidebarWorkspaceRowExplicitRailNSColor(
-    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
-    customColorHex: String?,
     colorScheme: WindowChromeColorScheme
 ) -> NSColor? {
     guard activeTabIndicatorStyle == .leftRail,
@@ -321,7 +274,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,
-    colorScheme: ColorScheme,
+    colorScheme: WindowChromeColorScheme,
     sidebarSelectionColorHex: String?
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
@@ -332,7 +285,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
-            colorScheme: colorScheme.nativeWindowChromeColorScheme,
+            colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
         )
     }
@@ -368,23 +321,4 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         return .clear
     }
-}
-
-
-func sidebarWorkspaceRowBackgroundStyle(
-    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
-    isActive: Bool,
-    isMultiSelected: Bool,
-    customColorHex: String?,
-    colorScheme: WindowChromeColorScheme,
-    sidebarSelectionColorHex: String?
-) -> SidebarWorkspaceRowBackgroundStyle {
-    sidebarWorkspaceRowBackgroundStyle(
-        activeTabIndicatorStyle: activeTabIndicatorStyle,
-        isActive: isActive,
-        isMultiSelected: isMultiSelected,
-        customColorHex: customColorHex,
-        colorScheme: colorScheme == .dark ? ColorScheme.dark : .light,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
-    )
 }

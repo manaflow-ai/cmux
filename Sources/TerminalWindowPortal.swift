@@ -255,7 +255,7 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
-        // The sidebar resizer handle is implemented in SwiftUI. When terminals
+        // The sidebar resizer handle sits outside the portal. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
         // and steal hover/mouse events.
         let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
@@ -697,7 +697,7 @@ final class WindowTerminalPortal: NSObject {
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
-    /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
+    /// Hosted views arrive from the pane host with a flexible autoresizing
     /// mask; adoption clears it (see bind) and detach restores this saved
     /// value so the view resumes its normal AppKit life.
     private var preAdoptionAutoresizingMaskByHostedId: [ObjectIdentifier: NSView.AutoresizingMask] = [:]
@@ -1349,7 +1349,7 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
-    /// SwiftUI/AppKit hosting layers can report an anchor bounds wider than its split pane when
+    /// Mixed hosting layers can report an anchor bounds wider than its split pane when
     /// intrinsic-size content overflows; intersecting through ancestor bounds gives the effective
     /// visible rect that should drive portal geometry.
     private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
@@ -1478,7 +1478,7 @@ final class WindowTerminalPortal: NSObject {
         // by synchronizeHostedView (shouldHide reads entry.visibleInUI), and a
         // selection-only tab switch produces no window geometry churn that
         // would run one otherwise. An unscheduled hide left the deselected
-        // terminal's layer rendering above SwiftUI chrome — the previous
+        // terminal's layer rendering above native chrome, the previous
         // terminal's content filled the browser omnibar band until unrelated
         // churn (sidebar toggle, window resize) healed it.
         if becameVisible || becameHidden {
@@ -1626,7 +1626,7 @@ final class WindowTerminalPortal: NSObject {
         ensureDividerOverlayOnTop()
 
         if deferLayoutSynchronization {
-            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
+            // Bind calls from transitional mount update/layout callbacks
             // must not force ancestor layout synchronously. Still reconcile the
             // portal entry from already-current host geometry so resize/visibility
             // does not lag until a later external observer turn.
@@ -2219,7 +2219,7 @@ final class WindowTerminalPortal: NSObject {
                 anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
-                // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
+                // During aggressive tab drag/reorder churn, the view hierarchy can briefly
                 // detach/rehome anchor hosts while the terminal should stay visible.
                 // Avoid pruning those visible entries so sync/bind recovery can reattach.
                 return entry.visibleInUI ? nil : hostedId

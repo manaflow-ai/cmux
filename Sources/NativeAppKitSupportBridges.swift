@@ -13,6 +13,22 @@ import ExtensionFoundation
 import SwiftUI
 import WebKit
 
+extension Color {
+    init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255.0,
+            green: Double((value >> 8) & 0xFF) / 255.0,
+            blue: Double(value & 0xFF) / 255.0
+        )
+    }
+}
+
+func cmuxAccentColor() -> Color {
+    Color(nsColor: cmuxAccentNSColor())
+}
+
 extension StoredShortcut {
     var swiftUIKeyEquivalent: KeyEquivalent? {
         keyEquivalent.map(KeyEquivalent.init)
@@ -236,6 +252,28 @@ struct SidebarWorkspaceScrollEdgeFadeMask: NSViewRepresentable {
     func updateNSView(_ view: SidebarWorkspaceScrollEdgeFadeMaskView, context: Context) {
         view.topHeight = topHeight
         view.bottomHeight = bottomHeight
+    }
+}
+
+struct SidebarDividerTracker: NSViewRepresentable {
+    let onBegan: () -> Void
+    let onChanged: (CGFloat) -> Void
+    let onEnded: () -> Void
+
+    func makeNSView(context: Context) -> SidebarDividerTrackingView {
+        let view = SidebarDividerTrackingView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: SidebarDividerTrackingView, context: Context) {
+        update(view)
+    }
+
+    private func update(_ view: SidebarDividerTrackingView) {
+        view.onBegan = onBegan
+        view.onChanged = onChanged
+        view.onEnded = onEnded
     }
 }
 
