@@ -762,6 +762,8 @@
         "fully_reducible": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
         "applied_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
         "ignored_non_required_records": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "unsupported_required_record_count": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "unsupported_required_records_truncated": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
         "unsupported_required_records": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalUnsupportedReplayRecord"}}},
         "state_sha256": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}},
         "state": {"required": true, "type": {"kind": "ref", "name": "JsonValue"}},
