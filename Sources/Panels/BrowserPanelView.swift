@@ -69,17 +69,21 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
     }
 
     var color: Color {
+        Color(nsColor: nsColor)
+    }
+
+    var nsColor: NSColor {
         switch self {
         case .bonsplitInactive:
             // Matches Bonsplit tab icon tint for inactive tabs.
-            return Color(nsColor: .secondaryLabelColor)
+            return .secondaryLabelColor
         case .bonsplitActive:
             // Matches Bonsplit tab icon tint for active tabs.
-            return Color(nsColor: .labelColor)
+            return .labelColor
         case .accent:
-            return cmuxAccentColor()
+            return cmuxAccentNSColor()
         case .tertiary:
-            return Color(nsColor: .tertiaryLabelColor)
+            return .tertiaryLabelColor
         }
     }
 }
@@ -1140,7 +1144,7 @@ struct BrowserPanelView: View {
                         controller: panel.designModeController,
                         iconPointSize: devToolsButtonIconSize,
                         hitSize: addressBarButtonSize,
-                        inactiveColor: devToolsColorOption.color,
+                        inactiveColor: devToolsColorOption.nsColor,
                         onToggle: { await panel.toggleDesignMode(reason: "toolbar") }
                     )
                     screenshotPageButton
@@ -1229,11 +1233,33 @@ struct BrowserPanelView: View {
             }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
-            BrowserPDFDocumentToolbarButtons(
-                panel: panel,
-                iconPointSize: chromeMetrics.navigationIconFontSize,
-                hitSize: addressBarButtonHitSize
-            )
+            if panel.renderedPDFDocumentURL != nil {
+                Button(action: panel.downloadRenderedPDFDocument) {
+                    CmuxSystemSymbolImage(
+                        systemName: "square.and.arrow.down",
+                        pointSize: chromeMetrics.navigationIconFontSize,
+                        weight: .medium
+                    )
+                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(OmnibarAddressButtonStyle())
+                .safeHelp(String(localized: "browser.pdf.download", defaultValue: "Download PDF"))
+                .accessibilityLabel(String(localized: "browser.pdf.download", defaultValue: "Download PDF"))
+
+                Button(action: panel.printRenderedPDFDocument) {
+                    CmuxSystemSymbolImage(
+                        systemName: "printer",
+                        pointSize: chromeMetrics.navigationIconFontSize,
+                        weight: .medium
+                    )
+                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(OmnibarAddressButtonStyle())
+                .safeHelp(String(localized: "browser.pdf.print", defaultValue: "Print PDF"))
+                .accessibilityLabel(String(localized: "browser.pdf.print", defaultValue: "Print PDF"))
+            }
 
             if panel.isDownloading || !panel.recentDownloads.isEmpty {
                 BrowserDownloadsToolbarButton(
@@ -1418,10 +1444,17 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.shouldRenderWebView)
-            BrowserDesignModeOverflowMenuButton(
-                controller: panel.designModeController,
-                onToggle: { await panel.toggleDesignMode(reason: "overflowMenu") }
-            )
+            Button {
+                Task { @MainActor in
+                    _ = await panel.toggleDesignMode(reason: "overflowMenu")
+                }
+            } label: {
+                Label(
+                    String(localized: "browser.designMode.title", defaultValue: "Design Mode"),
+                    systemImage: "paintbrush.pointed"
+                )
+            }
+            .disabled(!panel.designModeController.canToggle)
             Button {
                 panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
                 Task { await panel.toggleOrInjectReactGrab() }

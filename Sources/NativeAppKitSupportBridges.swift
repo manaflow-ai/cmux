@@ -287,6 +287,36 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 }
 
+struct BrowserDesignModeToolbarButton: NSViewRepresentable {
+    let controller: BrowserDesignModeController
+    let iconPointSize: CGFloat
+    let hitSize: CGFloat
+    let inactiveColor: NSColor
+    let onToggle: @MainActor () async -> Bool
+
+    func makeNSView(context: Context) -> BrowserDesignModeToolbarButtonView {
+        BrowserDesignModeToolbarButtonView(frame: .zero)
+    }
+
+    func updateNSView(_ view: BrowserDesignModeToolbarButtonView, context: Context) {
+        view.update(
+            controller: controller,
+            iconPointSize: iconPointSize,
+            hitSize: hitSize,
+            inactiveColor: inactiveColor,
+            onToggle: onToggle
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: BrowserDesignModeToolbarButtonView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: hitSize, height: hitSize)
+    }
+}
+
 private extension Font.Weight {
     var nsFontWeight: NSFont.Weight {
         if self == .ultraLight { return .ultraLight }
