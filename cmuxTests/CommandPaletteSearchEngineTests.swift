@@ -378,7 +378,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let corpus = [mobileConnect] + decoys
 
-        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect", "tailscale"] {
             XCTAssertEqual(
                 optimizedResults(entries: corpus, query: query).first?.id,
                 "palette.mobileConnect",
