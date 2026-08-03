@@ -1,6 +1,10 @@
 internal import Foundation
 internal import Darwin
 
+/// Maximum main-actor occupancy while a rare retained-listener proof waits
+/// for one local nonblocking connection to finish.
+nonisolated private let retainedPathConnectPollTimeoutMs: Int32 = 100
+
 /// Result of proving that a pathname still routes to a retained bound listener.
 enum SocketBoundPathVerificationResult: Equatable, Sendable {
     case verified(SocketPathIdentity)
@@ -127,8 +131,22 @@ extension SocketTransport {
                 )
             }
         }
-        guard connectResult == 0 else {
-            return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
+        let systemConnectErrno = connectResult == 0 ? nil : errno
+        // Run the real syscall first, then allow tests to make a completed
+        // local connection present as POSIX's permitted in-progress result.
+        let injectedConnectErrno = injectedErrnoCode(
+            stage: "verify_bound_path_connect",
+            path: path
+        )
+        if let connectErrno = nonblockingConnectCompletionErrno(
+            socket: verificationClient,
+            initialResult: injectedConnectErrno == nil ? connectResult : -1,
+            initialErrno: injectedConnectErrno ?? systemConnectErrno ?? EIO
+        ) {
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: connectErrno
+            ))
         }
 
         var acceptedSocket: Int32 = -1
@@ -145,6 +163,46 @@ extension SocketTransport {
             return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
         }
         return .verified(candidateIdentity)
+    }
+
+    /// Completes one nonblocking connect with a single bounded readiness wait.
+    ///
+    /// - Returns: `nil` when connected, otherwise the final socket error.
+    private func nonblockingConnectCompletionErrno(
+        socket: Int32,
+        initialResult: Int32,
+        initialErrno: Int32
+    ) -> Int32? {
+        guard initialResult != 0 else { return nil }
+        guard initialErrno == EINPROGRESS || initialErrno == EALREADY else {
+            return initialErrno
+        }
+
+        var descriptor = pollfd(
+            fd: socket,
+            events: Int16(POLLOUT),
+            revents: 0
+        )
+        let pollResult = poll(&descriptor, 1, retainedPathConnectPollTimeoutMs)
+        guard pollResult > 0 else {
+            return pollResult == 0 ? ETIMEDOUT : errno
+        }
+        let completionEvents = Int16(POLLOUT | POLLERR | POLLHUP)
+        guard descriptor.revents & Int16(POLLNVAL) == 0 else { return EBADF }
+        guard descriptor.revents & completionEvents != 0 else { return EIO }
+
+        var socketError: Int32 = 0
+        var socketErrorSize = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(
+            socket,
+            SOL_SOCKET,
+            SO_ERROR,
+            &socketError,
+            &socketErrorSize
+        ) == 0 else {
+            return errno
+        }
+        return socketError == 0 ? nil : socketError
     }
 
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.
