@@ -1,8 +1,7 @@
 public import Foundation
 
 /// Posted when keyboard-nav focuses a single workspace and the sidebar's
-/// multi-selection state (a SwiftUI `@State` `Set<UUID>` separate from the
-/// model) should collapse to that workspace.
+/// native multi-selection state should collapse to that workspace.
 ///
 /// Same delivery rationale as ``SidebarMultiSelectionDidHideEvent``: the
 /// wire shape matches the legacy `SidebarMultiSelectionCollapseKey` post

@@ -248,7 +248,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     if let effectiveGrant, shouldShowAccessBanner(identity: identity, effectiveGrant: effectiveGrant) {
                         extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                     }
-                    CMUXSidebarExtensionHostView(
+                    NativeSidebarExtensionHostBridge(
                         identity: identity,
                         onConnection: { connection in
                             xpcHost.attach(

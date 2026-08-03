@@ -1,12 +1,12 @@
 public import Foundation
 
 /// Posted when specific workspaces become hidden (group collapse, group
-/// creation). The SwiftUI sidebar should drop only those ids from its
+/// creation). The sidebar should drop only those ids from its
 /// multi-selection without disturbing other entries; when focus moved, the
 /// focused row stays in the selection set.
 ///
 /// Delivery stays `NotificationCenter` on purpose: the legacy posts are
-/// consumed synchronously by the sidebar's SwiftUI `@State` selection in the
+/// consumed synchronously by the sidebar's native selection owner in the
 /// same MainActor turn, and a stream hop would let user mutations interleave
 /// before the selection collapses. This wrapper only replaces the stringly
 /// userInfo keys with one typed encode/decode pair; the wire shape

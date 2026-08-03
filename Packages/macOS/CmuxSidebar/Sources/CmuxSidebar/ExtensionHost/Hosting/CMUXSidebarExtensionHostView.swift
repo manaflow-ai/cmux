@@ -1,65 +1,28 @@
+public import AppKit
 public import ExtensionFoundation
 public import ExtensionKit
 @_spi(CmuxHostTransport) public import CmuxExtensionKit
 public import Foundation
-public import SwiftUI
 
+/// Native controller that embeds an ExtensionKit sidebar scene.
 @available(macOS 14.0, *)
-/// SwiftUI bridge that hosts a sidebar extension scene through ExtensionKit.
-@_spi(CmuxHostTransport) public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
-    public typealias NSViewControllerType = EXHostViewController
-
-    /// Tracks the configuration currently installed on the host view controller.
-    @_spi(CmuxHostTransport) public final class Coordinator: NSObject, EXHostViewControllerDelegate {
-        fileprivate var currentKey: HostConfigurationKey?
-        private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
-        private let onDeactivation: (@MainActor ((any Error)?) -> Void)?
-        private let onTeardown: (@MainActor () -> Void)?
-
-        fileprivate init(
-            onConnection: (@MainActor (NSXPCConnection) -> Void)?,
-            onDeactivation: (@MainActor ((any Error)?) -> Void)?,
-            onTeardown: (@MainActor () -> Void)?
-        ) {
-            self.onConnection = onConnection
-            self.onDeactivation = onDeactivation
-            self.onTeardown = onTeardown
-        }
-
-        public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
-            guard let onConnection else { return }
-            do {
-                onConnection(try viewController.makeXPCConnection())
-            } catch {
-                onDeactivation?(error)
-            }
-        }
-
-        public func hostViewControllerWillDeactivate(_ viewController: EXHostViewController, error: (any Error)?) {
-            onDeactivation?(error)
-        }
-
-        @MainActor
-        fileprivate func teardown() {
-            onTeardown?()
-        }
-    }
-
-    fileprivate struct HostConfigurationKey: Equatable {
+@MainActor
+@_spi(CmuxHostTransport)
+public final class CMUXSidebarExtensionHostView: NSViewController, EXHostViewControllerDelegate {
+    private struct HostConfigurationKey: Equatable {
         var bundleIdentifier: String
         var sceneID: String
     }
 
-    private let identity: AppExtensionIdentity
-    private let sceneID: String
-    private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
-    private let onDeactivation: (@MainActor ((any Error)?) -> Void)?
-    private let onTeardown: (@MainActor () -> Void)?
+    private let extensionController = EXHostViewController()
+    private var currentKey: HostConfigurationKey?
+    private var identity: AppExtensionIdentity
+    private var sceneID: String
+    private var onConnection: (@MainActor (NSXPCConnection) -> Void)?
+    private var onDeactivation: (@MainActor ((any Error)?) -> Void)?
+    private var onTeardown: (@MainActor () -> Void)?
+    private var isTornDown = false
 
-    /// Creates a sidebar extension host view.
-    /// - Parameters:
-    ///   - identity: Extension identity to host.
-    ///   - sceneID: ExtensionKit scene identifier to render.
     public init(
         identity: AppExtensionIdentity,
         sceneID: String = CmuxSidebarExtensionPoint.defaultSceneID,
@@ -72,49 +35,85 @@ public import SwiftUI
         self.onConnection = onConnection
         self.onDeactivation = onDeactivation
         self.onTeardown = onTeardown
+        super.init(nibName: nil, bundle: nil)
+        applyConfigurationIfNeeded()
     }
 
-    /// Creates the configuration-tracking coordinator.
-    /// - Returns: Coordinator for the hosted extension configuration.
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(onConnection: onConnection, onDeactivation: onDeactivation, onTeardown: onTeardown)
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    /// Creates the ExtensionKit host view controller.
-    /// - Parameter context: SwiftUI representable context.
-    /// - Returns: Configured `EXHostViewController`.
-    public func makeNSViewController(context: Context) -> EXHostViewController {
-        let viewController = EXHostViewController()
-        viewController.delegate = context.coordinator
-        context.coordinator.currentKey = configurationKey
-        viewController.configuration = EXHostViewController.Configuration(
+    public override func loadView() {
+        let container = NSView()
+        view = container
+        addChild(extensionController)
+        let hostedView = extensionController.view
+        hostedView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hostedView)
+        NSLayoutConstraint.activate([
+            hostedView.topAnchor.constraint(equalTo: container.topAnchor),
+            hostedView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hostedView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hostedView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        extensionController.delegate = self
+    }
+
+    /// Reconfigures the existing controller without rebuilding its AppKit
+    /// containment hierarchy.
+    public func update(
+        identity: AppExtensionIdentity,
+        sceneID: String = CmuxSidebarExtensionPoint.defaultSceneID,
+        onConnection: (@MainActor (NSXPCConnection) -> Void)? = nil,
+        onDeactivation: (@MainActor ((any Error)?) -> Void)? = nil,
+        onTeardown: (@MainActor () -> Void)? = nil
+    ) {
+        self.identity = identity
+        self.sceneID = sceneID
+        self.onConnection = onConnection
+        self.onDeactivation = onDeactivation
+        self.onTeardown = onTeardown
+        isTornDown = false
+        applyConfigurationIfNeeded()
+    }
+
+    public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
+        guard let onConnection else { return }
+        do {
+            onConnection(try viewController.makeXPCConnection())
+        } catch {
+            onDeactivation?(error)
+        }
+    }
+
+    public func hostViewControllerWillDeactivate(
+        _ viewController: EXHostViewController,
+        error: (any Error)?
+    ) {
+        onDeactivation?(error)
+    }
+
+    /// Ends the extension scene and runs the owner's cleanup exactly once.
+    public func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+        onTeardown?()
+        currentKey = nil
+        extensionController.delegate = nil
+        extensionController.configuration = nil
+    }
+
+    private func applyConfigurationIfNeeded() {
+        let key = HostConfigurationKey(
+            bundleIdentifier: identity.bundleIdentifier,
+            sceneID: sceneID
+        )
+        guard currentKey != key else { return }
+        currentKey = key
+        extensionController.configuration = EXHostViewController.Configuration(
             appExtension: identity,
             sceneID: sceneID
         )
-        return viewController
-    }
-
-    /// Updates the host view controller when the hosted extension changes.
-    /// - Parameters:
-    ///   - viewController: Existing ExtensionKit host view controller.
-    ///   - context: SwiftUI representable context.
-    public func updateNSViewController(_ viewController: EXHostViewController, context: Context) {
-        guard context.coordinator.currentKey != configurationKey else { return }
-        context.coordinator.currentKey = configurationKey
-        viewController.configuration = EXHostViewController.Configuration(
-            appExtension: identity,
-            sceneID: sceneID
-        )
-    }
-
-    public static func dismantleNSViewController(_ viewController: EXHostViewController, coordinator: Coordinator) {
-        coordinator.teardown()
-        coordinator.currentKey = nil
-        viewController.delegate = nil
-        viewController.configuration = nil
-    }
-
-    private var configurationKey: HostConfigurationKey {
-        HostConfigurationKey(bundleIdentifier: identity.bundleIdentifier, sceneID: sceneID)
     }
 }

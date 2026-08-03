@@ -3,11 +3,11 @@ import Observation
 
 /// Per-window sidebar multi-selection state: the set of workspace ids the
 /// user has Shift/Cmd-selected in the sidebar, plus the two NotificationCenter
-/// events that keep the sidebar's SwiftUI selection in sync.
+/// events that keep the sidebar's native selection in sync.
 ///
 /// `@MainActor` because every mutator and reader is a MainActor UI path
-/// (TabManager group operations, AppDelegate batch actions, the SwiftUI
-/// sidebar) — state lives where its callers live; an actor would only
+/// (TabManager group operations, AppDelegate batch actions, and sidebar
+/// controllers). State lives where its callers live; an actor would only
 /// manufacture suspension points inside what are single-turn updates today.
 ///
 /// The decision guards around mutations (which workspaces are eligible,
@@ -53,7 +53,7 @@ public final class SidebarMultiSelectionModel {
 
     /// Reduces the selection to a single workspace (or clears it when the
     /// workspace is not known to the window), then posts
-    /// ``SidebarMultiSelectionShouldCollapseEvent`` so the SwiftUI sidebar
+    /// ``SidebarMultiSelectionShouldCollapseEvent`` so the native sidebar
     /// selection collapses too. The post is unconditional, matching the
     /// legacy `clearSidebarMultiSelection(except:)`.
     public func collapseSelection(to workspaceId: UUID, isKnownWorkspace: Bool) {

@@ -9,11 +9,10 @@ public import Foundation
 /// has no local dragged id because the drag began elsewhere, reads this to
 /// resolve the dragged workspace for a cross-window move.
 ///
-/// This is deliberately not sourced from `NSPasteboard(name: .drag)`: SwiftUI's
-/// `.onDrag` registers the payload through an `NSItemProvider` whose data
-/// representation is delivered asynchronously, so a synchronous pasteboard read
-/// inside a `DropDelegate` can race and return `nil`. A plain in-process value,
-/// set synchronously on the main actor, has no such materialization race.
+/// This is deliberately not sourced from `NSPasteboard(name: .drag)`: an
+/// `NSItemProvider` may deliver its data representation asynchronously, so a
+/// synchronous pasteboard read can race and return `nil`. A plain in-process
+/// value set on the main actor has no such materialization race.
 @MainActor
 public protocol SidebarWorkspaceDragRegistering: AnyObject {
     /// The workspace currently being sidebar-dragged anywhere in the process,

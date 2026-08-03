@@ -1,4 +1,6 @@
 import CmuxAppKitSupportUI
+import CmuxSidebar
+import ExtensionFoundation
 import SwiftUI
 
 /// Transitional mounts for native support views while their parent surfaces
@@ -91,6 +93,45 @@ struct NativeScrollBackgroundClearer: NSViewRepresentable {
     }
 
     func updateNSView(_ view: ScrollBackgroundClearer, context: Context) {}
+}
+
+@available(macOS 14.0, *)
+struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
+    let identity: AppExtensionIdentity
+    var sceneID = CmuxSidebarExtensionPoint.defaultSceneID
+    var onConnection: (@MainActor (NSXPCConnection) -> Void)?
+    var onDeactivation: (@MainActor ((any Error)?) -> Void)?
+    var onTeardown: (@MainActor () -> Void)?
+
+    func makeNSViewController(context: Context) -> CMUXSidebarExtensionHostView {
+        CMUXSidebarExtensionHostView(
+            identity: identity,
+            sceneID: sceneID,
+            onConnection: onConnection,
+            onDeactivation: onDeactivation,
+            onTeardown: onTeardown
+        )
+    }
+
+    func updateNSViewController(
+        _ viewController: CMUXSidebarExtensionHostView,
+        context: Context
+    ) {
+        viewController.update(
+            identity: identity,
+            sceneID: sceneID,
+            onConnection: onConnection,
+            onDeactivation: onDeactivation,
+            onTeardown: onTeardown
+        )
+    }
+
+    static func dismantleNSViewController(
+        _ viewController: CMUXSidebarExtensionHostView,
+        coordinator: ()
+    ) {
+        viewController.teardown()
+    }
 }
 
 struct NativeTitlebarLeadingInsetReader: NSViewRepresentable {
