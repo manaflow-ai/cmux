@@ -1266,6 +1266,43 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// A drag that begins in an overflowing prompt belongs to the text editor;
+    /// it must not dismiss the keyboard or move the enclosing sheet.
+    @MainActor
+    func testTaskComposerPromptScrollDoesNotDragSheet() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let promptFrameBeforeScroll = prompt.frame
+
+        prompt.swipeUp(velocity: .slow)
+
+        XCTAssertTrue(
+            keyboard.exists,
+            "Scrolling the prompt must keep the editing keyboard presented"
+        )
+        XCTAssertTrue(prompt.exists, "Scrolling the prompt must not dismiss the composer sheet")
+        XCTAssertEqual(
+            prompt.frame.minY,
+            promptFrameBeforeScroll.minY,
+            accuracy: 2,
+            "Scrolling the prompt must not drag the enclosing sheet"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-owns-drag"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Switching templates without a template-specific directory must keep the
     /// selected Mac's focused project instead of restoring older task history.
     @MainActor
