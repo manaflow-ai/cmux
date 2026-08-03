@@ -12,11 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `88357634c`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
-theme-picker render fix at `5068b3a37` with terminal-owned semantic-prompt row
-lifecycle enforcement through `2d6e944e3` from
-https://github.com/manaflow-ai/ghostty/pull/176.
+The submodule pinned by this branch is `6dc671074b`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/177. It combines process-lifetime
+macOS unified loggers through `ee691e86b`, the native Sentry environment-race
+fix at `abcf5697d`, the initial cmux theme-picker render fix at `5068b3a37`,
+and terminal-owned semantic-prompt row lifecycle enforcement through
+`2d6e944e3` from https://github.com/manaflow-ai/ghostty/pull/176.
 The earlier integration combines the hidden-renderer reclamation and
 retry-deadline line through `4d6f0014f` with the resolved font-binding action
 callbacks originally ending at `80d7fb35a`.
@@ -42,6 +43,48 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### Native Sentry environment snapshot race
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/174
+- Commit:
+  - `abcf5697d` (Fix sentry-init racing environ mutation during global init)
+- Files:
+  - `src/crash/sentry.zig`
+  - `src/global.zig`
+- Summary:
+  - Runs `ensureLocale()` and `syncEnviron()` before `crash.init`, so locale
+    setup cannot reallocate the environment while a spawned thread reads the
+    earlier snapshot.
+  - Resolves the native Sentry cache directory from an explicit environment
+    map on the spawning thread and passes the owned path to `sentry-init`.
+  - Keeps the spawned thread from reaching back into the shared environment
+    snapshot, closing the race even if later startup code mutates `environ`.
+  - Conflict note: locale setup and environment synchronization must remain
+    ahead of `crash.init`, and the spawned Sentry thread must not read global
+    environment state.
+
+### Process-lifetime macOS unified loggers
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/177
+- Commits:
+  - `a019bcab2` (test: skip formatting for disabled macOS logs)
+  - `ee691e86b` (fix: cache and gate macOS loggers)
+- Files:
+  - `pkg/macos/os.zig`
+  - `pkg/macos/os/log.zig`
+  - `src/main_ghostty.zig`
+- Summary:
+  - Lazily creates one process-lifetime `os_log_t` for each compile-time
+    subsystem and category with `dispatch_once_f`.
+  - Checks `os_log_type_enabled` before allocating or formatting a message, so
+    disabled categories avoid per-event logging work.
+  - Keeps category ownership compile-time scoped instead of adding a shared
+    runtime dictionary to the logging hot path.
+  - Conflict note: preserve process-lifetime logger ownership and the
+    enablement check before message allocation and formatting.
 
 ### Initial cmux theme-picker render
 
@@ -233,14 +276,14 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `88357634c4` universal ReleaseFast GhosttyKit archive combines the
-initial theme-picker render and semantic prompt lifecycle fixes. It was built
-with Zig 0.16.0 and is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-88357634c4dbadc87981e2ebb64eb599c53aa012-crashsubdir-cmux-crash-v1
+The pinned `6dc671074b` universal ReleaseFast GhosttyKit archive combines the
+fork changes through the native Sentry race fix and process-lifetime unified
+loggers. It was built with Zig 0.16.0 and is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6dc671074bf7c8a95562695ec6a701f1a15d7f03-crashsubdir-cmux-crash-v1
 with its SHA-256 pinned in `scripts/ghosttykit-checksums.txt`. The published
 asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
 and matched SHA-256
-`0448351c3f8b07fd2698c905260a97d064e4e186d0544766965effb41aedfbd5`.
+`aa545ac5a8e23c049fd9de649fa2a18c61f90830abc82f42eb79c11ce4cab525`.
 
 ### Ordered writes survive transient backpressure
 
