@@ -70991,6 +70991,244 @@
         }
       }
     },
+    "commandPalette.rename.workspaceGroupConfirmHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط Enter لتطبيق اسم المجموعة، أو Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite Enter za primjenu naziva grupe, ili Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk Enter for at anvende dette gruppenavn, eller Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücken Sie die Eingabetaste, um den Gruppennamen zu übernehmen, oder Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Enter to apply this group name, or Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa Intro para aplicar este nombre de grupo, o Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur Entrée pour appliquer ce nom de groupe, ou sur Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi Invio per applicare il nome del gruppo, oppure Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enterキーでグループ名を適用、Escapeキーでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter를 눌러 그룹 이름을 적용하거나, Escape를 눌러 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk Enter for å bruke dette gruppenavnet, eller Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij Enter, aby zastosować nazwę grupy, lub Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione Enter para aplicar este nome de grupo ou Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите Enter, чтобы применить имя группы, или Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด Enter เพื่อใช้ชื่อกลุ่มนี้ หรือ Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu grup adını uygulamak için Enter tuşuna basın veya iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть Enter, щоб застосувати назву групи, або Escape для скасування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 应用此分组名称，或按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 套用此群組名稱，或按 Escape 取消。"
+          }
+        }
+      }
+    },
+    "commandPalette.rename.workspaceGroupInputHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم المجموعة. اضغط Enter لإعادة التسمية، Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unesite naziv grupe. Pritisnite Enter za preimenovanje, Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indtast et gruppenavn. Tryk Enter for at omdøbe, Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Gruppennamen ein. Eingabetaste zum Umbenennen, Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a group name. Press Enter to rename, Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre de grupo. Pulsa Intro para renombrar, Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom de groupe. Appuyez sur Entrée pour renommer, Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un nome per il gruppo. Premi Invio per rinominare, Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を入力してください。Enterで名称変更、Escapeでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn et gruppenavn. Trykk Enter for å gi nytt navn, Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wprowadź nazwę grupy. Naciśnij Enter, aby zmienić nazwę, Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insira um nome para o grupo. Pressione Enter para renomear, Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите имя группы. Нажмите Enter для переименования, Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อนชื่อกลุ่ม กด Enter เพื่อเปลี่ยนชื่อ, Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir grup adı girin. Yeniden adlandırmak için Enter, iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть назву групи. Enter — перейменувати, Escape — скасувати."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入分组名称。按 Enter 重命名，按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入群組名稱。按 Enter 重新命名，按 Escape 取消。"
+          }
+        }
+      }
+    },
     "commandPalette.rename.workspaceInputHint": {
       "extractionState": "manual",
       "localizations": {
