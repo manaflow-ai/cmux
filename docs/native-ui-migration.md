@@ -53,7 +53,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     `manaflow-ai/bonsplit` before updating cmux's pointer.
 - [ ] macOS packages
   - [ ] `CmuxSettingsUI` (61 import files)
-  - [ ] `CmuxSimulator` (38)
+  - [x] `CmuxSimulator` (0)
   - [ ] `CmuxSwiftRenderUI` (14)
   - [ ] `CmuxLiveEval` (7)
   - [ ] `CmuxSidebarInterpreterService` (6)

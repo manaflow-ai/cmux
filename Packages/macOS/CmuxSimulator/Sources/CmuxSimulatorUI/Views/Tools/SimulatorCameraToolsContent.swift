@@ -1,105 +1,164 @@
+import AppKit
 import CmuxSimulator
-import SwiftUI
 
-struct SimulatorCameraToolsContent: View {
-    let coordinator: SimulatorPaneCoordinator
-    @State private var targetBundleIdentifier = ""
-    @State private var mirrorMode: SimulatorCameraMirrorMode = .auto
-    @State private var hostCameraID = ""
+@MainActor
+class SimulatorCameraToolsContent: SimulatorToolSection, SimulatorToolsSection {
+    private let coordinator: SimulatorPaneCoordinator
+    private let targetPicker = SimulatorClosurePopUpButton()
+    private let mirrorPicker = SimulatorClosurePopUpButton()
+    private let hostCameraPicker = SimulatorClosurePopUpButton()
+    private let sourceLabel = simulatorLabel("")
+    private let injectedLabel = simulatorLabel("")
+    private let mirrorModes: [SimulatorCameraMirrorMode] = [.auto, .on, .off]
+    private var targetIDs = [String]()
+    private var hostCameraIDs = [String]()
+    private var selectedTargetID = ""
+    private var lastHydratedDeviceID: String?
+    private var isSynchronizing = false
 
-    var body: some View {
-        let applicationRows = simulatorApplicationPickerRows(coordinator.userInstalledApplications)
-        SimulatorToolSection(simulatorStrings.cameraExperimental) {
-            Text(simulatorStrings.experimentalHelp)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if !applicationRows.isEmpty {
-                Picker(simulatorStrings.bundleIdentifier, selection: $targetBundleIdentifier) {
-                    Text(simulatorStrings.foregroundApp).tag("")
-                    ForEach(applicationRows) { application in
-                        Text(verbatim: application.displayName).tag(application.id)
-                    }
-                }
-            }
-            Picker(simulatorStrings.cameraMirror, selection: $mirrorMode) {
-                Text(simulatorStrings.cameraMirrorAuto).tag(SimulatorCameraMirrorMode.auto)
-                Text(simulatorStrings.cameraMirrorOn).tag(SimulatorCameraMirrorMode.on)
-                Text(simulatorStrings.cameraMirrorOff).tag(SimulatorCameraMirrorMode.off)
-            }
-            .onChange(of: mirrorMode) { _, mode in
-                guard coordinator.cameraStatus?.mirrorMode != mode else { return }
-                coordinator.scheduleControlAction("camera-mirror") { await $0.setCameraMirror(mode) }
-            }
-            if let status = coordinator.cameraStatus, !status.hostCameras.isEmpty {
-                Picker(simulatorStrings.hostCameraDevice, selection: $hostCameraID) {
-                    ForEach(status.hostCameras) { camera in
-                        Text(verbatim: camera.name).tag(camera.id)
-                    }
-                }
-            }
-            if let status = coordinator.cameraStatus {
-                LabeledContent(
-                    String(localized: simulatorStrings.cameraSource),
-                    value: sourceDescription(status.configuration)
-                )
-                LabeledContent(
-                    String(localized: simulatorStrings.injectedApplications),
-                    value: status.injectedBundleIdentifiers.isEmpty
-                        ? String(localized: simulatorStrings.none)
-                        : status.injectedBundleIdentifiers.joined(separator: ", ")
-                )
-            }
-            ViewThatFits {
-                HStack { cameraButtons }
-                VStack(alignment: .leading) { cameraButtons }
-            }
+    init(coordinator: SimulatorPaneCoordinator) {
+        self.coordinator = coordinator
+        super.init(simulatorStrings.cameraExperimental)
+        add(simulatorLabel(
+            String(localized: simulatorStrings.experimentalHelp),
+            color: .secondaryLabelColor
+        ))
+        targetPicker.handler = { [weak self] index in
+            guard let self, targetIDs.indices.contains(index) else { return }
+            selectedTargetID = targetIDs[index]
         }
-        .task {
-            await coordinator.refreshCameraStatus()
-            synchronize(from: coordinator.cameraStatus)
+        add(targetPicker)
+        mirrorPicker.addItems(withTitles: [
+            String(localized: simulatorStrings.cameraMirrorAuto),
+            String(localized: simulatorStrings.cameraMirrorOn),
+            String(localized: simulatorStrings.cameraMirrorOff),
+        ])
+        mirrorPicker.handler = { [weak self] index in
+            guard let self, !isSynchronizing, mirrorModes.indices.contains(index) else { return }
+            let mode = mirrorModes[index]
+            coordinator.scheduleControlAction("camera-mirror") { await $0.setCameraMirror(mode) }
         }
-        .onChange(of: coordinator.cameraStatus) { _, status in
-            synchronize(from: status)
+        add(labeled(simulatorStrings.cameraMirror, mirrorPicker))
+        add(labeled(simulatorStrings.hostCameraDevice, hostCameraPicker))
+        add(labeled(simulatorStrings.cameraSource, sourceLabel))
+        add(labeled(simulatorStrings.injectedApplications, injectedLabel))
+        let choose = SimulatorClosureButton(title: String(localized: simulatorStrings.chooseCameraSource)) {
+            [weak self] in self?.chooseSource()
         }
-        .onChange(of: coordinator.userInstalledApplications) { _, applications in
-            targetBundleIdentifier = simulatorCameraTargetBundleIdentifier(
-                current: targetBundleIdentifier,
-                applications: applications
-            )
+        let placeholder = SimulatorClosureButton(title: String(localized: simulatorStrings.cameraPlaceholder)) {
+            [weak self] in self?.usePlaceholder()
+        }
+        let host = SimulatorClosureButton(title: String(localized: simulatorStrings.hostCamera)) {
+            [weak self] in self?.useHostCamera()
+        }
+        let disable = SimulatorClosureButton(title: String(localized: simulatorStrings.disableCamera)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("camera-source") { await $0.disableCamera() }
+        }
+        let refresh = SimulatorClosureButton(title: String(localized: simulatorStrings.refresh)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("refresh-camera") { await $0.refreshCameraStatus() }
+        }
+        add(simulatorRow([choose, placeholder]))
+        add(simulatorRow([host, disable, refresh]))
+        update()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update() {
+        if lastHydratedDeviceID != coordinator.selectedDeviceID {
+            lastHydratedDeviceID = coordinator.selectedDeviceID
+            Task { @MainActor [weak coordinator] in await coordinator?.refreshCameraStatus() }
+        }
+        updateTargets()
+        updateStatus()
+    }
+
+    private func updateTargets() {
+        let applications = coordinator.userInstalledApplications
+        selectedTargetID = simulatorCameraTargetBundleIdentifier(
+            current: selectedTargetID,
+            applications: applications
+        )
+        let nextIDs = [""] + applications.map(\.id)
+        if nextIDs != targetIDs {
+            targetIDs = nextIDs
+            targetPicker.removeAllItems()
+            targetPicker.addItem(withTitle: String(localized: simulatorStrings.foregroundApp))
+            targetPicker.addItems(withTitles: applications.map(\.displayName))
+            targetPicker.selectItem(at: targetIDs.firstIndex(of: selectedTargetID) ?? 0)
+        }
+        targetPicker.isHidden = applications.isEmpty
+    }
+
+    private func updateStatus() {
+        guard let status = coordinator.cameraStatus else {
+            sourceLabel.stringValue = String(localized: simulatorStrings.none)
+            injectedLabel.stringValue = String(localized: simulatorStrings.none)
+            hostCameraPicker.isHidden = true
+            return
+        }
+        isSynchronizing = true
+        mirrorPicker.selectItem(at: mirrorModes.firstIndex(of: status.mirrorMode) ?? 0)
+        isSynchronizing = false
+        let nextHostIDs = status.hostCameras.map(\.id)
+        if nextHostIDs != hostCameraIDs {
+            let configured = hostDeviceID(in: status.configuration)
+            let previous = selectedHostCameraID
+            hostCameraIDs = nextHostIDs
+            hostCameraPicker.removeAllItems()
+            hostCameraPicker.addItems(withTitles: status.hostCameras.map(\.name))
+            let selection = configured.flatMap(hostCameraIDs.firstIndex(of:))
+                ?? previous.flatMap(hostCameraIDs.firstIndex(of:))
+                ?? 0
+            if hostCameraIDs.indices.contains(selection) { hostCameraPicker.selectItem(at: selection) }
+        }
+        hostCameraPicker.isHidden = hostCameraIDs.isEmpty
+        sourceLabel.stringValue = sourceDescription(status.configuration)
+        injectedLabel.stringValue = status.injectedBundleIdentifiers.isEmpty
+            ? String(localized: simulatorStrings.none)
+            : status.injectedBundleIdentifiers.joined(separator: ", ")
+    }
+
+    private func labeled(_ title: LocalizedStringResource, _ value: NSView) -> NSStackView {
+        let label = simulatorLabel(String(localized: title), color: .secondaryLabelColor)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return simulatorRow([label, spacer, value])
+    }
+
+    private var selectedHostCameraID: String? {
+        guard hostCameraIDs.indices.contains(hostCameraPicker.indexOfSelectedItem) else { return nil }
+        return hostCameraIDs[hostCameraPicker.indexOfSelectedItem]
+    }
+
+    private func chooseSource() {
+        let target = selectedTargetID
+        coordinator.scheduleControlAction("camera-source") {
+            await $0.chooseCameraSource(targetBundleIdentifier: target)
         }
     }
 
-    private var cameraButtons: some View {
-        Group {
-            Button(simulatorStrings.chooseCameraSource) {
-                coordinator.scheduleControlAction("camera-source") {
-                    await $0.chooseCameraSource(
-                        targetBundleIdentifier: targetBundleIdentifier
-                    )
-                }
-            }
-            Button(simulatorStrings.cameraPlaceholder) {
-                coordinator.scheduleControlAction("camera-source") {
-                    await $0.useCameraPlaceholder(
-                        targetBundleIdentifier: targetBundleIdentifier
-                    )
-                }
-            }
-            Button(simulatorStrings.hostCamera) {
-                coordinator.scheduleControlAction("camera-source") {
-                    await $0.useHostCamera(
-                        deviceID: hostCameraID.isEmpty ? nil : hostCameraID,
-                        targetBundleIdentifier: targetBundleIdentifier
-                    )
-                    await $0.setCameraMirror(mirrorMode)
-                }
-            }
-            Button(simulatorStrings.disableCamera) {
-                coordinator.scheduleControlAction("camera-source") { await $0.disableCamera() }
-            }
-            Button(simulatorStrings.refresh) {
-                coordinator.scheduleControlAction("refresh-camera") { await $0.refreshCameraStatus() }
-            }
+    private func usePlaceholder() {
+        let target = selectedTargetID
+        coordinator.scheduleControlAction("camera-source") {
+            await $0.useCameraPlaceholder(targetBundleIdentifier: target)
+        }
+    }
+
+    private func useHostCamera() {
+        let target = selectedTargetID
+        let deviceID = selectedHostCameraID
+        let mode = mirrorModes.indices.contains(mirrorPicker.indexOfSelectedItem)
+            ? mirrorModes[mirrorPicker.indexOfSelectedItem]
+            : .auto
+        coordinator.scheduleControlAction("camera-source") {
+            await $0.useHostCamera(deviceID: deviceID, targetBundleIdentifier: target)
+            await $0.setCameraMirror(mode)
         }
     }
 
@@ -118,18 +177,6 @@ struct SimulatorCameraToolsContent: View {
                 ?? String(localized: simulatorStrings.hostCamera)
         case let .targeted(bundleIdentifier, source):
             "\(sourceDescription(source)) · \(bundleIdentifier)"
-        }
-    }
-
-    private func synchronize(from status: SimulatorCameraStatus?) {
-        guard let status else { return }
-        mirrorMode = status.mirrorMode
-        let configuredDeviceID = hostDeviceID(in: status.configuration)
-        if let configuredDeviceID,
-           status.hostCameras.contains(where: { $0.id == configuredDeviceID }) {
-            hostCameraID = configuredDeviceID
-        } else if !status.hostCameras.contains(where: { $0.id == hostCameraID }) {
-            hostCameraID = status.hostCameras.first?.id ?? ""
         }
     }
 

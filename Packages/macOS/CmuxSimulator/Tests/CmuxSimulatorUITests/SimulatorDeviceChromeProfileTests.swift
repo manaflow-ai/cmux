@@ -1,7 +1,6 @@
 import AppKit
 import CmuxSimulator
 import Foundation
-import SwiftUI
 import Testing
 @testable import CmuxSimulatorUI
 
@@ -300,14 +299,14 @@ struct SimulatorDeviceChromeProfileTests {
             scale: 3
         )
         coordinator.frameTransport = simulatorFrameTransportDescriptor(91)
-        let screenOnlyHost = NSHostingView(rootView: SimulatorDeviceStage(
-            coordinator: coordinator,
+        let screenOnlyHost = SimulatorDeviceStage(coordinator: coordinator)
+        screenOnlyHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        screenOnlyHost.update(
             backgroundColor: .black,
             allowsPointerInput: false,
             pointerEntryEventFilter: nil,
             onRequestPanelFocus: {}
-        ))
-        screenOnlyHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        )
         screenOnlyHost.layoutSubtreeIfNeeded()
         let screenOnlySurface = try #require(
             firstDescendant(of: SimulatorRemoteSurfaceView.self, in: screenOnlyHost)
@@ -315,14 +314,14 @@ struct SimulatorDeviceChromeProfileTests {
         let screenOnlyFrameSize = screenOnlySurface.displayRect.size
 
         coordinator.chromeProfile = profile
-        let chromeHost = NSHostingView(rootView: SimulatorDeviceStage(
-            coordinator: coordinator,
+        let chromeHost = SimulatorDeviceStage(coordinator: coordinator)
+        chromeHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        chromeHost.update(
             backgroundColor: .black,
             allowsPointerInput: false,
             pointerEntryEventFilter: nil,
             onRequestPanelFocus: {}
-        ))
-        chromeHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        )
         chromeHost.layoutSubtreeIfNeeded()
 
         let surface = try #require(

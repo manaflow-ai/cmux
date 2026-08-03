@@ -1,5 +1,6 @@
 import CmuxAppKitSupportUI
 @_spi(CmuxHostTransport) import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
 import SwiftUI
 

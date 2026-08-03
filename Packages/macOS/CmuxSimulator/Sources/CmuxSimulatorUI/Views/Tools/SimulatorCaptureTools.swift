@@ -1,38 +1,54 @@
+import AppKit
 import CmuxSimulator
-import SwiftUI
 
-struct SimulatorCaptureTools: View {
-    let coordinator: SimulatorPaneCoordinator
-    @State private var screenshotFormat: SimulatorScreenshotFormat = .png
-    @State private var videoCodec: SimulatorVideoCodec = .h264
+@MainActor
+final class SimulatorCaptureTools: SimulatorToolSection, SimulatorToolsSection {
+    private let coordinator: SimulatorPaneCoordinator
+    private let screenshotPicker = SimulatorClosurePopUpButton()
+    private let videoPicker = SimulatorClosurePopUpButton()
+    private let videoButton = SimulatorClosureButton()
+    private let screenshotFormats = SimulatorScreenshotFormat.allCases
+    private let videoCodecs = SimulatorVideoCodec.allCases
 
-    var body: some View {
-        SimulatorToolSection(simulatorStrings.capture) {
-            HStack {
-                Picker(simulatorStrings.screenshot, selection: $screenshotFormat) {
-                    ForEach(SimulatorScreenshotFormat.allCases, id: \.rawValue) { format in
-                        Text(verbatim: format.rawValue.uppercased()).tag(format)
-                    }
-                }
-                Button(simulatorStrings.screenshot) {
-                    coordinator.scheduleControlAction("capture-screenshot") {
-                        await $0.captureScreenshot(format: screenshotFormat)
-                    }
-                }
-            }
-            HStack {
-                Picker(simulatorStrings.startRecording, selection: $videoCodec) {
-                    ForEach(SimulatorVideoCodec.allCases, id: \.rawValue) { codec in
-                        Text(verbatim: codec.rawValue.uppercased()).tag(codec)
-                    }
-                }
-                Button(coordinator.isVideoRecording ? simulatorStrings.stopRecording : simulatorStrings.startRecording) {
-                    coordinator.scheduleControlAction("toggle-video-recording") {
-                        await $0.toggleVideoRecording(codec: videoCodec)
-                    }
-                }
-                .tint(coordinator.isVideoRecording ? Color.red : Color.accentColor)
-            }
+    init(coordinator: SimulatorPaneCoordinator) {
+        self.coordinator = coordinator
+        super.init(simulatorStrings.capture)
+        screenshotPicker.addItems(withTitles: screenshotFormats.map { $0.rawValue.uppercased() })
+        videoPicker.addItems(withTitles: videoCodecs.map { $0.rawValue.uppercased() })
+        let screenshot = SimulatorClosureButton(title: String(localized: simulatorStrings.screenshot)) {
+            [weak self] in self?.captureScreenshot()
+        }
+        videoButton.handler = { [weak self] in self?.toggleVideo() }
+        add(simulatorRow([screenshotPicker, screenshot]))
+        add(simulatorRow([videoPicker, videoButton]))
+        update()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update() {
+        videoButton.title = String(localized: coordinator.isVideoRecording
+            ? simulatorStrings.stopRecording
+            : simulatorStrings.startRecording)
+        videoButton.contentTintColor = coordinator.isVideoRecording ? .systemRed : .controlAccentColor
+    }
+
+    private func captureScreenshot() {
+        guard screenshotFormats.indices.contains(screenshotPicker.indexOfSelectedItem) else { return }
+        let format = screenshotFormats[screenshotPicker.indexOfSelectedItem]
+        coordinator.scheduleControlAction("capture-screenshot") {
+            await $0.captureScreenshot(format: format)
+        }
+    }
+
+    private func toggleVideo() {
+        guard videoCodecs.indices.contains(videoPicker.indexOfSelectedItem) else { return }
+        let codec = videoCodecs[videoPicker.indexOfSelectedItem]
+        coordinator.scheduleControlAction("toggle-video-recording") {
+            await $0.toggleVideoRecording(codec: codec)
         }
     }
 }

@@ -1,121 +1,139 @@
+import AppKit
 import CmuxSimulator
-import SwiftUI
 
-struct SimulatorLocationTools: View {
-    let coordinator: SimulatorPaneCoordinator
-    @State private var latitude = "37.3349"
-    @State private var longitude = "-122.0090"
-    @State private var destinationLatitude = "37.3317"
-    @State private var destinationLongitude = "-122.0307"
-    @State private var presetID: String? = SimulatorLocationPreset.applePark.rawValue
-    @State private var mode: SimulatorLocationTransportMode = .walk
-    @State private var multiplier = 1
+@MainActor
+final class SimulatorLocationTools: SimulatorToolSection, SimulatorToolsSection {
+    private let coordinator: SimulatorPaneCoordinator
+    private let latitude = SimulatorClosureTextField(value: "37.3349")
+    private let longitude = SimulatorClosureTextField(value: "-122.0090")
+    private let destinationLatitude = SimulatorClosureTextField(value: "37.3317")
+    private let destinationLongitude = SimulatorClosureTextField(value: "-122.0307")
+    private let presetPicker = SimulatorClosurePopUpButton()
+    private let presetDescription = simulatorLabel("", color: .secondaryLabelColor)
+    private let destinationRow: NSStackView
+    private let modePicker = SimulatorClosurePopUpButton()
+    private let multiplierPicker = SimulatorClosurePopUpButton()
+    private let pauseResumeButton = SimulatorClosureButton()
+    private let stopButton = SimulatorClosureButton(title: String(localized: simulatorStrings.stopRoute))
+    private let presets = [SimulatorLocationPreset?](arrayLiteral: nil) + SimulatorLocationPreset.allCases
+    private let modes = SimulatorLocationTransportMode.allCases
+    private let multipliers = [1, 2, 5, 20]
 
-    var body: some View {
-        SimulatorToolSection(simulatorStrings.location) {
-            coordinateFields
-            HStack {
-                Button(simulatorStrings.setLocation) {
-                    guard let coordinate = coordinate(latitude: latitude, longitude: longitude) else { return }
-                    coordinator.scheduleControlAction("set-location") { await $0.setLocation(coordinate) }
-                }
-                Button(simulatorStrings.clearLocation) {
-                    coordinator.scheduleControlAction("set-location") { await $0.clearLocation() }
-                }
-            }
-            Divider()
-            Picker(String(localized: simulatorStrings.routeTrail), selection: $presetID) {
-                Text(simulatorStrings.routeCustom).tag(String?.none)
-                ForEach(SimulatorLocationPreset.allCases) { preset in
-                    Text(simulatorStrings.name(for: preset)).tag(Optional(preset.rawValue))
-                }
-            }
-            if let preset = selectedPreset {
-                Text(simulatorStrings.description(for: preset))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                TextField(
-                    String(localized: simulatorStrings.destinationLatitude),
-                    text: $destinationLatitude
-                )
-                TextField(
-                    String(localized: simulatorStrings.destinationLongitude),
-                    text: $destinationLongitude
-                )
-            }
-            Picker(String(localized: simulatorStrings.transportMode), selection: $mode) {
-                ForEach(SimulatorLocationTransportMode.allCases) { mode in
-                    Text(simulatorStrings.name(for: mode)).tag(mode)
-                }
-            }
-            Picker(String(localized: simulatorStrings.speedMultiplier), selection: $multiplier) {
-                ForEach([1, 2, 5, 20], id: \.self) { value in
-                    Text(verbatim: "\(value)×").tag(value)
-                }
-            }
-            Button(simulatorStrings.startRoute) {
-                guard let waypoints = selectedRouteWaypoints else { return }
-                coordinator.scheduleControlAction("location-route") {
-                    await $0.startLocationRoute(SimulatorLocationRoute(
-                        waypoints: waypoints,
-                        speed: mode.metersPerSecond * Double(multiplier),
-                        loops: selectedPreset != nil
-                    ))
-                }
-            }
-            if coordinator.locationRouteIsActive {
-                HStack {
-                    if coordinator.locationRouteIsPaused {
-                        Button(simulatorStrings.resumeRoute) {
-                            coordinator.scheduleControlAction("location-route") {
-                                await $0.resumeLocationRoute()
-                            }
-                        }
-                    } else {
-                        Button(simulatorStrings.pauseRoute) {
-                            coordinator.scheduleControlAction("location-route") {
-                                await $0.pauseLocationRoute()
-                            }
-                        }
-                    }
-                    Button(simulatorStrings.stopRoute, role: .destructive) {
-                        coordinator.scheduleControlAction("location-route") {
-                            await $0.stopLocationRoute()
-                        }
-                    }
-                }
-            }
+    init(coordinator: SimulatorPaneCoordinator) {
+        self.coordinator = coordinator
+        latitude.placeholderString = String(localized: simulatorStrings.latitude)
+        longitude.placeholderString = String(localized: simulatorStrings.longitude)
+        destinationLatitude.placeholderString = String(localized: simulatorStrings.destinationLatitude)
+        destinationLongitude.placeholderString = String(localized: simulatorStrings.destinationLongitude)
+        destinationRow = simulatorRow([destinationLatitude, destinationLongitude])
+        super.init(simulatorStrings.location)
+        add(simulatorRow([latitude, longitude]))
+        let set = SimulatorClosureButton(title: String(localized: simulatorStrings.setLocation)) {
+            [weak self] in self?.setLocation()
         }
-        .onChange(of: presetID) { _, _ in
-            if let preset = selectedPreset { mode = preset.defaultMode }
+        let clear = SimulatorClosureButton(title: String(localized: simulatorStrings.clearLocation)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("set-location") { await $0.clearLocation() }
+        }
+        add(simulatorRow([set, clear]))
+        presetPicker.addItems(withTitles: presets.map { preset in
+            preset.map { String(localized: simulatorStrings.name(for: $0)) }
+                ?? String(localized: simulatorStrings.routeCustom)
+        })
+        presetPicker.selectItem(at: 1)
+        presetPicker.handler = { [weak self] _ in self?.presetChanged() }
+        add(presetPicker)
+        add(presetDescription)
+        add(destinationRow)
+        modePicker.addItems(withTitles: modes.map { String(localized: simulatorStrings.name(for: $0)) })
+        multiplierPicker.addItems(withTitles: multipliers.map { "\($0)×" })
+        add(simulatorRow([modePicker, multiplierPicker]))
+        let start = SimulatorClosureButton(title: String(localized: simulatorStrings.startRoute)) {
+            [weak self] in self?.startRoute()
+        }
+        pauseResumeButton.handler = { [weak self] in self?.pauseOrResume() }
+        stopButton.contentTintColor = .systemRed
+        stopButton.handler = { [weak coordinator] in
+            coordinator?.scheduleControlAction("location-route") { await $0.stopLocationRoute() }
+        }
+        add(start)
+        add(simulatorRow([pauseResumeButton, stopButton]))
+        presetChanged()
+        update()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update() {
+        let active = coordinator.locationRouteIsActive
+        pauseResumeButton.isHidden = !active
+        stopButton.isHidden = !active
+        pauseResumeButton.title = String(localized: coordinator.locationRouteIsPaused
+            ? simulatorStrings.resumeRoute
+            : simulatorStrings.pauseRoute)
+    }
+
+    private func presetChanged() {
+        let preset = selectedPreset
+        presetDescription.stringValue = preset.map {
+            String(localized: simulatorStrings.description(for: $0))
+        } ?? ""
+        presetDescription.isHidden = preset == nil
+        destinationRow.isHidden = preset != nil
+        if let preset, let index = modes.firstIndex(of: preset.defaultMode) {
+            modePicker.selectItem(at: index)
         }
     }
 
-    private var coordinateFields: some View {
-        HStack {
-            TextField(String(localized: simulatorStrings.latitude), text: $latitude)
-            TextField(String(localized: simulatorStrings.longitude), text: $longitude)
+    private func setLocation() {
+        guard let coordinate = coordinate(latitude: latitude.stringValue, longitude: longitude.stringValue) else {
+            return
         }
+        coordinator.scheduleControlAction("set-location") { await $0.setLocation(coordinate) }
+    }
+
+    private func startRoute() {
+        guard let waypoints = selectedRouteWaypoints,
+              modes.indices.contains(modePicker.indexOfSelectedItem),
+              multipliers.indices.contains(multiplierPicker.indexOfSelectedItem) else { return }
+        let route = SimulatorLocationRoute(
+            waypoints: waypoints,
+            speed: modes[modePicker.indexOfSelectedItem].metersPerSecond
+                * Double(multipliers[multiplierPicker.indexOfSelectedItem]),
+            loops: selectedPreset != nil
+        )
+        coordinator.scheduleControlAction("location-route") { await $0.startLocationRoute(route) }
+    }
+
+    private func pauseOrResume() {
+        if coordinator.locationRouteIsPaused {
+            coordinator.scheduleControlAction("location-route") { await $0.resumeLocationRoute() }
+        } else {
+            coordinator.scheduleControlAction("location-route") { await $0.pauseLocationRoute() }
+        }
+    }
+
+    private var selectedPreset: SimulatorLocationPreset? {
+        guard presets.indices.contains(presetPicker.indexOfSelectedItem) else { return nil }
+        return presets[presetPicker.indexOfSelectedItem]
+    }
+
+    private var selectedRouteWaypoints: [SimulatorLocationCoordinate]? {
+        if let selectedPreset { return selectedPreset.closedWaypoints }
+        guard let start = coordinate(latitude: latitude.stringValue, longitude: longitude.stringValue),
+              let destination = coordinate(
+                  latitude: destinationLatitude.stringValue,
+                  longitude: destinationLongitude.stringValue
+              ) else { return nil }
+        return [start, destination]
     }
 
     private func coordinate(latitude: String, longitude: String) -> SimulatorLocationCoordinate? {
         guard let latitude = Double(latitude), (-90...90).contains(latitude),
               let longitude = Double(longitude), (-180...180).contains(longitude) else { return nil }
         return SimulatorLocationCoordinate(latitude: latitude, longitude: longitude)
-    }
-
-    private var selectedPreset: SimulatorLocationPreset? {
-        presetID.flatMap(SimulatorLocationPreset.init(rawValue:))
-    }
-
-    private var selectedRouteWaypoints: [SimulatorLocationCoordinate]? {
-        if let selectedPreset { return selectedPreset.closedWaypoints }
-        guard let start = coordinate(latitude: latitude, longitude: longitude),
-              let destination = coordinate(
-                  latitude: destinationLatitude,
-                  longitude: destinationLongitude
-              ) else { return nil }
-        return [start, destination]
     }
 }

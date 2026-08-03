@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 extension SimulatorStrings {
     var textInput: LocalizedStringResource {

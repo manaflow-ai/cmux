@@ -1,46 +1,58 @@
-import SwiftUI
+import AppKit
 
-struct SimulatorURLMediaClipboardTools: View {
-    let coordinator: SimulatorPaneCoordinator
-    @State private var url = "https://"
-    @State private var clipboard = ""
+@MainActor
+final class SimulatorURLMediaClipboardTools: SimulatorToolSection, SimulatorToolsSection {
+    private let coordinator: SimulatorPaneCoordinator
+    private let urlField = SimulatorClosureTextField(value: "https://")
+    private let clipboardEditor = SimulatorClosureTextView(minimumHeight: 52)
+    private var lastClipboardValue = ""
 
-    var body: some View {
-        SimulatorToolSection(simulatorStrings.urlAndMedia) {
-            TextField(String(localized: simulatorStrings.url), text: $url)
-            HStack {
-                Button(simulatorStrings.openURL) {
-                    coordinator.scheduleControlAction("open-url") { await $0.openURL(url) }
-                }
-                Button(simulatorStrings.addMedia) {
-                    coordinator.scheduleControlAction("add-media") { await $0.addMedia() }
-                }
-            }
-            Divider()
-            Text(simulatorStrings.clipboard).font(.subheadline.weight(.semibold))
-            TextEditor(text: $clipboard)
-                .font(.caption.monospaced())
-                .frame(minHeight: 52)
-                .overlay { RoundedRectangle(cornerRadius: 4).stroke(.separator) }
-            ViewThatFits {
-                HStack { clipboardButtons }
-                VStack(alignment: .leading) { clipboardButtons }
-            }
+    init(coordinator: SimulatorPaneCoordinator) {
+        self.coordinator = coordinator
+        super.init(simulatorStrings.urlAndMedia)
+        urlField.placeholderString = String(localized: simulatorStrings.url)
+        add(urlField)
+        let open = SimulatorClosureButton(title: String(localized: simulatorStrings.openURL)) {
+            [weak self] in
+            guard let self else { return }
+            let value = urlField.stringValue
+            coordinator.scheduleControlAction("open-url") { await $0.openURL(value) }
         }
-        .onChange(of: coordinator.clipboardText) { _, text in clipboard = text }
+        let media = SimulatorClosureButton(title: String(localized: simulatorStrings.addMedia)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("add-media") { await $0.addMedia() }
+        }
+        add(simulatorRow([open, media]))
+        add(simulatorLabel(
+            String(localized: simulatorStrings.clipboard),
+            font: .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        ))
+        add(clipboardEditor)
+        let read = SimulatorClosureButton(title: String(localized: simulatorStrings.readClipboard)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("read-clipboard") { await $0.readClipboard() }
+        }
+        let write = SimulatorClosureButton(title: String(localized: simulatorStrings.writeClipboard)) {
+            [weak self] in
+            guard let self else { return }
+            let value = clipboardEditor.string
+            coordinator.scheduleControlAction("write-clipboard") { await $0.writeClipboard(value) }
+        }
+        let sync = SimulatorClosureButton(title: String(localized: simulatorStrings.syncClipboard)) {
+            [weak coordinator] in
+            coordinator?.scheduleControlAction("sync-clipboard") { await $0.syncClipboardFromHost() }
+        }
+        add(simulatorRow([read, write, sync]))
     }
 
-    private var clipboardButtons: some View {
-        Group {
-            Button(simulatorStrings.readClipboard) {
-                coordinator.scheduleControlAction("read-clipboard") { await $0.readClipboard() }
-            }
-            Button(simulatorStrings.writeClipboard) {
-                coordinator.scheduleControlAction("write-clipboard") { await $0.writeClipboard(clipboard) }
-            }
-            Button(simulatorStrings.syncClipboard) {
-                coordinator.scheduleControlAction("sync-clipboard") { await $0.syncClipboardFromHost() }
-            }
-        }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update() {
+        guard coordinator.clipboardText != lastClipboardValue else { return }
+        lastClipboardValue = coordinator.clipboardText
+        clipboardEditor.string = coordinator.clipboardText
     }
 }

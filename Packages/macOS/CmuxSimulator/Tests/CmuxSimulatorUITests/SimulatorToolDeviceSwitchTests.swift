@@ -1,6 +1,5 @@
 import AppKit
 import CmuxSimulator
-import SwiftUI
 import Testing
 @testable import CmuxSimulatorUI
 
@@ -12,18 +11,19 @@ struct SimulatorToolDeviceSwitchTests {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         coordinator.selectedDeviceID = "one"
-        let host = host(SimulatorAppearanceTools(coordinator: coordinator))
+        let view = host(SimulatorAppearanceTools(coordinator: coordinator))
 
         #expect(await eventually {
             await client.actions().contains(.readInterfaceStatus(deviceID: "one"))
         })
 
         coordinator.selectedDeviceID = "two"
+        view.update()
 
         #expect(await eventually {
             await client.actions().contains(.readInterfaceStatus(deviceID: "two"))
         })
-        withExtendedLifetime(host) {}
+        withExtendedLifetime(view) {}
     }
 
     @Test("Notification and privacy tools re-adopt state after a device change")
@@ -32,18 +32,19 @@ struct SimulatorToolDeviceSwitchTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         coordinator.capabilities = [.foregroundApplication]
         coordinator.selectedDeviceID = "one"
-        let host = host(SimulatorNotificationPrivacyTools(coordinator: coordinator))
+        let view = host(SimulatorNotificationPrivacyTools(coordinator: coordinator))
 
         #expect(await eventually {
             await client.actions().filter { $0 == .readForegroundApplication }.count == 1
         })
 
         coordinator.selectedDeviceID = "two"
+        view.update()
 
         #expect(await eventually {
             await client.actions().filter { $0 == .readForegroundApplication }.count == 2
         })
-        withExtendedLifetime(host) {}
+        withExtendedLifetime(view) {}
     }
 
     @Test("Camera tools rehydrate when the selected device changes")
@@ -51,18 +52,19 @@ struct SimulatorToolDeviceSwitchTests {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         coordinator.selectedDeviceID = "one"
-        let host = host(SimulatorCameraTools(coordinator: coordinator))
+        let view = host(SimulatorCameraTools(coordinator: coordinator))
 
         #expect(await eventually {
             await client.actions().filter { $0 == .readCameraStatus }.count == 1
         })
 
         coordinator.selectedDeviceID = "two"
+        view.update()
 
         #expect(await eventually {
             await client.actions().filter { $0 == .readCameraStatus }.count == 2
         })
-        withExtendedLifetime(host) {}
+        withExtendedLifetime(view) {}
     }
 
     @Test("Camera target falls back when its app leaves the inventory")
@@ -79,11 +81,11 @@ struct SimulatorToolDeviceSwitchTests {
         ) == "com.example.new")
     }
 
-    private func host<Content: View>(_ content: Content) -> NSHostingView<Content> {
-        let host = NSHostingView(rootView: content)
-        host.frame = NSRect(x: 0, y: 0, width: 480, height: 900)
-        host.layoutSubtreeIfNeeded()
-        return host
+    private func host<View: NSView & SimulatorToolsSection>(_ view: View) -> View {
+        view.frame = NSRect(x: 0, y: 0, width: 480, height: 900)
+        view.update()
+        view.layoutSubtreeIfNeeded()
+        return view
     }
 
     private func application(id: String, name: String) -> SimulatorInstalledApplication {
