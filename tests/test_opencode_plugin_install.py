@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: the generated OpenCode session plugin is valid ESM.
+Regression tests for the generated OpenCode Feed and session plugins.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -19,6 +20,18 @@ from claude_teams_test_utils import resolve_cmux_cli
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def wait_for_file_text(path: Path, expected: str, timeout: float = 2.0) -> str:
+    deadline = time.monotonic() + timeout
+    contents = ""
+    while time.monotonic() < deadline:
+        if path.exists():
+            contents = path.read_text(encoding="utf-8")
+            if expected in contents:
+                return contents
+        time.sleep(0.02)
+    return contents
 
 
 def main() -> int:
@@ -80,6 +93,70 @@ def main() -> int:
         if "cmux-feed-plugin-marker" not in feed_plugin_path.read_text(encoding="utf-8"):
             print(f"FAIL: expected cmux feed marker in {feed_plugin_path}")
             return 1
+
+        feed_check_env = env.copy()
+        feed_check_env["CMUX_TEST_OPENCODE_FEED_PLUGIN_PATH"] = str(feed_plugin_path)
+        feed_check_env["CMUX_TEST_EXPECTED_SOCKET_PATH"] = str(root / "configured.sock")
+        feed_check_source = """
+const net = require("node:net");
+const calls = [];
+net.createConnection = (target) => {
+  calls.push(target);
+  return {
+    setEncoding() {},
+    on() {},
+    write() {},
+  };
+};
+
+const pluginPath = process.env.CMUX_TEST_OPENCODE_FEED_PLUGIN_PATH;
+delete process.env.CMUX_SOCKET_PATH;
+const unconfigured = await import(`${pluginPath}?missing-socket`);
+const unconfiguredHooks = await unconfigured.CMUXFeed({ directory: "/tmp/opencode-project" });
+if (unconfiguredHooks && typeof unconfiguredHooks.event === "function") {
+  await unconfiguredHooks.event({
+    event: {
+      type: "session.created",
+      properties: { info: { id: "opencode-no-socket", directory: "/tmp/opencode-project" } },
+    },
+  });
+}
+if (calls.length !== 0) {
+  throw new Error(`Feed connected without CMUX_SOCKET_PATH: ${JSON.stringify(calls)}`);
+}
+
+const expectedSocketPath = process.env.CMUX_TEST_EXPECTED_SOCKET_PATH;
+process.env.CMUX_SOCKET_PATH = expectedSocketPath;
+const configured = await import(`${pluginPath}?configured-socket`);
+const configuredHooks = await configured.CMUXFeed({ directory: "/tmp/opencode-project" });
+if (!configuredHooks || typeof configuredHooks.event !== "function") {
+  throw new Error("configured Feed plugin did not return an event hook");
+}
+await configuredHooks.event({
+  event: {
+    type: "session.created",
+    properties: { info: { id: "opencode-with-socket", directory: "/tmp/opencode-project" } },
+  },
+});
+if (calls.length !== 1 || calls[0] !== expectedSocketPath) {
+  throw new Error(`Feed did not connect to CMUX_SOCKET_PATH: ${JSON.stringify(calls)}`);
+}
+"""
+        feed_check = subprocess.run(
+            [bun, "--eval", feed_check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=feed_check_env,
+            timeout=20,
+        )
+        feed_check_failed = feed_check.returncode != 0
+        if feed_check_failed:
+            print("FAIL: generated OpenCode Feed plugin used the wrong socket behavior")
+            print(f"exit={feed_check.returncode}")
+            print(f"stdout={feed_check.stdout.strip()}")
+            print(f"stderr={feed_check.stderr.strip()}")
 
         try:
             config = json.loads(config_json.read_text(encoding="utf-8"))
@@ -153,6 +230,13 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         )
 
         check_env = env.copy()
+        for key in (
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_KIND",
+        ):
+            check_env.pop(key, None)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
         check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
@@ -215,9 +299,9 @@ await hooks.event({
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
-        stdin_log = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
-        env_log = fake_env_log.read_text(encoding="utf-8") if fake_env_log.exists() else ""
+        args_log = wait_for_file_text(fake_args_log, "hooks opencode session-start")
+        stdin_log = wait_for_file_text(fake_stdin_log, '"session_id":"opencode-session-test"')
+        env_log = wait_for_file_text(fake_env_log, "kind=opencode")
         if "hooks opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
@@ -253,7 +337,60 @@ await hooks.event({
             )
             return 1
 
-    print("PASS: generated OpenCode plugin installs and imports as ESM")
+        slow_fake_cmux = root / "slow-fake-cmux"
+        make_executable(
+            slow_fake_cmux,
+            """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+sleep 5
+""",
+        )
+        slow_check_env = env.copy()
+        slow_check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
+        slow_check_env["CMUX_SURFACE_ID"] = "surface-opencode-slow-test"
+        slow_check_env["CMUX_OPENCODE_CMUX_BIN"] = str(slow_fake_cmux)
+        slow_check_source = """
+const pluginPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_PATH;
+const mod = await import(`${pluginPath}?slow-lifecycle`);
+const hooks = await mod.default({ directory: "/tmp/opencode-project" });
+const started = performance.now();
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-slow-lifecycle-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+const elapsed = performance.now() - started;
+if (elapsed > 750) {
+  throw new Error(`session.updated blocked for ${elapsed.toFixed(0)}ms`);
+}
+process.exit(0);
+"""
+        slow_check = subprocess.run(
+            [bun, "--eval", slow_check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=slow_check_env,
+            timeout=8,
+        )
+        if slow_check.returncode != 0:
+            print("FAIL: generated OpenCode lifecycle hook blocked on telemetry")
+            print(f"exit={slow_check.returncode}")
+            print(f"stdout={slow_check.stdout.strip()}")
+            print(f"stderr={slow_check.stderr.strip()}")
+            return 1
+        if feed_check_failed:
+            return 1
+
+    print("PASS: generated OpenCode plugins use scoped, non-blocking telemetry")
     return 0
 
 
