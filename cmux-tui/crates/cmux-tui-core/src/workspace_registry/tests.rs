@@ -651,6 +651,82 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
 }
 
 #[test]
+fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-detach");
+    let mut terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    terminal.lifecycle = TerminalLifecycle::Running;
+    terminal.incarnation = Some(INCARNATION_ONE.into());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-ready", "test").unwrap(),
+            &json!({"operation":"terminal-ready"}),
+            None,
+            Some(0),
+            "terminal-ready",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let exit = json!({
+        "outcome":{"kind":"signal","signal":15,"core_dumped":false},
+        "exited_at":"7654321",
+        "revision":"1",
+    });
+    terminal.lifecycle = TerminalLifecycle::Exited;
+    terminal.exit = Some(exit.clone());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("terminal-exited", "test").unwrap(),
+            &json!({"operation":"terminal-exited"}),
+            None,
+            Some(1),
+            "terminal-exited",
+            &terminal,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("detach-exited-tab", "cmux-tui-runtime").unwrap(),
+            "terminal.exit.detach",
+            &json!({"terminal":terminal_public_id}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"detached":true}),
+            &json!([
+                {"kind":"delete","sequence":0,"resource":"terminal","id":terminal_public_id},
+                {"kind":"delete","sequence":1,"resource":"tab","id":tab_id(1)},
+            ]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), Some(terminal_public_id));
+    let terminal = registry.terminal_record(TERMINAL_ONE).unwrap().unwrap();
+    assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(terminal.exit, Some(exit));
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
 fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let first = commit_terminal_topology(&mut registry, "same-key");
@@ -2571,7 +2647,7 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
                         active_tab: None,
                         creation_ordinal: 1,
                     }),
-                    ResourceChange::TombstoneTab { tab_id: tab_id(1) },
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
                     ResourceChange::TombstoneTerminal {
                         public_id: terminal,
                         expected_incarnation: None,

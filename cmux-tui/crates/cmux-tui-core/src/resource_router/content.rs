@@ -250,9 +250,35 @@ fn terminal_wait_exit(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let terminal_id = match mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)
+    {
+        Ok(path) => {
+            path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?
+        }
+        Err(error) => {
+            let selectors = &request.selectors;
+            if selectors.workspace.is_some()
+                || selectors.screen.is_some()
+                || selectors.pane.is_some()
+                || selectors.tab.is_some()
+            {
+                return Err(error);
+            }
+            let Some(raw) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
+                return Err(error);
+            };
+            let session_selectors = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            terminal_id
+        }
+    };
     let timeout = optional_decimal(&request.fields, "timeout_ms")?.map(Duration::from_millis);
     mux.wait_for_terminal_exit(&terminal_id, timeout).map_err(resource_operation_error)
 }
@@ -1804,6 +1830,67 @@ mod tests {
         assert_eq!(terminal["lifecycle"], "exited");
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         surface.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert_then_delete() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let durable = mux.terminal_registry_snapshot().unwrap();
+        let internal_id =
+            durable.terminals.first().expect("fixture has one terminal").terminal_id.clone();
+        let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: true,
+            },
+            exited_at_ms: 3_456_789,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(
+            mux.detach_exited_terminal_topology_for_test(&internal_id).unwrap().is_some(),
+            "exited terminal retained its topology binding"
+        );
+
+        let exited = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(
+            exited["outcome"],
+            json!({"kind":"signal","signal":libc::SIGTERM,"core_dumped":true})
+        );
+        assert_eq!(exited["exited_at"], "3456789");
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["terminals"], json!([]));
+        let events = mux.resource_events_after(before).unwrap();
+        assert_eq!(events.batches.len(), 2);
+        let exit_changes = events.batches[0].changes.as_array().unwrap();
+        let exit_upsert = exit_changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("exit batch omitted the terminal upsert");
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
+        let detach_changes = events.batches[1].changes.as_array().unwrap();
+        assert!(detach_changes.iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+                && change["kind"] == "delete"
+        }));
     }
 
     #[test]

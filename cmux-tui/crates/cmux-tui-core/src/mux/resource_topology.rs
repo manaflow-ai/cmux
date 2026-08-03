@@ -2016,6 +2016,183 @@ impl Mux {
         )
     }
 
+    /// Remove an Exited terminal's durable tab binding without tombstoning
+    /// the terminal resource or its exact exit outcome. The resource patch
+    /// commits before the projected live state becomes authoritative, so a
+    /// failed detach leaves the old topology intact and can be retried.
+    pub(super) fn detach_exited_terminal_topology(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<SurfaceId>> {
+        loop {
+            let Some((workspace, terminal_public_id, target)) = ({
+                let registry = self.workspace_registry.lock().unwrap();
+                let terminal = registry
+                    .terminal_record(terminal_id)?
+                    .with_context(|| format!("unknown terminal {terminal_id}"))?;
+                if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                    return Ok(None);
+                }
+                anyhow::ensure!(
+                    terminal.lifecycle == TerminalLifecycle::Exited,
+                    "terminal {terminal_id} is not exited"
+                );
+                let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
+                    return Ok(None);
+                };
+                let state = self.state.lock().unwrap();
+                let Some(target) = state
+                    .resource_indexes
+                    .content
+                    .get(&ContentPublicId::Terminal(terminal_public_id.clone()))
+                    .copied()
+                else {
+                    return Ok(None);
+                };
+                let workspace = state
+                    .pane_of(target)
+                    .and_then(|pane| state.screen_of(pane).map(|(workspace, _)| workspace))
+                    .and_then(|workspace| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.id);
+                workspace.map(|workspace| (workspace, terminal_public_id, target))
+            }) else {
+                return Ok(None);
+            };
+
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
+            let terminal = registry
+                .terminal_record(terminal_id)?
+                .with_context(|| format!("unknown terminal {terminal_id}"))?;
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                terminal.lifecycle == TerminalLifecycle::Exited,
+                "terminal {terminal_id} is not exited"
+            );
+            let current_public_id = registry.terminal_resource_id(terminal_id)?;
+            let current_target = current_public_id.as_ref().and_then(|public_id| {
+                state
+                    .resource_indexes
+                    .content
+                    .get(&ContentPublicId::Terminal(public_id.clone()))
+                    .copied()
+            });
+            if current_public_id.as_ref() != Some(&terminal_public_id)
+                || current_target != Some(target)
+                || state
+                    .pane_of(target)
+                    .and_then(|pane| state.screen_of(pane).map(|(workspace, _)| workspace))
+                    .and_then(|workspace| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.id)
+                    != Some(workspace)
+            {
+                drop(state);
+                drop(registry);
+                drop(workspace_lifecycle);
+                continue;
+            }
+
+            let pane = state.pane_of(target).context("exited terminal tab has no pane")?;
+            let (workspace_index, screen_index) =
+                state.screen_of(pane).context("exited terminal pane has no screen")?;
+            let screen = state.workspaces[workspace_index].screens[screen_index].id;
+            let tab_id = state
+                .resource_indexes
+                .tab_ids
+                .get(&target)
+                .cloned()
+                .context("exited terminal has no durable tab identity")?;
+            let notifications = self.surface_notifications();
+            let mut plan = self.resource_close_plan_locked(
+                ResourceOperation::TabClose,
+                EffectSlots {
+                    workspace: Some(workspace),
+                    screen: Some(screen),
+                    pane: Some(pane),
+                    tab: Some(target),
+                },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            anyhow::ensure!(
+                plan.terminals.iter().any(|(candidate, _)| candidate == terminal_id),
+                "exited terminal detach lost its durable host identity"
+            );
+            let mut projection =
+                self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+            let mut detached_tab = false;
+            let mut preserved_terminal = false;
+            projection.patch.changes.retain_mut(|change| match change {
+                ResourceChange::TombstoneTab { tab_id: candidate, close_content }
+                    if candidate == &tab_id =>
+                {
+                    *close_content = false;
+                    detached_tab = true;
+                    true
+                }
+                ResourceChange::TombstoneTerminal { public_id, .. }
+                    if public_id == &terminal_public_id =>
+                {
+                    preserved_terminal = true;
+                    false
+                }
+                _ => true,
+            });
+            anyhow::ensure!(detached_tab, "exited terminal projection did not close its tab");
+            anyhow::ensure!(
+                preserved_terminal,
+                "exited terminal projection did not preserve its terminal resource"
+            );
+
+            let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+            let fingerprint = json!({
+                "operation":"terminal.exit.detach",
+                "terminal_id":terminal_id,
+                "terminal":terminal_public_id,
+                "tab":tab_id,
+            });
+            let expected_revision = state.resource_revision;
+            let commit = registry.commit_resource_patch(
+                &mutation,
+                "terminal.exit.detach",
+                &fingerprint,
+                None,
+                Some(expected_revision),
+                &projection.patch,
+                &projection.result,
+                &projection.changes,
+            )?;
+            plan.state.resource_revision = commit.revision;
+            let empty_revision =
+                plan.state.workspaces.is_empty().then_some(plan.state.workspace_revision);
+            let removed = plan.removed;
+            let delta = plan.delta;
+            let selection_resync = plan.selection_resync;
+            let changed_screens = plan.changed_screens;
+            *state = plan.state;
+            drop(state);
+            drop(registry);
+            drop(workspace_lifecycle);
+
+            self.publish_resource_event();
+            for surface in removed {
+                self.purge_surface_side_tables(surface.id);
+                surface.kill();
+            }
+            self.emit_tree_delta(delta, selection_resync);
+            for screen in changed_screens {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
+            self.emit_empty_if_current(empty_revision);
+            return Ok(Some(target));
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn commit_resource_close_with(
         &self,

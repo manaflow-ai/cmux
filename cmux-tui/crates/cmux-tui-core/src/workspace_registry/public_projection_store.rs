@@ -863,7 +863,7 @@ mod tests {
                             active_tab: None,
                             creation_ordinal: 1,
                         }),
-                        ResourceChange::TombstoneTab { tab_id: tab },
+                        ResourceChange::TombstoneTab { tab_id: tab, close_content: true },
                         ResourceChange::TombstoneTerminal {
                             public_id: terminal,
                             expected_incarnation: None,

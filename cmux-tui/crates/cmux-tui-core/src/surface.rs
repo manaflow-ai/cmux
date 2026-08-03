@@ -2181,37 +2181,14 @@ impl Surface {
         Self::spawn_hosted(id, opts, mux, attachment, false, Some(resource_identity))
     }
 
-    /// Materialize canonical Exited registry state without inventing a live
-    /// host connection. The stable identity stays queryable so later
-    /// placement mutations operate on the same terminal object rather than a
-    /// daemon-local surrogate.
-    #[cfg(unix)]
-    pub(crate) fn exited_terminal_placeholder(
+    #[cfg(all(test, unix))]
+    pub(crate) fn exited_terminal_placeholder_for_test(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        Self::exited_terminal_placeholder_with_resource_identity(
-            id,
-            opts,
-            mux,
-            identity,
-            TabResourceIdentity::terminal(None)?,
-        )
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn exited_terminal_placeholder_with_resource_identity(
-        id: SurfaceId,
-        opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        identity: crate::terminal_host_runtime::TerminalHostIdentity,
-        resource_identity: TabResourceIdentity,
-    ) -> anyhow::Result<Arc<Surface>> {
-        if matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
-            anyhow::bail!("exited terminal cannot use a browser resource identity");
-        }
+        let resource_identity = TabResourceIdentity::terminal(None)?;
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -4894,7 +4871,7 @@ mod tests {
             terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
             incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
         };
-        let surface = Surface::exited_terminal_placeholder(
+        let surface = Surface::exited_terminal_placeholder_for_test(
             91,
             SurfaceOptions::default(),
             Arc::downgrade(&mux),
