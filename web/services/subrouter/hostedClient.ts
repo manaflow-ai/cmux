@@ -30,11 +30,15 @@ export type HostedSubrouterClient = {
 
 export function createHostedSubrouterClient(options: {
   readonly baseUrl?: string;
+  readonly tenantDeleteToken?: string;
   readonly fetch?: typeof fetch;
 } = {}): HostedSubrouterClient {
   const baseUrl = (options.baseUrl ?? env.SUBROUTER_HOSTED_URL ??
     DEFAULT_HOSTED_SUBROUTER_URL).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;
+  const tenantDeleteToken = (
+    options.tenantDeleteToken ?? env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ?? ""
+  ).trim();
 
   const tenantRequest = (
     tenantKey: string,
@@ -85,6 +89,12 @@ export function createHostedSubrouterClient(options: {
       return parseHostedTenant(response);
     },
     deleteTenant: async (accessToken, teamId) => {
+      if (!tenantDeleteToken) {
+        throw new HostedSubrouterError(
+          "hosted Subrouter tenant deletion is not configured",
+          503,
+        );
+      }
       const response = await requestJson(
         fetchImpl,
         `${baseUrl}/_subrouter/auth/stack/tenant`,
@@ -93,6 +103,7 @@ export function createHostedSubrouterClient(options: {
           headers: {
             authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
+            "x-subrouter-tenant-delete-token": tenantDeleteToken,
           },
           body: JSON.stringify({ teamId }),
         },

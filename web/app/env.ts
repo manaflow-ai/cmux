@@ -214,6 +214,10 @@ export const env = createEnv({
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
     SUBROUTER_HOSTED_URL: z.string().url().optional(),
+    SUBROUTER_STACK_TENANT_DELETE_TOKEN: requireVercelNonPreviewValue(
+      "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
+      z.string().min(32).max(1_024),
+    ),
     SUBROUTER_ENFORCE_STACK_PERMISSIONS: requireVercelNonPreviewValue(
       "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
       z.enum(["0", "1"]),
@@ -345,6 +349,9 @@ export const env = createEnv({
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
+    SUBROUTER_STACK_TENANT_DELETE_TOKEN: trimEnv(
+      process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN,
+    ),
     SUBROUTER_ENFORCE_STACK_PERMISSIONS: trimEnv(
       process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
     ),
