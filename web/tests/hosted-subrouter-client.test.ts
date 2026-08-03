@@ -87,6 +87,27 @@ describe("hosted Subrouter client", () => {
     await expect(client.deleteTenant("stack-access", "team-1")).resolves.toBeUndefined();
   });
 
+  test("rejects a hosted tenant credential for a different Stack team", async () => {
+    const client = createHostedSubrouterClient({
+      baseUrl: "https://sr.example",
+      fetch: (async () =>
+        Response.json({
+          tenantId: "team-other",
+          tenantName: "Other",
+          tenantKey: "srt_0123456789abcdef0123456789abcdef",
+          proxyUrl:
+            "https://sr.example/t/srt_0123456789abcdef0123456789abcdef",
+        })) as typeof fetch,
+    });
+
+    await expect(
+      client.exchangeTeam("stack-access", {
+        teamId: "team-1",
+        teamName: "Acme",
+      }),
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
   test("rejects an unexpected tenant deletion route 404", async () => {
     const client = createHostedSubrouterClient({
       baseUrl: "https://sr.example",

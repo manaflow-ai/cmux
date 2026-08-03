@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { GET } from "../app/api/cli/config/route";
 
 type CliConfigEnvKey =
+  | "NEXT_PUBLIC_STACK_API_URL"
   | "NEXT_PUBLIC_STACK_PROJECT_ID"
   | "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"
   | "SUBROUTER_HOSTED_URL"
   | "VERCEL_ENV";
 
 const testEnvironment = {
+  NEXT_PUBLIC_STACK_API_URL: "https://stack.example.test/api/v1",
   NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
   SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
@@ -53,7 +55,7 @@ describe("CLI config route", () => {
       expect(await response.json()).toEqual({
         version: 1,
         auth: {
-          apiUrl: "https://api.stack-auth.com/api/v1",
+          apiUrl: testEnvironment.NEXT_PUBLIC_STACK_API_URL,
           projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
           publishableClientKey:
             testEnvironment.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
