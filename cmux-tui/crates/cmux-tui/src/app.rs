@@ -18578,11 +18578,11 @@ mod tests {
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TerminalInput, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership, TerminalInput,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
+        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
@@ -18596,6 +18596,7 @@ mod tests {
         reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        workspace_creation_selection,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
