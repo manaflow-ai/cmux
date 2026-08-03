@@ -27,7 +27,6 @@ struct ComputerUseOnboardingView: View {
     @State private var permissionChangeRefreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
-    @State private var helperIcon: NSImage?
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
     @State private var directCaptureReady: Bool
@@ -55,11 +54,14 @@ struct ComputerUseOnboardingView: View {
         self.onOnboardingCompleted = onOnboardingCompleted
         _step = State(initialValue: initialStep)
         _directCaptureReady = State(initialValue: initialDirectCaptureReady)
-        _helperIcon = State(initialValue: runtimeService.presentationIcon)
     }
 
     private var isPermissionCompanionVisible: Bool {
         presentationState.permissionCompanionVisible
+    }
+
+    private var helperIcon: NSImage? {
+        ComputerUseHelperIconRenderer.image()
     }
 
     var body: some View {
@@ -77,7 +79,6 @@ struct ComputerUseOnboardingView: View {
                 onboardingBackground
             }
         }
-        .preferredColorScheme(isPermissionCompanionVisible ? nil : .dark)
         .onAppear {
             prepareHelperForOnboarding()
         }
@@ -112,28 +113,28 @@ struct ComputerUseOnboardingView: View {
 
     private var onboardingBackground: some View {
         ZStack {
-            Color(red: 0.157, green: 0.180, blue: 0.200)
+            Color(nsColor: .windowBackgroundColor)
 
             RadialGradient(
-                colors: [.white.opacity(0.035), .clear],
+                colors: [Color(nsColor: .controlBackgroundColor).opacity(0.78), .clear],
                 center: UnitPoint(x: 0.22, y: 0.02),
                 startRadius: 0,
                 endRadius: 220
             )
             RadialGradient(
-                colors: [.black.opacity(0.22), .clear],
+                colors: [Color.primary.opacity(0.045), .clear],
                 center: UnitPoint(x: 0.08, y: 0.27),
                 startRadius: 0,
                 endRadius: 260
             )
             RadialGradient(
-                colors: [.white.opacity(0.035), .clear],
+                colors: [Color(nsColor: .controlBackgroundColor).opacity(0.58), .clear],
                 center: UnitPoint(x: 0.04, y: 0.96),
                 startRadius: 0,
                 endRadius: 290
             )
             RadialGradient(
-                colors: [.black.opacity(0.10), .clear],
+                colors: [Color.primary.opacity(0.025), .clear],
                 center: UnitPoint(x: 0.70, y: 0.76),
                 startRadius: 0,
                 endRadius: 280
@@ -142,11 +143,11 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var overviewSecondaryText: Color {
-        Color(red: 0.66, green: 0.69, blue: 0.71)
+        Color(nsColor: .secondaryLabelColor)
     }
 
     private var permissionCardBackground: Color {
-        Color(red: 0.161, green: 0.184, blue: 0.204)
+        Color(nsColor: .controlBackgroundColor)
     }
 
     /// The reference-style overview shown before entering a macOS permission pane.
@@ -244,7 +245,7 @@ struct ComputerUseOnboardingView: View {
 
             ProgressView()
                 .controlSize(.small)
-                .tint(.white.opacity(0.7))
+                .tint(.secondary)
                 .padding(.top, 30)
 
             Spacer()
@@ -350,7 +351,7 @@ struct ComputerUseOnboardingView: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: 25, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.11), lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.16), radius: 3, y: 2)
     }
@@ -452,7 +453,6 @@ struct ComputerUseOnboardingView: View {
             presentationState: presentationState,
             applicationName: runtimeService.applicationName,
             helperAppURL: helperAppURL,
-            helperIcon: helperIcon,
             onBack: {
                 onExpandedRequested()
                 refreshPermissions()
@@ -651,7 +651,6 @@ struct ComputerUseOnboardingView: View {
     private func refreshHelperPresentation() {
         let url = runtimeService.helperAppURL
         helperAppURL = url
-        helperIcon = runtimeService.presentationIcon
     }
 
     private func applyPermissions(
@@ -755,7 +754,6 @@ struct ComputerUsePermissionCompanionView: View {
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let applicationName: String
     let helperAppURL: URL?
-    let helperIcon: NSImage?
     let onBack: @MainActor () -> Void
     let onDragEnded: @MainActor (NSDragOperation) -> Void
     let onLayoutReady: @MainActor () -> Void
@@ -765,6 +763,10 @@ struct ComputerUsePermissionCompanionView: View {
             permissionStep: permissionStep,
             screenCaptureConsentPending: presentationState.screenCaptureConsentPending
         )
+    }
+
+    private var helperIcon: NSImage? {
+        ComputerUseHelperIconRenderer.image()
     }
 
     var body: some View {
@@ -869,10 +871,6 @@ struct ComputerUsePermissionCompanionView: View {
                 }
             }
             .frame(width: 26, height: 26)
-            .background(
-                Color.white,
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-            )
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)

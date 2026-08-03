@@ -1,6 +1,6 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <!-- AgentCursorPointerView's exact Sky path, gradient, and direction on a
-       rounded white app-icon plate. -->
+       rounded translucent plate that inherits the surrounding appearance. -->
   <defs>
     <linearGradient id="cur" x1="0.68" y1="0.68" x2="11" y2="11" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#12c7f5"/>
@@ -8,7 +8,7 @@
       <stop offset="1" stop-color="#6c5cff"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="224" fill="#FFFFFF"/>
+  <rect width="1024" height="1024" rx="224" fill="#FFFFFF" fill-opacity="0.14"/>
   <!-- The Sky silhouette's area centroid is 42.6px above and left of its
        bounding-box center, so offset it down/right for optical centering. -->
   <g transform="translate(293.4 293.4) scale(44.8)">

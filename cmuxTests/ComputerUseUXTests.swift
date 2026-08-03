@@ -1351,10 +1351,8 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func onboardingLoadsTheBundledComputerUseArtworkWithoutLaunchServices() throws {
+    func onboardingRendersAdaptiveComputerUseArtworkWithoutLaunchServices() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
-        let expectedArtworkURL = helperAppURL
-            .appendingPathComponent("Contents/Resources/AppIcon.icns")
         let artwork = NSImage(size: NSSize(width: 32, height: 32))
         var artworkRequests: [URL] = []
         var fallbackRequests: [URL] = []
@@ -1371,8 +1369,8 @@ struct ComputerUseUXTests {
             }
         ))
 
-        #expect(icon === artwork)
-        #expect(artworkRequests == [expectedArtworkURL])
+        #expect(icon !== artwork)
+        #expect(artworkRequests.isEmpty)
         #expect(fallbackRequests.isEmpty)
     }
 
@@ -1401,15 +1399,17 @@ struct ComputerUseUXTests {
             return try #require(resolved)
         }
 
-        let lightPlate = try Self.sampledIconColor(
-            try resolvedIcon(named: .aqua)
-        )
-        let darkPlate = try Self.sampledIconColor(
-            try resolvedIcon(named: .darkAqua)
-        )
+        let lightIcon = try resolvedIcon(named: .aqua)
+        let darkIcon = try resolvedIcon(named: .darkAqua)
+        let lightPlate = try Self.compositedIconColor(lightIcon, appearance: .aqua)
+        let darkPlate = try Self.compositedIconColor(darkIcon, appearance: .darkAqua)
+        let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
+        let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
         #expect(lightPlate.brightnessComponent > 0.7)
         #expect(darkPlate.brightnessComponent < 0.4)
+        #expect(lightCorner.alphaComponent < 0.01)
+        #expect(darkCorner.alphaComponent < 0.01)
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
@@ -3683,14 +3683,37 @@ struct ComputerUseUXTests {
         appendString(value, to: &message)
     }
 
-    private static func sampledIconColor(_ image: NSImage) throws -> NSColor {
+    private static func sampledIconColor(
+        _ image: NSImage,
+        x: Int? = nil,
+        y: Int? = nil
+    ) throws -> NSColor {
         let data = try #require(image.tiffRepresentation)
         let bitmap = try #require(NSBitmapImageRep(data: data))
         let color = try #require(bitmap.colorAt(
-            x: bitmap.pixelsWide / 2,
-            y: bitmap.pixelsHigh * 4 / 5
+            x: x ?? bitmap.pixelsWide / 2,
+            y: y ?? bitmap.pixelsHigh * 4 / 5
         ))
         return try #require(color.usingColorSpace(.sRGB))
+    }
+
+    private static func compositedIconColor(
+        _ image: NSImage,
+        appearance appearanceName: NSAppearance.Name
+    ) throws -> NSColor {
+        let appearance = try #require(NSAppearance(named: appearanceName))
+        let composite = NSImage(
+            size: NSSize(width: 128, height: 128),
+            flipped: false
+        ) { rect in
+            appearance.performAsCurrentDrawingAppearance {
+                NSColor.windowBackgroundColor.setFill()
+                rect.fill()
+                image.draw(in: rect)
+            }
+            return true
+        }
+        return try sampledIconColor(composite)
     }
 
     private func runShim(

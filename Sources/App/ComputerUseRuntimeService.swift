@@ -100,6 +100,9 @@ final class ComputerUseRuntimeService {
         }
     ) -> NSImage? {
         guard let helperAppURL else { return nil }
+        if let icon = ComputerUseHelperIconRenderer.image() {
+            return icon
+        }
         let iconURL = helperAppURL
             .appendingPathComponent("Contents/Resources/AppIcon.icns", isDirectory: false)
         if let icon = loadArtwork(iconURL) {

@@ -645,7 +645,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                 ?? ComputerUseOnboardingPresentationState(),
             applicationName: runtimeService.applicationName,
             helperAppURL: runtimeService.helperAppURL,
-            helperIcon: runtimeService.presentationIcon,
             onBack: { [weak self] in
                 guard let self else { return }
                 self.showExpandedOnboarding(resetStep: false)
