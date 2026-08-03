@@ -463,6 +463,43 @@ import os
         #expect(report.lastFailureEvent == gatedRefusal)
     }
 
+    @Test func cancelledDialOutcomesAreNotTreatedAsFailures() {
+        // Abandoned dials now emit a `cancelled` outcome so every
+        // `transportDialStarted` has exactly one outcome event. Report readers
+        // must not mistake that lifecycle churn for a real failure.
+        let realFailure = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 2,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue,
+            c: 7
+        )
+        let cancelled = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 3,
+            ms: 12_000,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.cancelled.rawValue,
+            c: 8
+        )
+        let mixed = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [realFailure, cancelled]
+        )
+        #expect(mixed.lastFailureEvent == realFailure)
+        #expect(mixed.lastFailureKind == .timedOut)
+
+        let cancelledOnly = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [cancelled]
+        )
+        #expect(cancelledOnly.lastFailureEvent == nil)
+        #expect(cancelledOnly.lastFailureKind == nil)
+        #expect(cancelledOnly.lastFailureDate == nil)
+    }
+
     @Test func clearStartsFreshBoundedSessionAndResetsAnchors() async {
         let log = DiagnosticLog(
             capacity: 2,
