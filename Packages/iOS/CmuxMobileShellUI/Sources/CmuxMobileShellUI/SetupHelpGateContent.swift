@@ -35,7 +35,11 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on your computer"),
                 body: L10n.string(
                     "mobile.setupHelp.macAppBody",
-                    defaultValue: "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. If it does not, open Pair iPhone in cmux on the computer and scan its QR code."
+                    defaultValue: """
+                    Install cmux on your computer, sign in to the same account, and leave it running. \
+                    The computer then appears on this phone automatically. \
+                    To pair through Tailscale, open Tailscale Pairing in cmux on the computer and scan its QR code.
+                    """
                 ),
                 link: nil,
                 identifierSuffix: "signedInNeverPaired",

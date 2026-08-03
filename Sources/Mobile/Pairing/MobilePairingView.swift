@@ -4,7 +4,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import SwiftUI
 
-/// The macOS onboarding window for pairing an iPhone with this Mac.
+/// The macOS Tailscale QR flow for pairing an iPhone with this Mac.
 ///
 /// Automatic Iroh discovery needs no QR. This window walks the user through
 /// same-account authorization and shows the Tailscale code used when the
@@ -76,7 +76,7 @@ struct MobilePairingView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
+            Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone with Tailscale"))
                 .cmuxFont(.title2, weight: .semibold)
             Text(String(
                 localized: "mobile.pairing.window.subheading",

@@ -4597,13 +4597,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect over your Tailscale network. Scan the pairing code shown on your Mac."
+            "value": "Connect over your Tailscale network. Open Tailscale Pairing on your Mac and scan its code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleネットワーク経由で接続します。Macに表示されるペアリングコードをスキャンしてください。"
+            "value": "Tailscaleネットワーク経由で接続します。Macで「Tailscaleペアリング」を開き、コードをスキャンしてください。"
           }
         }
       }
@@ -4699,13 +4699,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connects over your Tailscale network first. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
+            "value": "Connects over your Tailscale network first. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Tailscale Pairing) to enable it for that Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まずTailscaleネットワーク経由で接続します。有効にするには、Macに表示されるTailscaleペアリングコードを一度スキャンしてください（cmux設定 → iPhoneをペアリング）。"
+            "value": "まずTailscaleネットワーク経由で接続します。そのMacで有効にするには、Macに表示されるTailscaleペアリングコードを一度スキャンしてください（cmux設定 → Tailscaleペアリング）。"
           }
         }
       }
@@ -4859,23 +4859,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "次へ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pairBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。Tailscale、別のVPN、または同じLANにより、認証済みのIroh接続が高速になる場合があります。"
           }
         }
       }
@@ -5685,13 +5668,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the pairing window on your Mac and scan a fresh QR or link."
+            "value": "Open Tailscale Pairing on your Mac and scan a fresh QR or link."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでペアリングウィンドウを開き、新しいQRコードまたはリンクをスキャンしてください。"
+            "value": "Macで「Tailscaleペアリング」を開き、新しいQRコードまたはリンクをスキャンしてください。"
           }
         }
       }
@@ -5753,13 +5736,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
+            "value": "This isn't a cmux pairing QR. Scan the code shown in Tailscale Pairing on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはcmuxのペアリングQRコードではありません。Macの「iPhoneをペアリング」ウインドウに表示されているコードをスキャンしてください。"
+            "value": "これはcmuxのペアリングQRコードではありません。Macの「Tailscaleペアリング」に表示されているコードをスキャンしてください。"
           }
         }
       }
@@ -5804,13 +5787,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Open Tailscale Pairing on the Mac and scan a fresh code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。Macのcmuxを更新し、Irohコードをスキャンしてください。"
+            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。Macで「Tailscaleペアリング」を開き、新しいコードをスキャンしてください。"
           }
         }
       }
@@ -7776,13 +7759,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. If it does not, open Pair iPhone in cmux on the computer and scan its QR code."
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, open Tailscale Pairing in cmux on the computer and scan its QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。表示されない場合は、コンピュータのcmuxで「iPhone をペアリング」を開き、QRコードをスキャンしてください。"
+            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale経由でペアリングするには、コンピュータのcmuxで「Tailscaleペアリング」を開き、QRコードをスキャンしてください。"
           }
         }
       }

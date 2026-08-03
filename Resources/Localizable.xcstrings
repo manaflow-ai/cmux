@@ -53689,6 +53689,23 @@
         }
       }
     },
+    "cli.workspaceAction.tailscalePairingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Pairing is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングは利用できません"
+          }
+        }
+      }
+    },
     "cli.workspace.status.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -61328,7 +61345,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Tailscale"
           }
         },
         "es": {
@@ -61352,7 +61369,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モバイル"
+            "value": "Tailscale"
           }
         },
         "km": {
@@ -61453,7 +61470,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect iPhone/iPad"
+            "value": "Open Tailscale Pairing"
           }
         },
         "es": {
@@ -61477,7 +61494,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPadを接続"
+            "value": "Tailscaleペアリングを開く"
           }
         },
         "km": {
@@ -110592,13 +110609,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+            "value": "Shows Tailscale Pairing entrypoints that open the QR code workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneペアリングワークスペースを開くMobile Connectの入口を表示します。"
+            "value": "QRコードワークスペースを開くTailscaleペアリングの入口を表示します。"
           }
         }
       }
@@ -110609,13 +110626,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connect button"
+            "value": "Tailscale Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectボタン"
+            "value": "Tailscaleペアリングボタン"
           }
         }
       }
@@ -135808,13 +135825,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your iPhone"
+            "value": "Pair your iPhone with Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "TailscaleでiPhoneをペアリング"
           }
         }
       }
@@ -135842,13 +135859,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair iPhone"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174423,13 +174440,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair a Device"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスをペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174440,13 +174457,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair…"
+            "value": "Show Tailscale QR…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング…"
+            "value": "Tailscale QRを表示…"
           }
         }
       }
@@ -174457,13 +174474,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
           }
         }
       }

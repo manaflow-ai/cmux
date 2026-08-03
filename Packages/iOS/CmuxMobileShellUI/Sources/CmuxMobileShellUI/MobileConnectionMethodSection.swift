@@ -61,7 +61,11 @@ struct MobileConnectionMethodSection: View {
         case .tailscale:
             L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
-                defaultValue: "Connects over your Tailscale network first. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
+                defaultValue: """
+                Connects over your Tailscale network first. \
+                Scan the Tailscale pairing code shown on your Mac once \
+                (cmux Settings → Tailscale Pairing) to enable it for that Mac.
+                """
             )
         }
     }
