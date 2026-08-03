@@ -39,6 +39,18 @@ struct PaneAddOptions<'a> {
     viewport_width: Option<f32>,
 }
 
+struct TerminalCreateOptions {
+    argv: Option<Vec<String>>,
+    cwd: Option<String>,
+    terminal_name: Option<String>,
+    created_screen_name: Option<String>,
+    size: Option<(u16, u16)>,
+}
+
+struct CreatedTerminalEffect {
+    path: Value,
+}
+
 struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
@@ -48,6 +60,49 @@ struct ResourceClosePlan {
     delta: TreeDelta,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
+}
+
+pub(super) struct TerminalExitDetachProjection {
+    pub(super) state: State,
+    pub(super) removed: Vec<Arc<Surface>>,
+    pub(super) patch: ResourcePatch,
+    pub(super) result: Value,
+    pub(super) changes: Value,
+    pub(super) target: SurfaceId,
+    pub(super) tab_id: TabPublicId,
+    pub(super) delta: TreeDelta,
+    pub(super) changed_screens: Vec<ScreenId>,
+    pub(super) selection_resync: bool,
+}
+
+pub(super) struct TerminalExitDetachEffects {
+    target: SurfaceId,
+    removed: Vec<Arc<Surface>>,
+    delta: TreeDelta,
+    changed_screens: Vec<ScreenId>,
+    selection_resync: bool,
+    empty_revision: Option<u64>,
+}
+
+impl TerminalExitDetachProjection {
+    pub(super) fn install(
+        mut self,
+        state: &mut State,
+        resource_revision: u64,
+    ) -> TerminalExitDetachEffects {
+        self.state.resource_revision = resource_revision;
+        let empty_revision =
+            self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
+        *state = self.state;
+        TerminalExitDetachEffects {
+            target: self.target,
+            removed: self.removed,
+            delta: self.delta,
+            changed_screens: self.changed_screens,
+            selection_resync: self.selection_resync,
+            empty_revision,
+        }
+    }
 }
 
 struct ResourceCreationActivity<'a> {
@@ -2016,6 +2071,223 @@ impl Mux {
         )
     }
 
+    pub(super) fn terminal_exit_detach_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &State,
+        terminal_id: &str,
+        terminal_public_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
+        let Some(target) = state
+            .resource_indexes
+            .content
+            .get(&ContentPublicId::Terminal(terminal_public_id.clone()))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let pane = state.pane_of(target).context("exited terminal tab has no pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("exited terminal pane has no screen")?;
+        let workspace = state.workspaces[workspace_index].id;
+        let screen = state.workspaces[workspace_index].screens[screen_index].id;
+        let tab_id = state
+            .resource_indexes
+            .tab_ids
+            .get(&target)
+            .cloned()
+            .context("exited terminal has no durable tab identity")?;
+        let notifications = self.surface_notifications();
+        let mut plan = self.resource_close_plan_locked(
+            ResourceOperation::TabClose,
+            EffectSlots {
+                workspace: Some(workspace),
+                screen: Some(screen),
+                pane: Some(pane),
+                tab: Some(target),
+            },
+            registry,
+            state,
+            &notifications,
+        )?;
+        anyhow::ensure!(
+            plan.terminals.iter().any(|(candidate, _)| candidate == terminal_id),
+            "exited terminal detach lost its durable host identity"
+        );
+        let mut projection =
+            self.resource_effect_projection_locked(registry, &mut plan.state, json!({}))?;
+        let mut detached_tab = false;
+        let mut preserved_terminal = false;
+        projection.patch.changes.retain_mut(|change| match change {
+            ResourceChange::TombstoneTab { tab_id: candidate, close_content }
+                if candidate == &tab_id =>
+            {
+                *close_content = false;
+                detached_tab = true;
+                true
+            }
+            ResourceChange::TombstoneTerminal { public_id, .. }
+                if public_id == terminal_public_id =>
+            {
+                preserved_terminal = true;
+                false
+            }
+            _ => true,
+        });
+        anyhow::ensure!(detached_tab, "exited terminal projection did not close its tab");
+        anyhow::ensure!(
+            preserved_terminal,
+            "exited terminal projection did not preserve its terminal resource"
+        );
+        Ok(Some(TerminalExitDetachProjection {
+            state: plan.state,
+            removed: plan.removed,
+            patch: projection.patch,
+            result: projection.result,
+            changes: projection.changes,
+            target,
+            tab_id,
+            delta: plan.delta,
+            changed_screens: plan.changed_screens,
+            selection_resync: plan.selection_resync,
+        }))
+    }
+
+    pub(super) fn finish_terminal_exit_detach(&self, effects: TerminalExitDetachEffects) {
+        // Restored terminal slots can exist in the resource indexes before a
+        // runtime Surface is materialized. Purge metadata by the detached slot
+        // even when there is no Arc in `removed` to carry that identity.
+        self.purge_surface_side_tables(effects.target);
+        for surface in effects.removed {
+            surface.kill();
+        }
+        self.emit_tree_delta(effects.delta, effects.selection_resync);
+        for screen in effects.changed_screens {
+            self.emit(MuxEvent::LayoutChanged(screen));
+        }
+        self.emit_empty_if_current(effects.empty_revision);
+    }
+
+    /// Remove an Exited terminal's durable tab binding without tombstoning
+    /// the terminal resource or its exact exit outcome. The resource patch
+    /// commits before the projected live state becomes authoritative, so a
+    /// failed detach leaves the old topology intact and can be retried.
+    pub(super) fn detach_exited_terminal_topology(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<SurfaceId>> {
+        loop {
+            let Some((workspace, terminal_public_id, target)) = ({
+                let registry = self.workspace_registry.lock().unwrap();
+                let terminal = registry
+                    .terminal_record(terminal_id)?
+                    .with_context(|| format!("unknown terminal {terminal_id}"))?;
+                if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                    return Ok(None);
+                }
+                anyhow::ensure!(
+                    terminal.lifecycle == TerminalLifecycle::Exited,
+                    "terminal {terminal_id} is not exited"
+                );
+                let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
+                    return Ok(None);
+                };
+                let state = self.state.lock().unwrap();
+                let Some(target) = state
+                    .resource_indexes
+                    .content
+                    .get(&ContentPublicId::Terminal(terminal_public_id.clone()))
+                    .copied()
+                else {
+                    return Ok(None);
+                };
+                let workspace = state
+                    .pane_of(target)
+                    .and_then(|pane| state.screen_of(pane).map(|(workspace, _)| workspace))
+                    .and_then(|workspace| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.id);
+                workspace.map(|workspace| (workspace, terminal_public_id, target))
+            }) else {
+                return Ok(None);
+            };
+
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
+            let terminal = registry
+                .terminal_record(terminal_id)?
+                .with_context(|| format!("unknown terminal {terminal_id}"))?;
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                terminal.lifecycle == TerminalLifecycle::Exited,
+                "terminal {terminal_id} is not exited"
+            );
+            let current_public_id = registry.terminal_resource_id(terminal_id)?;
+            let current_target = current_public_id.as_ref().and_then(|public_id| {
+                state
+                    .resource_indexes
+                    .content
+                    .get(&ContentPublicId::Terminal(public_id.clone()))
+                    .copied()
+            });
+            if current_public_id.as_ref() != Some(&terminal_public_id)
+                || current_target != Some(target)
+                || state
+                    .pane_of(target)
+                    .and_then(|pane| state.screen_of(pane).map(|(workspace, _)| workspace))
+                    .and_then(|workspace| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.id)
+                    != Some(workspace)
+            {
+                drop(state);
+                drop(registry);
+                drop(workspace_lifecycle);
+                continue;
+            }
+
+            let Some(projection) = self.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                terminal_id,
+                &terminal_public_id,
+            )?
+            else {
+                return Ok(None);
+            };
+
+            let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+            let fingerprint = json!({
+                "operation":"terminal.exit.detach",
+                "terminal_id":terminal_id,
+                "terminal":terminal_public_id,
+                "tab":projection.tab_id,
+            });
+            let expected_revision = state.resource_revision;
+            let commit = registry.commit_resource_patch(
+                &mutation,
+                "terminal.exit.detach",
+                &fingerprint,
+                None,
+                Some(expected_revision),
+                &projection.patch,
+                &projection.result,
+                &projection.changes,
+            )?;
+            let target = projection.target;
+            let effects = projection.install(&mut state, commit.revision);
+            drop(state);
+            drop(registry);
+            drop(workspace_lifecycle);
+
+            self.publish_resource_event();
+            self.finish_terminal_exit_detach(effects);
+            return Ok(Some(target));
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn commit_resource_close_with(
         &self,
@@ -2767,15 +3039,18 @@ impl Mux {
                 } else {
                     None
                 };
-                let surface = self.effect_create_workspace_terminal(
+                self.effect_create_workspace_terminal(
                     intent,
                     optional_owned_string(fields, "name")?,
-                    argv,
-                    optional_owned_string(fields, "cwd")?,
-                    optional_owned_string(fields, "terminal_name")?,
-                    effect_cell_size(fields)?,
-                )?;
-                self.created_resource_path(surface.id)
+                    TerminalCreateOptions {
+                        argv,
+                        cwd: optional_owned_string(fields, "cwd")?,
+                        terminal_name: optional_owned_string(fields, "terminal_name")?,
+                        created_screen_name: None,
+                        size: effect_cell_size(fields)?,
+                    },
+                )
+                .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {
                 let target =
@@ -2789,15 +3064,18 @@ impl Mux {
             ResourceOperation::WorkspaceRun => {
                 let target =
                     self.effect_slots(&path)?.workspace.context("workspace disappeared")?;
-                let surface = self.effect_create_terminal_in_workspace(
+                self.effect_create_terminal_in_workspace(
                     intent,
                     target,
-                    Some(effect_command(fields)?),
-                    optional_owned_string(fields, "cwd")?,
-                    optional_owned_string(fields, "name")?,
-                    effect_cell_size(fields)?,
-                )?;
-                self.created_resource_path(surface.id)
+                    TerminalCreateOptions {
+                        argv: Some(effect_command(fields)?),
+                        cwd: optional_owned_string(fields, "cwd")?,
+                        terminal_name: optional_owned_string(fields, "name")?,
+                        created_screen_name: None,
+                        size: effect_cell_size(fields)?,
+                    },
+                )
+                .map(|created| created.path)
             }
             ResourceOperation::WorkspaceLayoutApply => {
                 self.execute_layout_apply(&path, &fields["layout"])?;
@@ -2808,30 +3086,27 @@ impl Mux {
             ResourceOperation::ScreenCreate => {
                 let slots = self.effect_slots(&path)?;
                 let name = optional_owned_string(fields, "name")?;
-                let surface = match slots.workspace {
+                match slots.workspace {
                     Some(workspace) => self.effect_add_screen(
                         intent,
                         workspace,
                         name,
                         None,
                         effect_cell_size(fields)?,
-                    )?,
-                    None => {
-                        let surface = self.effect_create_workspace_terminal(
-                            intent,
-                            None,
-                            None,
-                            None,
-                            None,
-                            effect_cell_size(fields)?,
-                        )?;
-                        if let Some(name) = name {
-                            self.effect_rename_created_screen(surface.id, name)?;
-                        }
-                        surface
-                    }
-                };
-                self.created_resource_path(surface.id)
+                    ),
+                    None => self.effect_create_workspace_terminal(
+                        intent,
+                        None,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: None,
+                            terminal_name: None,
+                            created_screen_name: name,
+                            size: effect_cell_size(fields)?,
+                        },
+                    ),
+                }
+                .map(|created| created.path)
             }
             ResourceOperation::ScreenClose => {
                 let target = self.effect_slots(&path)?.screen.context("screen disappeared")?;
@@ -2866,7 +3141,7 @@ impl Mux {
             }
             ResourceOperation::PaneCreate => {
                 let slots = self.effect_slots(&path)?;
-                let surface = match slots.pane {
+                match slots.pane {
                     Some(target) => self.effect_add_pane(
                         intent,
                         target,
@@ -2877,29 +3152,35 @@ impl Mux {
                             ratio: None,
                             viewport_width: None,
                         },
-                    )?,
+                    ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
                         slots.workspace.expect("checked"),
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        None,
-                        effect_cell_size(fields)?,
-                    )?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: None,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
+                    ),
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        None,
-                        effect_cell_size(fields)?,
-                    )?,
-                };
-                self.created_resource_path(surface.id)
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: None,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
+                    ),
+                }
+                .map(|created| created.path)
             }
             ResourceOperation::PaneSplit => {
                 let target = self.effect_slots(&path)?.pane.context("pane disappeared")?;
-                let surface = self.effect_add_pane(
+                self.effect_add_pane(
                     intent,
                     target,
                     PaneAddOptions {
@@ -2915,8 +3196,8 @@ impl Mux {
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
                     },
-                )?;
-                self.created_resource_path(surface.id)
+                )
+                .map(|created| created.path)
             }
             ResourceOperation::PaneClose => {
                 let target = self.effect_slots(&path)?.pane.context("pane disappeared")?;
@@ -2925,19 +3206,19 @@ impl Mux {
             }
             ResourceOperation::PaneRun => {
                 let target = self.effect_slots(&path)?.pane.context("pane disappeared")?;
-                let surface = self.effect_add_terminal_tab(
+                self.effect_add_terminal_tab(
                     intent,
                     target,
                     Some(effect_command(fields)?),
                     optional_owned_string(fields, "cwd")?,
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
-                )?;
-                self.created_resource_path(surface.id)
+                )
+                .map(|created| created.path)
             }
             ResourceOperation::TabCreateTerminal => {
                 let slots = self.effect_slots(&path)?;
-                let surface = match slots.pane {
+                match slots.pane {
                     Some(pane) => self.effect_add_terminal_tab(
                         intent,
                         pane,
@@ -2945,25 +3226,31 @@ impl Mux {
                         optional_owned_string(fields, "cwd")?,
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
-                    )?,
+                    ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
                         slots.workspace.expect("checked"),
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        optional_owned_string(fields, "name")?,
-                        effect_cell_size(fields)?,
-                    )?,
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: optional_owned_string(fields, "name")?,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
+                    ),
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
-                        None,
-                        optional_owned_string(fields, "cwd")?,
-                        optional_owned_string(fields, "name")?,
-                        effect_cell_size(fields)?,
-                    )?,
-                };
-                self.created_resource_path(surface.id)
+                        TerminalCreateOptions {
+                            argv: None,
+                            cwd: optional_owned_string(fields, "cwd")?,
+                            terminal_name: optional_owned_string(fields, "name")?,
+                            created_screen_name: None,
+                            size: effect_cell_size(fields)?,
+                        },
+                    ),
+                }
+                .map(|created| created.path)
             }
             ResourceOperation::TabCreateBrowser => {
                 let slots = self.effect_slots(&path)?;
@@ -3087,39 +3374,45 @@ impl Mux {
         Ok(EffectSlots { workspace, screen, pane, tab })
     }
 
-    fn created_resource_path(&self, surface: SurfaceId) -> anyhow::Result<Value> {
-        self.with_state(|state| {
-            let pane = state.pane_of(surface).context("created surface has no pane")?;
-            let (workspace_index, screen_index) =
-                state.screen_of(pane).context("created pane has no screen")?;
-            let workspace = &state.workspaces[workspace_index];
-            let screen = &workspace.screens[screen_index];
-            let pane_id = state
-                .resource_indexes
-                .pane_ids
-                .get(&pane)
-                .context("created pane has no public identity")?;
-            let live = state.surfaces.get(&surface).context("created surface disappeared")?;
-            let identity =
-                live.resource_identity().context("created surface has no resource identity")?;
-            Ok(match &identity.content_id {
-                ContentPublicId::Terminal(id) => json!({
-                    "kind":"terminal",
-                    "workspace_id":workspace.public_id,
-                    "screen_id":screen.public_id,
-                    "pane_id":pane_id,
-                    "tab_id":identity.tab_id,
-                    "terminal_id":id,
-                }),
-                ContentPublicId::Browser(id) => json!({
-                    "kind":"browser",
-                    "workspace_id":workspace.public_id,
-                    "screen_id":screen.public_id,
-                    "pane_id":pane_id,
-                    "tab_id":identity.tab_id,
-                    "browser_id":id,
-                }),
-            })
+    pub(super) fn created_resource_path(&self, surface: SurfaceId) -> anyhow::Result<Value> {
+        self.with_state(|state| self.created_resource_path_in_state(state, surface))
+    }
+
+    pub(super) fn created_resource_path_in_state(
+        &self,
+        state: &State,
+        surface: SurfaceId,
+    ) -> anyhow::Result<Value> {
+        let pane = state.pane_of(surface).context("created surface has no pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("created pane has no screen")?;
+        let workspace = &state.workspaces[workspace_index];
+        let screen = &workspace.screens[screen_index];
+        let pane_id = state
+            .resource_indexes
+            .pane_ids
+            .get(&pane)
+            .context("created pane has no public identity")?;
+        let live = state.surfaces.get(&surface).context("created surface disappeared")?;
+        let identity =
+            live.resource_identity().context("created surface has no resource identity")?;
+        Ok(match &identity.content_id {
+            ContentPublicId::Terminal(id) => json!({
+                "kind":"terminal",
+                "workspace_id":workspace.public_id,
+                "screen_id":screen.public_id,
+                "pane_id":pane_id,
+                "tab_id":identity.tab_id,
+                "terminal_id":id,
+            }),
+            ContentPublicId::Browser(id) => json!({
+                "kind":"browser",
+                "workspace_id":workspace.public_id,
+                "screen_id":screen.public_id,
+                "pane_id":pane_id,
+                "tab_id":identity.tab_id,
+                "browser_id":id,
+            }),
         })
     }
 
@@ -3215,11 +3508,8 @@ impl Mux {
         self: &Arc<Self>,
         intent: &Value,
         workspace_name: Option<String>,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        terminal_name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+        options: TerminalCreateOptions,
+    ) -> anyhow::Result<CreatedTerminalEffect> {
         let (workspace_key, workspace_public_id, workspace_mutation) =
             self.effect_workspace_reservation(intent)?;
         let placement = self.create_empty_workspace_for_resource_effect(
@@ -3228,25 +3518,17 @@ impl Mux {
             workspace_public_id,
             &workspace_mutation,
         )?;
-        self.effect_create_terminal_in_workspace(
-            intent,
-            placement.workspace,
-            argv,
-            cwd,
-            terminal_name,
-            size,
-        )
+        self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
 
     fn effect_create_terminal_in_workspace(
         self: &Arc<Self>,
         intent: &Value,
         workspace: WorkspaceId,
-        argv: Option<Vec<String>>,
-        cwd: Option<String>,
-        name: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+        options: TerminalCreateOptions,
+    ) -> anyhow::Result<CreatedTerminalEffect> {
+        let TerminalCreateOptions { argv, cwd, terminal_name: name, created_screen_name, size } =
+            options;
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -3259,7 +3541,7 @@ impl Mux {
             size,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
-        let placement = self.create_terminal_in_workspace_with_mutation(
+        let result = self.create_terminal_in_workspace_with_mutation(
             workspace,
             argv,
             cwd,
@@ -3270,7 +3552,17 @@ impl Mux {
             None,
             &reservation.mutation,
         )?;
-        self.surface(placement.placement.surface).context("created terminal surface disappeared")
+        let surface =
+            result.created_surface.context("created terminal result omitted its local surface")?;
+        if let Some(name) = created_screen_name {
+            self.effect_rename_created_screen(surface, name)?;
+        }
+        let path =
+            result.created_path.context("created terminal result omitted its public path")?;
+        if let Some(surface) = self.surface(surface) {
+            self.reap_if_dead(&surface);
+        }
+        Ok(CreatedTerminalEffect { path })
     }
 
     fn effect_add_terminal_tab(
@@ -3281,7 +3573,7 @@ impl Mux {
         cwd: Option<String>,
         name: Option<String>,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
@@ -3303,7 +3595,7 @@ impl Mux {
         let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&target) {
+            let delta = match state.panes.get_mut(&target) {
                 Some(pane) => {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
@@ -3333,9 +3625,15 @@ impl Mux {
                     })
                 }
                 None => None,
-            }
+            };
+            delta
+                .map(|delta| {
+                    self.created_resource_path_in_state(&state, surface.id)
+                        .map(|path| (delta, CreatedTerminalEffect { path }))
+                })
+                .transpose()?
         };
-        let Some(delta) = attached else {
+        let Some((delta, created)) = attached else {
             self.fail_hosted_terminal_attachment(
                 &surface,
                 "resource-terminal-tab-attach-failed",
@@ -3345,7 +3643,7 @@ impl Mux {
         };
         self.emit_tree_delta(delta, true);
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok(created)
     }
 
     fn effect_add_screen(
@@ -3355,7 +3653,7 @@ impl Mux {
         name: Option<String>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -3392,7 +3690,7 @@ impl Mux {
                 return Err(anyhow::Error::new(error));
             }
         };
-        let attached = {
+        let created = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 drop(state);
@@ -3421,11 +3719,11 @@ impl Mux {
                 layout_undo: Default::default(),
             });
             workspace.active_screen = workspace.screens.len() - 1;
-            true
+            let path = self.created_resource_path_in_state(&state, surface.id)?;
+            CreatedTerminalEffect { path }
         };
-        debug_assert!(attached);
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok(created)
     }
 
     fn effect_rename_created_screen(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {
@@ -3441,7 +3739,7 @@ impl Mux {
         intent: &Value,
         target: PaneId,
         options: PaneAddOptions<'_>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> anyhow::Result<CreatedTerminalEffect> {
         let PaneAddOptions { direction, cwd, size, ratio, viewport_width } = options;
         let split_direction = direction
             .map(|direction| {
@@ -3480,7 +3778,7 @@ impl Mux {
         let base_column_id = viewport_width.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
-        let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId)> {
+        let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             let Some((workspace, screen_index)) = state.screen_of(target) else {
                 anyhow::bail!("pane disappeared before new pane attachment");
@@ -3583,6 +3881,7 @@ impl Mux {
                 .iter()
                 .position(|candidate| *candidate == pane_id)
                 .expect("new pane is present in its screen layout");
+            let path = self.created_resource_path_in_state(&state, surface.id)?;
             Ok((
                 TreeDelta {
                     kind: TreeDeltaKind::PaneAdded,
@@ -3595,9 +3894,10 @@ impl Mux {
                     workspace_revision: None,
                 },
                 screen_id,
+                CreatedTerminalEffect { path },
             ))
         })();
-        let (delta, changed_screen) = match attached {
+        let (delta, changed_screen, created) = match attached {
             Ok(attached) => attached,
             Err(error) => {
                 self.fail_hosted_terminal_attachment(
@@ -3611,7 +3911,7 @@ impl Mux {
         self.emit_tree_delta(delta, false);
         self.emit(MuxEvent::LayoutChanged(changed_screen));
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok(created)
     }
 
     fn execute_layout_apply(

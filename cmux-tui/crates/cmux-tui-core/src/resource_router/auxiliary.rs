@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use base64::Engine;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
 use super::{
@@ -12,14 +11,11 @@ use super::{
     required_u64, resource_operation_error, validation_error,
 };
 use crate::resource::{
-    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, PairingRequestPublicId,
-    ResourceError, ResourceOperation, Selector, SessionPublicId, SidebarViewPublicId,
-    TerminalPublicId,
+    FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
+    SessionPublicId, SidebarViewPublicId, TerminalPublicId,
 };
 use crate::sidebar_resource::{resolve_sidebar_view, sidebar_snapshot, sidebar_view_id};
-use crate::{
-    AgentRecord, AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation,
-};
+use crate::{AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -77,19 +73,22 @@ pub(super) fn dispatch_trusted_local(
 fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let session_id = resolve_session(mux, &request.selectors)?;
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
-    let surface = terminal
-        .as_ref()
-        .map(|terminal| {
-            mux.resource_surface_for_terminal(terminal)
-                .ok_or_else(|| ResourceError::not_found("terminal", terminal.as_str()))
-        })
-        .transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
+    // The legacy mux cache is surface-scoped, while public agents survive
+    // terminal exit and topology detachment as durable projections.
     let mut values = mux
-        .list_agents(surface, state)
-        .into_iter()
-        .filter_map(|record| agent_snapshot(mux, &session_id, &record))
-        .collect::<Vec<_>>();
+        .with_resource_projection(|registry, _state| {
+            Ok(registry
+                .public_agent_projections()?
+                .into_iter()
+                .filter(|agent| {
+                    terminal.as_ref().is_none_or(|terminal| agent.terminal_id == *terminal)
+                })
+                .filter(|agent| state.is_none_or(|state| agent.state.as_str() == state.as_str()))
+                .map(|agent| agent.into_public_snapshot(&session_id))
+                .collect::<Vec<_>>())
+        })
+        .map_err(resource_operation_error)?;
     values.sort_by(|left, right| {
         left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
     });
@@ -121,28 +120,6 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
         )
         .map_err(resource_operation_error)?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
-}
-
-fn agent_snapshot(mux: &Mux, session_id: &SessionPublicId, record: &AgentRecord) -> Option<Value> {
-    let surface = mux.surface(record.surface)?;
-    let ContentPublicId::Terminal(terminal_id) = &surface.resource_identity()?.content_id else {
-        return None;
-    };
-    let agent_id = agent_id(terminal_id).ok()?;
-    Some(json!({
-        "id":agent_id,
-        "session_id":session_id,
-        "terminal_id":terminal_id,
-        "state":record.state.as_str(),
-        "source":record.source.as_str(),
-        "updated_at_ms":record.updated_at_ms.to_string(),
-        "source_session":record.session,
-    }))
-}
-
-fn agent_id(terminal_id: &TerminalPublicId) -> Result<AgentPublicId, ResourceError> {
-    let payload = opaque_payload(b"agent/", terminal_id.as_str());
-    AgentPublicId::parse(format!("agent_{payload}"))
 }
 
 fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
@@ -605,14 +582,6 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
     ResourceError::operation_failed(operation, message, json!({}))
 }
 
-fn opaque_payload(domain: &[u8], input: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/");
-    digest.update(domain);
-    digest.update(input.as_bytes());
-    digest.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,14 +619,6 @@ mod tests {
             session: Some("current".to_string()),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn agent_ids_are_stable_and_do_not_reveal_terminal_payloads() {
-        let terminal = TerminalPublicId::parse(public_id("term", 42)).unwrap();
-        let first = agent_id(&terminal).unwrap();
-        assert_eq!(first, agent_id(&terminal).unwrap());
-        assert!(!first.as_str().ends_with(&format!("{:032x}", 42)));
     }
 
     #[test]
@@ -730,10 +691,10 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        let report_request = || {
+        let report_request = |key| {
             request(
                 ResourceOperation::AgentReport,
-                Some("agent-report-once"),
+                Some(key),
                 session_selectors(),
                 json!({
                     "terminal_id":terminal_id,
@@ -743,14 +704,23 @@ mod tests {
                 }),
             )
         };
-        let first = dispatch(&mux, report_request()).unwrap();
+        let first = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(first["replayed"], false);
         assert_eq!(first["value"]["terminal_id"], terminal_id.as_str());
         assert_eq!(first["value"]["state"], "working");
         assert_eq!(first["value"]["source_session"], "sdk-test");
-        let replay = dispatch(&mux, report_request()).unwrap();
+        let replay = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
+        let repeated = dispatch(&mux, report_request("agent-report-twice")).unwrap();
+        assert_eq!(repeated["replayed"], false);
+        assert_eq!(repeated["value"]["id"], first["value"]["id"]);
+        assert!(
+            !first["value"]["id"]
+                .as_str()
+                .unwrap()
+                .ends_with(terminal_id.as_str().strip_prefix("term_").unwrap())
+        );
 
         let listed = dispatch(
             &mux,

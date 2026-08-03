@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e. */
+/* cmux-tui mux protocol 10, IR 0e36764b4a1b7e0d569e3bef4fa0225c0dbeb69f1e3a1eb58334972b42bf855c. */
 
 
 import type * as T from "./types.js";
@@ -357,6 +357,14 @@ export interface MintTerminalRendererRequest extends CmuxRequestBase {
   "surface": T.Id;
   "ttl_ms"?: bigint;
 }
+
+/** Protocol v10; authority: frontend. */
+export interface MintTerminalRendererByTerminalRequest extends CmuxRequestBase {
+  cmd: "mint-terminal-renderer-by-terminal";
+  "terminal": string;
+  "ttl_ms"?: bigint;
+}
+export type MintTerminalRendererByTerminalResult = T.MintTerminalRendererResult;
 
 /** Protocol v5; authority: control. */
 export interface MoveTabRequest extends CmuxRequestBase {
@@ -863,6 +871,7 @@ export type CmuxRequest =
   | ListWorkspacesRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
+  | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
@@ -1227,6 +1236,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.MintTerminalRendererResult;
     authority: "frontend";
     since: 9;
+    capability: null;
+    stream: null;
+  };
+  "mint-terminal-renderer-by-terminal": {
+    request: MintTerminalRendererByTerminalRequest;
+    result: MintTerminalRendererByTerminalResult;
+    authority: "frontend";
+    since: 10;
     capability: null;
     stream: null;
   };

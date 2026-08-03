@@ -7180,6 +7180,42 @@ Result<MintTerminalRendererRequest> Codec<MintTerminalRendererRequest>::decode(c
     return result;
 }
 
+Result<Json> Codec<MintTerminalRendererByTerminalRequest>::encode(const MintTerminalRendererByTerminalRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_terminal = encode_value(value.terminal);
+    if (!encoded_terminal) return std::move(encoded_terminal).error();
+    object.emplace("terminal", std::move(encoded_terminal).value());
+    if (value.ttl_ms) {
+        auto encoded = encode_value(*value.ttl_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("ttl_ms", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<MintTerminalRendererByTerminalRequest> Codec<MintTerminalRendererByTerminalRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MintTerminalRendererByTerminalRequest result{};
+    const Json* field_terminal = value.find("terminal");
+    if (!field_terminal) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal'");
+    }
+    if (field_terminal) {
+        auto decoded = decode_value<std::string>(*field_terminal);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal = std::move(decoded).value();
+    }
+    const Json* field_ttl_ms = value.find("ttl_ms");
+    if (field_ttl_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_ttl_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.ttl_ms = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<MoveTabRequest>::encode(const MoveTabRequest& value) {
     (void)value;
     Json::Object object;
@@ -14160,27 +14196,27 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand22FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand24FieldRequirements{{
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand41FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand42FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand62FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand63FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand66FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand67FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand71FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand72FieldRequirements{{
     {"paste", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand76FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand77FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -14189,20 +14225,20 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand76FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand78FieldRequirements{{
-    {"transaction", 9U, "layout-undo-v1"},
-}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand79FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand81FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand80FieldRequirements{{
+    {"transaction", 9U, "layout-undo-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand82FieldRequirements{{
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand84FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand85FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 91> kCommands{{
+constexpr std::array<CommandMetadata, 92> kCommands{{
     {"apply-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"attach-surface", "frontend", 5U, "", true, "attach", "detached", std::span<const CommandFieldRequirement>(kCommand1FieldRequirements)},
     {"browser-activate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14242,9 +14278,10 @@ constexpr std::array<CommandMetadata, 91> kCommands{{
     {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"mint-terminal-renderer-by-terminal", "frontend", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand41FieldRequirements)},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand42FieldRequirements)},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14265,29 +14302,29 @@ constexpr std::array<CommandMetadata, 91> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand62FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand63FieldRequirements)},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand66FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand67FieldRequirements)},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand71FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand72FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand76FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand77FieldRequirements)},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand78FieldRequirements)},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand79FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand80FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand81FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand82FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand84FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand85FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -14785,6 +14822,17 @@ Result<MintTerminalRendererResult> Client::mint_terminal_renderer(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("mint-terminal-renderer", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<MintTerminalRendererResult>(response.value());
+}
+
+Result<MintTerminalRendererResult> Client::mint_terminal_renderer_by_terminal(
+    const MintTerminalRendererByTerminalRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("mint-terminal-renderer-by-terminal", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<MintTerminalRendererResult>(response.value());
 }

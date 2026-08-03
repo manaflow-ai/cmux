@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e";
+pub const ir_sha256 = "0e36764b4a1b7e0d569e3bef4fa0225c0dbeb69f1e3a1eb58334972b42bf855c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2314,6 +2314,30 @@ pub fn mintTerminalRenderer(client: anytype, request: MintTerminalRendererReques
     );
 }
 
+pub const MintTerminalRendererByTerminalRequest = struct {
+    terminal: []const u8,
+    ttl_ms: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "ttl_ms",
+    };
+};
+
+pub const MintTerminalRendererByTerminalResult = MintTerminalRendererResult;
+
+pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRendererByTerminalRequest) !wire.Decoded(MintTerminalRendererByTerminalResult) {
+    return client.callTyped(
+        MintTerminalRendererByTerminalResult,
+        .{
+            .name = "mint-terminal-renderer-by-terminal",
+            .authority = "frontend",
+            .since = 10,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const MoveTabRequest = struct {
     index: u64,
     pane: Id,
@@ -4259,7 +4283,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 91;
+pub const command_count: usize = 92;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4300,6 +4324,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
+    .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 10, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },

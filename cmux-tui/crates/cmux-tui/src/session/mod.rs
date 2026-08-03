@@ -1337,6 +1337,14 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn is_dead(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.is_dead(),
+            SurfaceHandle::Remote(surface, session) => session.surface_is_exited(surface.id),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
     pub fn write_bytes(&self, bytes: &[u8]) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.write_bytes(bytes).map_err(Into::into),

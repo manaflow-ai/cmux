@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e. */
+/* cmux-tui mux protocol 10, IR 0e36764b4a1b7e0d569e3bef4fa0225c0dbeb69f1e3a1eb58334972b42bf855c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "4248b1dd1a8640da3f983118ddce2e8d5ff94db5dc2e18cb9ebc5ba41052284e" as const;
+export const SDK_IR_SHA256 = "0e36764b4a1b7e0d569e3bef4fa0225c0dbeb69f1e3a1eb58334972b42bf855c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -492,6 +492,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Only terminal-host-backed PTYs can mint one-use renderer credentials."
+    ]
+  },
+  "mint-terminal-renderer-by-terminal": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
     ]
   },
   "move-tab": {
@@ -6357,6 +6367,46 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "ttl_ms": {
+          "constraints": [
+            {
+              "maximum": 60000,
+              "minimum": 1
+            }
+          ],
+          "default": 30000,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MintTerminalRendererResult"
+    }
+  },
+  "mint-terminal-renderer-by-terminal": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal": {
+          "constraints": [
+            {
+              "pattern": "^term_[0-9a-f]{32}$"
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "ttl_ms": {

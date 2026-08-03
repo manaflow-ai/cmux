@@ -129,6 +129,9 @@ class GeneratedClientMixin:
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
 
+    def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
+        return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
+
     def move_tab(self, surface: Id, pane: Id, index: int) -> EmptyResult:
         return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index))
 
@@ -325,6 +328,7 @@ GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals'
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
+GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
 GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']

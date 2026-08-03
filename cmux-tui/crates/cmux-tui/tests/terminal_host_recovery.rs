@@ -213,21 +213,38 @@ impl Drop for RecoveryHarness {
 }
 
 #[test]
-fn short_lived_terminal_launch_returns_its_final_snapshot() {
+fn short_lived_terminal_launch_returns_durable_already_exited_result() {
     let harness = RecoveryHarness::start("short-lived-launch");
-    let marker = format!("short-lived-marker-{}", std::process::id());
     let created = request(
         &harness.socket,
         serde_json::json!({
             "id": 1,
             "cmd": "run",
-            "argv": ["/bin/sh", "-c", format!("printf '{marker}\\n'")],
+            "argv": ["/bin/sh", "-c", "exit 23"],
             "new_workspace": true,
             "name": "short-lived-command",
         }),
     );
-    let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    assert_eq!(created["already_exited"], true);
+    assert_eq!(created["lifecycle"], "exited");
+    assert_eq!(created["surface"], serde_json::Value::Null);
+    assert_eq!(created["pane"], serde_json::Value::Null);
+    assert_eq!(created["screen"], serde_json::Value::Null);
+    assert_eq!(created["workspace"], serde_json::Value::Null);
+    assert_eq!(created["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
+    assert!(created["exit"]["exited_at"].as_str().is_some());
+    assert!(created["exit"]["revision"].as_str().is_some());
+    assert!(created["terminal_revision"].as_u64().is_some());
+
+    let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id");
+    assert!(created["terminal_incarnation"].as_str().is_some());
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
+    assert_eq!(resolved["lifecycle"], "exited");
+    assert_eq!(resolved["exit"], created["exit"]);
 }
 
 #[test]
@@ -276,8 +293,7 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
             "text": "go\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    wait_for_detached(&mut attached_reader, surface);
+    wait_for_render_text_then_detached(&mut attached_reader, surface, &marker);
 
     let later = transport::connect(&harness.socket).unwrap();
     later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -294,8 +310,16 @@ fn hosted_exit_detaches_existing_and_later_render_streams() {
         })
     )
     .unwrap();
-    wait_for_attach_response(&mut later_reader, 4);
-    wait_for_detached(&mut later_reader, surface);
+    loop {
+        let mut line = String::new();
+        later_reader.read_line(&mut line).expect("later attach stream closed before response");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == 4 {
+            assert_eq!(value["ok"], false, "later attach unexpectedly succeeded: {value}");
+            assert!(value["error"].as_str().unwrap().contains("unknown surface"));
+            break;
+        }
+    }
 }
 
 #[test]
@@ -1813,6 +1837,60 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
 }
 
 #[test]
+fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology() {
+    let harness = RecoveryHarness::start("reserved-short-lived-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Short-lived",
+            "key":"018f6e21-7b70-7e70-8000-000000000046",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"018f6e21-7b70-7e70-8000-000000000046",
+        "argv":["/bin/sh","-c","exit 17"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["already_exited"], true);
+    assert_eq!(first["lifecycle"], "exited");
+    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    assert_eq!(first["surface"], serde_json::Value::Null);
+    assert_eq!(first["pane"], serde_json::Value::Null);
+    assert_eq!(first["screen"], serde_json::Value::Null);
+    assert_eq!(first["workspace"], serde_json::Value::Null);
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["already_exited"], true);
+    assert_eq!(retry["lifecycle"], "exited");
+    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["surface"], serde_json::Value::Null);
+    assert_eq!(retry["pane"], serde_json::Value::Null);
+    assert_eq!(retry["screen"], serde_json::Value::Null);
+    assert_eq!(retry["workspace"], serde_json::Value::Null);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     let harness = RecoveryHarness::start("stalled-renderer");
     let created = request(
@@ -2561,7 +2639,7 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
 }
 
 #[test]
-fn running_host_sigkill_retains_read_only_exited_binding() {
+fn running_host_sigkill_detaches_exited_terminal_topology() {
     let harness = RecoveryHarness::start("running-host-sigkill");
     let created = request(
         &harness.socket,
@@ -2584,7 +2662,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
             serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
         if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"].as_u64(), Some(surface));
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
             break;
         }
         assert!(Instant::now() < deadline, "running host never transitioned to Exited");
@@ -2597,7 +2675,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
         }),
     );
     assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("exited"));
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
@@ -2614,7 +2692,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
 }
 
 #[test]
-fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_binding() {
+fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -2623,6 +2701,7 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
             "cols":80,"rows":24,
         }),
     );
+    let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     let workspace_id = created["workspace"].as_u64().unwrap();
@@ -2648,20 +2727,19 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
     harness.restart();
 
     let deadline = Instant::now() + Duration::from_secs(15);
-    let exited_surface = loop {
+    loop {
         let resolved = request(
             &harness.socket,
             serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
-        if resolved["lifecycle"] == "exited"
-            && let Some(surface) = resolved["surface"].as_u64()
-        {
+        if resolved["lifecycle"] == "exited" {
             assert_eq!(resolved["terminal_incarnation"], incarnation);
-            break surface;
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            break;
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
         std::thread::sleep(Duration::from_millis(25));
-    };
+    }
     wait_for_no_host_records(&harness.host_root());
     let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = recovered["workspaces"]
@@ -2670,17 +2748,16 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    let tab = first_tab(workspace).expect("Exited terminal placeholder was not materialized");
-    assert_eq!(tab["surface"].as_u64(), Some(exited_surface));
-    assert_eq!(tab["terminal_id"].as_str(), Some(terminal_id.as_str()));
+    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
 
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":exited_surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
         }),
     );
     assert_eq!(write["ok"], false);
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     request(
         &harness.socket,
         serde_json::json!({
@@ -2970,13 +3047,30 @@ fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, 
     }
 }
 
-fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+fn wait_for_render_text_then_detached(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    surface: u64,
+    marker: &str,
+) {
+    let mut saw_marker = false;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("timed out waiting for hosted detach");
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if matches!(value["event"].as_str(), Some("render-state" | "render-delta")) {
+            saw_marker |= value["rows"].as_array().into_iter().flatten().any(|row| {
+                row["runs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|run| run["text"].as_str())
+                    .collect::<String>()
+                    .contains(marker)
+            });
+        }
         if value["event"] == "detached" {
             assert_eq!(value["surface"], surface);
+            assert!(saw_marker, "hosted exit detached before its final render frame: {value}");
             return;
         }
     }

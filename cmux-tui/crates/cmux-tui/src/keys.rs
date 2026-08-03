@@ -484,6 +484,20 @@ mod tests {
     use ghostty_vt::{Callbacks, KeyEncoder, Terminal};
 
     #[test]
+    fn ctrl_d_encodes_the_posix_eof_byte() {
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let input = key_input_from(&event).unwrap();
+        let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x04");
+    }
+
+    #[test]
     fn ctrl_shift_letter_keeps_shift_in_kitty_forwarding() {
         let event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let input = key_input_from(&event).unwrap();

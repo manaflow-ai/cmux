@@ -1191,8 +1191,19 @@ Params:
 Result:
 
 ```text
-object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
+object{
+  surface:Id|null,terminal_id:string,terminal_incarnation:string|null,
+  pane:Id|null,screen:Id|null,workspace:Id|null,key:string,
+  lifecycle:"running"|"exited",exit:TerminalExit|null,
+  already_exited:bool,terminal_revision:uint64,replayed:bool,
+  registry_id:string,generation:string
+}
 ```
+
+If the child exits before creation returns, the request still succeeds with
+`already_exited:true`, exact durable `exit` metadata, and null live-placement
+fields. Retrying a client-reserved creation returns the same terminal and exit
+record without recreating its tab or process.
 
 Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
 
@@ -2940,7 +2951,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
+Spawns a command in a new PTY tab. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -2959,8 +2970,17 @@ Params:
 Result:
 
 ```text
-object{surface:Id,pane:Id,screen:Id,workspace:Id}
+object{
+  surface:Id|null,terminal_id:string,terminal_incarnation:string|null,
+  pane:Id|null,screen:Id|null,workspace:Id|null,
+  lifecycle:"running"|"exited",exit:TerminalExit|null,
+  terminal_revision:uint64,already_exited:bool
+}
 ```
+
+If the child exits before `run` returns, the request succeeds with
+`already_exited:true`, exact durable `exit` metadata, and null live-placement
+fields. The terminal remains resolvable by `terminal_id` for exit inspection.
 
 Errors:
 
