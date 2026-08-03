@@ -125,6 +125,13 @@ struct AgentHookNotificationPolicyTests {
         )
         #expect(
             AgentHookNotificationPolicy.notificationTitle(
+                agentName: "pi",
+                displayName: "Pi",
+                surfaceTitle: "pi · Build"
+            ) == "pi · Build"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
                 agentName: "codex",
                 displayName: "Codex",
                 surfaceTitle: "Unrelated surface title"

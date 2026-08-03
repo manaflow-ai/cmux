@@ -31100,8 +31100,7 @@ export default CMUXSessionRestore;
                       ),
                       let surfaces = listed["surfaces"] as? [[String: Any]],
                       let surface = surfaces.first(where: {
-                          ($0["id"] as? String) == surfaceId
-                              || ($0["ref"] as? String) == surfaceId
+                          surfaceHandleMatches(surfaceId, item: $0)
                       }) else {
                     return nil
                 }

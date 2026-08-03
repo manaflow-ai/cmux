@@ -200,7 +200,10 @@ enum AgentHookNotificationPolicy {
             return displayName
         }
         if surfaceTitle.caseInsensitiveCompare(displayName) == .orderedSame
-            || surfaceTitle.hasPrefix("\(displayName) · ") {
+            || surfaceTitle.range(
+                of: "\(displayName) · ",
+                options: [.anchored, .caseInsensitive]
+            ) != nil {
             return surfaceTitle
         }
         return "\(displayName) · \(surfaceTitle)"
