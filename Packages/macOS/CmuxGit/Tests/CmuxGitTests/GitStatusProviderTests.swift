@@ -221,6 +221,41 @@ struct GitStatusProviderTests {
     }
 
     @Test
+    func sshStatusFramingAllowsLegacyMarkerInRepositoryPath() async throws {
+        let containerURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: containerURL) }
+        let repoURL = containerURL.appendingPathComponent(
+            "repo---GIT_STATUS---\ncollision",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+
+        let fakeSSHURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            """#,
+            named: "fake-ssh",
+            in: containerURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+
+        let status = await GitStatusProvider(
+            sshExecutableURL: fakeSSHURL,
+            environment: environment
+        ).fetchStatusSSH(
+            directory: repoURL.path,
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        #expect(status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified))
+    }
+
+    @Test
     func sshStatusQueryOverridesHostConfiguredRemoteCommand() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }

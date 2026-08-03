@@ -12,6 +12,7 @@ from cmux import cmux, cmuxError
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 SECRET_SENTINEL = "CMUX_BROWSER_FAILURE_MUST_NOT_ESCAPE_9D73B2"
+SELECTOR_WAIT_SECRET_SENTINEL = "CMUX_SELECTOR_WAIT_FAILURE_MUST_NOT_ESCAPE_A184C6"
 
 
 def _must(condition: bool, message: str) -> None:
@@ -69,6 +70,59 @@ def _expect_sanitized_script_error(client: cmux, surface_id: str) -> None:
         )
         return
     raise cmuxError("Expected browser.eval to reject a thrown page error")
+
+
+def _expect_sanitized_selector_wait_error(client: cmux, surface_id: str) -> None:
+    client._call(
+        "browser.eval",
+        {
+            "surface_id": surface_id,
+            "script": f"""
+            (() => {{
+              window.__cmuxOriginalSetTimeout = window.setTimeout;
+              window.setTimeout = () => {{
+                throw new Error('{SELECTOR_WAIT_SECRET_SENTINEL}');
+              }};
+              return true;
+            }})()
+            """,
+        },
+    )
+    try:
+        client._call(
+            "browser.click",
+            {
+                "surface_id": surface_id,
+                "selector": "#cmux-selector-wait-failure",
+                "retry_attempts": 2,
+            },
+        )
+    except cmuxError as exc:
+        message = str(exc)
+        _must(
+            message.startswith("js_error: Browser operation failed"),
+            f"Expected selector wait evaluation failure, got: {message}",
+        )
+        _must(
+            SELECTOR_WAIT_SECRET_SENTINEL not in message,
+            f"Selector wait failure details escaped the browser boundary: {message}",
+        )
+    else:
+        raise cmuxError("Expected browser.click selector wait evaluation to fail")
+    finally:
+        client._call(
+            "browser.eval",
+            {
+                "surface_id": surface_id,
+                "script": """
+                (() => {
+                  window.setTimeout = window.__cmuxOriginalSetTimeout;
+                  delete window.__cmuxOriginalSetTimeout;
+                  return true;
+                })()
+                """,
+            },
+        )
 
 
 def main() -> int:
@@ -219,6 +273,7 @@ def main() -> int:
                 """,
             )
             _expect_sanitized_script_error(client, surface_id)
+            _expect_sanitized_selector_wait_error(client, surface_id)
         finally:
             if surface_id:
                 with contextlib.suppress(cmuxError, OSError):
@@ -226,7 +281,7 @@ def main() -> int:
 
     print(
         "PASS: browser.eval returns bridge-safe objects, explicit cycle errors, "
-        "and sanitized script failures"
+        "and sanitized script and selector-wait failures"
     )
     return 0
 
