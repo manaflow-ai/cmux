@@ -34653,6 +34653,57 @@
         }
       }
     },
+    "code.sidecar.error.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local service did not start. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルサービスを起動できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "code.sidecar.error.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "code.sidecar.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code could not open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを開けませんでした"
+          }
+        }
+      }
+    },
     "cli.browser.designMode.disabled": {
       "extractionState": "manual",
       "localizations": {
@@ -60974,6 +61025,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增標籤頁（瀏覽器）"
+          }
+        }
+      }
+    },
+    "command.newCode.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード"
           }
         }
       }
@@ -250831,6 +250899,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドVM"
+          }
+        }
+      }
+    },
+    "workspace.code.defaultTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード"
           }
         }
       }

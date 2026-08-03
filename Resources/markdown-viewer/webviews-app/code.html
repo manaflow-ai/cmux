@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-cmux-webview-kind="code">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code</title>
+  </head>
+  <body data-cmux-webview-kind="code">
+    <main id="root"></main>
+    <script>
+(()=>{var{defineProperty:r,getOwnPropertyNames:s,getOwnPropertyDescriptor:m}=Object,u=Object.prototype.hasOwnProperty;function l(e){return this[e]}var f=(e)=>{var t=(c??=new WeakMap).get(e),o;if(t)return t;if(t=r({},"__esModule",{value:!0}),e&&typeof e==="object"||typeof e==="function"){for(var n of s(e))if(!u.call(t,n))r(t,n,{get:l.bind(e,n),enumerable:!(o=m(e,n))||o.enumerable})}return c.set(e,t),t},c;var h=(e)=>e;function g(e,t){this[e]=h.bind(null,t)}var p=(e,t)=>{for(var o in t)r(e,o,{get:t[o],enumerable:!0,configurable:!0,set:g.bind(t,o)})};var y={};p(y,{mountCodeSurface:()=>d,createCodeMountNotifier:()=>a});function a(e){let t=!1;return()=>{if(t)return;t=!0,e({type:"mount"})}}function d(e){let t=document.createElement("style");t.dataset.cmuxWebviewStyle="code",t.textContent=`
+:root {
+  color-scheme: light dark;
+  --cmux-ghostty-background: light-dark(#fcfcfc, #0e0e0e);
+  --cmux-ghostty-foreground: light-dark(#262626, #f5f5f5);
+  --cmux-ghostty-primary: light-dark(#526fff, #6073cc);
+  --cmux-code-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body {
+  background: var(--cmux-ghostty-background);
+  color: var(--cmux-ghostty-foreground);
+  font-family: var(--cmux-code-font-family);
+}
+.code-launcher {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+}
+.code-launcher__spinner {
+  animation: code-launcher-spin 850ms linear infinite;
+  border: 2px solid color-mix(in srgb, var(--cmux-ghostty-foreground) 16%, transparent);
+  border-radius: 999px;
+  border-top-color: var(--cmux-ghostty-primary);
+  height: 18px;
+  width: 18px;
+}
+@keyframes code-launcher-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .code-launcher__spinner { animation: none; } }
+`,document.head.append(t);let o=document.createElement("div");o.className="code-launcher";let n=document.createElement("div");n.ariaLabel="Code",n.className="code-launcher__spinner",n.role="status",o.append(n),e.replaceChildren(o),a((i)=>{window.webkit?.messageHandlers?.cmuxCode?.postMessage(i)})()}if(typeof document<"u"){let e=document.getElementById("root");if(!e)throw Error("Missing cmux webview root");d(e)}})();
+
+    </script>
+  </body>
+</html>

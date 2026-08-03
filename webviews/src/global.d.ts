@@ -39,6 +39,9 @@ declare global {
         cmuxDiff?: {
           postMessage(message: unknown): Promise<DiffResponse>;
         };
+        cmuxCode?: {
+          postMessage(message: unknown): void;
+        };
       };
     };
   }

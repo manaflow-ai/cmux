@@ -31,13 +31,51 @@ write_agent_session_html() {
   } > "$out_dir/agent-session.html"
 }
 
+write_code_html() {
+  out_dir="$1"
+  launcher="$out_dir/code-launcher.js"
+  if [ ! -f "$launcher" ]; then
+    echo "error: missing Code launcher at $launcher" >&2
+    exit 1
+  fi
+  {
+    printf '<!doctype html>\n'
+    printf '<html lang="en" data-cmux-webview-kind="code">\n'
+    printf '  <head>\n'
+    printf '    <meta charset="UTF-8" />\n'
+    printf '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
+    printf '    <title>Code</title>\n'
+    printf '  </head>\n'
+    printf '  <body data-cmux-webview-kind="code">\n'
+    printf '    <main id="root"></main>\n'
+    printf '    <script>\n'
+    /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$launcher"
+    printf '\n    </script>\n'
+    printf '  </body>\n'
+    printf '</html>\n'
+  } > "$out_dir/code.html"
+  rm -f "$launcher"
+}
+
+build_code_launcher() {
+  out_dir="$1"
+  (
+    cd "$SRC_DIR"
+    bun build ./src/surfaces/codeSurface.ts \
+      --outfile "$out_dir/code-launcher.js" \
+      --target browser \
+      --format iife \
+      --minify
+  )
+}
+
 strip_trailing_line_whitespace() {
   /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
 }
 
 normalize_webviews_output() {
   out_dir="$1"
-  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
+  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/code.html"
 }
 
 if [ "${1:-}" = "--check" ]; then
@@ -48,6 +86,8 @@ if [ "${1:-}" = "--check" ]; then
     bun install --frozen-lockfile
     CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" bun run build
     write_agent_session_html "$tmp_dir"
+    build_code_launcher "$tmp_dir"
+    write_code_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
   )
   diff_output="$(mktemp)"
@@ -75,4 +115,6 @@ fi
   bun run build
 )
 write_agent_session_html "$OUT_DIR"
+build_code_launcher "$OUT_DIR"
+write_code_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"

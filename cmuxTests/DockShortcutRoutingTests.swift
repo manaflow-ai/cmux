@@ -280,6 +280,45 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Code creation shortcuts follow the focused Dock surface")
+    @MainActor
+    func codeCreationShortcutsFollowFocusedDockSurface() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let codePanelId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        url: CodeSidecarService.launcherURL(),
+                        focus: true,
+                        browserPurpose: .code,
+                        allowsExternalBrowserFallback: false
+                    )
+                )
+                #expect(harness.dock.browserPanel(for: codePanelId)?.purpose == .code)
+
+                let newSurface = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(newSurface, for: .newSurface)
+                #expect(Self.dispatch(newSurface, in: harness))
+                let tabPanelId = try #require(harness.dock.focusedPanelId)
+                #expect(harness.dock.browserPanel(for: tabPanelId)?.purpose == .code)
+
+                let split = Self.customShortcut(key: "u")
+                KeyboardShortcutSettings.setShortcut(split, for: .splitRight)
+                #expect(Self.dispatch(split, in: harness))
+                let splitPanelId = try #require(harness.dock.focusedPanelId)
+                #expect(harness.dock.browserPanel(for: splitPanelId)?.purpose == .code)
+
+                let newWorkspace = Self.customShortcut(key: "i")
+                KeyboardShortcutSettings.setShortcut(newWorkspace, for: .newTab)
+                #expect(Self.dispatch(newWorkspace, in: harness))
+                let createdWorkspace = try #require(harness.appDelegate.tabManager?.selectedWorkspace)
+                let createdPanel = try #require(createdWorkspace.panels.values.first as? BrowserPanel)
+                #expect(createdPanel.purpose == .code)
+            }
+        }
+    }
+
     @Test("Customized zoom and flash shortcuts target the focused Dock")
     @MainActor
     func customizedZoomAndFlashTargetFocusedDock() async throws {

@@ -619,14 +619,15 @@ extension Workspace {
             let diffViewerComponents = browserPanel.diffViewerSessionComponents()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),
+                purpose: browserPanel.purpose == .standard ? nil : browserPanel.purpose,
                 profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
-                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
+                backHistoryURLStrings: browserPanel.purpose == .code ? [] : historySnapshot.backHistoryURLStrings,
+                forwardHistoryURLStrings: browserPanel.purpose == .code ? [] : historySnapshot.forwardHistoryURLStrings,
                 transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewerComponents?.token,
                 diffViewerRequestPath: diffViewerComponents?.requestPath
@@ -1758,6 +1759,7 @@ extension Workspace {
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
+                purpose: snapshot.browser?.purpose ?? .standard,
                 creationPolicy: .restoration,
                 transparentBackground: snapshot.browser?.transparentBackground ?? false
             ) else {
@@ -2084,9 +2086,10 @@ final class Workspace: Identifiable, ObservableObject {
         case userInitiated
         case automationPreload
         case restoration
+        case internalSurface
 
         var permitsCreationWhenBrowserDisabled: Bool {
-            self == .restoration
+            self == .restoration || self == .internalSurface
         }
 
         var preloadsInitialNavigationInBackground: Bool {
@@ -3256,16 +3259,19 @@ final class Workspace: Identifiable, ObservableObject {
                attachDetachedSurface(initialDetachedSurface, inPane: initialPaneId, focus: false) != nil {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
-        } else if initialSurface == .browser {
+        } else if initialSurface == .browser || initialSurface == .code {
             // Create the initial browser panel in its default new-tab state.
             // Mirrors the minimal terminal branch below plus the browser panel
             // wiring `attachDetachedSurface` performs for reattached panels.
+            let isCode = initialSurface == .code
             let browserPanel = BrowserPanel(
                 workspaceId: self.id,
+                purpose: isCode ? .code : .standard,
                 profileID: resolvedNewBrowserProfileID(),
-                initialURL: initialBrowserURL,
-                omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                initialURL: isCode ? CodeSidecarService.launcherURL() : initialBrowserURL,
+                omnibarVisible: isCode ? false : initialBrowserOmnibarVisible,
+                transparentBackground: isCode ? false : initialBrowserTransparentBackground,
+                bypassRemoteProxy: isCode
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -3273,7 +3279,7 @@ final class Workspace: Identifiable, ObservableObject {
             // Land the first activation in the address bar so a URL can be
             // typed immediately; BrowserPanelView consumes the pending request
             // when the surface first appears.
-            if initialBrowserOmnibarVisible {
+            if !isCode && initialBrowserOmnibarVisible {
                 _ = browserPanel.requestAddressBarFocus(selectionIntent: .selectAll)
             }
 
@@ -3915,7 +3921,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
-        AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
+        if browserPanel.purpose == .standard {
+            AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
+        }
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -8403,6 +8411,7 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
+        purpose: BrowserPanelPurpose = .standard,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         allowsExternalBrowserFallback: Bool = true,
@@ -8443,6 +8452,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create browser panel
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            purpose: purpose,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
@@ -8526,6 +8536,7 @@ final class Workspace: Identifiable, ObservableObject {
         selectWhenNotFocused: Bool = false,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
+        purpose: BrowserPanelPurpose = .standard,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         allowsExternalBrowserFallback: Bool = true,
@@ -8558,6 +8569,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            purpose: purpose,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
@@ -8627,6 +8639,43 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    @discardableResult
+    func newCodeSurface(inPane paneId: PaneID, focus: Bool? = nil) -> BrowserPanel? {
+        guard let launcherURL = CodeSidecarService.launcherURL() else { return nil }
+        return newBrowserSurface(
+            inPane: paneId,
+            url: launcherURL,
+            focus: focus,
+            purpose: .code,
+            creationPolicy: .internalSurface,
+            allowsExternalBrowserFallback: false,
+            omnibarVisible: false,
+            bypassRemoteProxy: true
+        )
+    }
+
+    @discardableResult
+    func newCodeSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        focus: Bool = true
+    ) -> BrowserPanel? {
+        guard let launcherURL = CodeSidecarService.launcherURL() else { return nil }
+        return newBrowserSplit(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: launcherURL,
+            purpose: .code,
+            focus: focus,
+            creationPolicy: .internalSurface,
+            allowsExternalBrowserFallback: false,
+            omnibarVisible: false,
+            bypassRemoteProxy: true
+        )
     }
 
     /// Creates a sidebar extension browser tab in the requested pane and returns its panel.
@@ -10124,6 +10173,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ browserPanel: BrowserPanel,
         trigger: FocusPanelTrigger
     ) {
+        guard browserPanel.purpose == .standard else { return }
         guard trigger == .standard else { return }
         guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
@@ -10172,6 +10222,21 @@ final class Workspace: Identifiable, ObservableObject {
             joinNewPanelIntoCanvasPane(panel.id, anchor: anchor)
         }
         return panel
+    }
+
+    @discardableResult
+    func newCodeSurfaceInFocusedPane(focus: Bool? = nil) -> BrowserPanel? {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
+        let panel = newCodeSurface(inPane: focusedPaneId, focus: focus)
+        if let panel, let anchor = canvasAnchorPanelId {
+            joinNewPanelIntoCanvasPane(panel.id, anchor: anchor)
+        }
+        return panel
+    }
+
+    var contextualSurfaceCreationKind: ContextualSurfaceCreationKind {
+        ContextualSurfaceCreationKind.resolve(panel: focusedPanelId.flatMap { panels[$0] })
     }
 
     @discardableResult
@@ -13055,6 +13120,11 @@ extension Workspace: BonsplitDelegate {
             switch builtInAction {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
+            case .newCode:
+                _ = AppDelegate.shared?.performNewCodeWorkspaceAction(
+                    tabManager: owningTabManager,
+                    debugSource: "surfaceTabBar.newCode"
+                )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")

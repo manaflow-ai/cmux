@@ -425,6 +425,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
+        browserPurpose: BrowserPanelPurpose = .standard,
         bypassInsecureHTTPHostOnce: String? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
@@ -447,6 +448,7 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            browserPurpose: browserPurpose,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
@@ -483,6 +485,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        browserPurpose: BrowserPanelPurpose = .standard,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
@@ -505,6 +508,7 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            browserPurpose: browserPurpose,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -753,6 +757,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
+        browserPurpose: BrowserPanelPurpose = .standard,
         bypassInsecureHTTPHostOnce: String? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
@@ -770,7 +775,7 @@ final class DockSplitStore: BonsplitDelegate {
                 controlTitle: nil
             )
         case .browser:
-            guard browserAvailabilityProvider() else {
+            guard browserPurpose == .code || browserAvailabilityProvider() else {
                 if allowsExternalBrowserFallback,
                    let externalURL = url ?? initialRequest?.url {
                     _ = NSWorkspace.shared.open(externalURL)
@@ -781,6 +786,7 @@ final class DockSplitStore: BonsplitDelegate {
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
+                purpose: browserPurpose,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
                 websiteDataStore: websiteDataStore
             )

@@ -48,11 +48,24 @@ extension AppDelegate {
             return nil
         }
         guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
-              let pane = store.resolvePane(requestedPaneID: nil),
-              let panelId = store.newSurface(kind: kind, inPane: pane, focus: true) else {
+              let pane = store.resolvePane(requestedPaneID: nil) else {
             return nil
         }
-        if focusAddressBar, kind == .browser, let browser = store.browserPanel(for: panelId) {
+        let createsCode = kind == .terminal && store.contextualSurfaceCreationKind == .code
+        let resolvedKind: DockSurfaceKind = createsCode ? .browser : kind
+        let codeLauncherURL = createsCode ? CodeSidecarService.launcherURL() : nil
+        guard !createsCode || codeLauncherURL != nil else { return nil }
+        let panelId = store.newSurface(
+            kind: resolvedKind,
+            inPane: pane,
+            url: codeLauncherURL,
+            focus: true,
+            browserPurpose: createsCode ? .code : .standard,
+            allowsExternalBrowserFallback: !createsCode
+        )
+        guard let panelId else { return nil }
+        if focusAddressBar, resolvedKind == .browser, !createsCode,
+           let browser = store.browserPanel(for: panelId) {
             focusBrowserAddressBar(in: browser)
         }
         return panelId
@@ -74,11 +87,17 @@ extension AppDelegate {
         guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow) else {
             return false
         }
+        let createsCode = kind == .terminal && store.contextualSurfaceCreationKind == .code
+        let codeLauncherURL = createsCode ? CodeSidecarService.launcherURL() : nil
+        guard !createsCode || codeLauncherURL != nil else { return false }
         return store.newSplit(
-            kind: kind,
+            kind: createsCode ? .browser : kind,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             sourcePanelId: store.focusedPanelId,
+            url: codeLauncherURL,
+            browserPurpose: createsCode ? .code : .standard,
+            allowsExternalBrowserFallback: !createsCode,
             focus: true
         ) != nil
     }
@@ -207,5 +226,11 @@ extension AppDelegate {
         case .up: ("↑", 126)
         case .down: ("↓", 125)
         }
+    }
+}
+
+extension DockSplitStore {
+    var contextualSurfaceCreationKind: ContextualSurfaceCreationKind {
+        ContextualSurfaceCreationKind.resolve(panel: focusedPanelId.flatMap { panels[$0] })
     }
 }

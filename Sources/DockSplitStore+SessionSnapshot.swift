@@ -240,14 +240,15 @@ extension DockSplitStore {
             terminalSnapshot = nil
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browser.preferredURLStringForSessionSnapshot(),
+                purpose: browser.purpose == .standard ? nil : browser.purpose,
                 profileID: browser.profileID,
                 shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browser.currentPageZoomFactor()),
                 developerToolsVisible: browser.isDeveloperToolsVisible(),
                 isMuted: browser.isMuted,
                 omnibarVisible: browser.isOmnibarVisible,
-                backHistoryURLStrings: history.backHistoryURLStrings,
-                forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+                backHistoryURLStrings: browser.purpose == .code ? [] : history.backHistoryURLStrings,
+                forwardHistoryURLStrings: browser.purpose == .code ? [] : history.forwardHistoryURLStrings,
                 transparentBackground: browser.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewer?.token,
                 diffViewerRequestPath: diffViewer?.requestPath

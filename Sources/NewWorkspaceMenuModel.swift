@@ -30,6 +30,7 @@ struct NewWorkspaceMenuModel: Equatable {
     static func build(
         newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem],
         agentChatAction: CmuxResolvedConfigAction?,
+        codeAction: CmuxResolvedConfigAction? = nil,
         cloudSectionEnabled: Bool,
         templateNames: [String],
         loadedActions: [CmuxResolvedConfigAction],
@@ -72,6 +73,25 @@ struct NewWorkspaceMenuModel: Equatable {
                     pendingCreateSeparator = false
                 }
             }
+        }
+
+        if let codeAction,
+           !createRows.contains(where: { row in
+               guard case .action(let menuAction, _, _) = row else { return false }
+               return menuAction.action.id == codeAction.id
+           }) {
+            createRows.append(.action(
+                CmuxResolvedConfigMenuAction(
+                    id: codeAction.id,
+                    title: codeAction.title,
+                    icon: codeAction.icon,
+                    iconSourcePath: codeAction.iconSourcePath,
+                    tooltip: codeAction.tooltip,
+                    action: codeAction
+                ),
+                deletable: deletable(codeAction),
+                isDefault: codeAction.id == newWorkspaceActionID
+            ))
         }
 
         if let agentChatAction {

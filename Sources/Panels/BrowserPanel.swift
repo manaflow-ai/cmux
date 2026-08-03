@@ -2718,6 +2718,7 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
+    let purpose: BrowserPanelPurpose
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -3109,6 +3110,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var playingMediaFrameIDs: Set<String> = []
     private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+    var codeSurfaceMessageHandler: CodeSurfaceMessageHandler?
+    private var codeMountTask: Task<Void, Never>?
 
     private func setMediaActivity(
         isPlayingAudio: Bool? = nil,
@@ -3190,6 +3193,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
+        if purpose == .code {
+            return String(localized: "workspace.code.defaultTitle", defaultValue: "Code")
+        }
         if !pageTitle.isEmpty {
             return pageTitle
         }
@@ -3589,7 +3595,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        purpose == .code ? "chevron.left.forwardslash.chevron.right" : "globe"
     }
 
     var isDirty: Bool {
@@ -3780,6 +3786,7 @@ final class BrowserPanel: Panel, ObservableObject {
         designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        setupCodeSurfaceMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
@@ -3798,6 +3805,72 @@ final class BrowserPanel: Panel, ObservableObject {
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
+    }
+
+    private func setupCodeSurfaceMessageHandler(for webView: WKWebView) {
+        guard purpose == .code else { return }
+        let handler = CodeSurfaceMessageHandler(panel: self)
+        codeSurfaceMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: CodeSurfaceMessageHandler.name)
+        userContentController.add(handler, name: CodeSurfaceMessageHandler.name)
+    }
+
+    func mountCodeSidecar() {
+        guard purpose == .code, codeMountTask == nil else { return }
+        let workingDirectory = AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory
+        codeMountTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.codeMountTask = nil }
+            do {
+                let url = try await CodeSidecarService.shared.mount(
+                    surfaceID: self.id,
+                    workingDirectory: workingDirectory
+                )
+                try Task.checkCancellation()
+                self.navigateWithoutInsecureHTTPPrompt(
+                    to: url,
+                    recordTypedNavigation: false,
+                    cachePolicy: .reloadIgnoringLocalAndRemoteCacheData
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+#if DEBUG
+                cmuxDebugLog("code.sidecar.mount.failed panel=\(self.id.uuidString.prefix(5)) error=\(error)")
+#endif
+                self.renderCodeSidecarLaunchError()
+            }
+        }
+    }
+
+    private func renderCodeSidecarLaunchError() {
+        let title = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.title", defaultValue: "Code could not open")
+        )
+        let message = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.message", defaultValue: "The local service did not start. Try again.")
+        )
+        let retry = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.retry", defaultValue: "Try Again")
+        )
+        let html = """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>
+        :root{color-scheme:light dark}body{align-items:center;background:light-dark(#fcfcfc,#0e0e0e);color:light-dark(#262626,#f5f5f5);display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;height:100vh;justify-content:center;margin:0}.card{max-width:360px;padding:32px;text-align:center}h1{font-size:17px;margin:0 0 8px}p{color:light-dark(#737373,#a3a3a3);font-size:13px;line-height:1.45;margin:0 0 18px}button{background:#6073cc;border:0;border-radius:7px;color:white;font:inherit;padding:7px 13px}
+        </style></head><body><main class="card"><h1>\(title)</h1><p>\(message)</p><button onclick="window.webkit.messageHandlers.cmuxCode.postMessage({type:'mount'})">\(retry)</button></main></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: nil)
+    }
+
+    private static func htmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -3865,7 +3938,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.applyMuteState(to: webView, reason: "navigationFinish")
                 if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
                     self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    if self.purpose == .standard {
+                        boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    }
                     self.refreshFavicon(from: webView)
                 }
                 self.applyCurrentAppWebTheme(to: webView)
@@ -4096,6 +4171,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
+        purpose: BrowserPanelPurpose = .standard,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -4114,6 +4190,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
+        self.purpose = purpose
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
@@ -4125,7 +4202,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
-        self.usesTransparentBackground = transparentBackground
+        self.usesTransparentBackground = purpose == .code || transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
             isRemoteWorkspace
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
@@ -4977,6 +5054,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        if purpose == .code, let launcherURL = CodeSidecarService.launcherURL() {
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
+            setMuted(snapshot.isMuted)
+            setOmnibarVisible(false)
+            currentURL = launcherURL
+            guard snapshot.shouldRenderWebView else {
+                shouldRenderWebView = false
+                refreshNavigationAvailability()
+                return
+            }
+            deferRestoredWebViewLoadUntilVisible(url: launcherURL, reason: "session_restore.code")
+            return
+        }
+
         // Diff viewer surfaces re-register their token from the on-disk manifest
         // and navigate via the app-owned custom scheme, so they restore even
         // though the local HTTP server that originally served them is gone.
@@ -5029,6 +5120,9 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
     }
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
+        if purpose == .code {
+            return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
+        }
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render
         // intent too (otherwise a restored diff surface never navigates).
@@ -5048,6 +5142,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 || websiteDataStore.identifier != nil else {
             return false
         }
+        if purpose == .code { return true }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a
@@ -5080,6 +5175,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
+        if purpose == .code { return nil }
         if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
            let value = Self.serializableSessionHistoryURLString(displayURL) {
             return value
@@ -5103,6 +5199,8 @@ final class BrowserPanel: Panel, ObservableObject {
             contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
         )
         sameDocumentNavigationMessageHandler = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: CodeSurfaceMessageHandler.name)
+        codeSurfaceMessageHandler = nil
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
         webViewCancellables.removeAll()
@@ -5244,8 +5342,20 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                if self.purpose == .code {
+                    self.applyCurrentCodeWebTheme(to: self.webView)
+                    return
+                }
                 guard self.supportsAppWebTheme(self.webView) else { return }
                 self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
+            }
+            .store(in: &webViewCancellables)
+
+        NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)
+            .sink { [weak self] _ in
+                guard let self, self.purpose == .code else { return }
+                self.applyConfiguredWebViewBackground()
+                self.applyCurrentCodeWebTheme(to: self.webView)
             }
             .store(in: &webViewCancellables)
 
@@ -5262,8 +5372,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func applyCurrentAppWebTheme(to webView: WKWebView) {
+        if purpose == .code {
+            applyCurrentCodeWebTheme(to: webView)
+            return
+        }
         guard supportsAppWebTheme(webView) else { return }
         applyAppWebTheme(AppWebThemeSnapshot.current(), to: webView)
+    }
+
+    private func applyCurrentCodeWebTheme(to webView: WKWebView) {
+        guard purpose == .code,
+              let script = CodeWebThemeSnapshot.current().applyingJavaScript() else {
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func supportsAppWebTheme(_ webView: WKWebView) -> Bool {
@@ -5582,6 +5704,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        codeMountTask?.cancel()
+        codeMountTask = nil
+        if purpose == .code {
+            CodeSidecarService.shared.release(surfaceID: id)
+        }
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
