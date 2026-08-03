@@ -1271,18 +1271,6 @@ jobs:
             --allowed-artifact dist/*.tar.gz \
             --write-github-output
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        if: steps.wheel_state.outputs.status == 'missing'
-        with:
-          python-version: "3.12.8"
-
-      - name: Install the pinned PyPI provenance verifier
-        if: steps.wheel_state.outputs.status == 'missing'
-        run: |
-          python3 -m pip install \
-            --disable-pip-version-check \
-            "pypi-attestations==0.0.29"
-
       - name: Revalidate PyPI ownership immediately before wheel upload
         if: steps.wheel_state.outputs.status == 'missing'
         run: bash cmux-tui/bindings/verify_release_registry_authority.sh pypi
@@ -1405,18 +1393,6 @@ jobs:
             --allowed-artifact dist/*.whl \
             --allowed-artifact dist/*.tar.gz \
             --write-github-output
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        if: steps.sdist_state.outputs.status == 'missing'
-        with:
-          python-version: "3.12.8"
-
-      - name: Install the pinned PyPI provenance verifier
-        if: steps.sdist_state.outputs.status == 'missing'
-        run: |
-          python3 -m pip install \
-            --disable-pip-version-check \
-            "pypi-attestations==0.0.29"
 
       - name: Revalidate PyPI ownership immediately before source distribution upload
         if: steps.sdist_state.outputs.status == 'missing'

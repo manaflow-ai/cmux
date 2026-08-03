@@ -39,7 +39,8 @@ case "$1" in
       --repository https://github.com/manaflow-ai/cmux \
       --owner lawrencecchen \
       --workflow sdk-bootstrap-pypi.yml \
-      --environment pypi-bootstrap
+      --environment pypi-bootstrap \
+      --authority-only
     ;;
   *)
     echo "usage: verify_release_registry_authority.sh crates|npm|pypi" >&2

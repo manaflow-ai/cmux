@@ -234,6 +234,8 @@ def verify(
     environment: str,
     expected_commit: Optional[str] = None,
     expected_ref: Optional[str] = None,
+    *,
+    authority_only: bool = False,
 ) -> None:
     expected = set(filenames)
     if not all((package, version, repository, workflow, environment)) or not expected:
@@ -244,6 +246,10 @@ def verify(
         raise ProvenanceError("expected PyPI filenames must be unique")
     if (expected_commit is None) != (expected_ref is None):
         raise ProvenanceError("expected PyPI commit and ref must be supplied together")
+    if authority_only and expected_commit is not None:
+        raise ProvenanceError(
+            "authority-only PyPI verification cannot validate cryptographic claims"
+        )
     metadata = _metadata(package, version)
     _verify_ownership(metadata, owners)
     urls = _release_urls(metadata)
@@ -257,6 +263,8 @@ def verify(
             workflow,
             environment,
         )
+        if authority_only:
+            continue
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w",
@@ -309,6 +317,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-ref")
+    parser.add_argument(
+        "--authority-only",
+        action="store_true",
+        help="verify current PyPI registry authority without third-party verifier code",
+    )
     return parser
 
 
@@ -325,6 +338,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.environment,
             args.expected_commit,
             args.expected_ref,
+            authority_only=args.authority_only,
         )
     except ProvenanceError as error:
         print(f"PyPI provenance verification failed: {error}", file=sys.stderr)
