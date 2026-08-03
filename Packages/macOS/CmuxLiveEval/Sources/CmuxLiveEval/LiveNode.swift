@@ -1,20 +1,19 @@
 import CmuxSwiftRender
 import SwiftSyntax
-import SwiftUI
 
 /// One shallow level of evaluated interpreted view structure.
 ///
 /// Unlike the snapshot pipeline's `RenderNode`, a `LiveNode` is ephemeral and
-/// deliberately *not* deep: containers carry their children as an unevaluated
-/// ``LiveBlock`` (AST + scope), so evaluating a parent never reads the state
-/// its children depend on. Each nesting level is evaluated inside its own
-/// compiled stub view's body, which is what gives SwiftUI per-subtree
+/// deliberately *not* deep. Containers carry their children as an unevaluated
+/// ``LiveBlock`` so evaluating a parent never reads child state. Each nesting
+/// level is evaluated by its own native view, preserving per-subtree
 /// invalidation granularity.
+@MainActor
 public enum LiveNode {
     case text(String)
     case button(title: String, action: @MainActor () -> Void)
-    case textField(placeholder: String, text: Binding<String>)
-    case toggle(title: String, isOn: Binding<Bool>)
+    case textField(placeholder: String, text: LiveValueBinding<String>)
+    case toggle(title: String, isOn: LiveValueBinding<Bool>)
     case stack(axis: LiveStackAxis, spacing: Double?, content: LiveBlock)
     case forEach(rows: [LiveForEachRow])
     case spacer
@@ -29,9 +28,8 @@ public enum LiveStackAxis: Sendable {
     case depth
 }
 
-/// An unevaluated ViewBuilder block: raw statements plus the scope they will
-/// evaluate in. Rendering hosts each block in a compiled stub view whose body
-/// performs the (tracked) evaluation.
+/// An unevaluated builder block: raw statements plus their evaluation scope.
+@MainActor
 public struct LiveBlock {
     public let statements: [CodeBlockItemSyntax]
     public let scope: LiveScope

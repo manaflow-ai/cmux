@@ -10,7 +10,7 @@ import Testing
 @MainActor
 @Suite struct ReEvalBenchmarkTests {
     /// Recursively evaluates every statement of every nested block, the way
-    /// SwiftUI would if every stub were invalidated at once.
+    /// the native renderer would if every subtree were invalidated at once.
     private func evaluateFullTree(_ engine: LiveEvalEngine, _ store: LiveStateStore) -> Int {
         var nodeCount = 0
         var pending: [LiveBlock] = []
@@ -127,7 +127,7 @@ import Testing
         }
         let perPass = elapsed / iterations
         print("[bench] worst-case full-tree re-eval per keystroke: \(perPass)")
-        // The pass criterion applies to what SwiftUI actually re-runs per
+        // The pass criterion applies to what the native renderer re-runs per
         // keystroke (the steady-state test above): per-box invalidation means
         // a full-tree walk only happens on first render or an epoch-fallback.
         // Assert the deterministic invariant the benchmark exists to prove,

@@ -1,5 +1,4 @@
 import CmuxSwiftRender
-import SwiftUI
 import Testing
 @testable import CmuxLiveEval
 

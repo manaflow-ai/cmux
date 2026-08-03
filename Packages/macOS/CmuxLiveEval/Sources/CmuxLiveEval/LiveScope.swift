@@ -7,8 +7,9 @@ import CmuxSwiftRender
 /// Locals are plain `SwiftValue`s frozen at the time the enclosing structure
 /// evaluated (a ForEach row's element, a `let`). State names are *not*
 /// copied in: they resolve through ``resolve(_:)`` to a ``StateBox`` read at
-/// lookup time, which is what registers the Observation dependency on the
-/// caller's surrounding tracking scope (a SwiftUI body).
+/// lookup time, registering the Observation dependency on the caller's
+/// surrounding tracking scope.
+@MainActor
 public final class LiveScope {
     public let store: LiveStateStore
     private var locals: [String: SwiftValue]
@@ -60,7 +61,8 @@ public final class LiveScope {
 /// Where a projected loop binding (`$row`) points: the backing collection box
 /// plus the row's identity, so bindings written through it follow the row by
 /// identity across reorders instead of by position.
-public struct LiveBindingProvenance: Sendable {
+@MainActor
+public struct LiveBindingProvenance {
     public let box: StateBox
     /// Identity field name from `id: \.field`, or nil when identity is the
     /// element value itself (`id: \.self`).

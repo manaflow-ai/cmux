@@ -1,138 +1,370 @@
-import SwiftUI
+public import AppKit
+import Observation
 
-/// The compiled stub view hosting an interpreted program.
+/// Native view hosting an interpreted program.
 ///
-/// This is the live-eval mechanism end to end: a compiled SwiftUI view whose
-/// `body` re-walks an interpreted AST against `@Observable` state boxes. The
-/// boxes live in a ``LiveStateStore`` held in compiled `@State`, so SwiftUI
-/// owns the storage lifetime exactly as it would for a compiled view's
-/// `@State`. Every nesting level of the AST renders inside its own stub view
-/// (``LiveStatementView``), so Observation invalidates the smallest stub that
-/// read a mutated box rather than the whole tree.
-public struct InterpretedView: View {
-    let engine: LiveEvalEngine
-    @State private var store: LiveStateStore
+/// Each interpreted statement owns an Observation tracking scope. A state
+/// mutation therefore rebuilds only the statement subtree that read the box.
+@MainActor
+public final class InterpretedView: NSView {
+    public let engine: LiveEvalEngine
+    public let store: LiveStateStore
+    private var renderedView: NSView?
 
-    @MainActor
     public init(engine: LiveEvalEngine) {
         self.engine = engine
-        _store = State(initialValue: engine.makeStore())
+        store = engine.makeStore()
+        super.init(frame: .zero)
+        renderRoot()
     }
 
-    /// Test/demo hook: host with an externally owned store so the driver can
-    /// mutate boxes directly.
-    @MainActor
+    /// Test and demo initializer with externally owned state storage.
     public init(engine: LiveEvalEngine, store: LiveStateStore) {
         self.engine = engine
-        _store = State(initialValue: store)
+        self.store = store
+        super.init(frame: .zero)
+        renderRoot()
     }
 
-    public var body: some View {
-        let _ = engine.traceBody(Self.self)
-        LiveNodeView(engine: engine, node: engine.evaluateRoot(LiveScope(store: store)))
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public override var intrinsicContentSize: NSSize {
+        renderedView?.fittingSize ?? .zero
+    }
+
+    private func renderRoot() {
+        engine.traceRender(Self.self)
+        let node = engine.evaluateRoot(LiveScope(store: store))
+        install(LiveNodeRenderer.makeView(for: node, engine: engine, parentAxis: nil))
+    }
+
+    private func install(_ content: NSView) {
+        renderedView?.removeFromSuperview()
+        renderedView = content
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: topAnchor),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        invalidateIntrinsicContentSize()
     }
 }
 
-/// Renders one shallow ``LiveNode`` as real SwiftUI.
-///
-/// Deliberately erases through `AnyView`: proving that Observation dependency
-/// registration survives AnyView erasure is a spike question, so the erasure
-/// sits exactly where a production engine would need it (heterogeneous node
-/// kinds from one switch).
-struct LiveNodeView: View {
-    let engine: LiveEvalEngine
-    let node: LiveNode
-
-    var body: some View {
-        let _ = engine.traceBody(Self.self)
-        erased
-    }
-
-    private var erased: AnyView {
+@MainActor
+private enum LiveNodeRenderer {
+    static func makeView(
+        for node: LiveNode,
+        engine: LiveEvalEngine,
+        parentAxis: LiveStackAxis?
+    ) -> NSView {
         switch node {
-        case let .text(string):
-            return AnyView(Text(string))
-        case let .button(title, action):
-            return AnyView(Button(title) { action() })
-        case let .textField(placeholder, text):
-            return AnyView(TextField(placeholder, text: text))
-        case let .toggle(title, isOn):
-            return AnyView(Toggle(title, isOn: isOn))
-        case let .stack(axis, spacing, content):
-            let spacingValue = spacing.map { CGFloat($0) }
-            switch axis {
-            case .vertical:
-                return AnyView(VStack(alignment: .leading, spacing: spacingValue) {
-                    LiveBlockView(engine: engine, block: content)
-                })
-            case .horizontal:
-                return AnyView(HStack(spacing: spacingValue) {
-                    LiveBlockView(engine: engine, block: content)
-                })
-            case .depth:
-                return AnyView(ZStack {
-                    LiveBlockView(engine: engine, block: content)
-                })
+        case .text(let string):
+            let field = NSTextField(wrappingLabelWithString: string)
+            field.maximumNumberOfLines = 0
+            return field
+        case .button(let title, let action):
+            return LiveActionButton(title: title, action: action)
+        case .textField(let placeholder, let binding):
+            return LiveBoundTextField(placeholder: placeholder, binding: binding)
+        case .toggle(let title, let binding):
+            return LiveBoundToggle(title: title, binding: binding)
+        case .stack(let axis, let spacing, let content):
+            return makeBlockView(
+                content,
+                engine: engine,
+                axis: axis,
+                spacing: CGFloat(spacing ?? 8)
+            )
+        case .forEach(let rows):
+            let stack = makeStack(axis: parentAxis ?? .vertical, spacing: 0)
+            for row in rows {
+                stack.addArrangedSubview(
+                    makeBlockView(
+                        row.content,
+                        engine: engine,
+                        axis: parentAxis ?? .vertical,
+                        spacing: 0
+                    )
+                )
             }
-        case let .forEach(rows):
-            return AnyView(ForEach(rows) { row in
-                LiveBlockView(engine: engine, block: row.content)
-            })
+            return stack
         case .spacer:
-            return AnyView(Spacer())
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+            return spacer
         case .divider:
-            return AnyView(Divider())
+            let divider = NSBox()
+            divider.boxType = .separator
+            if parentAxis == .horizontal {
+                divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+            } else {
+                divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            }
+            return divider
         case .empty:
-            return AnyView(EmptyView())
+            return LiveEmptyView()
+        }
+    }
+
+    static func makeBlockView(
+        _ block: LiveBlock,
+        engine: LiveEvalEngine,
+        axis: LiveStackAxis,
+        spacing: CGFloat
+    ) -> NSView {
+        let entries = engine.expandBlock(block)
+        if axis == .depth {
+            let container = NSView()
+            for entry in entries {
+                let statement = LiveStatementView(
+                    engine: engine,
+                    entry: entry,
+                    parentAxis: axis
+                )
+                statement.translatesAutoresizingMaskIntoConstraints = false
+                container.addSubview(statement)
+                NSLayoutConstraint.activate([
+                    statement.topAnchor.constraint(equalTo: container.topAnchor),
+                    statement.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    statement.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    statement.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                ])
+            }
+            return container
+        }
+
+        let stack = makeStack(axis: axis, spacing: spacing)
+        for entry in entries {
+            stack.addArrangedSubview(
+                LiveStatementView(engine: engine, entry: entry, parentAxis: axis)
+            )
+        }
+        return stack
+    }
+
+    private static func makeStack(axis: LiveStackAxis, spacing: CGFloat) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = axis == .horizontal ? .horizontal : .vertical
+        stack.alignment = axis == .horizontal ? .centerY : .leading
+        stack.spacing = spacing
+        return stack
+    }
+}
+
+@MainActor
+private final class LiveStatementView: NSView {
+    private let engine: LiveEvalEngine
+    private let entry: LiveBlockEntry
+    private let parentAxis: LiveStackAxis
+    private var renderedView: NSView?
+    private var refreshTask: Task<Void, Never>?
+
+    init(engine: LiveEvalEngine, entry: LiveBlockEntry, parentAxis: LiveStackAxis) {
+        self.engine = engine
+        self.entry = entry
+        self.parentAxis = parentAxis
+        super.init(frame: .zero)
+        renderTracked()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    override var intrinsicContentSize: NSSize {
+        renderedView?.fittingSize ?? .zero
+    }
+
+    private func renderTracked() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        engine.traceRender(Self.self)
+        let nodes = withObservationTracking {
+            engine.evaluateStatement(entry.statement, entry.scope)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleRefresh()
+            }
+        }
+        let content = makeContent(for: nodes)
+        install(content)
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            self?.renderTracked()
+        }
+    }
+
+    private func makeContent(for nodes: [LiveNode]) -> NSView {
+        if nodes.count == 1, let node = nodes.first {
+            return LiveNodeRenderer.makeView(for: node, engine: engine, parentAxis: parentAxis)
+        }
+        let stack = NSStackView()
+        stack.orientation = parentAxis == .horizontal ? .horizontal : .vertical
+        stack.alignment = parentAxis == .horizontal ? .centerY : .leading
+        stack.spacing = 0
+        for node in nodes {
+            stack.addArrangedSubview(
+                LiveNodeRenderer.makeView(for: node, engine: engine, parentAxis: parentAxis)
+            )
+        }
+        return stack
+    }
+
+    private func install(_ content: NSView) {
+        renderedView?.removeFromSuperview()
+        renderedView = content
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: topAnchor),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        invalidateIntrinsicContentSize()
+    }
+}
+
+@MainActor
+private final class LiveActionButton: NSButton {
+    private let actionHandler: () -> Void
+
+    init(title: String, action: @escaping @MainActor () -> Void) {
+        actionHandler = action
+        super.init(frame: .zero)
+        self.title = title
+        target = self
+        self.action = #selector(performAction(_:))
+        bezelStyle = .rounded
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc
+    private func performAction(_ sender: Any?) {
+        actionHandler()
+    }
+}
+
+@MainActor
+private final class LiveBoundTextField: NSTextField, NSTextFieldDelegate {
+    private let binding: LiveValueBinding<String>
+    private var refreshTask: Task<Void, Never>?
+
+    init(placeholder: String, binding: LiveValueBinding<String>) {
+        self.binding = binding
+        super.init(frame: .zero)
+        placeholderString = placeholder
+        delegate = self
+        observeValue()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        binding.wrappedValue = stringValue
+    }
+
+    private func observeValue() {
+        let value = withObservationTracking {
+            binding.wrappedValue
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleRefresh()
+            }
+        }
+        if stringValue != value {
+            stringValue = value
+        }
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            self?.observeValue()
         }
     }
 }
 
-/// Expands an unevaluated block into per-statement stub views.
-///
-/// Expansion evaluates only `let` bindings; renderable statements stay
-/// unevaluated until each ``LiveStatementView``'s own body runs, which is
-/// what scopes Observation registration per statement.
-struct LiveBlockView: View {
-    let engine: LiveEvalEngine
-    let block: LiveBlock
+@MainActor
+private final class LiveBoundToggle: NSButton {
+    private let binding: LiveValueBinding<Bool>
+    private var refreshTask: Task<Void, Never>?
 
-    var body: some View {
-        let _ = engine.traceBody(Self.self)
-        ForEach(engine.expandBlock(block)) { entry in
-            LiveStatementView(engine: engine, entry: entry)
-                .equatable()
+    init(title: String, binding: LiveValueBinding<Bool>) {
+        self.binding = binding
+        super.init(frame: .zero)
+        self.title = title
+        setButtonType(.switch)
+        target = self
+        action = #selector(toggleValue(_:))
+        observeValue()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    @objc
+    private func toggleValue(_ sender: Any?) {
+        binding.wrappedValue = state == .on
+    }
+
+    private func observeValue() {
+        let value = withObservationTracking {
+            binding.wrappedValue
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleRefresh()
+            }
+        }
+        state = value ? .on : .off
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            self?.observeValue()
         }
     }
 }
 
-/// One interpreted statement's compiled stub.
-///
-/// The body performs the (Observation-tracked) evaluation of exactly one
-/// statement subtree, so the box reads inside it register to this stub and a
-/// later mutation invalidates only this stub's body. Equatable so parent
-/// re-renders skip statements whose AST node and scope are unchanged;
-/// Observation-driven invalidation bypasses the equality gate by design.
-struct LiveStatementView: View, Equatable {
-    let engine: LiveEvalEngine
-    let entry: LiveBlockEntry
-
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        // SwiftUI performs view diffing on the main actor; Equatable's
-        // requirement is just spelled nonisolated.
-        MainActor.assumeIsolated {
-            lhs.engine === rhs.engine
-                && lhs.entry.id == rhs.entry.id
-                && lhs.entry.statement.id == rhs.entry.statement.id
-                && lhs.entry.scope === rhs.entry.scope
-        }
-    }
-
-    var body: some View {
-        let _ = engine.traceBody(Self.self)
-        let nodes = engine.evaluateStatement(entry.statement, entry.scope)
-        ForEach(Array(nodes.enumerated()), id: \.offset) { _, node in
-            LiveNodeView(engine: engine, node: node)
-        }
-    }
+@MainActor
+private final class LiveEmptyView: NSView {
+    override var intrinsicContentSize: NSSize { .zero }
 }

@@ -1,22 +1,37 @@
 import CmuxSwiftRender
 import SwiftSyntax
-import SwiftUI
+
+/// A main-actor read/write projection used by native controls.
+@MainActor
+public struct LiveValueBinding<Value> {
+    private let getValue: () -> Value
+    private let setValue: (Value) -> Void
+
+    public init(get: @escaping () -> Value, set: @escaping (Value) -> Void) {
+        getValue = get
+        setValue = set
+    }
+
+    public var wrappedValue: Value {
+        get { getValue() }
+        nonmutating set { setValue(newValue) }
+    }
+}
 
 /// A read/write accessor over interpreted observable state, resolved from a
 /// binding expression (`$text`, `$row.isOn`) or an assignment target
 /// (`count`, `rows`).
 ///
-/// Reads go through ``StateBox/value``, so a `get` performed inside any
-/// Observation tracking scope (a SwiftUI body, a real `Binding` getter run
-/// during a control's update) registers a dependency on exactly the backing
-/// box. Writes replace the box value, triggering invalidation of every
-/// registered reader.
+/// Reads go through ``StateBox/value``, so a `get` performed inside an
+/// Observation tracking scope registers a dependency on exactly the backing
+/// box. Writes replace the box value and invalidate registered readers.
 ///
 /// Two root forms exist: a whole box (`$text`), and a row of a collection box
 /// located by identity (`$row.isOn` inside `ForEach($rows, id: \.id)`), where
 /// writes rebuild the array with only the identified element replaced.
-public struct LiveStateAccessor: Sendable {
-    enum Root: Sendable {
+@MainActor
+public struct LiveStateAccessor {
+    enum Root {
         case box(StateBox)
         case element(LiveBindingProvenance)
     }
@@ -101,11 +116,11 @@ public struct LiveStateAccessor: Sendable {
         return element.member(idField) == provenance.idValue
     }
 
-    // MARK: - SwiftUI bindings
+    // MARK: - Native control bindings
 
-    /// A real SwiftUI Binding over the accessor, for `TextField(text:)`.
-    public func stringBinding() -> Binding<String> {
-        Binding(
+    /// A string projection suitable for an editable native text field.
+    public func stringBinding() -> LiveValueBinding<String> {
+        LiveValueBinding(
             get: {
                 guard let value = currentValue() else { return "" }
                 if case let .string(string) = value { return string }
@@ -115,9 +130,9 @@ public struct LiveStateAccessor: Sendable {
         )
     }
 
-    /// A real SwiftUI Binding over the accessor, for `Toggle(isOn:)`.
-    public func boolBinding() -> Binding<Bool> {
-        Binding(
+    /// A Boolean projection suitable for a native checkbox.
+    public func boolBinding() -> LiveValueBinding<Bool> {
+        LiveValueBinding(
             get: { currentValue()?.isTruthy ?? false },
             set: { setValue(.bool($0)) }
         )

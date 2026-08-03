@@ -1,22 +1,19 @@
 import AppKit
 import CmuxSwiftRender
-import SwiftUI
 import Testing
 @testable import CmuxLiveEval
 
-/// End-to-end invalidation through real SwiftUI: hosts ``InterpretedView``
-/// (whose node rendering is AnyView-erased) in an offscreen NSHostingView,
-/// mutates one box, and asserts SwiftUI re-ran only the stub whose statement
-/// read that box. This is the GUI-free equivalent of watching
-/// `Self._printChanges` in the demo app.
+/// End-to-end native invalidation: mounts ``InterpretedView`` in an offscreen
+/// window, mutates one box, and asserts only the statement subtree that read
+/// the box is rebuilt.
 @MainActor
 @Suite(.serialized) struct HostingInvalidationTests {
-    /// Pumps the main run loop until `condition` or a bounded deadline
-    /// (deterministic test scaffolding, not runtime synchronization).
-    private func pump(until condition: () -> Bool) {
+    /// Yields the main actor until `condition` or a bounded deadline.
+    private func wait(until condition: () -> Bool) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
         while !condition(), ContinuousClock.now < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
@@ -27,58 +24,57 @@ import Testing
         let recorder = EvalRecorder()
         engine.onEvaluate = { recorder.append($0) }
         let store = engine.makeStore()
-        let hosting = NSHostingView(rootView: InterpretedView(engine: engine, store: store))
-        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        let interpretedView = InterpretedView(engine: engine, store: store)
+        interpretedView.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
         let window = NSWindow(
             contentRect: NSRect(x: -4000, y: -4000, width: 320, height: 480),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.contentView = hosting
+        window.contentView = interpretedView
         window.orderBack(nil)
-        hosting.layoutSubtreeIfNeeded()
+        interpretedView.layoutSubtreeIfNeeded()
         return (engine, store, recorder, window)
     }
 
-    @Test func countMutationReEvaluatesOnlyCounterTextStub() {
+    @Test func countMutationReEvaluatesOnlyCounterTextStub() async {
         let (_, store, recorder, window) = host(LiveEvalFixtures.source)
         defer { window.orderOut(nil) }
-        pump { !recorder.labels.isEmpty }
+        await wait { !recorder.labels.isEmpty }
         #expect(recorder.labels.contains("root"), "initial render must evaluate the tree")
 
         recorder.clear()
         store.box("count")?.value = .int(41)
-        pump { !recorder.labels.isEmpty }
+        await wait { !recorder.labels.isEmpty }
         #expect(recorder.labels == [#"Text("Count: \(count)")"#],
                 "only the stub that read `count` may re-evaluate, got \(recorder.labels)")
     }
 
-    @Test func textMutationReEvaluatesOnlyTextReadingStubs() {
+    @Test func textMutationReEvaluatesOnlyTextReadingStubs() async {
         let (_, store, recorder, window) = host(LiveEvalFixtures.source)
         defer { window.orderOut(nil) }
-        pump { !recorder.labels.isEmpty }
+        await wait { !recorder.labels.isEmpty }
 
         recorder.clear()
         store.box("text")?.value = .string("typed externally")
-        pump { recorder.labels.contains(#"Text("Echo: \(text)")"#) }
+        await wait { recorder.labels.contains(#"Text("Echo: \(text)")"#) }
         // Two stubs involve `text`: the echo Text (reads it during eval) and
-        // the TextField stub (its binding getter runs under that stub's
-        // update scope; compiled SwiftUI re-runs the binding-owning body the
-        // same way). Counter, rows, and buttons must stay quiet.
+        // the text field's native binding observer. Counter, rows, and buttons
+        // must stay quiet.
         let allowed = Set([#"Text("Echo: \(text)")"#, #"TextField("Type here", text: $text)"#])
         #expect(recorder.labels.contains(#"Text("Echo: \(text)")"#))
         #expect(Set(recorder.labels).isSubset(of: allowed),
                 "only text-reading stubs may re-evaluate, got \(recorder.labels)")
     }
 
-    @Test func typedNSEventsRoundTripThroughRealTextField() {
+    @Test func typedNSEventsRoundTripThroughRealTextField() async {
         let (_, store, recorder, window) = host(LiveEvalFixtures.source)
         defer { window.orderOut(nil) }
-        pump { !recorder.labels.isEmpty }
+        await wait { !recorder.labels.isEmpty }
 
         guard let field = Self.firstEditableTextField(in: window.contentView) else {
-            Issue.record("no editable NSTextField found under NSHostingView; SwiftUI TextField backing changed")
+            Issue.record("no editable NSTextField found in the native interpreted view")
             return
         }
         #expect(window.makeFirstResponder(field), "TextField must accept first responder (focus)")
@@ -100,10 +96,10 @@ import Testing
                 if let event { window.sendEvent(event) }
             }
         }
-        pump { store.box("text")?.value == .string("hey") }
+        await wait { store.box("text")?.value == .string("hey") }
         #expect(store.box("text")?.value == .string("hey"),
                 "typed NSEvents must round-trip through the interpreted binding into the box")
-        pump { recorder.labels.contains(#"Text("Echo: \(text)")"#) }
+        await wait { recorder.labels.contains(#"Text("Echo: \(text)")"#) }
         #expect(recorder.labels.contains(#"Text("Echo: \(text)")"#),
                 "the echo stub must re-evaluate from typing, got \(recorder.labels)")
     }

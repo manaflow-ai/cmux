@@ -1,17 +1,13 @@
 import CmuxSwiftRender
 import SwiftSyntax
-import SwiftUI
 
-/// Live-evaluation engine: walks an interpreted ViewBuilder AST one nesting
+/// Live-evaluation engine: walks an interpreted builder AST one nesting
 /// level at a time, producing shallow ``LiveNode``s whose children stay
 /// unevaluated until a nested compiled stub view's body asks for them.
 ///
-/// All state reads go through ``LiveScope/resolve(_:)`` into `@Observable`
-/// ``StateBox``es, so whatever SwiftUI body (or `withObservationTracking`
-/// scope) triggered the evaluation registers dependencies on exactly the
-/// boxes the evaluated subtree read.
-///
-/// Main-thread only, like the SwiftUI views that drive it.
+/// All state reads go through ``LiveScope/resolve(_:)`` into observable
+/// ``StateBox``es, so the native tracking scope registers dependencies on
+/// exactly the boxes the evaluated subtree read.
 @MainActor
 public final class LiveEvalEngine {
     let expressions = ExpressionEvaluator()
@@ -22,7 +18,7 @@ public final class LiveEvalEngine {
     /// RNG behind interpreted `.shuffle()`, injectable so tests are
     /// deterministic.
     public var random: any RandomNumberGenerator = SystemRandomNumberGenerator()
-    /// When set, stub views call `Self._printChanges()` in their bodies.
+    /// When set, native subtree renders are printed for diagnostics.
     public var tracesBodyChanges = false
     public let program: LiveProgram
 
@@ -66,7 +62,7 @@ public final class LiveEvalEngine {
         return entries
     }
 
-    /// Evaluates one ViewBuilder statement into zero or more shallow nodes.
+    /// Evaluates one builder statement into zero or more shallow nodes.
     public func evaluateStatement(_ item: CodeBlockItemSyntax, _ scope: LiveScope) -> [LiveNode] {
         if let onEvaluate {
             onEvaluate(Self.label(for: item))
@@ -217,11 +213,10 @@ public final class LiveEvalEngine {
         LiveActionExecutor(engine: self).execute(closure, scope)
     }
 
-    /// Calls `_printChanges` for `type` when body tracing is on. Stub views
-    /// call this first thing in `body` so invalidation causes are visible.
-    public func traceBody<V: View>(_ type: V.Type) {
+    /// Prints a native subtree render when diagnostics are enabled.
+    public func traceRender(_ type: Any.Type) {
         guard tracesBodyChanges else { return }
-        V._printChanges()
+        print("[live-eval.render] \(String(describing: type))")
     }
 
     private func defineBindings(_ variable: VariableDeclSyntax, _ scope: LiveScope) {

@@ -6,7 +6,7 @@ import Testing
 /// Proves the core spike question without a GUI: evaluating an interpreted
 /// statement inside `withObservationTracking` registers dependencies on
 /// exactly the `@Observable` boxes the statement read, and on nothing else.
-/// This is the same registration mechanism a SwiftUI body uses.
+/// This is the same registration mechanism used by the native renderer.
 @MainActor
 @Suite struct ObservationGranularityTests {
     let engine: LiveEvalEngine
@@ -67,8 +67,8 @@ import Testing
     }
 
     @Test func bindingGetterRegistersInsideTrackingScope() {
-        // A Binding's getter is executed by SwiftUI during the consuming
-        // control's update; simulate that consumer with a tracking scope.
+        // A native control executes its binding getter during value tracking;
+        // simulate that consumer with a tracking scope.
         guard case let .textField(_, binding) = engine
             .evaluateStatement(entries[3].statement, entries[3].scope).first
         else {

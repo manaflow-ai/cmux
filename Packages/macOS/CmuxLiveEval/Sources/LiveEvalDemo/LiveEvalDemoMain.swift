@@ -1,7 +1,6 @@
 import AppKit
 import CmuxLiveEval
 import CmuxSwiftRender
-import SwiftUI
 
 // Throwaway spike demo binary (not shipped, strings deliberately unlocalized).
 //
@@ -35,7 +34,16 @@ final class LiveEvalDemoDelegate: NSObject, NSApplicationDelegate {
         self.engine = engine
         self.store = store
 
-        let hosting = NSHostingView(rootView: InterpretedView(engine: engine, store: store).padding(12))
+        let interpretedView = InterpretedView(engine: engine, store: store)
+        interpretedView.translatesAutoresizingMaskIntoConstraints = false
+        let container = NSView()
+        container.addSubview(interpretedView)
+        NSLayoutConstraint.activate([
+            interpretedView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            interpretedView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            interpretedView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            interpretedView.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -12),
+        ])
         let selfTest = CommandLine.arguments.contains("--self-test")
         // Self-test runs offscreen so the demo never steals the user's focus.
         let origin = selfTest ? NSPoint(x: -4000, y: -4000) : NSPoint(x: 200, y: 200)
@@ -46,7 +54,7 @@ final class LiveEvalDemoDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "LiveEval Demo"
-        window.contentView = hosting
+        window.contentView = container
         window.orderBack(nil)
         self.window = window
 
@@ -61,7 +69,7 @@ final class LiveEvalDemoDelegate: NSObject, NSApplicationDelegate {
         try? await Task.sleep(for: .milliseconds(400))
 
         guard let field = Self.firstTextField(in: window.contentView) else {
-            print("[self-test] FAIL: no NSTextField found in hosted SwiftUI tree")
+            print("[self-test] FAIL: no editable native text field found")
             NSApp.terminate(nil)
             return
         }

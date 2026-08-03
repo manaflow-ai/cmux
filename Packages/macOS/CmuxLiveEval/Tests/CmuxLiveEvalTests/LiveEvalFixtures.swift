@@ -94,7 +94,7 @@ final class ChangeFlag: @unchecked Sendable {
     }
 }
 
-/// Collects engine evaluation labels across SwiftUI update passes.
+/// Collects engine evaluation labels across native update passes.
 final class EvalRecorder: @unchecked Sendable {
     private(set) var labels: [String] = []
 

@@ -4,18 +4,12 @@ import Observation
 /// One observable storage box backing a single interpreted `@State`
 /// declaration.
 ///
-/// This is the heart of the live-eval state mechanism: the box is a real
-/// `@Observable` class, so any SwiftUI `body` (including a compiled stub view
-/// whose body re-walks an interpreted AST) that reads ``value`` registers an
-/// Observation dependency on exactly this box. Mutating ``value`` from a
-/// Button action or a Binding setter then invalidates only the views that
-/// actually read it.
-/// `@unchecked Sendable`: Observation's registrar is thread-safe and box
-/// values are read/written on the main actor by convention (the engine and
-/// every SwiftUI entry point are MainActor). Sendable is needed because real
-/// `Binding` get/set closures are `@Sendable` and capture the box.
+/// A native view that reads ``value`` inside Observation tracking registers a
+/// dependency on exactly this box. Mutating it then invalidates only views
+/// that actually read it.
 @Observable
-public final class StateBox: @unchecked Sendable {
+@MainActor
+public final class StateBox {
     /// The declared `@State` name (without the `@State` / `$` decoration).
     public let name: String
 
@@ -31,10 +25,10 @@ public final class StateBox: @unchecked Sendable {
 
 /// All ``StateBox``es for one interpreted view instance.
 ///
-/// One store is created per `InterpretedView` identity (held in compiled
-/// `@State`, so SwiftUI owns its lifetime) and seeded from the `@State`
-/// declarations in the interpreted source. The dictionary itself is
-/// immutable; only box values change.
+/// One store is created per ``InterpretedView`` instance and seeded from the
+/// state declarations in interpreted source. The dictionary is immutable;
+/// only box values change.
+@MainActor
 public final class LiveStateStore {
     private let boxes: [String: StateBox]
 
