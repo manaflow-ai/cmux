@@ -211,6 +211,19 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .completed)
     }
 
+    @Test("An unusable update claims no id")
+    func ignoredUpdateClaimsNoId() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "real", id: "1")
+        let before = store.ownedTaskIds(forWorkstream: "s1")
+
+        // Status-only update for a task we never saw and cannot render.
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"999","status":"in_progress"}"#))
+
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == before)
+        #expect(store.items.last?.kind == .toolUse)
+    }
+
     @Test("Non-task PreToolUse events stay tool-use telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

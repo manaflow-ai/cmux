@@ -88,11 +88,12 @@ struct WorkstreamTaskToolTodos: Sendable {
                 // parse failure: the caller retires this workstream's rows.
                 return .list(todos)
             }
-            claimId(id)
             guard let index = todos.firstIndex(where: { $0.id == id }) else {
                 // Update for a task we never saw created (resumed session, or
-                // hooks installed mid-run). Only adoptable with text to show.
+                // hooks installed mid-run). Only adoptable with text to show;
+                // claiming an id we drop on the floor would evict real ones.
                 guard let content = taskContent(in: input) else { return .ignored }
+                claimId(id)
                 upsert(WorkstreamTaskTodo(
                     id: id,
                     content: content,
@@ -101,6 +102,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                 trimToCap()
                 return .list(todos)
             }
+            claimId(id)
             todos[index] = WorkstreamTaskTodo(
                 id: id,
                 content: taskContent(in: input) ?? todos[index].content,
