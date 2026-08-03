@@ -5,6 +5,34 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 TUI_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
 REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
+REUSE_BUILD=0
+
+usage() {
+  cat <<'USAGE'
+Usage: run-demo.sh [--reuse-build]
+
+  --reuse-build  Launch the existing cmux-tui binary and NativeMuxDemo.app
+                 without running Cargo or Swift build commands.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reuse-build|--no-build)
+      REUSE_BUILD=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
 
 # shellcheck source=/dev/null
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
@@ -40,6 +68,7 @@ TEMP_PARENT="${TEMP_PARENT%/}"
 DEMO_ROOT="$(mktemp -d "$TEMP_PARENT/cmux-native-mux-demo.XXXXXX")"
 DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"
 SWIFT_BUILD_ROOT="$DEMO_BUILD_ROOT/swift-build"
+APP_BUNDLE="$DEMO_BUILD_ROOT/NativeMuxDemo.app"
 SESSION="native-mux-$$"
 MUX_SOCKET="$DEMO_ROOT/mux.sock"
 MUX_STATE="$DEMO_ROOT/mux-state"
@@ -74,46 +103,57 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "Building cmux-tui and the shared native frontend library..."
-(cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
-
-echo "Building NativeMuxDemo in its worktree-local SwiftPM directory..."
-swift build \
-  --package-path "$SCRIPT_DIR" \
-  --scratch-path "$SWIFT_BUILD_ROOT" \
-  --configuration debug
-SWIFT_BIN_PATH="$(swift build \
-  --package-path "$SCRIPT_DIR" \
-  --scratch-path "$SWIFT_BUILD_ROOT" \
-  --configuration debug \
-  --show-bin-path)"
-
-APP_BINARY="$SWIFT_BIN_PATH/NativeMuxDemo"
-RESOURCE_BUNDLE="$SWIFT_BIN_PATH/NativeMuxDemo_NativeMuxDemo.bundle"
-for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; do
-  if [[ ! -e "$artifact" ]]; then
-    echo "Expected build artifact is missing: $artifact" >&2
-    exit 1
-  fi
-done
-
-APP_BUNDLE="$DEMO_BUILD_ROOT/NativeMuxDemo.app"
 if [[ "$APP_BUNDLE" != "$TUI_ROOT/target/native-mux-demo/NativeMuxDemo.app" ]]; then
   echo "Refusing unsafe NativeMuxDemo app path: $APP_BUNDLE" >&2
   exit 1
 fi
-rm -rf -- "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/en.lproj" \
-  "$APP_BUNDLE/Contents/Resources/ja.lproj"
-cp "$SCRIPT_DIR/Support/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
-cp "$SCRIPT_DIR/Support/en.lproj/InfoPlist.strings" \
-  "$APP_BUNDLE/Contents/Resources/en.lproj/InfoPlist.strings"
-cp "$SCRIPT_DIR/Support/ja.lproj/InfoPlist.strings" \
-  "$APP_BUNDLE/Contents/Resources/ja.lproj/InfoPlist.strings"
-cp "$APP_BINARY" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
-cp -R "$RESOURCE_BUNDLE" \
-  "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle"
-codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
+
+if [[ "$REUSE_BUILD" == "1" ]]; then
+  echo "Reusing existing cmux-tui and NativeMuxDemo.app artifacts..."
+  for artifact in "$CMUX_TUI" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"; do
+    if [[ ! -x "$artifact" ]]; then
+      echo "Reusable build artifact is missing: $artifact" >&2
+      echo "Run this launcher without --reuse-build once after freeing build space." >&2
+      exit 1
+    fi
+  done
+else
+  echo "Building cmux-tui and the shared native frontend library..."
+  (cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
+
+  echo "Building NativeMuxDemo in its worktree-local SwiftPM directory..."
+  swift build \
+    --package-path "$SCRIPT_DIR" \
+    --scratch-path "$SWIFT_BUILD_ROOT" \
+    --configuration debug
+  SWIFT_BIN_PATH="$(swift build \
+    --package-path "$SCRIPT_DIR" \
+    --scratch-path "$SWIFT_BUILD_ROOT" \
+    --configuration debug \
+    --show-bin-path)"
+
+  APP_BINARY="$SWIFT_BIN_PATH/NativeMuxDemo"
+  RESOURCE_BUNDLE="$SWIFT_BIN_PATH/NativeMuxDemo_NativeMuxDemo.bundle"
+  for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; do
+    if [[ ! -e "$artifact" ]]; then
+      echo "Expected build artifact is missing: $artifact" >&2
+      exit 1
+    fi
+  done
+
+  rm -rf -- "$APP_BUNDLE"
+  mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/en.lproj" \
+    "$APP_BUNDLE/Contents/Resources/ja.lproj"
+  cp "$SCRIPT_DIR/Support/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+  cp "$SCRIPT_DIR/Support/en.lproj/InfoPlist.strings" \
+    "$APP_BUNDLE/Contents/Resources/en.lproj/InfoPlist.strings"
+  cp "$SCRIPT_DIR/Support/ja.lproj/InfoPlist.strings" \
+    "$APP_BUNDLE/Contents/Resources/ja.lproj/InfoPlist.strings"
+  cp "$APP_BINARY" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
+  cp -R "$RESOURCE_BUNDLE" \
+    "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle"
+  codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
+fi
 APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
 APP_PROCESS_TOKEN="target/native-mux-demo/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
 
