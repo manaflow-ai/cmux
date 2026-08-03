@@ -8,13 +8,14 @@ private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
 /// Process-scoped transport policy for GitHub pull-request probes.
 ///
 /// A single instance is shared by every app window. It owns the reusable
-/// session, conditional-response cache, rate-limit deadline, in-flight request
-/// coalescing, and a bounded transport pool. Keeping these concerns here
-/// prevents per-window pollers from independently consuming the same GitHub
-/// rate-limit pool.
+/// session, conditional-response and permanent-redirect caches, rate-limit
+/// deadline, in-flight request coalescing, and a bounded transport pool. Keeping
+/// these concerns here prevents per-window pollers from independently consuming
+/// the same GitHub rate-limit pool.
 public actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
+    private static let maximumCachedPermanentRedirectCount = 128
 
     internal struct RequestKey: Hashable, Sendable {
         let endpoint: String
@@ -48,6 +49,8 @@ public actor GitHubPullRequestRequestCoordinator {
     private var cachedResponseByRequestKey: [RequestKey: CachedResponse] = [:]
     private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
     private var cachedResponseBodyByteCount = 0
+    private var permanentRedirectEndpointByRequestKey: [RequestKey: String] = [:]
+    private var permanentRedirectRequestKeysInInsertionOrder: [RequestKey] = []
     internal var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
     private var activeTransportCount = 0
     internal var queuedTransports: [QueuedTransport] = []
@@ -163,10 +166,11 @@ public actor GitHubPullRequestRequestCoordinator {
         guard await acquireTransportPermit(requestID: requestID) else { return nil }
         defer { releaseTransportPermit() }
         guard !Task.isCancelled else { return nil }
+        let requestEndpoint = permanentRedirectEndpointByRequestKey[requestKey] ?? requestKey.endpoint
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint
         ) == nil,
-              let url = URL(string: "https://api.github.com/\(requestKey.endpoint)") else {
+              let url = URL(string: "https://api.github.com/\(requestEndpoint)") else {
             return nil
         }
 
@@ -181,9 +185,21 @@ public actor GitHubPullRequestRequestCoordinator {
         }
 
         do {
-            let (data, response) = try await session.data(for: request)
+            let redirectRecorder = GitHubPullRequestPermanentRedirectRecorder()
+            let redirectDelegate = GitHubPullRequestPermanentRedirectDelegate(
+                redirectRecorder: redirectRecorder
+            )
+            let (data, response) = try await session.data(
+                for: request,
+                delegate: redirectDelegate
+            )
+            redirectRecorder.finish()
             guard let httpResponse = response as? HTTPURLResponse else {
                 return nil
+            }
+            if let redirectURL = await redirectRecorder.latestRedirectURL(),
+               let redirectEndpoint = Self.githubEndpoint(from: redirectURL) {
+                storePermanentRedirectEndpoint(redirectEndpoint, for: requestKey)
             }
             updateRateLimit(
                 from: httpResponse,
@@ -340,6 +356,41 @@ public actor GitHubPullRequestRequestCoordinator {
             cachedResponseBodyByteCount -= removedResponse.data.count
         }
         cachedResponseKeysInInsertionOrder.removeAll { $0 == requestKey }
+    }
+
+    private func storePermanentRedirectEndpoint(
+        _ endpoint: String,
+        for requestKey: RequestKey
+    ) {
+        permanentRedirectRequestKeysInInsertionOrder.removeAll { $0 == requestKey }
+        permanentRedirectRequestKeysInInsertionOrder.append(requestKey)
+        permanentRedirectEndpointByRequestKey[requestKey] = endpoint
+
+        while permanentRedirectEndpointByRequestKey.count > Self.maximumCachedPermanentRedirectCount {
+            guard let oldestRequestKey = permanentRedirectRequestKeysInInsertionOrder.first else { break }
+            permanentRedirectRequestKeysInInsertionOrder.removeFirst()
+            permanentRedirectEndpointByRequestKey.removeValue(forKey: oldestRequestKey)
+        }
+    }
+
+    private nonisolated static func githubEndpoint(from url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              components.host?.lowercased() == "api.github.com",
+              components.port == nil,
+              components.user == nil,
+              components.password == nil,
+              components.fragment == nil,
+              components.percentEncodedPath.hasPrefix("/"),
+              components.percentEncodedPath.count > 1 else {
+            return nil
+        }
+
+        var endpoint = String(components.percentEncodedPath.dropFirst())
+        if let query = components.percentEncodedQuery, !query.isEmpty {
+            endpoint += "?\(query)"
+        }
+        return endpoint
     }
 
     private func activeRateLimitRetryDate(for authorizationFingerprint: Data) -> Date? {
