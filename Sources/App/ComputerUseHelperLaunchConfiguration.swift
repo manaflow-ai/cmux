@@ -42,6 +42,7 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
         self.arguments = arguments
         environment = [
             "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
+            "CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL": "1",
             "CUA_DRIVER_RS_PERMISSIONS_GATE": "0",
             // LaunchServices already establishes the helper as a separate GUI
             // responsibility. The upstream binary only recognizes its original

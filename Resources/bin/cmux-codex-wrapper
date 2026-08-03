@@ -353,6 +353,8 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
+        'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL="1"' \
+        "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \

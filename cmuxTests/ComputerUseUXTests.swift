@@ -2622,23 +2622,32 @@ struct ComputerUseUXTests {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        for wrapperName in [
-            "cmux-codex-wrapper",
-            "cmux-claude-wrapper",
+        for (
+            wrapperName,
+            externalFlowEnabled,
+            readinessProtocolEnabled,
+            externalFlowDisabled
+        ) in [
+            (
+                "cmux-codex-wrapper",
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#,
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL="1""#,
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
+            ),
+            (
+                "cmux-claude-wrapper",
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1""#,
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL":"1""#,
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"0""#
+            ),
         ] {
             let wrapperURL = repositoryRoot
                 .appendingPathComponent("Resources/bin", isDirectory: true)
                 .appendingPathComponent(wrapperName, isDirectory: false)
             let source = try String(contentsOf: wrapperURL, encoding: .utf8)
-            #expect(source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
-            ))
-            #expect(source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL="1""#
-            ))
-            #expect(!source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
-            ))
+            #expect(source.contains(externalFlowEnabled))
+            #expect(source.contains(readinessProtocolEnabled))
+            #expect(!source.contains(externalFlowDisabled))
         }
     }
 

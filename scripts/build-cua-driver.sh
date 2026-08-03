@@ -449,6 +449,7 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   <dict>
     <key>CUA_DRIVER_RS_PERMISSIONS_GATE</key><string>0</string>
     <key>CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW</key><string>1</string>
+    <key>CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL</key><string>1</string>
     <key>CUA_DRIVER_RS_TELEMETRY_ENABLED</key><string>false</string>
     <key>CUA_DRIVER_RS_UPDATE_CHECK</key><string>false</string>
   </dict>
