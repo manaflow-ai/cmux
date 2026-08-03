@@ -1851,3 +1851,68 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
 fn random_event_id(category: &str) -> String {
     format!("event_{category}_{}", new_uuid_v4().replace('-', ""))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hook(manifest_version: u32) -> JournalHookManifest {
+        JournalHookManifest {
+            hook_id: "active_hook".into(),
+            manifest_version,
+            filter: JournalHookFilter::default(),
+            exec: JournalHookExec {
+                argv: vec!["/usr/bin/true".into()],
+                timeout_ms: 1_000,
+                max_parallel: 1,
+            },
+            delivery: JournalHookDeliveryPolicy {
+                start: "tail".into(),
+                retry: JournalHookRetry { max_attempts: 1, backoff_ms: 0 },
+            },
+            permissions: vec!["journal.read".into()],
+        }
+    }
+
+    #[test]
+    fn journal_hook_states_exclude_disabled_manifest_history() {
+        let mut registry = WorkspaceRegistry::in_memory("active-hooks").unwrap();
+        registry.put_journal_hook(&hook(1), "client_test", "hook_v1").unwrap();
+        registry.put_journal_hook(&hook(2), "client_test", "hook_v2").unwrap();
+
+        let states = registry.journal_hook_states().unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].manifest.manifest_version, 2);
+        assert!(states[0].enabled);
+    }
+
+    #[test]
+    fn checkpoint_digest_is_verified_when_read() {
+        let mut registry = WorkspaceRegistry::in_memory("checkpoint-integrity").unwrap();
+        let commit = registry
+            .create_journal_checkpoint(
+                0,
+                1,
+                &json!({"session_snapshot":{"cursor":{"revision":"0"}}}),
+                &[],
+                "client_test",
+                "checkpoint_1",
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch("DROP TRIGGER journal_checkpoints_reject_update;")
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_checkpoints SET state_json = '{\"tampered\":true}'
+                 WHERE checkpoint_id = ?1",
+                [&commit.checkpoint.checkpoint_id],
+            )
+            .unwrap();
+
+        let error = registry.journal_checkpoint(&commit.checkpoint.checkpoint_id).unwrap_err();
+        assert!(error.to_string().contains("digest"), "{error:#}");
+    }
+}

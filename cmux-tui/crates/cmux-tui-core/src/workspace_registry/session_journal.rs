@@ -1209,4 +1209,56 @@ mod tests {
         drop(registry);
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn archived_segment_metadata_is_verified_before_replay() {
+        let mut registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
+        let result = serde_json::json!({"focused":true});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "segment-test",
+            "segment-record-1",
+            "pane.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('segment_bad_metadata', 1, 1, 2, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 10).unwrap_err();
+        assert!(error.to_string().contains("record count"), "{error:#}");
+    }
 }
