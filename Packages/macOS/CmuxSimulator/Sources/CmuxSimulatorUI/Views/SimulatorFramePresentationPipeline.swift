@@ -20,21 +20,30 @@ final class SimulatorFramePresentationPipeline {
 
     init(
         source: any SimulatorFrameSurfaceReading,
+        framePublicationNotificationsEnabled: Bool = true,
         presentationDidComplete: @escaping @MainActor () -> Void,
         sourceFailureDidOccur: @escaping @MainActor () -> Void = {}
     ) {
         self.source = source
         self.presentationDidComplete = presentationDidComplete
         self.sourceFailureDidOccur = sourceFailureDidOccur
-        setFramePublicationNotificationsEnabled(true)
+        if framePublicationNotificationsEnabled {
+            setFramePublicationNotificationsEnabled(true)
+        }
     }
 
     func displayTick() -> SimulatorFramePresentation? {
         guard isActive else { return nil }
         guard !reportSourceFailureIfNeeded() else { return nil }
+        let presentation = takeCompletedPresentation()
+        requestCopy()
+        return presentation
+    }
+
+    /// Takes the newest completed copy without requesting another source read.
+    func takeCompletedPresentation() -> SimulatorFramePresentation? {
         let presentation = newestCompletedPresentation
         newestCompletedPresentation = nil
-        requestCopy()
         return presentation
     }
 

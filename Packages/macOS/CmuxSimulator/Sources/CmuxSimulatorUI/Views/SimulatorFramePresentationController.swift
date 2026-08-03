@@ -1,6 +1,6 @@
 import Dispatch
 
-/// Owns frame-copy wakeups and fallback display cadence for one remote surface.
+/// Owns display-cadence frame copies for one remote surface.
 ///
 /// Simulator and generic remote-frame views retain their own layers and geometry,
 /// while this controller keeps their source, timer, visibility, and failure
@@ -21,8 +21,9 @@ final class SimulatorFramePresentationController {
         self.presentationDidComplete = presentationDidComplete
         pipeline = SimulatorFramePresentationPipeline(
             source: source,
+            framePublicationNotificationsEnabled: false,
             presentationDidComplete: { [weak self] in
-                self?.presentLatestFrame()
+                self?.presentCompletedFrame()
             },
             sourceFailureDidOccur: { [weak self] in
                 guard let self else { return }
@@ -39,12 +40,17 @@ final class SimulatorFramePresentationController {
         presentationDidComplete(presentation)
     }
 
-    /// Starts event-driven presentation, falling back to the host display cadence.
-    func startPresenting(maximumFramesPerSecond: Int?) {
-        guard presentationTimer == nil, let pipeline else { return }
-        if pipeline.setFramePublicationNotificationsEnabled(true) {
+    private func presentCompletedFrame() {
+        guard let presentation = pipeline?.takeCompletedPresentation() else {
             return
         }
+        presentationDidComplete(presentation)
+    }
+
+    /// Starts presentation at the host display cadence.
+    func startPresenting(maximumFramesPerSecond: Int?) {
+        guard presentationTimer == nil, let pipeline else { return }
+        pipeline.setFramePublicationNotificationsEnabled(false)
         let interval = simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: maximumFramesPerSecond
         )
