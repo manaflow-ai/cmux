@@ -352,6 +352,132 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 @MainActor
 struct WorkspaceFloatingDockNamingAndOrderingTests {
     @Test
+    func parkingAccessoryAppearsAboveItsFloatingWindow() {
+        _ = NSApplication.shared
+        let owner = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WorkspaceFloatingDockParkingAccessoryController(
+            dockID: UUID(),
+            onRestore: {},
+            onRename: { _ in true },
+            onReorderDrag: { _, _ in },
+            onReorderStep: { _ in },
+            onEditingEnded: {}
+        )
+        defer {
+            controller.teardown()
+            owner.close()
+        }
+        let floatingWindowFrame = CGRect(x: 420, y: 180, width: 520, height: 380)
+
+        controller.show(
+            attachedTo: owner,
+            title: "Build Notes",
+            anchorFrame: floatingWindowFrame,
+            parkingEdge: .trailing,
+            appearance: .raycast(backgroundColor: .windowBackgroundColor),
+            animated: false
+        )
+
+        #expect(controller.window.frame.minX == floatingWindowFrame.minX)
+        #expect(
+            controller.window.frame.minY
+                == floatingWindowFrame.maxY + WorkspaceFloatingDockParkingAccessoryController.gap
+        )
+    }
+
+    @Test
+    func draggingParkingAccessoryPullsOutAndMovesTheRealFloatingWindow() throws {
+        _ = NSApplication.shared
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-parking-drag-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Movable Notes",
+            frame: CGRect(x: 200, y: 100, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in },
+            onRestoreRequest: { _ in dock.setStashed(false) }
+        )
+        defer {
+            controller.teardown()
+            dock.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+        parent.makeKeyAndOrderFront(nil)
+        controller.show(focus: false)
+        let restoreFrame = try #require(controller.window?.frame)
+        let snapshot = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: restoreFrame,
+            visibleScreenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+        dock.setStashed(true)
+        controller.showStashed(snapshot: snapshot, animated: false)
+        controller.setParkingRevealed(true, animated: false)
+
+        let accessoryWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue
+                == "cmux.workspace.float.parkingAccessory.\(dock.id.uuidString)"
+        })
+        accessoryWindow.displayIfNeeded()
+        accessoryWindow.contentView?.layoutSubtreeIfNeeded()
+        let handle = try #require(Self.descendant(
+            in: accessoryWindow.contentView,
+            accessibilityIdentifier: "FloatingWindowParkingReorderGrip.\(dock.id.uuidString)"
+        ))
+        let initialPanelFrame = try #require(controller.window?.frame)
+        let downLocation = handle.convert(
+            CGPoint(x: handle.bounds.midX, y: handle.bounds.midY),
+            to: nil
+        )
+        let dragDelta = CGVector(dx: -140, dy: 36)
+        let draggedLocation = CGPoint(
+            x: downLocation.x + dragDelta.dx,
+            y: downLocation.y + dragDelta.dy
+        )
+
+        handle.mouseDown(with: try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: downLocation,
+            window: accessoryWindow
+        ))
+        handle.mouseDragged(with: try Self.mouseEvent(
+            type: .leftMouseDragged,
+            location: draggedLocation,
+            window: accessoryWindow
+        ))
+        handle.mouseUp(with: try Self.mouseEvent(
+            type: .leftMouseUp,
+            location: draggedLocation,
+            window: accessoryWindow
+        ))
+
+        let movedPanelFrame = try #require(controller.window?.frame)
+        #expect(!dock.isStashed)
+        #expect(movedPanelFrame.minX == initialPanelFrame.minX + dragDelta.dx)
+        #expect(movedPanelFrame.minY == initialPanelFrame.minY + dragDelta.dy)
+    }
+
+    @Test
     func renameAccessoryUsesStableKeyableChildPanelLifecycle() {
         let controller = WorkspaceFloatingDockParkingAccessoryController(
             dockID: UUID(),
@@ -452,7 +578,44 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             "Release Notes", "Gamma", "Beta",
         ])
         #expect(workspace.stashedFloatingDockVisualPosition(id: docks[0].id) == 1)
-        #expect(docks.allSatisfy(\.isStashed))
+        #expect(docks.map(\.isStashed) == [true, true, true])
+    }
+
+    private static func descendant(
+        in root: NSView?,
+        accessibilityIdentifier: String
+    ) -> NSView? {
+        guard let root else { return nil }
+        if root.accessibilityIdentifier() == accessibilityIdentifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = descendant(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private static func mouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
     }
 }
 
