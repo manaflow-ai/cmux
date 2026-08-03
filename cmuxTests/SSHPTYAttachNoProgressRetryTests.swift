@@ -29,6 +29,29 @@ struct SSHPTYAttachNoProgressRetryTests {
         #expect(!SSHPTYAttachExitCode.hasNoProgressRetryRemaining(currentRetry: 2, limit: 3))
     }
 
+    @Test("Compound attach attempts parse and receive the retry policy environment")
+    func compoundAttachAttemptReceivesRetryEnvironment() {
+        let script = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: """
+            if [ "$cmux_ssh_attach_no_progress_retry" -gt 0 ]; then exit 9; fi
+            if [ "$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY" != "$cmux_ssh_attach_no_progress_retry" ]; then exit 10; fi
+            if [ "$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT" != "$cmux_ssh_attach_no_progress_limit" ]; then exit 11; fi
+            exit 0
+            """
+        ).joined(separator: "\n")
+
+        let result = Self.run(
+            command: script,
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT": "3",
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+    }
+
     @Test("Output or a sustained connection proves bridge progress")
     func bridgeProgressClassification() {
         #expect(
