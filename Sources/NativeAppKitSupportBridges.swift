@@ -907,6 +907,19 @@ struct SidebarWorkspaceDropTargetWriters: NSViewRepresentable {
     }
 }
 
+struct WorkspacePresentationModeChangeObserver: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> WorkspacePresentationModeObserverView {
+        WorkspacePresentationModeObserverView(onChange: onChange)
+    }
+
+    func updateNSView(_ view: WorkspacePresentationModeObserverView, context: Context) {
+        view.onChange = onChange
+        view.publishIfChanged()
+    }
+}
+
 struct NativeSidebarScrollViewResolver: NSViewRepresentable {
     let onResolve: (NSScrollView?) -> Void
 
