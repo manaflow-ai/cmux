@@ -12,7 +12,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 case "$1" in
   crates)
     python3 "$script_dir/verify_crates_ownership.py" \
-      --package cmux-client \
+      --package cmux-sdk \
       --package cmux-sidebar \
       --repository https://github.com/manaflow-ai/cmux \
       --owner-id 431397 \
