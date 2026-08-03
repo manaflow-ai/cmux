@@ -23,9 +23,12 @@ bun --cwd web subrouter:migrate-legacy production --apply --finalize-source
 
 The first command reads and prints only DB identifiers. `--apply` stages a
 credential-safe copy without changing legacy traffic. `--finalize-source`
-refreshes and atomically activates the hosted copy, then quiesces the legacy
-source. The operator derives destination tenant keys from short-lived Stack
-impersonation sessions and revokes each session without logging tokens or keys.
+persists a durable finalization marker, refreshes and atomically activates the
+hosted copy, quiesces the legacy source, then opens the hosted gate. Subrouter
+v0.1.54 returns its completed receipt for an identical retry, so rerun the same
+finalization command after an interrupted gate write. The operator derives
+destination tenant keys from short-lived Stack impersonation sessions and
+revokes each session without logging tokens or keys.
 
 `SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` remain deployed until the
 mapping table is empty. Account deletion retires both mapped legacy tenants and

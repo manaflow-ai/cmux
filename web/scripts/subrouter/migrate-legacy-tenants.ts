@@ -55,6 +55,7 @@ export async function runLegacyTenantMigration(options: {
     readonly migrated: number;
     readonly sourceFinalized: boolean;
   }>;
+  readonly markFinalizationStarted: (teamId: string) => Promise<void>;
   readonly markHostedReady: (teamId: string) => Promise<void>;
   readonly log: (value: unknown) => void;
 }): Promise<{
@@ -114,6 +115,13 @@ export async function runLegacyTenantMigration(options: {
 
   let migrated = 0;
   for (const destination of destinations) {
+    if (options.finalizeSource) {
+      // Persist the recoverable side of the two-phase transition before the
+      // external finalization. Subrouter v0.1.54 returns its completed receipt
+      // for an identical retry, so rerunning this command can finish the gate
+      // write after a database interruption without touching Hosted again.
+      await options.markFinalizationStarted(destination.mapping.teamId);
+    }
     const result = await options.migrateLegacyTenant({
       legacyTenantId: destination.mapping.tenantId,
       destinationUrl: options.destinationUrl,
@@ -173,6 +181,7 @@ async function main(): Promise<void> {
           tenantKey: input.tenantKey,
           finalizeSource: input.finalizeSource,
         }),
+      markFinalizationStarted: store.markFinalizationStarted,
       markHostedReady: store.markHostedReady,
       log: (value) => console.log(JSON.stringify(value)),
     });
@@ -208,6 +217,7 @@ async function openLegacyTenantMigrationStore(
   runtimeEnv: Record<string, string | undefined>,
 ): Promise<{
   readonly loadMappings: () => Promise<readonly LegacyTenantMapping[]>;
+  readonly markFinalizationStarted: (teamId: string) => Promise<void>;
   readonly markHostedReady: (teamId: string) => Promise<void>;
   readonly close: () => Promise<void>;
 }> {
@@ -257,15 +267,27 @@ async function openLegacyTenantMigrationStore(
       );
       return result.rows;
     },
-    markHostedReady: async (teamId) => {
+    markFinalizationStarted: async (teamId) => {
       const result = await pool.query(
         `update subrouter_tenants
-         set hosted_ready_at = coalesce(hosted_ready_at, now()), updated_at = now()
+         set hosted_finalization_started_at = coalesce(hosted_finalization_started_at, now()),
+             updated_at = now()
          where team_id = $1`,
         [teamId],
       );
       if (result.rowCount !== 1) {
         throw new Error(`legacy tenant mapping disappeared for ${teamId}`);
+      }
+    },
+    markHostedReady: async (teamId) => {
+      const result = await pool.query(
+        `update subrouter_tenants
+         set hosted_ready_at = coalesce(hosted_ready_at, now()), updated_at = now()
+         where team_id = $1 and hosted_finalization_started_at is not null`,
+        [teamId],
+      );
+      if (result.rowCount !== 1) {
+        throw new Error(`legacy tenant finalization was not prepared for ${teamId}`);
       }
     },
     close: async () => await pool.end(),

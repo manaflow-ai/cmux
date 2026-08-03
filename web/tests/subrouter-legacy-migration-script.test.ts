@@ -23,6 +23,9 @@ describe("legacy Subrouter migration operator", () => {
       migrateLegacyTenant: async () => {
         throw new Error("unexpected migration");
       },
+      markFinalizationStarted: async () => {
+        throw new Error("unexpected finalization marker");
+      },
       markHostedReady: async () => {
         throw new Error("unexpected readiness mutation");
       },
@@ -34,6 +37,7 @@ describe("legacy Subrouter migration operator", () => {
     let sessionsOpened = 0;
     let exchanges = 0;
     let migrations = 0;
+    let finalizationMarkers = 0;
     let readinessMutations = 0;
     const logged: unknown[] = [];
 
@@ -54,6 +58,9 @@ describe("legacy Subrouter migration operator", () => {
         migrations += 1;
         throw new Error("unexpected migration");
       },
+      markFinalizationStarted: async () => {
+        finalizationMarkers += 1;
+      },
       markHostedReady: async () => {
         readinessMutations += 1;
       },
@@ -63,6 +70,7 @@ describe("legacy Subrouter migration operator", () => {
     expect(sessionsOpened).toBe(0);
     expect(exchanges).toBe(0);
     expect(migrations).toBe(0);
+    expect(finalizationMarkers).toBe(0);
     expect(readinessMutations).toBe(0);
     expect(logged).toEqual([{
       mode: "dry-run",
@@ -94,6 +102,9 @@ describe("legacy Subrouter migration operator", () => {
         migrated: 4,
         sourceFinalized: false,
       }),
+      markFinalizationStarted: async () => {
+        throw new Error("pre-copy must not persist a finalization marker");
+      },
       markHostedReady: async (teamId) => {
         readyTeamIds.push(teamId);
       },
@@ -188,6 +199,7 @@ describe("legacy Subrouter migration operator", () => {
       };
     };
     const logged: unknown[] = [];
+    const finalizingTeamIds: string[] = [];
     const readyTeamIds: string[] = [];
 
     await expect(runLegacyTenantMigration({
@@ -198,6 +210,9 @@ describe("legacy Subrouter migration operator", () => {
       openStackSession,
       exchangeHostedTenant,
       migrateLegacyTenant,
+      markFinalizationStarted: async (teamId) => {
+        finalizingTeamIds.push(teamId);
+      },
       markHostedReady: async (teamId) => {
         readyTeamIds.push(teamId);
       },
@@ -215,6 +230,7 @@ describe("legacy Subrouter migration operator", () => {
       finalizeSource: true,
     });
     expect(closedTeamIds).toEqual(["team-a", "team-b"]);
+    expect(finalizingTeamIds).toEqual(["team-a", "team-b"]);
     expect(readyTeamIds).toEqual(["team-a", "team-b"]);
     expect(JSON.stringify(logged)).not.toContain("srt_");
     expect(JSON.stringify(logged)).not.toContain("access-");
@@ -241,6 +257,9 @@ describe("legacy Subrouter migration operator", () => {
       }),
       migrateLegacyTenant: async () => {
         throw new Error("source migration failed");
+      },
+      markFinalizationStarted: async () => {
+        throw new Error("pre-copy must not persist a finalization marker");
       },
       markHostedReady: async () => {
         readinessMutations += 1;

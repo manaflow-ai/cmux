@@ -402,6 +402,10 @@ export const subrouterTenants = pgTable(
     tenantId: text("tenant_id").notNull(),
     tenantName: text("tenant_name").notNull(),
     encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    // Durable recovery marker for the external source-finalization phase.
+    hostedFinalizationStartedAt: timestamp("hosted_finalization_started_at", {
+      withTimezone: true,
+    }),
     // The hosted control plane must not serve a mapped legacy tenant until
     // the credential-safe operator has verified its hosted copy.
     hostedReadyAt: timestamp("hosted_ready_at", { withTimezone: true }),
