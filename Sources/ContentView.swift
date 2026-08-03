@@ -1877,13 +1877,11 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .accessibilityIdentifier("SidebarLeadingColumn")
             } trailing: {
                 sidebarView
             }
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityIdentifier("SidebarColumns")
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
@@ -14824,7 +14822,6 @@ private struct SidebarFooter: View {
                 .padding(.bottom, 6)
 #endif
         }
-        .accessibilityIdentifier("SidebarFooter")
     }
 }
 
