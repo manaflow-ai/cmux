@@ -520,7 +520,16 @@ private struct ChatTranscriptTableConfiguration {
                     contentCache: contentCache,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
-            case .prose, .attachment:
+            case .attachment(let attachment):
+                content = ChatAttachmentBubbleView(
+                    attachment: attachment,
+                    groupPosition: snapshot.groupPosition,
+                    showsTimestamp: snapshot.showsTimestamp,
+                    timestamp: snapshot.message.timestamp,
+                    artifactLoader: artifactLoader,
+                    onOpenArtifact: { actions.openArtifact($0) }
+                )
+            case .prose:
                 return nil
             }
             let spacing: CGFloat

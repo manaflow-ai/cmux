@@ -10,6 +10,7 @@ public struct ChatMessageRowView: View {
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
+    @Environment(\.chatArtifactLoader) private var artifactLoader
 
     /// Creates the renderer.
     ///
@@ -70,12 +71,13 @@ public struct ChatMessageRowView: View {
             case .status(let transition):
                 ChatStatusRowBridge(transition: transition, timestamp: snapshot.message.timestamp)
             case .attachment(let attachment):
-                ChatAttachmentBubbleView(
+                ChatAttachmentBubbleBridge(
                     attachment: attachment,
                     groupPosition: snapshot.groupPosition,
                     showsTimestamp: snapshot.showsTimestamp,
                     timestamp: snapshot.message.timestamp,
-                    onOpenArtifact: actions.openArtifact
+                    artifactLoader: artifactLoader,
+                    onOpenArtifact: { actions.openArtifact($0) }
                 )
             case .unsupported(let payload):
                 ChatUnsupportedRowBridge(payload: payload)
@@ -191,6 +193,28 @@ private struct ChatFileEditCardBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatFileEditCardView, context: Context) {}
+}
+
+private struct ChatAttachmentBubbleBridge: UIViewRepresentable {
+    let attachment: ChatAttachment
+    let groupPosition: ChatGroupPosition
+    let showsTimestamp: Bool
+    let timestamp: Date
+    let artifactLoader: ChatArtifactLoader
+    let onOpenArtifact: @MainActor (String) -> Void
+
+    func makeUIView(context: Context) -> ChatAttachmentBubbleView {
+        ChatAttachmentBubbleView(
+            attachment: attachment,
+            groupPosition: groupPosition,
+            showsTimestamp: showsTimestamp,
+            timestamp: timestamp,
+            artifactLoader: artifactLoader,
+            onOpenArtifact: onOpenArtifact
+        )
+    }
+
+    func updateUIView(_ view: ChatAttachmentBubbleView, context: Context) {}
 }
 #endif
 

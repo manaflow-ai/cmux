@@ -195,6 +195,27 @@ struct ChatNativeTranscriptRowTests {
         #expect(editDetails == 1)
         #expect(edit.accessibilityIdentifier == "ChatFileEditDetail-edit-1")
     }
+
+    @Test("attachment bubble routes its exact host path")
+    func attachmentPathAction() {
+        var openedPaths: [String] = []
+        let view = ChatAttachmentBubbleView(
+            attachment: ChatAttachment(
+                media: .file,
+                displayName: "report.pdf",
+                hostPath: "/tmp/report.pdf"
+            ),
+            groupPosition: .solo,
+            showsTimestamp: false,
+            timestamp: .now,
+            onOpenArtifact: { openedPaths.append($0) }
+        )
+
+        view.sendActions(for: .primaryActionTriggered)
+        #expect(openedPaths == ["/tmp/report.pdf"])
+        #expect(view.accessibilityLabel == "report.pdf")
+        #expect(view.accessibilityValue == "/tmp/report.pdf")
+    }
 }
 
 private extension UIView {

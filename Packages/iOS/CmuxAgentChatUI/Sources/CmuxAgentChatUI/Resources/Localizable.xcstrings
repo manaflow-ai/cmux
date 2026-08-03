@@ -936,6 +936,23 @@
         }
       }
     },
+    "chat.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
     "chat.attachment.image": {
       "extractionState": "manual",
       "localizations": {
