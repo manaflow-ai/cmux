@@ -75,4 +75,31 @@ describe("hosted Subrouter client", () => {
     });
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ teamId: "team-1" });
   });
+
+  test("treats an already-absent tenant as successfully deleted", async () => {
+    const client = createHostedSubrouterClient({
+      baseUrl: "https://sr.example",
+      tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+      fetch: (async () =>
+        Response.json({ error: "tenant not found" }, { status: 404 })) as typeof fetch,
+    });
+
+    await expect(client.deleteTenant("stack-access", "team-1")).resolves.toBeUndefined();
+  });
+
+  test("rejects unsupported hosted account provider and auth-mode pairs", async () => {
+    for (const account of [
+      { id: "kimi-account", provider: "kimi", auth_mode: "oauth" },
+      { id: "codex-account", provider: "codex", auth_mode: "token" },
+    ]) {
+      const client = createHostedSubrouterClient({
+        baseUrl: "https://sr.example",
+        fetch: (async () => Response.json([account])) as typeof fetch,
+      });
+
+      await expect(
+        client.listAccounts("srt_0123456789abcdef0123456789abcdef"),
+      ).rejects.toMatchObject({ status: 502 });
+    }
+  });
 });
