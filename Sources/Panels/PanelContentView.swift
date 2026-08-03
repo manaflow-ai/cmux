@@ -52,6 +52,7 @@ extension PanelContentControllerUpdating {
 final class PanelContentViewController: NSViewController {
     private enum ContentKind: Equatable {
         case terminal
+        case browser
         case agentSession
         case simulator
         case simulatorDisabled
@@ -132,6 +133,8 @@ final class PanelContentViewController: NSViewController {
         switch configuration.panel.panelType {
         case .terminal:
             return .terminal
+        case .browser:
+            return .browser
         case .agentSession:
             return .agentSession
         case .simulator:
@@ -172,6 +175,8 @@ final class PanelContentViewController: NSViewController {
         switch kind {
         case .terminal:
             return TerminalPanelNativeViewController(configuration: configuration)
+        case .browser:
+            return BrowserPanelNativeViewController(configuration: configuration)
         case .agentSession:
             return AgentSessionPanelNativeViewController(configuration: configuration)
         case .simulator:

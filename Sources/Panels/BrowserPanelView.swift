@@ -4201,6 +4201,31 @@ final class OmnibarNativeTextField: NSTextField {
     }
 }
 
+@MainActor
+struct OmnibarTextFieldNativeConfiguration {
+    let panelId: UUID
+    let fontSize: CGFloat
+    let text: String
+    let isFocused: Bool
+    let selectAllRequestId: UInt64
+    let inlineCompletion: OmnibarInlineCompletion?
+    let placeholder: String
+    let onTextChange: (String) -> Void
+    let onFocusChange: (Bool) -> Void
+    let onTap: () -> Void
+    let onSubmit: (OmnibarLiveFieldSnapshot?) -> Void
+    let onEscape: () -> Void
+    let onFieldLostFocus: () -> Void
+    let onMoveSelection: (Int) -> Void
+    let onDeleteSelectedSuggestion: () -> Void
+    let onAcceptInlineCompletion: () -> Void
+    let onDeleteBackwardWithInlineSelection: () -> Void
+    let onClearTypedPrefixWithInlineSelection: () -> Void
+    let onDeleteWordBackwardWithInlineSelection: () -> Void
+    let onSelectionChanged: (NSRange, Bool) -> Void
+    let shouldSuppressWebViewFocus: () -> Bool
+}
+
 struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
     let fontSize: CGFloat
@@ -4224,7 +4249,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: OmnibarTextFieldRepresentable
+        var configuration: OmnibarTextFieldNativeConfiguration
         var isProgrammaticMutation: Bool = false
         var selectionObserver: NSObjectProtocol?
         weak var observedEditor: NSTextView?
@@ -4236,8 +4261,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         var pendingSelectAllRequestId: UInt64?
         var appliedSelectAllRequestId: UInt64 = 0
 
-        init(parent: OmnibarTextFieldRepresentable) {
-            self.parent = parent
+        init(configuration: OmnibarTextFieldNativeConfiguration) {
+            self.configuration = configuration
         }
 
 #if DEBUG
@@ -4259,8 +4284,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 return pendingFocusRequest ? "focus" : "blur"
             }()
             var line =
-                "browser.focus.field event=\(event) focused=\(parent.isFocused ? 1 : 0) " +
-                "pending=\(pendingValue) suppressWeb=\(parent.shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "browser.focus.field event=\(event) focused=\(configuration.isFocused ? 1 : 0) " +
+                "pending=\(pendingValue) suppressWeb=\(configuration.shouldSuppressWebViewFocus() ? 1 : 0) " +
                 "win=\(window?.windowNumber ?? -1) fr=\(responderType) frIsField=\(responderIsField)"
             if !detail.isEmpty {
                 line += " \(detail)"
@@ -4355,7 +4380,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 return false
             }
             return browserOmnibarShouldReacquireFocusAfterEndEditing(
-                desiredOmnibarFocus: parent.isFocused,
+                desiredOmnibarFocus: configuration.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
             )
         }
@@ -4364,12 +4389,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #if DEBUG
             logFocusEvent("controlTextDidBeginEditing")
 #endif
-            if !parent.isFocused {
+            if !configuration.isFocused {
                 DispatchQueue.main.async {
 #if DEBUG
                     self.logFocusEvent("controlTextDidBeginEditing.asyncSetFocused", detail: "old=0 new=1")
 #endif
-                    self.parent.isFocused = true
+                    self.configuration.onFocusChange(true)
                 }
             }
             attachSelectionObserverIfNeeded()
@@ -4390,7 +4415,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 detail: "nextOther=\(nextOther ? 1 : 0) pointerBlur=\(pointerBlur ? 1 : 0) shouldReacquire=\(shouldReacquire ? 1 : 0)"
             )
 #endif
-            if parent.isFocused {
+            if configuration.isFocused {
                 if shouldReacquire {
 #if DEBUG
                     logFocusEvent("controlTextDidEndEditing.reacquire.begin")
@@ -4403,13 +4428,13 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #if DEBUG
                         self.logFocusEvent("controlTextDidEndEditing.reacquire.tick")
 #endif
-                        guard self.parent.isFocused else { return }
+                        guard self.configuration.isFocused else { return }
                         guard let field = self.parentField, let window = field.window else { return }
                         guard self.shouldReacquireFocusAfterEndEditing(window: window) else {
 #if DEBUG
                             self.logFocusEvent("controlTextDidEndEditing.reacquire.cancel")
 #endif
-                            self.parent.onFieldLostFocus()
+                            self.configuration.onFieldLostFocus()
                             return
                         }
                         // Check both the field itself AND its field editor (which becomes
@@ -4434,7 +4459,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #if DEBUG
                 logFocusEvent("controlTextDidEndEditing.blur")
 #endif
-                parent.onFieldLostFocus()
+                configuration.onFieldLostFocus()
             }
             parentField?.suppressNextFocusReacquireOnEndEditing = false
             detachSelectionObserver()
@@ -4456,12 +4481,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             guard let field = obj.object as? NSTextField else { return }
             let editor = field.currentEditor() as? NSTextView
             publishSelectionState()
-            parent.text = omnibarPublishedBufferTextForFieldChange(
+            configuration.onTextChange(omnibarPublishedBufferTextForFieldChange(
                 fieldValue: field.stringValue,
-                inlineCompletion: parent.inlineCompletion,
+                inlineCompletion: configuration.inlineCompletion,
                 selectionRange: editor?.selectedRange(),
                 hasMarkedText: editor?.hasMarkedText() ?? false
-            )
+            ))
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -4480,13 +4505,13 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             guard !textView.hasMarkedText() else { return false }
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)):
-                parent.onMoveSelection(+1)
+                configuration.onMoveSelection(+1)
 #if DEBUG
                 handled = true
 #endif
                 return true
             case #selector(NSResponder.moveUp(_:)):
-                parent.onMoveSelection(-1)
+                configuration.onMoveSelection(-1)
 #if DEBUG
                 handled = true
 #endif
@@ -4494,20 +4519,20 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
                 guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
-                parent.onSubmit(liveFieldSnapshot(preferredEditor: textView))
+                configuration.onSubmit(liveFieldSnapshot(preferredEditor: textView))
 #if DEBUG
                 handled = true
 #endif
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
-                parent.onEscape()
+                configuration.onEscape()
 #if DEBUG
                 handled = true
 #endif
                 return true
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveToEndOfLine(_:)):
-                if parent.inlineCompletion != nil {
-                    parent.onAcceptInlineCompletion()
+                if configuration.inlineCompletion != nil {
+                    configuration.onAcceptInlineCompletion()
 #if DEBUG
                     handled = true
 #endif
@@ -4515,8 +4540,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.insertTab(_:)):
-                if parent.inlineCompletion != nil {
-                    parent.onAcceptInlineCompletion()
+                if configuration.inlineCompletion != nil {
+                    configuration.onAcceptInlineCompletion()
 #if DEBUG
                     handled = true
 #endif
@@ -4524,8 +4549,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.deleteBackward(_:)):
-                if suffixSelectionMatchesInline(textView, inline: parent.inlineCompletion) {
-                    parent.onDeleteBackwardWithInlineSelection()
+                if suffixSelectionMatchesInline(textView, inline: configuration.inlineCompletion) {
+                    configuration.onDeleteBackwardWithInlineSelection()
 #if DEBUG
                     handled = true
 #endif
@@ -4534,8 +4559,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 return false
             case #selector(NSResponder.deleteToBeginningOfLine(_:)),
                  #selector(NSResponder.deleteToBeginningOfParagraph(_:)):
-                if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
-                    parent.onClearTypedPrefixWithInlineSelection()
+                if inlineCompletionSelectionIsActive(textView, inline: configuration.inlineCompletion) {
+                    configuration.onClearTypedPrefixWithInlineSelection()
 #if DEBUG
                     handled = true
 #endif
@@ -4543,8 +4568,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.deleteWordBackward(_:)):
-                if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
-                    parent.onDeleteWordBackwardWithInlineSelection()
+                if inlineCompletionSelectionIsActive(textView, inline: configuration.inlineCompletion) {
+                    configuration.onDeleteWordBackwardWithInlineSelection()
 #if DEBUG
                     handled = true
 #endif
@@ -4621,14 +4646,14 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 lastPublishedSelection = range
                 lastPublishedHasMarkedText = hasMarkedText
-                parent.onSelectionChanged(range, hasMarkedText)
+                configuration.onSelectionChanged(range, hasMarkedText)
             } else {
                 let location = field.stringValue.utf16.count
                 let range = NSRange(location: location, length: 0)
                 guard !NSEqualRanges(range, lastPublishedSelection) || lastPublishedHasMarkedText else { return }
                 lastPublishedSelection = range
                 lastPublishedHasMarkedText = false
-                parent.onSelectionChanged(range, false)
+                configuration.onSelectionChanged(range, false)
             }
         }
 
@@ -4710,7 +4735,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 flags: event.modifierFlags,
                 chars: lowered
             ) {
-                parent.onMoveSelection(delta)
+                configuration.onMoveSelection(delta)
 #if DEBUG
                 handled = true
 #endif
@@ -4719,7 +4744,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
             // Shift+Delete removes the selected history suggestion when possible.
             if modifiers.contains(.shift), (keyCode == 51 || keyCode == 117) {
-                parent.onDeleteSelectedSuggestion()
+                configuration.onDeleteSelectedSuggestion()
 #if DEBUG
                 handled = true
 #endif
@@ -4729,40 +4754,40 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             switch keyCode {
             case 36, 76: // Return / keypad Enter
                 guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
-                parent.onSubmit(liveFieldSnapshot(preferredEditor: editor))
+                configuration.onSubmit(liveFieldSnapshot(preferredEditor: editor))
 #if DEBUG
                 handled = true
 #endif
                 return true
             case 53: // Escape
-                parent.onEscape()
+                configuration.onEscape()
 #if DEBUG
                 handled = true
 #endif
                 return true
             case 125: // Down
-                parent.onMoveSelection(+1)
+                configuration.onMoveSelection(+1)
 #if DEBUG
                 handled = true
 #endif
                 return true
             case 126: // Up
-                parent.onMoveSelection(-1)
+                configuration.onMoveSelection(-1)
 #if DEBUG
                 handled = true
 #endif
                 return true
             case 124, 119: // Right arrow / End
-                if parent.inlineCompletion != nil {
-                    parent.onAcceptInlineCompletion()
+                if configuration.inlineCompletion != nil {
+                    configuration.onAcceptInlineCompletion()
 #if DEBUG
                     handled = true
 #endif
                     return true
                 }
             case 48: // Tab
-                if parent.inlineCompletion != nil {
-                    parent.onAcceptInlineCompletion()
+                if configuration.inlineCompletion != nil {
+                    configuration.onAcceptInlineCompletion()
 #if DEBUG
                     handled = true
 #endif
@@ -4772,9 +4797,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 if modifiers.contains(.command) || modifiers.contains(.option) {
                     return false
                 }
-                if let inline = parent.inlineCompletion,
+                if let inline = configuration.inlineCompletion,
                    inlineCompletionSelectionIsActive(editor, inline: inline) {
-                    parent.onDeleteBackwardWithInlineSelection()
+                    configuration.onDeleteBackwardWithInlineSelection()
 #if DEBUG
                     handled = true
 #endif
@@ -4788,18 +4813,79 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
     }
 
+    @MainActor
+    final class NativeHost {
+        let field: OmnibarNativeTextField
+        private let coordinator: Coordinator
+
+        init(configuration: OmnibarTextFieldNativeConfiguration) {
+            coordinator = Coordinator(configuration: configuration)
+            field = configuration.makeNativeField(coordinator: coordinator)
+        }
+
+        func update(_ configuration: OmnibarTextFieldNativeConfiguration) {
+            configuration.updateNativeField(field, coordinator: coordinator)
+        }
+
+        func teardown() {
+            OmnibarTextFieldNativeConfiguration.dismantleNativeField(field, coordinator: coordinator)
+        }
+    }
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+        Coordinator(configuration: nativeConfiguration)
     }
 
     func makeNSView(context: Context) -> OmnibarNativeTextField {
+        nativeConfiguration.makeNativeField(coordinator: context.coordinator)
+    }
+
+    func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
+        nativeConfiguration.updateNativeField(nsView, coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+        OmnibarTextFieldNativeConfiguration.dismantleNativeField(nsView, coordinator: coordinator)
+    }
+
+    private var nativeConfiguration: OmnibarTextFieldNativeConfiguration {
+        let textBinding = _text
+        let focusBinding = _isFocused
+        return OmnibarTextFieldNativeConfiguration(
+            panelId: panelId,
+            fontSize: fontSize,
+            text: text,
+            isFocused: isFocused,
+            selectAllRequestId: selectAllRequestId,
+            inlineCompletion: inlineCompletion,
+            placeholder: placeholder,
+            onTextChange: { textBinding.wrappedValue = $0 },
+            onFocusChange: { focusBinding.wrappedValue = $0 },
+            onTap: onTap,
+            onSubmit: onSubmit,
+            onEscape: onEscape,
+            onFieldLostFocus: onFieldLostFocus,
+            onMoveSelection: onMoveSelection,
+            onDeleteSelectedSuggestion: onDeleteSelectedSuggestion,
+            onAcceptInlineCompletion: onAcceptInlineCompletion,
+            onDeleteBackwardWithInlineSelection: onDeleteBackwardWithInlineSelection,
+            onClearTypedPrefixWithInlineSelection: onClearTypedPrefixWithInlineSelection,
+            onDeleteWordBackwardWithInlineSelection: onDeleteWordBackwardWithInlineSelection,
+            onSelectionChanged: onSelectionChanged,
+            shouldSuppressWebViewFocus: shouldSuppressWebViewFocus
+        )
+    }
+}
+
+extension OmnibarTextFieldNativeConfiguration {
+    func makeNativeField(coordinator: OmnibarTextFieldRepresentable.Coordinator) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
         field.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: fontSize)
         field.placeholderString = placeholder
-        field.delegate = context.coordinator
+        field.delegate = coordinator
         field.target = nil
         field.action = nil
         field.isEditable = true
@@ -4809,17 +4895,20 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.onPointerDown = {
             onTap()
         }
-        field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
+        field.onHandleKeyEvent = { [weak coordinator] event, editor in
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
         }
-        context.coordinator.parentField = field
+        coordinator.parentField = field
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         return field
     }
 
-    func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.parentField = nsView
+    func updateNativeField(
+        _ nsView: OmnibarNativeTextField,
+        coordinator: OmnibarTextFieldRepresentable.Coordinator
+    ) {
+        coordinator.configuration = self
+        coordinator.parentField = nsView
         if let previousPanelId = nsView.panelId, previousPanelId != panelId {
             BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: previousPanelId)
         }
@@ -4829,7 +4918,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         if nsView.font?.pointSize != fontSize {
             nsView.font = .systemFont(ofSize: fontSize)
         }
-        context.coordinator.queueSelectAllRequest(selectAllRequestId)
+        coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
             bufferText: text,
@@ -4838,10 +4927,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         let desiredDisplayText = activeInlineCompletion?.displayText ?? text
         if let editor = nsView.currentEditor() as? NSTextView {
             if !editor.hasMarkedText(), editor.string != desiredDisplayText {
-                context.coordinator.isProgrammaticMutation = true
+                coordinator.isProgrammaticMutation = true
                 editor.string = desiredDisplayText
                 nsView.stringValue = desiredDisplayText
-                context.coordinator.isProgrammaticMutation = false
+                coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != desiredDisplayText {
             nsView.stringValue = desiredDisplayText
@@ -4853,26 +4942,26 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 firstResponder === nsView ||
                 nsView.currentEditor() != nil ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
+            if isFocused, !isFirstResponder, coordinator.pendingFocusRequest != true {
 #if DEBUG
-                context.coordinator.logFocusEvent(
+                coordinator.logFocusEvent(
                     "updateNSView.requestFocus.begin",
                     detail: "isFocused=1 isFirstResponder=0"
                 )
 #endif
                 // Defer to avoid triggering input method XPC during layout pass,
                 // which can crash via re-entrant view hierarchy modification.
-                context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                coordinator.pendingFocusRequest = true
+                DispatchQueue.main.async { [weak nsView, weak coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
 #if DEBUG
-                    if coordinator?.parent.isFocused != true {
+                    if coordinator?.configuration.isFocused != true {
                         coordinator?.logFocusEvent("updateNSView.requestFocus.cancel", detail: "reason=stale_state")
                         return
                     }
 #endif
-                    guard coordinator?.parent.isFocused == true else { return }
+                    guard coordinator?.configuration.isFocused == true else { return }
 #if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestFocus.tick")
 #endif
@@ -4890,24 +4979,24 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     window.makeFirstResponder(nsView)
                     coordinator?.applyPendingSelectAllIfPossible(field: nsView)
                 }
-            } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
+            } else if !isFocused, isFirstResponder, coordinator.pendingFocusRequest != false {
 #if DEBUG
-                context.coordinator.logFocusEvent(
+                coordinator.logFocusEvent(
                     "updateNSView.requestBlur.begin",
                     detail: "isFocused=0 isFirstResponder=1"
                 )
 #endif
-                context.coordinator.pendingFocusRequest = false
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                coordinator.pendingFocusRequest = false
+                DispatchQueue.main.async { [weak nsView, weak coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
 #if DEBUG
-                    if coordinator?.parent.isFocused == true {
+                    if coordinator?.configuration.isFocused == true {
                         coordinator?.logFocusEvent("updateNSView.requestBlur.cancel", detail: "reason=stale_state")
                         return
                     }
 #endif
-                    guard coordinator?.parent.isFocused == false else { return }
+                    guard coordinator?.configuration.isFocused == false else { return }
 #if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestBlur.tick")
 #endif
@@ -4922,7 +5011,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
             }
         }
-        context.coordinator.applyPendingSelectAllIfPossible(field: nsView)
+        coordinator.applyPendingSelectAllIfPossible(field: nsView)
 
         if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {
@@ -4931,28 +5020,31 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     currentSelection: currentSelection,
                     inlineCompletion: activeInlineCompletion
                 )
-                if context.coordinator.appliedInlineCompletion != activeInlineCompletion ||
+                if coordinator.appliedInlineCompletion != activeInlineCompletion ||
                     !NSEqualRanges(currentSelection, desiredSelection) {
-                    context.coordinator.isProgrammaticMutation = true
+                    coordinator.isProgrammaticMutation = true
                     editor.setSelectedRange(desiredSelection)
-                    context.coordinator.isProgrammaticMutation = false
+                    coordinator.isProgrammaticMutation = false
                 }
-            } else if context.coordinator.appliedInlineCompletion != nil {
+            } else if coordinator.appliedInlineCompletion != nil {
                 let end = text.utf16.count
                 let current = editor.selectedRange()
                 if current.length != 0 || current.location != end {
-                    context.coordinator.isProgrammaticMutation = true
+                    coordinator.isProgrammaticMutation = true
                     editor.setSelectedRange(NSRange(location: end, length: 0))
-                    context.coordinator.isProgrammaticMutation = false
+                    coordinator.isProgrammaticMutation = false
                 }
             }
         }
-        context.coordinator.appliedInlineCompletion = activeInlineCompletion
-        context.coordinator.attachSelectionObserverIfNeeded()
-        context.coordinator.publishSelectionState()
+        coordinator.appliedInlineCompletion = activeInlineCompletion
+        coordinator.attachSelectionObserverIfNeeded()
+        coordinator.publishSelectionState()
     }
 
-    static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+    static func dismantleNativeField(
+        _ nsView: OmnibarNativeTextField,
+        coordinator: OmnibarTextFieldRepresentable.Coordinator
+    ) {
         if let panelId = nsView.panelId {
             BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: panelId)
         }
@@ -5368,6 +5460,24 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
+    }
+
+    @MainActor
+    final class NativeHost {
+        let view = HostContainerView(frame: .zero)
+        private let coordinator = Coordinator()
+
+        init() {
+            view.wantsLayer = true
+        }
+
+        func update(_ configuration: WebViewRepresentable) {
+            configuration.updateNativeView(view, coordinator: coordinator)
+        }
+
+        func teardown() {
+            WebViewRepresentable.dismantleNativeView(view, coordinator: coordinator)
+        }
     }
 
     final class HostContainerView: NSView {
@@ -7230,7 +7340,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+    private func updateUsingLocalInlineHosting(
+        _ nsView: NSView,
+        coordinator: Coordinator,
+        webView: WKWebView
+    ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
         slotView.setDesignComposer(designComposer)
@@ -7242,7 +7356,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
-        let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
@@ -7429,7 +7542,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         return !shouldPreserveExternalFullscreenHost
     }
 
-    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+    private func updateUsingWindowPortal(
+        _ nsView: NSView,
+        coordinator: Coordinator,
+        webView: WKWebView
+    ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
@@ -7439,7 +7556,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             relativeTo: host.window
         )
 
-        let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
         let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
         let hostId = ObjectIdentifier(host)
@@ -7674,8 +7790,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        updateNativeView(nsView, coordinator: context.coordinator)
+    }
+
+    func updateNativeView(_ nsView: NSView, coordinator: Coordinator) {
         let webView = panel.webView
-        let coordinator = context.coordinator
         let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
@@ -7687,8 +7806,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         Self.clearPortalCallbacks(for: nsView)
         let hostOwnsPortal = useLocalInlineHosting
-            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
-            : updateUsingWindowPortal(nsView, context: context, webView: webView)
+            ? updateUsingLocalInlineHosting(nsView, coordinator: coordinator, webView: webView)
+            : updateUsingWindowPortal(nsView, coordinator: coordinator, webView: webView)
         if hostOwnsPortal {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
@@ -7801,6 +7920,10 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        dismantleNativeView(nsView, coordinator: coordinator)
+    }
+
+    static func dismantleNativeView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
         if let panel = coordinator.panel, let host = nsView as? HostContainerView {

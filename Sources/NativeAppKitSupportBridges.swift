@@ -730,16 +730,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
         let panel = configuration.panel
         switch panel.panelType {
         case .browser:
-            guard let browserPanel = panel as? BrowserPanel else { return setEmpty() }
-            rootView = AnyView(BrowserPanelView(
-                panel: browserPanel,
-                paneId: configuration.paneID,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                portalPriority: configuration.portalPriority,
-                paneOwnershipOverride: configuration.paneOwnershipOverride,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
+            setEmpty()
         case .terminal, .project, .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
              .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading,
              .workspaceTodo:
