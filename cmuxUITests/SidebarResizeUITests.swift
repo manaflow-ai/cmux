@@ -79,8 +79,12 @@ final class SidebarResizeUITests: XCTestCase {
         let automaticChildColumn = elements["SidebarChildColumn.automatic.children"]
         let workspaceColumn = elements["Sidebar"]
         let remoteContext = app.buttons["fixture@example.test"]
-        let localWorkspace = app.staticTexts["Local Fixture"]
-        let remoteWorkspace = app.staticTexts["Remote Fixture"]
+        let localWorkspace = app.cells.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Local Fixture, workspace")
+        ).firstMatch
+        let remoteWorkspace = app.cells.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Remote Fixture, workspace")
+        ).firstMatch
         let footer = elements["SidebarHelpMenuButton"]
         XCTAssertTrue(waitForElementHittable(outerResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(columnResizer, timeout: 5.0))
