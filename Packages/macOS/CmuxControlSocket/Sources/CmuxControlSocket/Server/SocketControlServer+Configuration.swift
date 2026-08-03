@@ -42,8 +42,14 @@ extension SocketControlServer {
 
         if accessMode == .off {
             stop()
-        } else if isRunning, !applySocketPermissions() {
+        } else if isRunning, let errnoCode = applySocketPermissions() {
+            let recoveryPath = currentSocketPath
             stop()
+            schedulePermissionRecovery(
+                socketPath: recoveryPath,
+                accessMode: accessMode,
+                errnoCode: errnoCode
+            )
             events.breadcrumb(
                 "socket.listener.configuration.failed_closed",
                 socketListenerEventData(

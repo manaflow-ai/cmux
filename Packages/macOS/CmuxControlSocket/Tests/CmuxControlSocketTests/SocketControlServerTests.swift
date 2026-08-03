@@ -87,7 +87,7 @@ private final class ServerEventRecorder: Sendable {
 
 /// Deterministic transport fault script used to exercise listener recovery
 /// through the real server lifecycle and real Unix-domain sockets.
-private final class TestSocketTransportFaultInjector: SocketTransportFaultInjecting, @unchecked Sendable {
+private final class TestSocketTransportFaultInjector: SocketTransportFaultInjecting, Sendable {
     private struct State {
         var failuresByStage: [String: [Int32]]
         var repeatingFailuresByStage: [String: Int32]
@@ -120,6 +120,10 @@ private final class TestSocketTransportFaultInjector: SocketTransportFaultInject
 
     func invocationCount(for stage: String) -> Int {
         state.withLock { $0.invocationCounts[stage, default: 0] }
+    }
+
+    func replaceFailures(_ failures: [Int32], for stage: String) {
+        state.withLock { $0.failuresByStage[stage] = failures }
     }
 }
 
@@ -158,6 +162,7 @@ private struct ServerHarness: ~Copyable {
     }
 }
 
+@MainActor
 private func waitForAsyncCondition(
     attempts: Int = 1_000,
     _ predicate: () -> Bool
@@ -559,6 +564,35 @@ struct SocketControlServerStartupRecoveryTests {
         #expect(faults.invocationCount(for: "chmod") == 2)
     }
 
+    @Test func liveChmodFailureStopsThenRecoversThroughStartupPolicy() async throws {
+        let clock = TestSocketRecoveryClock()
+        let faults = TestSocketTransportFaultInjector()
+        let harness = try ServerHarness(
+            recoveryClock: clock,
+            transport: SocketTransport(faultInjector: faults)
+        )
+        defer { harness.shutdown() }
+
+        #expect(harness.server.start(socketPath: harness.socketPath, accessMode: .allowAll))
+        faults.replaceFailures([EIO], for: "chmod")
+
+        #expect(!harness.server.reconfigure(accessMode: .automation))
+        #expect(!harness.server.isRunning)
+        #expect(harness.server.accessMode == .automation)
+        #expect(!FileManager.default.fileExists(atPath: harness.socketPath))
+        #expect(harness.server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(await waitForAsyncCondition { clock.pendingSleepCount == 1 })
+
+        clock.advance()
+        #expect(await waitForAsyncCondition {
+            harness.server.isRunning && harness.recorder.started.count == 2
+        })
+        #expect(faults.invocationCount(for: "chmod") == 3)
+        let attributes = try FileManager.default.attributesOfItem(atPath: harness.socketPath)
+        let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        #expect(permissions.uint16Value == 0o600)
+    }
+
     @Test func exhaustedRetryBudgetReportsExactlyOnceWithAttemptCount() async throws {
         let clock = TestSocketRecoveryClock()
         let faults = TestSocketTransportFaultInjector(
@@ -650,6 +684,36 @@ struct SocketControlServerStartupRecoveryTests {
         #expect(!harness.server.isRunning)
         #expect(harness.recorder.started.isEmpty)
         #expect(faults.invocationCount(for: "create_lock_directory") == 1)
+    }
+
+    @Test func identityPendingStopNeverUnlinksAReplacementSocket() async throws {
+        let clock = TestSocketRecoveryClock()
+        let faults = TestSocketTransportFaultInjector(
+            repeatingFailuresByStage: ["stat_bound_path": EIO]
+        )
+        let harness = try ServerHarness(
+            recoveryClock: clock,
+            transport: SocketTransport(faultInjector: faults)
+        )
+        defer { harness.shutdown() }
+
+        #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(await waitForAsyncCondition { clock.pendingSleepCount == 1 })
+        #expect(unlink(harness.socketPath) == 0)
+
+        let replacement = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        defer { close(replacement) }
+        let replacementIdentity = try #require(
+            harness.server.transport.pathIdentity(at: harness.socketPath)
+        )
+
+        harness.server.stop()
+
+        #expect(await waitForAsyncCondition { clock.pendingSleepCount == 0 })
+        #expect(harness.server.transport.pathIdentity(at: harness.socketPath) == replacementIdentity)
+        let client = connect(to: harness.socketPath)
+        #expect(client >= 0)
+        if client >= 0 { close(client) }
     }
 
     @Test func explicitRestartWinsRaceWithStaleWakeupWithoutUnlinkingNewListener() async throws {

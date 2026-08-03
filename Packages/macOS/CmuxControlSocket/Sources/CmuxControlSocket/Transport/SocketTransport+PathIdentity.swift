@@ -31,6 +31,17 @@ extension SocketTransport {
         )
     }
 
+    /// Captures the identity immediately after bind, including deterministic
+    /// stage failures used by lifecycle tests.
+    func boundPathIdentityResult(
+        at path: String
+    ) -> (identity: SocketPathIdentity?, errnoCode: Int32?) {
+        if let errnoCode = injectedErrnoCode(stage: "stat_bound_path", path: path) {
+            return (nil, errnoCode)
+        }
+        return pathIdentityResult(at: path)
+    }
+
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.
     ///
     /// - Parameters:

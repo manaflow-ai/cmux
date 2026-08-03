@@ -29,6 +29,8 @@ public struct SocketTransport: Sendable {
     /// Marker content a lock file carries once its socket path is known to be
     /// reclaimable by a future listener.
     public let pathLockReusableMarker: String
+    /// Internal deterministic syscall seam. Production instances always store `nil`.
+    let faultInjector: (any SocketTransportFaultInjecting)?
 
     /// The longest path that fits in `sockaddr_un.sun_path` (one byte reserved
     /// for the null terminator).
@@ -59,6 +61,29 @@ public struct SocketTransport: Sendable {
         self.listenBacklog = listenBacklog
         self.pathLockSuffix = pathLockSuffix
         self.pathLockReusableMarker = pathLockReusableMarker
+        self.faultInjector = nil
+    }
+
+    /// Creates a production-equivalent transport with deterministic test faults.
+    init(
+        clientReadTimeout: TimeInterval = 30,
+        clientWriteTimeout: TimeInterval = 5,
+        listenBacklog: Int32 = 128,
+        pathLockSuffix: String = ".lock",
+        pathLockReusableMarker: String = "cmux-socket-lock-v1\n",
+        faultInjector: any SocketTransportFaultInjecting
+    ) {
+        self.clientReadTimeout = clientReadTimeout
+        self.clientWriteTimeout = clientWriteTimeout
+        self.listenBacklog = listenBacklog
+        self.pathLockSuffix = pathLockSuffix
+        self.pathLockReusableMarker = pathLockReusableMarker
+        self.faultInjector = faultInjector
+    }
+
+    /// Returns a scripted test error without changing production syscall behavior.
+    func injectedErrnoCode(stage: String, path: String) -> Int32? {
+        faultInjector?.errnoCode(stage: stage, path: path)
     }
 
     /// Builds a `sockaddr_un` for `path`, or nil when the path does not fit.

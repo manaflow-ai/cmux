@@ -178,8 +178,9 @@ public struct SocketListenerPolicy: Sendable {
     /// Whether a listener-start failure should retry before it is reported.
     ///
     /// Retries are limited to transport occupancy, interrupted setup, temporary
-    /// filesystem I/O failure, and resource pressure. Permission, path-shape,
-    /// and file-identity failures remain immediately actionable.
+    /// filesystem I/O failure (including post-bind identity capture), and
+    /// resource pressure. Permission and path-shape failures remain
+    /// immediately actionable.
     ///
     /// - Parameters:
     ///   - stage: Stable listener-start stage identifier.
