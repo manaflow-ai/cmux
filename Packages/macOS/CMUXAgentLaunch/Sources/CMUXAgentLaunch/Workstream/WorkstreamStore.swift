@@ -49,7 +49,8 @@ public final class WorkstreamStore {
 
     /// Running task list per workstream, accumulated from the agent's
     /// per-task tool calls (`TaskCreate` / `TaskUpdate`), which report one
-    /// task at a time rather than the whole list.
+    /// task at a time rather than the whole list. Each accumulator caps its
+    /// retained tasks; the entry itself is dropped when the session ends.
     private var taskToolTodosByWorkstream: [String: WorkstreamTaskToolTodos] = [:]
 
     /// Creates a store for Feed workstream items.
@@ -144,6 +145,19 @@ public final class WorkstreamStore {
                 try? await persistence.append(item)
             }
         }
+    }
+
+    /// Every agent task id this workstream has ever owned, including tasks it
+    /// has since deleted.
+    ///
+    /// The workspace-checklist sync uses this to retire exactly the rows this
+    /// agent owns and leave rows owned by the user, or by another agent
+    /// sharing the workspace, untouched.
+    ///
+    /// - Parameter workstreamId: The workstream (agent session) id.
+    /// - Returns: The owned agent task ids, empty when nothing was accumulated.
+    public func ownedTaskIds(forWorkstream workstreamId: String) -> Set<String> {
+        taskToolTodosByWorkstream[workstreamId]?.ownedIds ?? []
     }
 
     // MARK: - Actions
@@ -317,19 +331,30 @@ public final class WorkstreamStore {
             // Claude's task tools (and the legacy whole-list TodoWrite) reach
             // us as ordinary PreToolUse calls; fold them into the workstream's
             // running checklist instead of anonymous tool telemetry.
-            if WorkstreamTaskToolTodos.handles(toolName: toolName) {
+            if isWorkstreamTaskTool(toolName) {
                 var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
-                let todos = accumulator.apply(toolName: toolName, toolInputJSON: event.toolInputJSON)
+                let outcome = accumulator.apply(toolName: toolName, toolInputJSON: event.toolInputJSON)
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
-                if let todos {
+                if case .list(let todos) = outcome {
                     return (.todos, .todos(todos))
                 }
             }
             return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
         case .postToolUse:
+            let toolName = event.toolName ?? ""
+            // The tool result is where Claude first reports the authoritative
+            // task id, so reconcile the provisional row created at PreToolUse.
+            if toolName == "TaskCreate",
+               var accumulator = taskToolTodosByWorkstream[event.sessionId] {
+                let outcome = accumulator.adoptTaskId(fromToolResponse: event.toolResponseJSON)
+                taskToolTodosByWorkstream[event.sessionId] = accumulator
+                if case .list(let todos) = outcome {
+                    return (.todos, .todos(todos))
+                }
+            }
             return (
                 .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
@@ -354,11 +379,15 @@ public final class WorkstreamStore {
         case .sessionStart:
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
+            // The agent is gone; its accumulated task list can never receive
+            // another delta, so retire the entry instead of retaining it for
+            // the life of the process.
+            taskToolTodosByWorkstream[event.sessionId] = nil
             return (.sessionEnd, .sessionEnd)
         case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            let todos = WorkstreamTaskToolTodos.parseTodoWriteList(event.toolInputJSON)
+            let todos = parseWorkstreamTodoWriteList(event.toolInputJSON)
             taskToolTodosByWorkstream[event.sessionId] = nil
             return (.todos, .todos(todos))
         case .notification:

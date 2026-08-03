@@ -26,6 +26,37 @@ struct WorkstreamTaskToolTodoTests {
         )
     }
 
+    private func postToolUse(
+        _ sessionId: String,
+        tool: String,
+        response: String
+    ) -> WorkstreamEvent {
+        WorkstreamEvent(
+            sessionId: sessionId,
+            hookEventName: .postToolUse,
+            source: "claude",
+            toolName: tool,
+            extraFieldsJSON: #"{"tool_response":\#(response)}"#
+        )
+    }
+
+    /// Drives one TaskCreate through both halves of its lifecycle: the
+    /// PreToolUse call that creates the row and the PostToolUse result that
+    /// names it.
+    private func createTask(
+        _ store: WorkstreamStore,
+        _ sessionId: String,
+        subject: String,
+        id: String
+    ) {
+        store.ingest(preToolUse(sessionId, tool: "TaskCreate", input: #"{"subject":"\#(subject)"}"#))
+        store.ingest(postToolUse(
+            sessionId,
+            tool: "TaskCreate",
+            response: #"{"task":{"id":"\#(id)","subject":"\#(subject)"}}"#
+        ))
+    }
+
     private func latestTodos(_ store: WorkstreamStore) -> [WorkstreamTaskTodo]? {
         for item in store.items.reversed() {
             if case .todos(let todos) = item.payload { return todos }
@@ -36,9 +67,9 @@ struct WorkstreamTaskToolTodoTests {
     @Test("TaskCreate/TaskUpdate accumulate into a todo list")
     func taskToolsAccumulate() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"Read the code","description":"d"}"#))
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"Write the fix","description":"d"}"#))
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"Open a PR","description":"d"}"#))
+        createTask(store, "s1", subject: "Read the code", id: "1")
+        createTask(store, "s1", subject: "Write the fix", id: "2")
+        createTask(store, "s1", subject: "Open a PR", id: "3")
         store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"completed"}"#))
         store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"2","status":"in_progress"}"#))
 
@@ -54,8 +85,8 @@ struct WorkstreamTaskToolTodoTests {
     @Test("TaskUpdate status deleted removes the item")
     func taskUpdateDeleteRemoves() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"keep"}"#))
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"drop"}"#))
+        createTask(store, "s1", subject: "keep", id: "1")
+        createTask(store, "s1", subject: "drop", id: "2")
         store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"2","status":"deleted"}"#))
 
         #expect(latestTodos(store)?.map(\.content) == ["keep"])
@@ -64,8 +95,8 @@ struct WorkstreamTaskToolTodoTests {
     @Test("Task lists stay separate per workstream")
     func taskListsArePerSession() {
         let store = WorkstreamStore(ringCapacity: 50)
-        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"one"}"#))
-        store.ingest(preToolUse("s2", tool: "TaskCreate", input: #"{"subject":"two"}"#))
+        createTask(store, "s1", subject: "one", id: "1")
+        createTask(store, "s2", subject: "two", id: "1")
 
         let s1 = store.items.last(where: { $0.workstreamId == "s1" })
         let s2 = store.items.last(where: { $0.workstreamId == "s2" })
@@ -92,6 +123,60 @@ struct WorkstreamTaskToolTodoTests {
 
         #expect(latestTodos(store)?.map(\.content) == ["first", "second"])
         #expect(latestTodos(store)?.first?.state == .inProgress)
+    }
+
+    @Test("A create keeps a provisional id until the tool result names it")
+    func provisionalIdIsReplacedByAuthoritativeId() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(preToolUse("s1", tool: "TaskCreate", input: #"{"subject":"probe"}"#))
+        // Before the result lands the row exists but is not claiming to be
+        // Claude's "1" — nothing may guess ids from call order.
+        #expect(latestTodos(store)?.first?.id.hasPrefix("cmux-pending-") == true)
+
+        store.ingest(postToolUse(
+            "s1",
+            tool: "TaskCreate",
+            response: #"{"task":{"id":"7","subject":"probe"}}"#
+        ))
+        #expect(latestTodos(store)?.map(\.id) == ["7"])
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["7"])
+
+        // An update against the authoritative id now lands on the real row.
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"7","status":"completed"}"#))
+        #expect(latestTodos(store)?.first?.state == .completed)
+    }
+
+    @Test("Deleting the last task publishes an empty list, not telemetry")
+    func deletingLastTaskPublishesEmptyList() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "only", id: "1")
+        store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"1","status":"deleted"}"#))
+
+        #expect(store.items.last?.kind == .todos)
+        #expect(latestTodos(store)?.isEmpty == true)
+        // The id stays owned so the checklist sync can retire its row.
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+    }
+
+    @Test("Session end retires the accumulator")
+    func sessionEndClearsAccumulator() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "one", id: "1")
+        #expect(!store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+
+        store.ingest(WorkstreamEvent(sessionId: "s1", hookEventName: .sessionEnd, source: "claude"))
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+    }
+
+    @Test("Retained tasks stay bounded")
+    func retainedTasksAreBounded() {
+        let store = WorkstreamStore(ringCapacity: 5_000)
+        let overflow = WorkstreamTaskToolTodos.maxRetainedTodos + 20
+        for index in 0..<overflow {
+            createTask(store, "s1", subject: "task \(index)", id: "\(index)")
+        }
+        #expect(latestTodos(store)?.count == WorkstreamTaskToolTodos.maxRetainedTodos)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").count == WorkstreamTaskToolTodos.maxRetainedTodos)
     }
 
     @Test("Non-task PreToolUse events stay tool-use telemetry")

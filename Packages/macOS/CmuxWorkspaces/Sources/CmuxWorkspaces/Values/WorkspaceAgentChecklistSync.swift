@@ -1,85 +1,78 @@
 public import Foundation
 
-/// One agent-reported task, already mapped onto checklist vocabulary.
-public struct WorkspaceAgentChecklistTask: Sendable, Equatable {
-    /// The stable checklist identity derived from the agent's task id.
-    public let id: UUID
-    public let text: String
-    public let state: WorkspaceChecklistItem.State
-
-    public init(id: UUID, text: String, state: WorkspaceChecklistItem.State) {
-        self.id = id
-        self.text = text
-        self.state = state
-    }
-}
-
-/// Folds an agent's reported task list into a workspace checklist.
+/// Folds one agent's reported task list into a workspace checklist, producing
+/// the replacement list for `replaceChecklist(with:)`.
 ///
-/// The agent owns only the rows it created: user rows are carried through
-/// untouched (identity, text, state, position), and agent rows the agent no
-/// longer reports are dropped. An empty report is *not* an instruction to
-/// clear the checklist — Claude fires per-task tool calls, so an empty list
-/// usually means "nothing parsed yet", and honoring it would wipe items the
-/// user typed by hand. See https://github.com/manaflow-ai/cmux/issues/8960.
-public enum WorkspaceAgentChecklistSync {
-    /// Builds the replacement list for `replaceChecklist(with:)`.
-    ///
-    /// - Returns: The full desired checklist, or `nil` when there is nothing
-    ///   to apply (empty report, or the result would not change anything).
-    public static func replacementItems(
-        existing: [WorkspaceChecklistItem],
-        agentTasks: [WorkspaceAgentChecklistTask]
-    ) -> [WorkspaceChecklistReplacementItem]? {
-        // Normalize up front so the "already matches" comparison below sees
-        // the same text `replaceChecklist` would store, and drop tasks whose
-        // subject is blank.
-        let normalizedTasks = agentTasks.compactMap { task -> WorkspaceAgentChecklistTask? in
-            guard let text = WorkspaceChecklistItem.normalizedText(task.text) else { return nil }
-            return WorkspaceAgentChecklistTask(id: task.id, text: text, state: task.state)
-        }
-        guard !normalizedTasks.isEmpty else { return nil }
-
-        var items: [WorkspaceChecklistReplacementItem] = []
-        items.reserveCapacity(existing.count + normalizedTasks.count)
-
-        let agentIds = Set(normalizedTasks.map(\.id))
-        for item in existing where item.origin == .user && !agentIds.contains(item.id) {
-            items.append(WorkspaceChecklistReplacementItem(
+/// The reporting agent owns only the rows it created. Rows authored by the
+/// user and rows owned by *other* agents sharing the workspace are carried
+/// through untouched, so two agents in one workspace do not erase each other's
+/// checklists. Rows the reporting agent previously owned but no longer reports
+/// are retired, which is what makes an all-tasks-deleted report meaningful.
+///
+/// - Parameters:
+///   - existing: The workspace's current checklist, in display order.
+///   - agentTasks: The reporting agent's full current task list. May be empty,
+///     which retires every row that agent owns without touching anything else.
+///   - ownedIds: Every checklist identity the reporting agent has ever owned,
+///     including tasks it has since deleted. Rows outside this set are never
+///     removed.
+/// - Returns: The full desired checklist, or `nil` when applying the report
+///   would not change anything.
+public func workspaceAgentChecklistReplacement(
+    existing: [WorkspaceChecklistItem],
+    agentTasks: [WorkspaceAgentChecklistTask],
+    ownedIds: Set<UUID>
+) -> [WorkspaceChecklistReplacementItem]? {
+    // Normalize up front so the "already matches" comparison below sees the
+    // same text `replaceChecklist` would store, and blank subjects drop out.
+    let normalizedTasks = agentTasks.compactMap { task -> WorkspaceAgentChecklistTask? in
+        guard let text = WorkspaceChecklistItem.normalizedText(task.text) else { return nil }
+        return WorkspaceAgentChecklistTask(id: task.id, text: text, state: task.state)
+    }
+    // Rows to keep verbatim: everything the reporting agent does not own.
+    // Its own rows are dropped here and the ones it still reports are
+    // re-emitted below, so unreported ones retire.
+    let retained = existing
+        .filter { !ownedIds.contains($0.id) }
+        .map { item in
+            WorkspaceChecklistReplacementItem(
                 id: item.id,
                 text: item.text,
                 state: item.state,
-                origin: .user
-            ))
-        }
-        for task in normalizedTasks {
-            items.append(WorkspaceChecklistReplacementItem(
-                id: task.id,
-                text: task.text,
-                state: task.state,
-                origin: .agent
-            ))
-        }
-        // The replace is rejected wholesale past the cap, so trim to the last
-        // N rows (the agent's tail) instead of dropping the sync entirely.
-        if items.count > WorkspaceChecklistItem.maxChecklistItems {
-            items = Array(items.suffix(WorkspaceChecklistItem.maxChecklistItems))
+                origin: item.origin
+            )
         }
 
-        guard !matchesExisting(existing, items) else { return nil }
-        return items
+    // The replace is rejected wholesale past the cap. Trim only the incoming
+    // agent portion so a long agent plan can never delete rows the user or
+    // another agent authored.
+    let agentBudget = max(0, WorkspaceChecklistItem.maxChecklistItems - retained.count)
+    let admitted = normalizedTasks.suffix(agentBudget)
+
+    var items = retained
+    items.reserveCapacity(retained.count + admitted.count)
+    for task in admitted {
+        items.append(WorkspaceChecklistReplacementItem(
+            id: task.id,
+            text: task.text,
+            state: task.state,
+            origin: .agent
+        ))
     }
 
-    private static func matchesExisting(
-        _ existing: [WorkspaceChecklistItem],
-        _ items: [WorkspaceChecklistReplacementItem]
-    ) -> Bool {
-        guard existing.count == items.count else { return false }
-        for (current, incoming) in zip(existing, items) {
-            guard current.id == incoming.id,
-                  current.text == incoming.text,
-                  current.state == incoming.state else { return false }
-        }
-        return true
+    guard !checklistMatches(existing, items) else { return nil }
+    return items
+}
+
+private func checklistMatches(
+    _ existing: [WorkspaceChecklistItem],
+    _ items: [WorkspaceChecklistReplacementItem]
+) -> Bool {
+    guard existing.count == items.count else { return false }
+    for (current, incoming) in zip(existing, items) {
+        guard current.id == incoming.id,
+              current.text == incoming.text,
+              current.state == incoming.state else { return false }
     }
+    return true
 }

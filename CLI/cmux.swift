@@ -34677,6 +34677,14 @@ export default CMUXSessionRestore;
                 eventDict["tool_input"] = feedToolInput
             }
         }
+        // Claude reports a created task's authoritative id only in the tool
+        // result, so forward it alongside the request for the task tools.
+        // https://github.com/manaflow-ai/cmux/issues/8960
+        if hookEventName == "PostToolUse",
+           toolName == "TaskCreate" || toolName == "TaskUpdate",
+           let postToolUseResponseInput {
+            eventDict["tool_response"] = postToolUseResponseInput
+        }
         if let context = feedContextForEvent(
             source: source,
             hookEventName: hookEventName,

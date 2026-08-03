@@ -1,7 +1,16 @@
 import Foundation
-#if canImport(CryptoKit)
-import CryptoKit
-#endif
+
+/// Whether `toolName` is one of the agent task tools folded into a workstream
+/// checklist rather than reported as anonymous tool telemetry.
+///
+/// - Parameter toolName: The agent's tool name from the hook payload.
+/// - Returns: `true` for `TodoWrite`, `TaskCreate`, and `TaskUpdate`.
+public func isWorkstreamTaskTool(_ toolName: String) -> Bool {
+    switch toolName {
+    case "TodoWrite", "TaskCreate", "TaskUpdate": return true
+    default: return false
+    }
+}
 
 /// Accumulates one workstream's task list from the agent's task-tool calls.
 ///
@@ -13,192 +22,214 @@ import CryptoKit
 /// the list has to be carried across events rather than parsed from one
 /// payload. See https://github.com/manaflow-ai/cmux/issues/8960.
 ///
-/// `TaskCreate` runs *before* the tool executes, so the payload has no task
-/// id yet. Claude numbers tasks sequentially from `"1"` per session, so a
-/// created task takes the next id above every id seen so far; a later
-/// `TaskUpdate` names its `taskId` explicitly and lines up with it.
-public struct WorkstreamTaskToolTodos: Sendable {
-    /// Tool names this accumulator understands. Anything else is left to the
-    /// generic tool-use telemetry path.
-    public static func handles(toolName: String) -> Bool {
-        switch toolName {
-        case "TodoWrite", "TaskCreate", "TaskUpdate": return true
-        default: return false
-        }
-    }
+/// `TaskCreate` is observed at `PreToolUse`, before Claude has assigned the
+/// task an id, so the row is created under a provisional local id. The
+/// matching `PostToolUse` carries the tool result, whose `task.id` is
+/// authoritative; ``adoptTaskId(fromToolResponse:)`` promotes the provisional
+/// row to it. Ids are never guessed from call order, so a create that fails or
+/// a session whose counter already ran ahead cannot desynchronize the list.
+struct WorkstreamTaskToolTodos: Sendable {
+    /// Upper bound on retained tasks, matching the workspace checklist cap so
+    /// a long-lived session cannot grow this without bound. Oldest rows are
+    /// evicted first.
+    static let maxRetainedTodos = 50
 
     private var todos: [WorkstreamTaskTodo] = []
-    private var nextSyntheticId = 1
+    private var provisionalCounter = 0
+    /// Every id this workstream has ever owned, including deleted rows, so the
+    /// checklist sync can retire exactly its own stale rows and leave rows
+    /// owned by other workstreams alone.
+    private(set) var ownedIds: Set<String> = []
 
-    /// Applies one task-tool call.
-    ///
-    /// - Returns: The full accumulated list, or `nil` when the payload
-    ///   carried nothing usable (so the caller can fall back to plain
-    ///   tool-use telemetry rather than publishing an empty checklist).
-    mutating func apply(toolName: String, toolInputJSON: String?) -> [WorkstreamTaskTodo]? {
-        let input = Self.object(from: toolInputJSON)
+    /// Ids of rows still awaiting their authoritative id from a tool result,
+    /// oldest first.
+    private var provisionalIds: [String] = []
+
+    /// Applies one task-tool call observed at `PreToolUse`.
+    mutating func apply(toolName: String, toolInputJSON: String?) -> WorkstreamTaskToolOutcome {
+        let input = jsonObject(from: toolInputJSON)
         switch toolName {
         case "TodoWrite":
-            let parsed = Self.parseTodoWriteList(toolInputJSON)
-            guard !parsed.isEmpty else { return nil }
+            let parsed = parseWorkstreamTodoWriteList(toolInputJSON)
+            guard !parsed.isEmpty else { return .ignored }
             todos = parsed
-            for todo in parsed { reserve(id: todo.id) }
-            return todos
+            provisionalIds.removeAll()
+            for todo in parsed { ownedIds.insert(todo.id) }
+            trimToCap()
+            return .list(todos)
         case "TaskCreate":
-            guard let input, let content = Self.content(in: input) else { return nil }
-            let id = Self.taskId(in: input) ?? mintId()
-            reserve(id: id)
-            let state = Self.state(in: input) ?? .pending
-            if let index = todos.firstIndex(where: { $0.id == id }) {
-                todos[index] = WorkstreamTaskTodo(id: id, content: content, state: state)
-            } else {
-                todos.append(WorkstreamTaskTodo(id: id, content: content, state: state))
-            }
-            return todos
+            guard let input, let content = taskContent(in: input) else { return .ignored }
+            let id = taskId(in: input) ?? mintProvisionalId()
+            ownedIds.insert(id)
+            let state = taskState(in: input) ?? .pending
+            upsert(WorkstreamTaskTodo(id: id, content: content, state: state))
+            trimToCap()
+            return .list(todos)
         case "TaskUpdate":
-            guard let input, let id = Self.taskId(in: input) else { return nil }
-            reserve(id: id)
-            let rawStatus = Self.rawStatus(in: input)
-            if rawStatus == "deleted" || rawStatus == "removed" {
+            guard let input, let id = taskId(in: input) else { return .ignored }
+            let raw = taskRawStatus(in: input)
+            if raw == "deleted" || raw == "removed" {
+                guard todos.contains(where: { $0.id == id }) else { return .ignored }
                 todos.removeAll { $0.id == id }
-                // An empty list is a real state here (the agent dropped its
-                // last task), but publishing it would blank a checklist that
-                // still has user items in it, so report nothing to apply.
-                return todos.isEmpty ? nil : todos
+                provisionalIds.removeAll { $0 == id }
+                // Deleting the last task is a valid empty transition, not a
+                // parse failure: the caller retires this workstream's rows.
+                return .list(todos)
             }
+            ownedIds.insert(id)
             guard let index = todos.firstIndex(where: { $0.id == id }) else {
-                // Update for a task we never saw created (resumed session,
-                // hook installed mid-run). Only adoptable when the payload
-                // also carries text to show.
-                guard let content = Self.content(in: input) else { return nil }
-                todos.append(WorkstreamTaskTodo(
+                // Update for a task we never saw created (resumed session, or
+                // hooks installed mid-run). Only adoptable with text to show.
+                guard let content = taskContent(in: input) else { return .ignored }
+                upsert(WorkstreamTaskTodo(
                     id: id,
                     content: content,
-                    state: Self.state(in: input) ?? .pending
+                    state: taskState(in: input) ?? .pending
                 ))
-                return todos
+                trimToCap()
+                return .list(todos)
             }
             todos[index] = WorkstreamTaskTodo(
                 id: id,
-                content: Self.content(in: input) ?? todos[index].content,
-                state: Self.state(in: input) ?? todos[index].state
+                content: taskContent(in: input) ?? todos[index].content,
+                state: taskState(in: input) ?? todos[index].state
             )
-            return todos
+            return .list(todos)
         default:
-            return nil
+            return .ignored
         }
     }
 
-    private mutating func mintId() -> String {
-        let id = String(nextSyntheticId)
-        nextSyntheticId += 1
+    /// Promotes the oldest provisional row to the authoritative id Claude
+    /// returned in a `TaskCreate` tool result.
+    ///
+    /// - Parameter json: The raw `tool_response` payload, whose recognized
+    ///   shape is `{"task":{"id":"1","subject":"…"}}`.
+    /// - Returns: The reconciled list, or `.ignored` when the response carried
+    ///   no id or there was no row awaiting one.
+    mutating func adoptTaskId(fromToolResponse json: String?) -> WorkstreamTaskToolOutcome {
+        guard let root = jsonObject(from: json) else { return .ignored }
+        let task = (root["task"] as? [String: Any]) ?? root
+        guard let authoritative = taskId(in: task) else { return .ignored }
+
+        if let index = todos.firstIndex(where: { $0.id == authoritative }) {
+            // Already reconciled (duplicate delivery). Refresh text if given.
+            if let content = taskContent(in: task) {
+                todos[index] = WorkstreamTaskTodo(
+                    id: authoritative,
+                    content: content,
+                    state: todos[index].state
+                )
+            }
+            ownedIds.insert(authoritative)
+            return .list(todos)
+        }
+
+        let subject = taskContent(in: task)
+        let provisional = provisionalIds.first { candidate in
+            guard let subject else { return true }
+            return todos.first { $0.id == candidate }?.content == subject
+        } ?? provisionalIds.first
+        guard let provisional,
+              let index = todos.firstIndex(where: { $0.id == provisional })
+        else { return .ignored }
+
+        todos[index] = WorkstreamTaskTodo(
+            id: authoritative,
+            content: subject ?? todos[index].content,
+            state: todos[index].state
+        )
+        provisionalIds.removeAll { $0 == provisional }
+        ownedIds.remove(provisional)
+        ownedIds.insert(authoritative)
+        return .list(todos)
+    }
+
+    private mutating func upsert(_ todo: WorkstreamTaskTodo) {
+        if let index = todos.firstIndex(where: { $0.id == todo.id }) {
+            todos[index] = todo
+        } else {
+            todos.append(todo)
+        }
+    }
+
+    private mutating func mintProvisionalId() -> String {
+        provisionalCounter += 1
+        // Namespaced so it can never collide with an authoritative Claude id
+        // (which is a bare decimal counter).
+        let id = "cmux-pending-\(provisionalCounter)"
+        provisionalIds.append(id)
         return id
     }
 
-    /// Keeps the synthetic counter above every id the agent has named, so a
-    /// create following an explicitly-numbered task cannot collide with it.
-    private mutating func reserve(id: String) {
-        guard let numeric = Int(id), numeric >= nextSyntheticId else { return }
-        nextSyntheticId = numeric + 1
-    }
-
-    // MARK: - Payload parsing
-
-    private static func object(from json: String?) -> [String: Any]? {
-        guard let json, let data = json.data(using: .utf8) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }
-
-    private static func taskId(in dict: [String: Any]) -> String? {
-        for key in ["taskId", "task_id", "id"] {
-            if let value = dict[key] as? String, !value.isEmpty { return value }
-            if let value = dict[key] as? Int { return String(value) }
+    private mutating func trimToCap() {
+        guard todos.count > Self.maxRetainedTodos else { return }
+        let dropped = todos.prefix(todos.count - Self.maxRetainedTodos)
+        for todo in dropped {
+            ownedIds.remove(todo.id)
+            provisionalIds.removeAll { $0 == todo.id }
         }
-        return nil
-    }
-
-    private static func content(in dict: [String: Any]) -> String? {
-        for key in ["subject", "content", "title", "text", "description"] {
-            if let value = dict[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
-            }
-        }
-        return nil
-    }
-
-    private static func rawStatus(in dict: [String: Any]) -> String? {
-        (dict["status"] as? String) ?? (dict["state"] as? String)
-    }
-
-    private static func state(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
-        guard let raw = rawStatus(in: dict) else { return nil }
-        return parseState(raw)
-    }
-
-    static func parseState(_ raw: String) -> WorkstreamTaskTodo.State {
-        switch raw {
-        case "completed", "done": return .completed
-        case "inProgress", "in_progress", "active": return .inProgress
-        default: return .pending
-        }
-    }
-
-    /// Parses the whole-list `TodoWrite` shape (`{"todos":[…]}` or a bare
-    /// array).
-    static func parseTodoWriteList(_ json: String?) -> [WorkstreamTaskTodo] {
-        guard let json, let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        else { return [] }
-        let raw: [Any]
-        if let dict = root as? [String: Any] {
-            raw = dict["todos"] as? [Any] ?? []
-        } else {
-            raw = root as? [Any] ?? []
-        }
-        return raw.enumerated().compactMap { idx, element in
-            guard let dict = element as? [String: Any],
-                  let content = content(in: dict) else { return nil }
-            return WorkstreamTaskTodo(
-                id: taskId(in: dict) ?? "todo\(idx)",
-                content: content,
-                state: state(in: dict) ?? .pending
-            )
-        }
+        todos.removeFirst(todos.count - Self.maxRetainedTodos)
     }
 }
 
-extension WorkstreamTaskTodo {
-    /// A stable checklist identity for this todo inside `workstreamId`.
-    ///
-    /// Agent task ids are per-session counters (`"1"`, `"2"`, …) while the
-    /// workspace checklist is keyed by `UUID`, so the pair is hashed into a
-    /// deterministic UUID. Deriving it (instead of keeping a side table)
-    /// means the same task keeps its checklist row across app restarts and
-    /// across every entrypoint that syncs the list.
-    public func stableChecklistItemId(workstreamId: String) -> UUID {
-        Self.derivedUUID(from: "cmux.workstream.todo\u{0}\(workstreamId)\u{0}\(id)")
-    }
+// MARK: - Payload parsing
 
-    static func derivedUUID(from seed: String) -> UUID {
-        let data = Data(seed.utf8)
-        var bytes: [UInt8]
-        #if canImport(CryptoKit)
-        bytes = Array(SHA256.hash(data: data).prefix(16))
-        #else
-        bytes = Array(repeating: 0, count: 16)
-        for (index, byte) in data.enumerated() {
-            bytes[index % 16] = bytes[index % 16] &+ byte &+ UInt8(truncatingIfNeeded: index)
+private func jsonObject(from json: String?) -> [String: Any]? {
+    guard let json, let data = json.data(using: .utf8) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+}
+
+private func taskId(in dict: [String: Any]) -> String? {
+    for key in ["taskId", "task_id", "id"] {
+        if let value = dict[key] as? String, !value.isEmpty { return value }
+        if let value = dict[key] as? Int { return String(value) }
+    }
+    return nil
+}
+
+private func taskContent(in dict: [String: Any]) -> String? {
+    for key in ["subject", "content", "title", "text", "description"] {
+        if let value = dict[key] as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
         }
-        #endif
-        // RFC 4122 version 4 / variant bits so the value is a well-formed UUID.
-        bytes[6] = (bytes[6] & 0x0F) | 0x40
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15]
-        ))
+    }
+    return nil
+}
+
+private func taskRawStatus(in dict: [String: Any]) -> String? {
+    (dict["status"] as? String) ?? (dict["state"] as? String)
+}
+
+private func taskState(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
+    guard let raw = taskRawStatus(in: dict) else { return nil }
+    switch raw {
+    case "completed", "done": return .completed
+    case "inProgress", "in_progress", "active": return .inProgress
+    case "pending", "todo", "open": return .pending
+    default: return .pending
+    }
+}
+
+/// Parses the whole-list `TodoWrite` shape (`{"todos":[…]}` or a bare array).
+func parseWorkstreamTodoWriteList(_ json: String?) -> [WorkstreamTaskTodo] {
+    guard let json, let data = json.data(using: .utf8),
+          let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    else { return [] }
+    let raw: [Any]
+    if let dict = root as? [String: Any] {
+        raw = dict["todos"] as? [Any] ?? []
+    } else {
+        raw = root as? [Any] ?? []
+    }
+    return raw.enumerated().compactMap { idx, element in
+        guard let dict = element as? [String: Any],
+              let content = taskContent(in: dict) else { return nil }
+        return WorkstreamTaskTodo(
+            id: taskId(in: dict) ?? "todo\(idx)",
+            content: content,
+            state: taskState(in: dict) ?? .pending
+        )
     }
 }
