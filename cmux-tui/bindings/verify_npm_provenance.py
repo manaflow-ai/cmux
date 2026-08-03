@@ -20,6 +20,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from sri import SRIError, strongest_sri_entries
+
 
 REGISTRY = "https://registry.npmjs.org"
 PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
@@ -149,13 +151,27 @@ def _validate_metadata(
     dist = release.get("dist")
     integrity = dist.get("integrity") if isinstance(dist, dict) else None
     attestations = dist.get("attestations") if isinstance(dist, dict) else None
-    if not isinstance(integrity, str) or not integrity.startswith("sha512-"):
+    if not isinstance(integrity, str):
+        raise ProvenanceError("npm bootstrap integrity metadata is malformed")
+    try:
+        algorithm, sha512_entries = strongest_sri_entries(integrity)
+    except SRIError as error:
+        raise ProvenanceError(
+            "npm bootstrap integrity metadata is malformed"
+        ) from error
+    if algorithm != "sha512":
         raise ProvenanceError("npm bootstrap integrity metadata is malformed")
     if artifact is not None:
         if not artifact.is_file():
             raise ProvenanceError("the expected npm bootstrap artifact does not exist")
-        if integrity != _integrity(artifact):
+        selected_integrity = _integrity(artifact)
+        if selected_integrity not in sha512_entries:
             raise ProvenanceError("npm bootstrap bytes do not match the tested artifact")
+    else:
+        if len(sha512_entries) != 1:
+            raise ProvenanceError("npm bootstrap integrity metadata is not unique")
+        selected_integrity = next(iter(sha512_entries))
+        _sha512_hex(selected_integrity)
     expected_attestation_url = (
         f"{REGISTRY}/-/npm/v1/attestations/{package}@{version}"
     )
@@ -168,7 +184,7 @@ def _validate_metadata(
         PREDICATE_TYPE
     ):
         raise ProvenanceError("npm bootstrap provenance predicate is missing")
-    return integrity, expected_attestation_url
+    return selected_integrity, expected_attestation_url
 
 
 def _sha512_hex(integrity: str) -> str:

@@ -22,6 +22,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from crates_io_client import API_INTERVAL_SECONDS, CratesIoClient, CratesIoRequestError
+from sri import SRIError, strongest_sri_entries
 
 MATCH = "match"
 MISSING = "missing"
@@ -53,11 +54,6 @@ CRATES_BOOTSTRAP_VERSION = "0.0.0-bootstrap.0"
 PUBLISH_POLL_SECONDS = 0.25
 PUBLISH_STOP_SECONDS = 5
 PUBLISH_TIMEOUT_EXIT = 124
-SRI_ALGORITHM_STRENGTH = {
-    "sha256": 1,
-    "sha384": 2,
-    "sha512": 3,
-}
 
 
 class RegistryError(RuntimeError):
@@ -99,26 +95,6 @@ def _integrity(path: Path, algorithm: str) -> str:
             digest.update(chunk)
     encoded = base64.b64encode(digest.digest()).decode("ascii")
     return f"{algorithm}-{encoded}"
-
-
-def _strongest_sri_entries(integrity: str) -> tuple[str, set[str]]:
-    entries_by_algorithm: dict[str, set[str]] = {}
-    entries = integrity.split()
-    if not entries:
-        raise RegistryError("npm returned empty integrity metadata")
-    for entry in entries:
-        algorithm, separator, encoded = entry.partition("-")
-        if not separator or not algorithm or not encoded:
-            raise RegistryError("npm returned malformed integrity metadata")
-        if algorithm in SRI_ALGORITHM_STRENGTH:
-            entries_by_algorithm.setdefault(algorithm, set()).add(entry)
-    if not entries_by_algorithm:
-        raise RegistryError("npm returned no supported integrity algorithm")
-    strongest = max(
-        entries_by_algorithm,
-        key=SRI_ALGORITHM_STRENGTH.__getitem__,
-    )
-    return strongest, entries_by_algorithm[strongest]
 
 
 def _stable_version(value: str) -> Optional[tuple[int, int, int]]:
@@ -456,7 +432,10 @@ def _npm_status(package: str, version: str, artifact: Path) -> str:
         raise RegistryError(f"npm metadata has no dist object for {package}@{version}")
     integrity = dist.get("integrity")
     if isinstance(integrity, str) and "-" in integrity:
-        algorithm, remote_entries = _strongest_sri_entries(integrity)
+        try:
+            algorithm, remote_entries = strongest_sri_entries(integrity)
+        except SRIError as error:
+            raise RegistryError(f"npm returned {error}") from error
         local = _integrity(artifact, algorithm)
         if local not in remote_entries:
             raise ArtifactMismatch(

@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,8 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "verify_npm_provenance.py"
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("verify_npm_provenance", SCRIPT)
 assert SPEC is not None
 assert SPEC.loader is not None
@@ -232,10 +235,9 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
 
     def test_accepts_matching_sha512_in_multi_entry_sri(self) -> None:
         metadata = self.metadata()
-        metadata["versions"][self.version]["dist"]["integrity"] = " ".join((
-            "sha256-ignored",
-            self.integrity(),
-        ))
+        metadata["versions"][self.version]["dist"]["integrity"] = (
+            f"sha256-ignored {self.integrity()}"
+        )
         completed = (
             subprocess.CompletedProcess([], 0, stdout="", stderr=""),
             subprocess.CompletedProcess(
