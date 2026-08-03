@@ -121,6 +121,12 @@ final class SidebarLazyLayoutScaleTests {
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
+        let featureFlags = CmuxFeatureFlags(
+            defaults: defaults,
+            telemetryEnabled: false,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        featureFlags.setOverride(false, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -167,6 +173,7 @@ final class SidebarLazyLayoutScaleTests {
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             fileExplorerState: fileExplorerState,
+            featureFlags: featureFlags,
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
