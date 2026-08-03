@@ -8,7 +8,7 @@
 "error.invitation" = "登録用招待を貼り付けてください。";
 "error.client.closed" = "ターミナルクライアントは閉じられています。";
 "error.input.rejected" = "ターミナル入力をキューに追加できませんでした。再接続して、もう一度お試しください。";
-"error.resize.rejected" = "ターミナルのサイズ変更をキューに追加できなかったため、再試行します。";
+"error.resize.rejected" = "ターミナルのサイズ変更は保留中です。ウインドウのサイズを変えるか、再接続して再試行してください。";
 "diagnostics.title" = "診断";
 "diagnostics.disconnected" = "未接続";
 "diagnostics.copy" = "診断をコピー";

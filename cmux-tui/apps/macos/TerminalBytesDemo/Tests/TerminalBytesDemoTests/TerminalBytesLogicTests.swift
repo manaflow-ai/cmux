@@ -298,6 +298,9 @@ struct TerminalBytesLogicTests {
 
         model.resize(to: TerminalGeometry(cols: 120, rows: 40))
         #expect(await waitUntil { attempts.value > 0 })
+        for _ in 0..<100 {
+            model.resize(to: TerminalGeometry(cols: 120, rows: 40))
+        }
         try await Task.sleep(for: .milliseconds(25))
         #expect(attempts.value == 1)
         model.shutdown()

@@ -196,12 +196,29 @@ struct TerminalView: NSViewRepresentable {
         let selection = terminal.selectedRanges
         let visible = scroll.documentVisibleRect
         let followedBottom = visible.maxY >= terminal.bounds.maxY - 24
-        terminal.string = text
-        terminal.textColor = .white
-        terminal.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        if let edit = terminalTextEdit(from: terminal.string, to: text),
+            let storage = terminal.textStorage
+        {
+            storage.beginEditing()
+            storage.replaceCharacters(in: edit.range, with: edit.replacement)
+            let replacementRange = NSRange(
+                location: edit.range.location,
+                length: edit.replacement.utf16.count
+            )
+            if replacementRange.length > 0 {
+                storage.addAttributes(
+                    [
+                        .foregroundColor: NSColor.white,
+                        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                    ],
+                    range: replacementRange
+                )
+            }
+            storage.endEditing()
+        }
         terminal.selectedRanges = terminalSelections(
             preserving: selection,
-            utf16Length: terminal.string.utf16.count
+            utf16Length: text.utf16.count
         )
         if followedBottom {
             terminal.scrollToEndOfDocument(nil)
@@ -209,6 +226,43 @@ struct TerminalView: NSViewRepresentable {
             terminal.scroll(visible.origin)
         }
     }
+}
+
+struct TerminalTextEdit: Equatable {
+    let range: NSRange
+    let replacement: String
+}
+
+func terminalTextEdit(from current: String, to next: String) -> TerminalTextEdit? {
+    guard current != next else { return nil }
+    let currentScalars = current.unicodeScalars
+    let nextScalars = next.unicodeScalars
+    var currentStart = currentScalars.startIndex
+    var nextStart = nextScalars.startIndex
+    while currentStart != currentScalars.endIndex,
+        nextStart != nextScalars.endIndex,
+        currentScalars[currentStart] == nextScalars[nextStart]
+    {
+        currentScalars.formIndex(after: &currentStart)
+        nextScalars.formIndex(after: &nextStart)
+    }
+
+    var currentEnd = currentScalars.endIndex
+    var nextEnd = nextScalars.endIndex
+    while currentEnd != currentStart, nextEnd != nextStart {
+        let priorCurrent = currentScalars.index(before: currentEnd)
+        let priorNext = nextScalars.index(before: nextEnd)
+        guard currentScalars[priorCurrent] == nextScalars[priorNext] else { break }
+        currentEnd = priorCurrent
+        nextEnd = priorNext
+    }
+
+    let location = currentStart.utf16Offset(in: current)
+    let end = currentEnd.utf16Offset(in: current)
+    return TerminalTextEdit(
+        range: NSRange(location: location, length: end - location),
+        replacement: String(next[nextStart..<nextEnd])
+    )
 }
 
 func terminalSelections(preserving selections: [NSValue], utf16Length: Int) -> [NSValue] {

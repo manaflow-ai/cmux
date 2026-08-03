@@ -394,6 +394,9 @@ final class TerminalModel {
     @ObservationIgnored private var client: TerminalClientHandle?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeRetryAttempt = 0
+    @ObservationIgnored private var resizeRetryExhausted = false
     @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAttemptAutoConnect = false
@@ -443,6 +446,7 @@ final class TerminalModel {
                 }
                 isConnected = true
                 geometryDelivery.resetConnection()
+                resetResizeRetry()
                 sendPendingGeometry()
                 beginUpdates(from: client, operation: operation)
             }
@@ -502,6 +506,7 @@ final class TerminalModel {
             self.client = client
             isConnected = true
             geometryDelivery.resetConnection()
+            resetResizeRetry()
             sendPendingGeometry()
             beginUpdates(from: client, operation: operation)
         }
@@ -513,6 +518,7 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resetResizeRetry()
         isConnected = false
         diagnostics = ""
         geometryDelivery.resetConnection()
@@ -538,6 +544,7 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resetResizeRetry()
         isConnected = false
         isConnecting = false
         let ownedClient = client
@@ -568,19 +575,25 @@ final class TerminalModel {
     }
 
     func resize(to geometry: TerminalGeometry) {
+        let changed = geometryDelivery.pending(isConnected: true) != geometry
         geometryDelivery.update(geometry)
+        if changed {
+            resetResizeRetry()
+        }
         sendPendingGeometry()
     }
 
     private func sendPendingGeometry() {
         guard resizeTask == nil,
+            resizeRetryTask == nil,
+            !resizeRetryExhausted,
             let client,
             let geometry = geometryDelivery.pending(isConnected: isConnected)
         else { return }
         let operation = connectionOperation
         let failure = L10n.text(
             "error.resize.rejected",
-            "The terminal resize was not queued and will be retried."
+            "Terminal resize is pending. Resize the window or reconnect to retry."
         )
         resizeTask = Task {
             let accepted = await client.resize(to: geometry)
@@ -590,27 +603,79 @@ final class TerminalModel {
             }
             geometryDelivery.complete(geometry, accepted: accepted)
             resizeTask = nil
+            if accepted {
+                resizeRetryAttempt = 0
+                if errorMessage == failure {
+                    errorMessage = ""
+                }
+                sendPendingGeometry()
+                return
+            }
+            if geometryDelivery.pending(isConnected: isConnected) != geometry {
+                resizeRetryAttempt = 0
+                sendPendingGeometry()
+                return
+            }
             if !accepted {
                 errorMessage = failure
-            } else if errorMessage == failure {
-                errorMessage = ""
             }
+            scheduleResizeRetry(operation: operation)
+        }
+    }
+
+    private func scheduleResizeRetry(operation: UInt64) {
+        let delays: [Duration] = [.milliseconds(50), .milliseconds(100), .milliseconds(200)]
+        guard resizeRetryTask == nil else { return }
+        guard resizeRetryAttempt < delays.count else {
+            resizeRetryExhausted = true
+            return
+        }
+        let delay = delays[resizeRetryAttempt]
+        resizeRetryAttempt += 1
+        resizeRetryTask = Task {
+            do {
+                try await ContinuousClock().sleep(for: delay)
+            } catch {
+                return
+            }
+            guard operation == connectionOperation, isConnected, !isShuttingDown else {
+                resizeRetryTask = nil
+                return
+            }
+            resizeRetryTask = nil
             sendPendingGeometry()
         }
+    }
+
+    private func resetResizeRetry() {
+        resizeRetryTask?.cancel()
+        resizeRetryTask = nil
+        resizeRetryAttempt = 0
+        resizeRetryExhausted = false
     }
 
     private func beginUpdates(from client: TerminalClientHandle, operation: UInt64) {
         updateTask?.cancel()
         updateTask = Task { [weak self] in
             let updates = await client.updates()
+            let clock = ContinuousClock()
+            var nextRender = clock.now
             for await _ in updates.stream {
                 guard !Task.isCancelled else { break }
+                if clock.now < nextRender {
+                    do {
+                        try await clock.sleep(until: nextRender, tolerance: .milliseconds(2))
+                    } catch {
+                        break
+                    }
+                }
                 guard let snapshot = await client.snapshot() else { continue }
                 guard let self,
                     operation == self.connectionOperation,
                     !self.isShuttingDown
                 else { break }
                 self.apply(snapshot, from: client)
+                nextRender = clock.now.advanced(by: .milliseconds(33))
             }
             await client.stopUpdates(generation: updates.generation)
         }
@@ -634,6 +699,7 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resetResizeRetry()
         isConnected = false
         geometryDelivery.resetConnection()
         errorMessage = ""
