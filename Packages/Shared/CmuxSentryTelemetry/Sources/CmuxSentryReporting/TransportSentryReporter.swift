@@ -157,14 +157,14 @@ public final class TransportSentryReporter: Sendable {
         let crumb = Breadcrumb(level: isFailure ? .warning : .info, category: "transport")
         crumb.type = isFailure ? "error" : "default"
         crumb.message = DiagnosticEventPresentation.summary(described)
-        crumb.setData(
-            value: DiagnosticEventPresentation.name(event.code),
-            key: "event_code"
-        )
-        crumb.setData(value: roleDisplayName, key: "role")
+        var data: [String: Any] = [
+            "event_code": DiagnosticEventPresentation.name(event.code),
+            "role": roleDisplayName,
+        ]
         for field in described.fields {
-            crumb.setData(value: field.value, key: field.key)
+            data[field.key] = field.value
         }
+        crumb.data = data
         delivery.addBreadcrumb(crumb)
     }
 
