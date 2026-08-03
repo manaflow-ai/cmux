@@ -1308,7 +1308,12 @@ class GhosttyApp {
         #else
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
-        loadCJKFontFallbackIfNeeded(config)
+        // Both fallback loaders scan the same config files (including
+        // recursive `config-file` includes); resolve the scan paths once so
+        // that work isn't repeated for each loader.
+        let fontFallbackConfigPaths = Self.configDiscovery.loadedCJKScanPaths()
+        loadCJKFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
+        loadSymbolFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
@@ -1435,8 +1440,8 @@ class GhosttyApp {
     /// the affected CJK ranges.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
-    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
+    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedCJKFontMappings(configPaths: configPaths) else { return }
 
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
@@ -1452,6 +1457,62 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-cjk-font-fallback",
             logLabel: "CJK font fallback"
+        )
+    }
+
+    /// When the user has not configured `font-codepoint-map` for pictographic
+    /// symbol ranges and has not already provided an explicit multi-entry
+    /// `font-family` fallback chain, Ghostty's `CTFontCollection` scoring may
+    /// pick an unpredictable "monospace" fallback font for glyphs like the
+    /// hexagon ⬡ (U+2B21) or the ▰/▱ gauge characters used by status-line
+    /// tools such as coralline, rather than the narrower substitute
+    /// CoreText's own cascade would choose. This injects Apple Symbols
+    /// (macOS's own symbol font) as a stable default, without overriding
+    /// user-managed fallback chains or configured fonts that already cover
+    /// the affected ranges.
+    ///
+    /// See: https://github.com/Nanako0129/coralline/issues/47
+    private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedSymbolFontMappings(configPaths: configPaths) else { return }
+
+        var resolvedFonts: [String: String] = [:]
+        let lines = mappings.map { range, font in
+            let resolvedFont = resolvedFonts[font] ?? {
+                let resolved = Self.resolvedInjectedCJKFontName(named: font)
+                resolvedFonts[font] = resolved
+                return resolved
+            }()
+            return "font-codepoint-map = \(range)=\(resolvedFont)"
+        }.joined(separator: "\n")
+        loadInlineGhosttyConfig(
+            lines,
+            into: config,
+            prefix: "cmux-symbol-font-fallback",
+            logLabel: "symbol font fallback"
+        )
+    }
+
+    /// Returns only the symbol mappings cmux should auto-inject. Forwards to
+    /// ``GhosttyConfigDiscovery``.
+    static func autoInjectedSymbolFontMappings(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        configDiscovery.autoInjectedSymbolFontMappings(
+            configPaths: configPaths,
+            codepointCoverageProbe: codepointCoverageProbe
+        )
+    }
+
+    /// Whether cmux should inject its managed symbol-glyph fallback.
+    /// Forwards to ``GhosttyConfigDiscovery``.
+    static func shouldInjectSymbolFontFallback(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> Bool {
+        configDiscovery.shouldInjectSymbolFontFallback(
+            configPaths: configPaths,
+            codepointCoverageProbe: codepointCoverageProbe
         )
     }
 

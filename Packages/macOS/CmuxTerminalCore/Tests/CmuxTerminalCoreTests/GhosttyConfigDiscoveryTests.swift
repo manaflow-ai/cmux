@@ -54,6 +54,128 @@ private struct NoFontProbe: GhosttyFontProbing {
         let sharedForJa = mappings.filter { GhosttyConfigDiscovery.sharedCJKRanges.contains($0.0) }
         #expect(sharedForJa.allSatisfy { $0.1 == "Hiragino Sans" })
     }
+
+    @Test func autoInjectedCJKFontMappingsFailsClosedWhenFontCannotBeProbed() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = Some Unresolvable Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedCJKFontMappings(
+            preferredLanguages: ["ja-JP"],
+            configPaths: [path]
+        ) == nil)
+    }
+}
+
+@Suite struct GhosttyConfigDiscoverySymbolTests {
+    private let discovery = GhosttyConfigDiscovery(fileReader: FakeFileReader(), fontProbe: NoFontProbe())
+
+    @Test func symbolFontMappingsCoverAllSymbolCodepoints() {
+        let mappings = discovery.symbolFontMappings()
+        // A literal expected set (rather than one derived from
+        // GhosttyConfigDiscovery.symbolCodepoints) so this test still catches
+        // the production list being wrong or incomplete.
+        let expected: Set<String> = ["U+25A0", "U+25B0", "U+25B1", "U+25CB", "U+25CF", "U+2B21", "U+2B22"]
+        #expect(mappings.count == expected.count)
+        #expect(Set(mappings.map(\.0)) == expected)
+        #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
+    }
+
+    @Test func autoInjectedSymbolFontMappingsSkipsWhenCodepointMapPresent() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-codepoint-map = U+4E00-U+9FFF=Foo",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
+    }
+
+    @Test func autoInjectedSymbolFontMappingsSkipsWhenExplicitFallbackChainPresent() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrains Mono\nfont-family = Menlo",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
+    }
+
+    @Test func autoInjectedSymbolFontMappingsFiltersCodepointsCoveredByConfiguredFont() throws {
+        // Regression test: JetBrainsMono Nerd Font has U+25A0/U+25CB/U+25CF in
+        // its own cmap but is missing U+25B0/U+25B1 (verified via CoreText on
+        // a real install). Only the missing codepoints should be injected —
+        // a whole-block override would clobber glyphs the font already has.
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        let covered: Set<UInt32> = [0x25A0, 0x25CB, 0x25CF]
+        let mappings = try #require(discovery.autoInjectedSymbolFontMappings(
+            configPaths: [path],
+            codepointCoverageProbe: { fontFamily, codepoint in
+                #expect(fontFamily == "JetBrainsMono Nerd Font")
+                return covered.contains(codepoint)
+            }
+        ))
+        #expect(Set(mappings.map(\.0)) == ["U+25B0", "U+25B1", "U+2B21", "U+2B22"])
+    }
+
+    @Test func autoInjectedSymbolFontMappingsNilWhenAllCodepointsCovered() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(
+            configPaths: [path],
+            codepointCoverageProbe: { _, _ in true }
+        ) == nil)
+    }
+
+    @Test func fontContainsGlyphHandlesSupplementaryPlaneCodepoints() throws {
+        // U+1F600 GRINNING FACE requires a UTF-16 surrogate pair; this is a
+        // regression test for fontContainsGlyph incorrectly reporting "not
+        // covered" for any codepoint above U+FFFF (which would make
+        // autoInjectedSymbolFontMappings force an override even when the
+        // font already has the glyph, for any future non-BMP addition to
+        // symbolCodepoints).
+        //
+        // "Apple Color Emoji" is a system font rather than a repo-controlled
+        // fixture, so guard that it actually resolved (rather than silently
+        // falling back to a substitute) before asserting on its coverage.
+        let font = CTFontCreateWithName("Apple Color Emoji" as CFString, 12, nil)
+        guard CTFontCopyFamilyName(font) as String == "Apple Color Emoji" else {
+            return
+        }
+        #expect(GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x1F600))
+        #expect(!GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x10FFFE))
+    }
+
+    @Test func autoInjectedSymbolFontMappingsFailsClosedWhenFontCannotBeProbed() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = Some Unresolvable Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
+    }
+
+    @Test func shouldInjectSymbolFontFallbackMatchesMappingPresence() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.shouldInjectSymbolFontFallback(
+            configPaths: [path],
+            codepointCoverageProbe: { _, _ in false }
+        ))
+        #expect(!discovery.shouldInjectSymbolFontFallback(
+            configPaths: [path],
+            codepointCoverageProbe: { _, _ in true }
+        ))
+    }
 }
 
 @Suite struct GhosttyConfigDiscoveryFontSummaryTests {
