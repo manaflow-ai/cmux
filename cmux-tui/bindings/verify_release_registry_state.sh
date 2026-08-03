@@ -40,9 +40,9 @@ trap 'rm -f "$registry_state"' EXIT
 
 python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
   --registry crates \
-  --package cmux-client \
+  --package cmux-sdk \
   --version "$version" \
-  --artifact "validated-client/cmux-client-$version.crate"
+  --artifact "validated-rust-sdk/cmux-sdk-$version.crate"
 sleep 1
 python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
   --registry crates \
@@ -97,7 +97,7 @@ python_sdist_status="$(read_registry_state python_sdist)"
 
 sleep 1
 python3 cmux-tui/bindings/verify_crates_ownership.py \
-  --package cmux-client \
+  --package cmux-sdk \
   --package cmux-sidebar \
   --repository https://github.com/manaflow-ai/cmux \
   --owner-id 431397 \

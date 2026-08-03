@@ -12,7 +12,7 @@ from urllib.request import urlopen
 
 from crates_io_client import API_INTERVAL_SECONDS, CratesIoClient, CratesIoRequestError
 
-BOOTSTRAP_PACKAGE = "cmux-sidebar"
+BOOTSTRAP_PACKAGES = frozenset(("cmux-sdk", "cmux-sidebar"))
 BOOTSTRAP_REPOSITORY = "https://github.com/manaflow-ai/cmux"
 BOOTSTRAP_OWNER_ID = 431397
 BOOTSTRAP_OWNER_LOGIN = "lawrencecchen"
@@ -115,7 +115,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bootstrap-ownership-only",
         action="store_true",
-        help="verify the fixed cmux-sidebar reservation before trusted publishing is enabled",
+        help=(
+            "verify one allowlisted cmux SDK reservation before trusted "
+            "publishing is enabled"
+        ),
     )
     return parser
 
@@ -124,13 +127,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.bootstrap_ownership_only and (
-            args.package != [BOOTSTRAP_PACKAGE]
+            len(args.package) != 1
+            or args.package[0] not in BOOTSTRAP_PACKAGES
             or args.repository != BOOTSTRAP_REPOSITORY
             or args.owner_id != BOOTSTRAP_OWNER_ID
             or args.owner_login != BOOTSTRAP_OWNER_LOGIN
         ):
             raise OwnershipError(
-                "bootstrap ownership-only mode is restricted to the cmux-sidebar reservation"
+                "bootstrap ownership-only mode is restricted to one cmux-sdk "
+                "or cmux-sidebar reservation"
             )
         verify(
             args.package,

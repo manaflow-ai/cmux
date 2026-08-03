@@ -188,13 +188,22 @@ def read_published_versions(bindings: Path = BINDINGS) -> dict[str, str]:
     python = tomllib.loads(
         (bindings / "python/pyproject.toml").read_text(encoding="utf-8")
     )["project"]["version"]
-    rust = tomllib.loads(
+    rust_manifest = tomllib.loads(
         (bindings / "rust/Cargo.toml").read_text(encoding="utf-8")
-    )["package"]["version"]
+    )
     rust_sidebar_manifest = tomllib.loads(
         (bindings / "rust-sidebar/Cargo.toml").read_text(encoding="utf-8")
     )
-    rust_sidebar = rust_sidebar_manifest["package"]["version"]
+    rust_package = rust_manifest["package"]
+    rust_sidebar_package = rust_sidebar_manifest["package"]
+    if rust_package.get("name") != "cmux-sdk":
+        raise ValueError("rust/Cargo.toml package name must be cmux-sdk")
+    if rust_sidebar_package.get("name") != "cmux-sidebar":
+        raise ValueError(
+            "rust-sidebar/Cargo.toml package name must be cmux-sidebar"
+        )
+    rust = rust_package["version"]
+    rust_sidebar = rust_sidebar_package["version"]
 
     return {
         "typescript": str(typescript),
@@ -230,19 +239,19 @@ def read_versions(bindings: Path = BINDINGS) -> dict[str, str]:
     }
 
 
-def read_sidebar_client_version(bindings: Path = BINDINGS) -> str:
+def read_sidebar_sdk_requirement(bindings: Path = BINDINGS) -> str:
     manifest = tomllib.loads(
         (bindings / "rust-sidebar/Cargo.toml").read_text(encoding="utf-8")
     )
-    dependency = manifest.get("dependencies", {}).get("cmux-client")
+    dependency = manifest.get("dependencies", {}).get("cmux-sdk")
     if not isinstance(dependency, dict) or "version" not in dependency:
         raise ValueError(
-            "rust-sidebar/Cargo.toml cmux-client dependency has no version"
+            "rust-sidebar/Cargo.toml cmux-sdk dependency has no version"
         )
     version = dependency["version"]
     if not isinstance(version, str):
         raise ValueError(
-            "rust-sidebar/Cargo.toml cmux-client dependency version is not a string"
+            "rust-sidebar/Cargo.toml cmux-sdk dependency version is not a string"
         )
     return version
 
@@ -265,7 +274,7 @@ def main(argv: list[str] | None = None, *, bindings: Path = BINDINGS) -> int:
             if arguments.published_only
             else read_versions(bindings)
         )
-        sidebar_client_version = read_sidebar_client_version(bindings)
+        sidebar_sdk_requirement = read_sidebar_sdk_requirement(bindings)
         zig_example_version = (
             None
             if arguments.published_only
@@ -282,10 +291,12 @@ def main(argv: list[str] | None = None, *, bindings: Path = BINDINGS) -> int:
         print("SDK version error: package versions differ", file=sys.stderr)
         return 1
     version = distinct.pop()
-    if sidebar_client_version != version:
+    expected_sidebar_requirement = f"={version}"
+    if sidebar_sdk_requirement != expected_sidebar_requirement:
         print(
-            "SDK version error: rust-sidebar cmux-client dependency "
-            f"must be {version}, found {sidebar_client_version}",
+            "SDK version error: rust-sidebar cmux-sdk dependency "
+            f"must be pinned to {expected_sidebar_requirement}, "
+            f"found {sidebar_sdk_requirement}",
             file=sys.stderr,
         )
         return 1
