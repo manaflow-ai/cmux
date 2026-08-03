@@ -1,6 +1,62 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "debug.feedPreview.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Expired" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "期限切れ" } }
+      }
+    },
+    "debug.feedPreview.injectAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inject all into Feed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてフィードに追加" } }
+      }
+    },
+    "debug.feedPreview.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保留中" } }
+      }
+    },
+    "debug.feedPreview.resolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resolved" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "解決済み" } }
+      }
+    },
+    "debug.feedPreview.samplePrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "make a plan and ask me for permission requests…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "計画を作成して、権限リクエストについて尋ねてください…" } }
+      }
+    },
+    "debug.feedPreview.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Preview · all kinds + states" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードプレビュー・すべての種類と状態" } }
+      }
+    },
+    "debug.feedPreview.telemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Telemetry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テレメトリ" } }
+      }
+    },
+    "debug.feedPreview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィードプレビュー" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {

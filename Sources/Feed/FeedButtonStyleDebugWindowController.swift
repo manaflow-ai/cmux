@@ -94,7 +94,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
     }
 
     func color(
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole,
         appearance: FeedButtonDebugAppearance
     ) -> NSColor? {
@@ -112,7 +112,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
     }
 
     private func palette(
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         appearance: FeedButtonDebugAppearance
     ) -> FeedButtonDebugPalette? {
         switch self {
@@ -145,7 +145,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func glassNeutralDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func glassNeutralDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#5F6B78", hoverBackground: "#768391", foreground: "#F8FAFC")
         case .soft: return .init(background: "#4D5560", hoverBackground: "#626C79", foreground: "#F8FAFC")
@@ -158,7 +158,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func glassNeutralLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func glassNeutralLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#DDE5ED", hoverBackground: "#EFF3F7", foreground: "#18202A")
         case .soft: return .init(background: "#E7ECF1", hoverBackground: "#F4F7FA", foreground: "#18202A")
@@ -171,7 +171,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func graphiteDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func graphiteDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#3E454E", hoverBackground: "#535B66", foreground: "#F3F4F6")
         case .soft: return .init(background: "#323840", hoverBackground: "#454D57", foreground: "#F8FAFC")
@@ -184,7 +184,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func graphiteLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func graphiteLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#E2E5E9", hoverBackground: "#F0F2F4", foreground: "#151A20")
         case .soft: return .init(background: "#D7DCE2", hoverBackground: "#E7EAEE", foreground: "#151A20")
@@ -197,7 +197,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func aquaDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func aquaDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#315E73", hoverBackground: "#417A94", foreground: "#EAFBFF")
         case .soft: return .init(background: "#294B5A", hoverBackground: "#386578", foreground: "#EAFBFF")
@@ -210,7 +210,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func aquaLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func aquaLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#D8EEF5", hoverBackground: "#EAF8FC", foreground: "#103544")
         case .soft: return .init(background: "#E1F2F6", hoverBackground: "#F0FAFC", foreground: "#103544")
@@ -223,7 +223,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func orchardDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func orchardDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#496B58", hoverBackground: "#5C846D", foreground: "#F0FFF6")
         case .soft: return .init(background: "#3F5849", hoverBackground: "#526E5D", foreground: "#F0FFF6")
@@ -236,7 +236,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func orchardLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func orchardLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#DDEDE4", hoverBackground: "#EDF7F0", foreground: "#183323")
         case .soft: return .init(background: "#E5F1E9", hoverBackground: "#F2F8F4", foreground: "#183323")
@@ -249,7 +249,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func emberDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func emberDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#77543F", hoverBackground: "#926950", foreground: "#FFF7F0")
         case .soft: return .init(background: "#654738", hoverBackground: "#7C5947", foreground: "#FFF7F0")
@@ -262,7 +262,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func emberLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func emberLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#F0E2D7", hoverBackground: "#F8ECE3", foreground: "#3C2419")
         case .soft: return .init(background: "#E9D9CD", hoverBackground: "#F3E6DD", foreground: "#3C2419")
@@ -275,7 +275,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func contrastDarkPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func contrastDarkPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#4B5563", hoverBackground: "#64748B", foreground: "#FFFFFF")
         case .soft: return .init(background: "#374151", hoverBackground: "#4B5563", foreground: "#FFFFFF")
@@ -288,7 +288,7 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private func contrastLightPalette(for kind: FeedButton.Kind) -> FeedButtonDebugPalette {
+    private func contrastLightPalette(for kind: FeedNativeButtonStyle) -> FeedButtonDebugPalette {
         switch kind {
         case .ghost: return .init(background: "#E5E7EB", hoverBackground: "#F3F4F6", foreground: "#030712")
         case .soft: return .init(background: "#D1D5DB", hoverBackground: "#E5E7EB", foreground: "#030712")
@@ -362,7 +362,7 @@ enum FeedButtonDebugSettings {
     }
 
     static func color(
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole,
         appearance: FeedButtonDebugAppearance
     ) -> NSColor? {
@@ -376,7 +376,7 @@ enum FeedButtonDebugSettings {
 
     static func setColor(
         _ color: NSColor,
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole
     ) {
         defaults.set(color.hexString(), forKey: colorKey(kind: kind, role: role))
@@ -384,7 +384,7 @@ enum FeedButtonDebugSettings {
     }
 
     static func defaultColor(
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole,
         appearance: FeedButtonDebugAppearance
     ) -> NSColor {
@@ -448,12 +448,12 @@ enum FeedButtonDebugSettings {
         return defaults.double(forKey: key)
     }
 
-    private static func colorKey(kind: FeedButton.Kind, role: FeedButtonDebugColorRole) -> String {
+    private static func colorKey(kind: FeedNativeButtonStyle, role: FeedButtonDebugColorRole) -> String {
         "feed.button.debug.color.\(kind.rawValue).\(role.rawValue)"
     }
 
     private static func clearCustomColors() {
-        for kind in FeedButton.Kind.allCases {
+        for kind in FeedNativeButtonStyle.allCases {
             for role in [
                 FeedButtonDebugColorRole.background,
                 .hoverBackground,
@@ -465,7 +465,7 @@ enum FeedButtonDebugSettings {
     }
 
     static func fallbackColor(
-        for kind: FeedButton.Kind,
+        for kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole,
         appearance: FeedButtonDebugAppearance
     ) -> NSColor {
@@ -473,7 +473,7 @@ enum FeedButtonDebugSettings {
     }
 
     private static func defaultHex(
-        kind: FeedButton.Kind,
+        kind: FeedNativeButtonStyle,
         role: FeedButtonDebugColorRole,
         appearance: FeedButtonDebugAppearance
     ) -> String {
@@ -757,35 +757,6 @@ enum FeedButtonDebugPreset: String, CaseIterable, Identifiable {
 
 }
 
-extension FeedButton.Kind: CaseIterable, Identifiable {
-    static var allCases: [FeedButton.Kind] {
-        [.ghost, .soft, .dark, .light, .primary, .success, .warning, .destructive]
-    }
-
-    var id: String { rawValue }
-
-    var debugLabel: String {
-        switch self {
-        case .ghost:
-            return String(localized: "feed.buttonDebug.kind.ghost", defaultValue: "Ghost")
-        case .soft:
-            return String(localized: "feed.buttonDebug.kind.soft", defaultValue: "Soft")
-        case .dark:
-            return String(localized: "feed.buttonDebug.kind.dark", defaultValue: "Dark")
-        case .light:
-            return String(localized: "feed.buttonDebug.kind.light", defaultValue: "Light")
-        case .primary:
-            return String(localized: "feed.buttonDebug.kind.primary", defaultValue: "Primary")
-        case .success:
-            return String(localized: "feed.buttonDebug.kind.success", defaultValue: "Success")
-        case .warning:
-            return String(localized: "feed.buttonDebug.kind.warning", defaultValue: "Warning")
-        case .destructive:
-            return String(localized: "feed.buttonDebug.kind.destructive", defaultValue: "Destructive")
-        }
-    }
-}
-
 @MainActor
 final class FeedButtonStyleDebugWindowController: ReleasingWindowController {
     static let shared = FeedButtonStyleDebugWindowController()
@@ -822,7 +793,7 @@ private final class FeedButtonStyleDebugViewController: NSViewController {
     private let styleCases = FeedButtonDebugVisualStyle.allCases
     private let paletteCases = FeedButtonDebugPalettePreset.allCases
     private let presetCases = FeedButtonDebugPreset.allCases
-    private let kindCases = FeedButton.Kind.allCases
+    private let kindCases = FeedNativeButtonStyle.allCases
 
     private let stylePopup = NSPopUpButton()
     private let palettePopup = NSPopUpButton()
@@ -1135,7 +1106,7 @@ private final class FeedButtonStyleDebugViewController: NSViewController {
         return label
     }
 
-    private var selectedKind: FeedButton.Kind {
+    private var selectedKind: FeedNativeButtonStyle {
         guard kindCases.indices.contains(kindPopup.indexOfSelectedItem) else {
             return .primary
         }
@@ -1288,9 +1259,9 @@ private final class FeedButtonDebugRootView: NSView {
 
 @MainActor
 private final class FeedButtonDebugPreviewButton: NSButton {
-    let kind: FeedButton.Kind
+    let kind: FeedNativeButtonStyle
 
-    init(kind: FeedButton.Kind) {
+    init(kind: FeedNativeButtonStyle) {
         self.kind = kind
         super.init(frame: .zero)
         title = kind.debugLabel

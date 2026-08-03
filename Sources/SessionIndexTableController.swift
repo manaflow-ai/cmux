@@ -242,6 +242,7 @@ final class SessionIndexNativeViewController: NSViewController {
         root.addSubview(toolbar)
         root.addSubview(separator)
         root.addSubview(bodyContainer)
+        installRightSidebarChromeGeometryReporter(in: toolbar, role: .secondaryBar)
         NSLayoutConstraint.activate([
             toolbar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: RightSidebarChromeMetrics.barHorizontalPadding),
             toolbar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -RightSidebarChromeMetrics.barHorizontalPadding),
@@ -308,6 +309,11 @@ final class SessionIndexNativeViewController: NSViewController {
             button.font = .systemFont(ofSize: RightSidebarChromeControlStyle.labelSize)
             button.toolTip = grouping.label
             button.setAccessibilityLabel(grouping.label)
+            button.setAccessibilityIdentifier("rightSidebarSecondaryControl_\(grouping.rawValue)")
+            installRightSidebarChromeGeometryReporter(
+                in: button,
+                role: .named("rightSidebarSecondaryControl_\(grouping.rawValue)")
+            )
             groupingButtons[grouping] = button
             toolbar.addArrangedSubview(button)
         }
@@ -323,6 +329,11 @@ final class SessionIndexNativeViewController: NSViewController {
         scopeButton.target = self
         scopeButton.action = #selector(toggleScope)
         scopeButton.identifier = NSUserInterfaceItemIdentifier("SessionScopeToggle.thisFolder")
+        scopeButton.setAccessibilityIdentifier("rightSidebarSecondaryControl_scope")
+        installRightSidebarChromeGeometryReporter(
+            in: scopeButton,
+            role: .named("rightSidebarSecondaryControl_scope")
+        )
         toolbar.addArrangedSubview(scopeButton)
 
         reloadButton.title = ""

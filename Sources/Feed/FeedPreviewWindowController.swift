@@ -2,10 +2,10 @@ import CmuxFoundation
 #if DEBUG
 import AppKit
 import CMUXAgentLaunch
-import SwiftUI
 
-/// Debug-only window that renders every Feed item kind + state against
-/// synthetic fixtures. Open via Debug → Debug Windows → Feed Preview…
+/// Debug-only window that renders every Feed item kind and state against
+/// synthetic fixtures using the same native card implementation as the sidebar.
+@MainActor
 final class FeedPreviewWindowController: ReleasingWindowController {
     static let shared = FeedPreviewWindowController()
 
@@ -16,11 +16,11 @@ final class FeedPreviewWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Feed Preview"
+        window.title = String(localized: "debug.feedPreview.title", defaultValue: "Feed Preview")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedPreview")
         window.minSize = NSSize(width: 420, height: 500)
         window.center()
-        window.contentView = NSHostingView(rootView: FeedPreviewRootView())
+        window.contentView = FeedPreviewRootView()
         return window
     }
 
@@ -29,127 +29,170 @@ final class FeedPreviewWindowController: ReleasingWindowController {
     }
 }
 
-private struct FeedPreviewRootView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ForEach(FeedPreviewFixtures.Kind.allCases) { kind in
-                        section(for: kind)
-                    }
-                }
-                .padding(12)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+@MainActor
+private final class FeedPreviewRootView: NSView {
+    private let contentStack = NSStackView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let toolbar = makeToolbar()
+        let separator = NSBox()
+        separator.boxType = .separator
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 20
+        contentStack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        let document = NSView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: document.topAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        ])
+        scrollView.documentView = document
+
+        let rootStack = NSStackView(views: [toolbar, separator, scrollView])
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.spacing = 0
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: topAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            toolbar.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            separator.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+        ])
+
+        for kind in FeedPreviewFixtures.Kind.allCases {
+            addSection(for: kind)
         }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 12) {
-            Text("Feed Preview · all kinds + states")
-                .cmuxFont(size: 12, weight: .semibold)
-                .foregroundColor(.secondary)
-            Spacer()
-            Button("Inject all into Feed") {
-                injectAllIntoLiveStore()
-            }
-        }
-        .padding(12)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    @ViewBuilder
-    private func section(for kind: FeedPreviewFixtures.Kind) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(kind.label.uppercased())
-                    .cmuxFont(size: 11, weight: .heavy)
-                    .tracking(0.8)
-                    .foregroundColor(.primary.opacity(0.9))
-                Rectangle()
-                    .fill(Color.primary.opacity(0.10))
-                    .frame(height: 1)
-            }
-            ForEach(FeedPreviewFixtures.allStates(for: kind), id: \.id) { item in
-                VStack(alignment: .leading, spacing: 4) {
-                    stateCaption(for: item)
-                    FeedPreviewCardHost(item: item)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func stateCaption(for item: WorkstreamItem) -> some View {
-        let (label, color): (String, Color) = {
-            switch item.status {
-            case .pending: return ("Pending", .orange)
-            case .resolved: return ("Resolved", .green)
-            case .expired: return ("Expired", .secondary)
-            case .telemetry: return ("Telemetry", .blue)
-            }
-        }()
-        Text(label.uppercased())
-            .cmuxFont(size: 9, weight: .bold)
-            .tracking(0.6)
-            .foregroundColor(color)
-    }
-
-    private func injectAllIntoLiveStore() {
-        Task { @MainActor in
-            guard let store = FeedCoordinator.shared.store else { return }
-            for kind in FeedPreviewFixtures.Kind.allCases {
-                for item in FeedPreviewFixtures.allStates(for: kind) {
-                    store.ingest(FeedPreviewFixtures.wireEvent(for: item))
-                }
-            }
-        }
-    }
-}
-
-/// Re-uses the real `FeedPanelView` row by wrapping the rendered row
-/// view at its nearest public entry point. We expose just enough API
-/// by constructing a `FeedItemSnapshot` + bound action closures.
-private struct FeedPreviewCardHost: View {
-    let item: WorkstreamItem
-
-    @State private var stopDraft = FeedStopDraft()
-    @State private var stopFocusRequest = 0
-
-    var body: some View {
-        FeedItemRow(
-            snapshot: FeedItemSnapshot(
-                item: item,
-                userPromptEcho: "make a plan and ask me for permissions requests…"
-            ),
-            actions: FeedPreviewActions.make(),
-            isSelected: false,
-            onPressSelect: {},
-            onControlFocus: {},
-            onControlAction: {},
-            onControlBlur: {},
-            onActivate: {},
-            stopDraft: $stopDraft,
-            stopDraftValue: stopDraft,
-            stopFocusRequest: $stopFocusRequest,
-            stopFocusRequestValue: stopFocusRequest
+    private func makeToolbar() -> NSView {
+        let title = NSTextField(
+            labelWithString: String(
+                localized: "debug.feedPreview.subtitle",
+                defaultValue: "Feed Preview · all kinds + states"
+            )
         )
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        title.textColor = .secondaryLabelColor
+        let inject = NSButton(
+            title: String(localized: "debug.feedPreview.injectAll", defaultValue: "Inject all into Feed"),
+            target: self,
+            action: #selector(injectAllIntoLiveStore)
+        )
+        inject.bezelStyle = .rounded
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let stack = NSStackView(views: [title, spacer, inject])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 12
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        return stack
+    }
+
+    private func addSection(for kind: FeedPreviewFixtures.Kind) {
+        let section = NSStackView()
+        section.orientation = .vertical
+        section.alignment = .leading
+        section.spacing = 8
+        let heading = NSTextField(labelWithString: kind.label.uppercased())
+        heading.font = .systemFont(ofSize: 11, weight: .heavy)
+        heading.textColor = .labelColor.withAlphaComponent(0.9)
+        section.addArrangedSubview(heading)
+        for item in FeedPreviewFixtures.allStates(for: kind) {
+            let caption = NSTextField(labelWithString: statusLabel(for: item).uppercased())
+            caption.font = .systemFont(ofSize: 9, weight: .bold)
+            caption.textColor = statusColor(for: item)
+            section.addArrangedSubview(caption)
+            let card = FeedNativeCardView()
+            let state = FeedNativeCardState()
+            card.configure(
+                snapshot: FeedNativeItemSnapshot(
+                    item: item,
+                    userPromptEcho: String(
+                        localized: "debug.feedPreview.samplePrompt",
+                        defaultValue: "make a plan and ask me for permission requests…"
+                    )
+                ),
+                state: state,
+                actions: FeedPreviewActions.make(),
+                isSelected: false,
+                isKeyboardActive: false,
+                showsDivider: false,
+                onSelect: { _ in },
+                onActivate: {},
+                onStateChange: {}
+            )
+            card.translatesAutoresizingMaskIntoConstraints = false
+            section.addArrangedSubview(card)
+            card.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
+            card.heightAnchor.constraint(equalToConstant: card.height(fittingWidth: 580)).isActive = true
+        }
+        section.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(section)
+        section.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+    }
+
+    private func statusLabel(for item: WorkstreamItem) -> String {
+        switch item.status {
+        case .pending: return String(localized: "debug.feedPreview.pending", defaultValue: "Pending")
+        case .resolved: return String(localized: "debug.feedPreview.resolved", defaultValue: "Resolved")
+        case .expired: return String(localized: "debug.feedPreview.expired", defaultValue: "Expired")
+        case .telemetry: return String(localized: "debug.feedPreview.telemetry", defaultValue: "Telemetry")
+        }
+    }
+
+    private func statusColor(for item: WorkstreamItem) -> NSColor {
+        switch item.status {
+        case .pending: return .systemOrange
+        case .resolved: return .systemGreen
+        case .expired: return .secondaryLabelColor
+        case .telemetry: return .systemBlue
+        }
+    }
+
+    @objc private func injectAllIntoLiveStore() {
+        guard let store = FeedCoordinator.shared.store else { return }
+        for kind in FeedPreviewFixtures.Kind.allCases {
+            for item in FeedPreviewFixtures.allStates(for: kind) {
+                store.ingest(FeedPreviewFixtures.wireEvent(for: item))
+            }
+        }
     }
 }
 
-/// Closure bundle that logs actions to the console instead of hitting
-/// the live coordinator. Useful for testing the preview in isolation.
 private enum FeedPreviewActions {
-    static func make() -> FeedRowActions {
-        FeedRowActions(
+    static func make() -> FeedNativeRowActions {
+        FeedNativeRowActions(
             approvePermission: { id, mode in print("preview.permission \(id) \(mode)") },
             replyQuestion: { id, selections in print("preview.question \(id) \(selections)") },
             approveExitPlan: { id, mode, feedback in
                 print("preview.exitPlan \(id) \(mode) feedback=\(feedback ?? "nil")")
             },
-            jump: { ws in print("preview.jump \(ws)") },
-            sendText: { ws, text in print("preview.sendText \(ws) \(text)") }
+            jump: { workstream in print("preview.jump \(workstream)") },
+            sendText: { workstream, value in print("preview.sendText \(workstream) \(value)") }
         )
     }
 }

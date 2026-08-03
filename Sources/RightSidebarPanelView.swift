@@ -398,7 +398,7 @@ struct RightSidebarPanelView: View {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
             case .feed:
-                FeedPanelView()
+                NativeFeedPanelView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:

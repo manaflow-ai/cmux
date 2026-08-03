@@ -1009,7 +1009,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */; };
 		8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */; };
 		8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */; };
-		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
+		FEED0000000000000000F015 /* FeedPanelNativeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F014 /* FeedPanelNativeViewController.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
 		FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00A /* FeedPreviewWindowController.swift */; };
@@ -3576,7 +3576,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryLane.swift; sourceTree = "<group>"; };
 		8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryMetadata.swift; sourceTree = "<group>"; };
 		8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressSynchronousResult.swift; sourceTree = "<group>"; };
-		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
+		FEED0000000000000000F014 /* FeedPanelNativeViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelNativeViewController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00A /* FeedPreviewWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPreviewWindowController.swift; sourceTree = "<group>"; };
@@ -7829,7 +7829,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */,
 				8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */,
 				8672E0078672E0078672E007 /* WorkstreamEvent+FeedIngress.swift */,
-				FEED0000000000000000F004 /* FeedPanelView.swift */,
+				FEED0000000000000000F014 /* FeedPanelNativeViewController.swift */,
 				FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */,
 				FEED0000000000000000F010 /* FeedPanelViewModel.swift */,
 				FEED0000000000000000F00A /* FeedPreviewWindowController.swift */,
@@ -8852,7 +8852,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */,
 				8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */,
 				8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */,
-				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
+				FEED0000000000000000F015 /* FeedPanelNativeViewController.swift in Sources */,
 				FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */,
 				FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */,
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,

@@ -114,6 +114,10 @@ final class RightSidebarChromeGeometryReportingView: NSView {
         reportIfNeeded()
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     func reportIfNeeded() {
         guard RightSidebarChromeUITestRecorder.shouldRecord(),
               window != nil,
@@ -131,4 +135,25 @@ final class RightSidebarChromeGeometryReportingView: NSView {
             )
         )
     }
+}
+
+@MainActor
+@discardableResult
+func installRightSidebarChromeGeometryReporter(
+    in host: NSView,
+    role: RightSidebarChromeGeometryRole,
+    isVisible: Bool = true
+) -> RightSidebarChromeGeometryReportingView {
+    let reporter = RightSidebarChromeGeometryReportingView()
+    reporter.role = role
+    reporter.isVisibleForReporting = isVisible
+    reporter.translatesAutoresizingMaskIntoConstraints = false
+    host.addSubview(reporter)
+    NSLayoutConstraint.activate([
+        reporter.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+        reporter.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+        reporter.topAnchor.constraint(equalTo: host.topAnchor),
+        reporter.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+    ])
+    return reporter
 }

@@ -38,8 +38,8 @@ Anything else the agent does, including tool uses, assistant messages, session s
                               └─────┬──────────────────┬─────┘
                                     │                  │
                          ┌──────────▼────┐   ┌─────────▼────────┐
-                         │ FeedPanelView │   │ UNUserNotification│
-                         │ (right sidebar)│   │ (inline actions)  │
+                         │ AppKit Feed   │   │ UNUserNotification│
+                         │ controller    │   │ (inline actions)  │
                          └───────────────┘   └──────────────────┘
 ```
 

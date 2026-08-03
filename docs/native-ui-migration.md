@@ -69,8 +69,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 21 importing files remaining under `Sources`, including the
-    application root, feed, and sidebar. Workspace, terminal, browser, Vault,
+  - [ ] Replace the 19 importing files remaining under `Sources`, including the
+    application root and sidebar. Workspace, terminal, browser, Vault, Feed,
     and the browser design-mode composer are native AppKit.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable

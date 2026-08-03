@@ -1950,6 +1950,24 @@ struct SessionIndexView: NSViewControllerRepresentable {
     }
 }
 
+struct NativeFeedPanelView: NSViewControllerRepresentable {
+    func makeNSViewController(context: Context) -> FeedPanelNativeViewController {
+        FeedPanelNativeViewController()
+    }
+
+    func updateNSViewController(
+        _ controller: FeedPanelNativeViewController,
+        context: Context
+    ) {}
+
+    static func dismantleNSViewController(
+        _ controller: FeedPanelNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+}
+
 struct NativeFeedbackComposerBridge: NSViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
 
