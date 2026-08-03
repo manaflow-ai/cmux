@@ -705,6 +705,26 @@ final class OmnibarStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testOptionBackspaceDeletesURLLabelBeforeInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "news.ycombinator.c",
+            displayText: "news.ycombinator.com",
+            suggestions: [
+                .history(url: "https://news.ycombinator.com/", title: "Hacker News"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.option],
+            fallbackCommand: #selector(NSResponder.deleteWordBackward(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
     func testPlainBackspaceStillDeletesSingleCharacterWithInlineCompletion() throws {
         let harness = OmnibarInlineDeletionHarness(
             typedText: "gma",
@@ -719,6 +739,132 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.state.buffer, "gm")
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
+
+    @MainActor
+    func testOptionBackspaceDeletesOnlyFinalURLHostLabel() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.com")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+        XCTAssertEqual(
+            harness.publishedSelectionRange,
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+        XCTAssertTrue(harness.editor.undoManager?.canUndo ?? false)
+
+        harness.editor.undoManager?.undo()
+
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.com")
+    }
+
+    @MainActor
+    func testOptionBackspaceInMiddleDoesNotLeaveDoubleURLSeparators() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "news.ycombinator.com",
+            selectedLocation: "news.ycombinator".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.com")
+        XCTAssertEqual(harness.editor.string, "news.com")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.".utf16.count, length: 0)
+        )
+    }
+
+    @MainActor
+    func testOptionBackspaceAfterURLSeparatorContinuesURLAwareDeletion() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.")
+        XCTAssertEqual(harness.editor.string, "news.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.".utf16.count, length: 0)
+        )
+    }
+
+    @MainActor
+    func testDeleteWordBackwardCommandUsesURLAwareDeletionForPlainURL() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "news.ycombinator.com")
+
+        let handled = harness.dispatchCommand(#selector(NSResponder.deleteWordBackward(_:)))
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "news.ycombinator.")
+        XCTAssertEqual(harness.editor.string, "news.ycombinator.")
+        XCTAssertEqual(
+            harness.editor.selectedRange(),
+            NSRange(location: "news.ycombinator.".utf16.count, length: 0)
+        )
+    }
+
+    @MainActor
+    func testOptionBackspaceBeforeSchemeSeparatorConsumesSeparatorRun() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "https://example.com",
+            selectedLocation: "https".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(harness.state.buffer, "example.com")
+        XCTAssertEqual(harness.editor.string, "example.com")
+        XCTAssertEqual(harness.editor.selectedRange(), NSRange(location: 0, length: 0))
+    }
+
+    @MainActor
+    func testOptionBackspaceForPlainSearchFallsThroughToNativeDeletion() throws {
+        let harness = OmnibarPlainDeletionHarness(text: "foo+bar")
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "foo+bar")
+        XCTAssertEqual(harness.editor.string, "foo+bar")
+    }
+
+    @MainActor
+    func testOptionBackspaceBeforePlainWordInSearchWithURLLaterFallsThrough() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "foo bar.com",
+            selectedLocation: "foo".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "foo bar.com")
+        XCTAssertEqual(harness.editor.string, "foo bar.com")
+    }
+
+    @MainActor
+    func testOptionBackspaceAfterURLLikeTokenInSearchFallsThrough() throws {
+        let harness = OmnibarPlainDeletionHarness(
+            text: "foo.com bar",
+            selectedLocation: "foo.com".utf16.count
+        )
+
+        let handled = try harness.dispatchBackspace(modifiers: [.option])
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "foo.com bar")
+        XCTAssertEqual(harness.editor.string, "foo.com bar")
     }
 }
 
@@ -977,7 +1123,11 @@ private final class OmnibarInlineDeletionHarness {
 
     private func deleteWordBeforeInlineCompletion() {
         guard let inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        let typedRange = NSRange(location: inlineCompletion.typedText.utf16.count, length: 0)
+        let updated = omnibarTextAfterDeletingURLWordBackward(
+            text: inlineCompletion.typedText,
+            selectedRange: typedRange
+        )?.text ?? omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
         replaceTypedPrefixAndDismissSuggestions(with: updated)
     }
 
@@ -1000,6 +1150,95 @@ private final class OmnibarInlineDeletionHarness {
         inlineCompletion = nil
     }
 
+}
+
+
+@MainActor
+private final class OmnibarPlainDeletionHarness {
+    var state = OmnibarState()
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 320, height: 40),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    let editor = NSTextView()
+    var publishedSelectionRange = NSRange(location: NSNotFound, length: 0)
+
+    init(text: String, selectedLocation: Int? = nil) {
+        state.isFocused = true
+        state.currentURLString = ""
+        state.buffer = text
+        editor.allowsUndo = true
+        editor.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(editor)
+        window.makeFirstResponder(editor)
+        editor.string = text
+        editor.setSelectedRange(NSRange(location: selectedLocation ?? text.utf16.count, length: 0))
+        editor.undoManager?.removeAllActions()
+    }
+
+    func dispatchBackspace(
+        modifiers: NSEvent.ModifierFlags,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Bool {
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{7F}",
+                charactersIgnoringModifiers: "\u{7F}",
+                isARepeat: false,
+                keyCode: 51
+            ),
+            file: file,
+            line: line
+        )
+
+        return makeCoordinator().handleKeyEvent(event, editor: editor)
+    }
+
+    func dispatchCommand(_ commandSelector: Selector) -> Bool {
+        makeCoordinator().control(NSTextField(), textView: editor, doCommandBy: commandSelector)
+    }
+
+    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                text: Binding(
+                    get: { self.state.buffer },
+                    set: { self.state.buffer = $0 }
+                ),
+                isFocused: Binding(
+                    get: { self.state.isFocused },
+                    set: { self.state.isFocused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTap: {},
+                onSubmit: {},
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { range, _ in
+                    self.publishedSelectionRange = range
+                },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
 }
 
 
