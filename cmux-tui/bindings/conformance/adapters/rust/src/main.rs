@@ -1,4 +1,4 @@
-use cmux_client::{
+use cmux_sdk::{
     Client, Config, CreateScreenOptions, CreateWorkspaceOptions, CreatedPath, CreationRecovery,
     CreationResolution, CreationState, Cursor, Document, Error, EventStreamOptions, InitialContent,
     MutationOptions, RendererGrant, RunCommand, RunOptions, Selector, Session, SessionEvent,
@@ -191,15 +191,15 @@ fn dispatch(request: Request) -> Result<Value, Box<dyn std::error::Error>> {
     Ok(result)
 }
 
-fn session(client: &Client, constants: &Constants) -> cmux_client::Result<Session> {
+fn session(client: &Client, constants: &Constants) -> cmux_sdk::Result<Session> {
     Ok(client.session(SessionId::parse(constants.session.clone())?))
 }
 
-fn workspace(session: &Session, constants: &Constants) -> cmux_client::Result<Workspace> {
+fn workspace(session: &Session, constants: &Constants) -> cmux_sdk::Result<Workspace> {
     Ok(session.workspace(WorkspaceId::parse(constants.workspace.clone())?))
 }
 
-fn rename_options(constants: &Constants) -> cmux_client::Result<MutationOptions> {
+fn rename_options(constants: &Constants) -> cmux_sdk::Result<MutationOptions> {
     let revision = constants
         .revision
         .parse::<u64>()
@@ -207,7 +207,7 @@ fn rename_options(constants: &Constants) -> cmux_client::Result<MutationOptions>
     Ok(MutationOptions::new(constants.idempotency_key.clone())?.with_expected_revision(revision))
 }
 
-fn mutation_value(result: cmux_client::MutationResult<cmux_client::WorkspaceSnapshot>) -> Value {
+fn mutation_value(result: cmux_sdk::MutationResult<cmux_sdk::WorkspaceSnapshot>) -> Value {
     json!({
         "workspace_id": result.value.id.as_str(),
         "name": result.value.name,
@@ -217,7 +217,7 @@ fn mutation_value(result: cmux_client::MutationResult<cmux_client::WorkspaceSnap
     })
 }
 
-fn document_value(document: &Document) -> cmux_client::Result<Value> {
+fn document_value(document: &Document) -> cmux_sdk::Result<Value> {
     document.deserialize()
 }
 
@@ -738,7 +738,7 @@ fn live_restart(
         .iter()
         .cloned()
         .map(WorkspaceId::parse)
-        .collect::<cmux_client::Result<Vec<_>>>()?;
+        .collect::<cmux_sdk::Result<Vec<_>>>()?;
     let session = client.current_session();
     let rows = workspace_rows(&session)?;
     let expected_ids = std::iter::once(&stable_id).chain(duplicate_ids.iter()).collect::<Vec<_>>();

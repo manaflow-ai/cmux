@@ -21,8 +21,8 @@ struct SidebarWorkspaceRowModel: Equatable {
     var isMultiSelected: Bool
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
+    var unreadCount: Int
+    var latestNotificationText: String?
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let isBeingDragged: Bool

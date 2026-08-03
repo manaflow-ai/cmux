@@ -127,7 +127,9 @@ struct MobileShellForegroundConnectionRecoveryTests {
         store.connectionRecoveryOwner.phase == .idle
     })
     #expect(store.connectionState == .connected)
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 }
 
 @MainActor
@@ -199,7 +201,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func foregroundResumeAbandonsProbeStartedDuringBackgroundAndProbesAgain() async throws {
+@Test func foregroundRecoveryRequestedDuringBackgroundWaitsForForegroundProbe() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -207,7 +209,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         router: router,
         box: box,
         clock: clock,
-        probeTimeoutNanoseconds: 50_000_000
+        probeTimeoutNanoseconds: 1_000_000_000
     )
     defer {
         Task { await router.releaseAllHeld() }
@@ -219,16 +221,32 @@ struct MobileShellForegroundConnectionRecoveryTests {
 
     store.suspendForegroundRefresh()
     store.recoverForegroundConnectionIfNeeded(resyncAfterHealthy: false)
-    #expect(await router.waitForCount(
+    // A dial launched mid-backgrounding suspends with the process (field
+    // traces showed ~9.5s stalls), so the trigger must park until foreground
+    // instead of dialing while inactive.
+    let probedWhileInactive = await router.waitForCount(
         of: "mobile.workspace.list",
-        atLeast: probeCount + 1
-    ))
+        atLeast: probeCount + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!probedWhileInactive)
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
         of: "mobile.workspace.list",
-        atLeast: probeCount + 2
+        atLeast: probeCount + 1
     ))
+    // Exactly one probe: the parked trigger's replay coalesces into the
+    // foreground recovery pass instead of stacking a second dial.
+    let doubleProbed = await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 2,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!doubleProbed)
+    await router.releaseAllHeld()
     #expect(try await pollUntil {
         store.connectionRecoveryOwner.phase == .idle
     })
@@ -252,7 +270,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         try? FileManager.default.removeItem(at: directory)
     }
     store.connectionState = .disconnected
-    store.clearRemoteConnectionContext()
+    await store.releaseRemoteClientForReplacement()
     let failedAttempt = try #require(store.connectionRecoveryOwner.begin(
         trigger: "background-failure",
         sourceConnectionGeneration: store.connectionGeneration,

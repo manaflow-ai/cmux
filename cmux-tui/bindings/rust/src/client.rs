@@ -230,6 +230,7 @@ impl CmuxClient {
         let connection = JsonLineConnection::connect(
             &config.socket_path,
             config.timeout,
+            config.timeout,
             config.max_frame_bytes,
         )?;
         Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
@@ -317,6 +318,7 @@ impl CmuxClient {
         let envelope = request_envelope(metadata.name, id.clone(), request)?;
         let mut connection = JsonLineConnection::connect(
             &self.config.socket_path,
+            self.config.timeout,
             self.config.timeout,
             self.config.max_frame_bytes,
         )?;
@@ -645,7 +647,7 @@ mod tests {
 
     fn temp_socket(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "cmux-client-{name}-{}-{}.sock",
+            "cmux-sdk-{name}-{}-{}.sock",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ))

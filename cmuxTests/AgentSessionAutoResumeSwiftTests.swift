@@ -375,7 +375,10 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
-            #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
+            let retainedBinding = try #require(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding
+            )
+            #expect(retainedBinding.autoResume == false)
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 
             var providerConsulted = false
