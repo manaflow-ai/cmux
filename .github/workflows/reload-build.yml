@@ -83,6 +83,10 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Install Rust (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: ./scripts/install-rust-ci.sh
+
       - name: Provision GhosttyKit (macOS)
         if: ${{ inputs.platform == 'macos' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
