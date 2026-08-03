@@ -3425,20 +3425,11 @@ struct CMUXCLI {
             ))
         } else {
             for window in windows {
-                let owner = sanitizedApplicationWindowListField(window["owner"] as? String ?? "")
-                let title = sanitizedApplicationWindowListField(window["title"] as? String ?? "")
+                let owner = Self.sanitizeForTerminal(window["owner"] as? String ?? "")
+                let title = Self.sanitizeForTerminal(window["title"] as? String ?? "")
                 print("\(window["window_id"] ?? "")\t\(window["process_id"] ?? "")\t\(owner)\t\(title)")
             }
         }
-    }
-
-    private func sanitizedApplicationWindowListField(_ value: String) -> String {
-        String(value.unicodeScalars.filter { scalar in
-            let codePoint = scalar.value
-            return codePoint >= 0x20 &&
-                codePoint != 0x7F &&
-                !(0x80...0x9F).contains(codePoint)
-        })
     }
 
     func run() throws {

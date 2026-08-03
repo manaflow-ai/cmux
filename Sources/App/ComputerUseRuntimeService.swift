@@ -491,7 +491,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard let result = response["result"] as? [String: Any] else {
             throw ApplicationSurfaceRuntimeError.invalidResponse
         }
-        let parsed = Self.parseApplicationSurfaceStartResult(result)
+        let parsed = Self.parseApplicationSurfaceStartResult(
+            result,
+            requestedFrameRate: frameRate
+        )
         guard let sessionID = parsed.sessionID else {
             throw ApplicationSurfaceRuntimeError.invalidResponse
         }
@@ -770,7 +773,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     nonisolated static func parseApplicationSurfaceStartResult(
-        _ result: [String: Any]
+        _ result: [String: Any],
+        requestedFrameRate: Int = 60
     ) -> (
         sessionID: String?,
         descriptor: ApplicationSurfaceSessionDescriptor?
@@ -801,18 +805,29 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         else {
             return (sessionID, nil)
         }
+        let frameTransport = SimulatorFrameTransportDescriptor(
+            sharedMemoryName: sharedMemoryName,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            slotCount: slotCount,
+            sharedMemoryByteCount: sharedMemoryByteCount
+        )
+        guard let maximumPresentationFramesPerSecond =
+            ApplicationSurfaceSessionDescriptor
+                .validatedPresentationFramesPerSecond(
+                    for: frameTransport,
+                    requestedFramesPerSecond: requestedFrameRate
+                ) else {
+            return (sessionID, nil)
+        }
         return (
             sessionID,
             ApplicationSurfaceSessionDescriptor(
                 sessionID: sessionID,
-                frameTransport: SimulatorFrameTransportDescriptor(
-                    sharedMemoryName: sharedMemoryName,
-                    width: width,
-                    height: height,
-                    bytesPerRow: bytesPerRow,
-                    slotCount: slotCount,
-                    sharedMemoryByteCount: sharedMemoryByteCount
-                )
+                frameTransport: frameTransport,
+                maximumPresentationFramesPerSecond:
+                    maximumPresentationFramesPerSecond
             )
         )
     }

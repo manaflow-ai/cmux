@@ -34,6 +34,7 @@ public final class CmuxRemoteFrameView: NSView {
     private var framePresentationController:
         SimulatorFramePresentationController?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
+    private var transportMaximumFramesPerSecond: Int?
     private var hostWindowVisible = false
     private var isActive = true
     private var isTornDown = false
@@ -61,9 +62,22 @@ public final class CmuxRemoteFrameView: NSView {
 
     /// Replaces the current frame transport with the supplied descriptor.
     @discardableResult
-    public func adopt(_ descriptor: SimulatorFrameTransportDescriptor) -> Bool {
+    public func adopt(
+        _ descriptor: SimulatorFrameTransportDescriptor,
+        maximumFramesPerSecond: Int? = nil
+    ) -> Bool {
         guard !isTornDown else { return false }
-        guard descriptor != frameTransportDescriptor else { return true }
+        let maximumFramesPerSecond = maximumFramesPerSecond.map {
+            min(max($0, 1), 120)
+        }
+        if descriptor == frameTransportDescriptor {
+            guard maximumFramesPerSecond != transportMaximumFramesPerSecond else {
+                return true
+            }
+            transportMaximumFramesPerSecond = maximumFramesPerSecond
+            rebuildPresentationTimer()
+            return true
+        }
         let source: SimulatorFrameSurfaceSource
         do {
             source = try SimulatorFrameSurfaceSource(descriptor: descriptor)
@@ -97,6 +111,7 @@ public final class CmuxRemoteFrameView: NSView {
             }
         )
         frameTransportDescriptor = descriptor
+        transportMaximumFramesPerSecond = maximumFramesPerSecond
         framePixelSize = CGSize(width: descriptor.width, height: descriptor.height)
         layoutFrameLayer()
         renderLatestFrame()
@@ -119,6 +134,7 @@ public final class CmuxRemoteFrameView: NSView {
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
         frameTransportDescriptor = nil
+        transportMaximumFramesPerSecond = nil
         framePixelSize = .zero
         presentedFrameSequence = nil
     }
@@ -233,7 +249,7 @@ public final class CmuxRemoteFrameView: NSView {
 
     private func startPresentationTimer() {
         framePresentationController?.startPresenting(
-            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+            maximumFramesPerSecond: presentationFramesPerSecond
         )
     }
 
@@ -245,7 +261,7 @@ public final class CmuxRemoteFrameView: NSView {
         guard !isTornDown else { return }
         framePresentationController?.rebuildPresentationCadence(
             isVisible: isActive && hostWindowVisible,
-            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+            maximumFramesPerSecond: presentationFramesPerSecond
         )
         renderLatestFrame()
     }
@@ -255,6 +271,15 @@ public final class CmuxRemoteFrameView: NSView {
         framePresentationController = nil
         frameLayer?.contents = nil
         controller?.invalidate()
+    }
+
+    private var presentationFramesPerSecond: Int? {
+        simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond:
+                window?.screen?.maximumFramesPerSecond,
+            transportMaximumFramesPerSecond:
+                transportMaximumFramesPerSecond
+        )
     }
 
     @objc private func hostWindowVisibilityDidChange(_ notification: Notification) {

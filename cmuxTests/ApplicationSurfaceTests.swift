@@ -35,6 +35,26 @@ struct ApplicationSurfaceTests {
         #expect(parsed.descriptor == nil)
     }
 
+    @Test func applicationSurfaceCapsPresentationByFrameByteCost() throws {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult(
+            [
+                "sessionId": "bounded-session",
+                "frameTransport": [
+                    "sharedMemoryName": "/cmux-sim-frame-bounded",
+                    "width": 4_096,
+                    "height": 1_024,
+                    "bytesPerRow": 16_384,
+                    "slotCount": 3,
+                    "sharedMemoryByteCount": 50_335_744,
+                ],
+            ],
+            requestedFrameRate: 120
+        )
+        let descriptor = try #require(parsed.descriptor)
+
+        #expect(descriptor.maximumPresentationFramesPerSecond == 32)
+    }
+
     @Test func runtimeDaemonRequestsCannotUseUnboundedOneShotReads() throws {
         let serviceSourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

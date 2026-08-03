@@ -455,6 +455,18 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: 240
         ) == 8_333_333)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: 120,
+            transportMaximumFramesPerSecond: 32
+        ) == 32)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: 60,
+            transportMaximumFramesPerSecond: 120
+        ) == 60)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: nil,
+            transportMaximumFramesPerSecond: 32
+        ) == 32)
     }
 
     @Test("Frame presentation does not request a second smoothing pass")

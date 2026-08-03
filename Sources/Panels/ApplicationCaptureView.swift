@@ -350,7 +350,11 @@ final class ApplicationCaptureView: NSView {
                     generation: generation
                 )
                 self.beginLivenessWatchdog(generation: generation)
-                guard self.remoteFrameView.adopt(session.frameTransport) else {
+                guard self.remoteFrameView.adopt(
+                    session.frameTransport,
+                    maximumFramesPerSecond:
+                        session.maximumPresentationFramesPerSecond
+                ) else {
                     return
                 }
                 do {
