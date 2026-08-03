@@ -166,7 +166,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await secondTicket.wait(timeout: .seconds(1)))
     }
 
-    @Test func stuckCloseFreeDoesNotStrandLaterCloses() async throws {
+    @Test func queuedCloseNativeFreesEventuallyDrain() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surfaces = (0..<3).map { _ in
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -186,7 +186,11 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test.stuckClose",
             surface: surfaces[0],
             callbackContext: nil,
-            freeSurface: { _ in
+            freeSurface: { pointer in
+                let bits = UInt(bitPattern: pointer)
+                freedSurfaceBits.withLock {
+                    _ = $0.insert(bits)
+                }
                 stuckFreeStarted.continuation.yield()
                 _ = releaseStuckFree.wait(timeout: .distantFuture)
             }
@@ -211,19 +215,25 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         }
 
         for ticket in laterTickets {
-            try #require(
-                await ticket.wait(timeout: .seconds(1)),
-                "a stuck native free stranded a later close"
+            #expect(
+                await ticket.wait(timeout: .milliseconds(100)) == false,
+                "a later native free overlapped the first close"
             )
         }
         #expect(await stuckTicket.wait(timeout: .zero) == false)
-        #expect(
-            freedSurfaceBits.withLock { $0 } ==
-                Set(surfaces.dropFirst().map { UInt(bitPattern: $0) })
-        )
 
         releaseStuckFree.signal()
         #expect(await stuckTicket.wait(timeout: .seconds(1)))
+        for ticket in laterTickets {
+            try #require(
+                await ticket.wait(timeout: .seconds(1)),
+                "a queued native free did not drain"
+            )
+        }
+        #expect(
+            freedSurfaceBits.withLock { $0 } ==
+                Set(surfaces.map { UInt(bitPattern: $0) })
+        )
     }
 
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
@@ -317,7 +327,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         await coordinator.cancelIsolatedHibernationTeardown(nextReservation)
     }
 
-    @Test func staleIsolatedReservationFallsBackToBoundedClose() async throws {
+    @Test func staleIsolatedReservationFallsBackToSerializedFree() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
