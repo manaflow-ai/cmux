@@ -118,7 +118,7 @@ Environment:
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. |
 | `new-surface` | Create a surface inside a pane. |
-| `list-application-windows` | List capturable native windows without connecting to the CMUX socket. `--json` returns `{"windows":[{"window_id":Int,"process_id":Int,"owner":String,"title":String}]}`. |
+| `list-application-windows` | List capturable native windows without connecting to the CMUX socket. `--json` returns `{"screen_recording_authorized":Bool,"windows":[{"window_id":Int,"process_id":Int,"owner":String,"title":String}],"warning":String?}`. Without Screen Recording access, titles may fall back to application names and text output prints guidance. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |

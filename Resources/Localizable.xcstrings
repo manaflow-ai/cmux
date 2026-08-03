@@ -136819,6 +136819,23 @@
         }
       }
     },
+    "cli.applicationSurface.list.permissionWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording access is off, so window titles may fall back to application names. Allow Screen Recording for the terminal running this command, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録へのアクセスがオフのため、ウィンドウのタイトルがアプリ名に置き換わる場合があります。このコマンドを実行しているターミナルに画面収録を許可してから、再試行してください。"
+          }
+        }
+      }
+    },
     "commandPalette.kind.application": {
       "extractionState": "manual",
       "localizations": {

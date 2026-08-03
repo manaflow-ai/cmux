@@ -3367,6 +3367,11 @@ struct CMUXCLI {
         jsonOutput: Bool,
         hostBundleIdentifier: String?
     ) {
+        let screenRecordingAuthorized = CGPreflightScreenCaptureAccess()
+        let permissionWarning = String(
+            localized: "cli.applicationSurface.list.permissionWarning",
+            defaultValue: "Screen Recording access is off, so window titles may fall back to application names. Allow Screen Recording for the terminal running this command, then retry."
+        )
         let options: CGWindowListOption = [
             .optionOnScreenOnly,
             .excludeDesktopElements,
@@ -3400,8 +3405,20 @@ struct CMUXCLI {
         )
         let windows = rawWindows.compactMap(filter.entry)
         if jsonOutput {
-            print(jsonString(["windows": windows]))
-        } else if windows.isEmpty {
+            var payload: [String: Any] = [
+                "screen_recording_authorized": screenRecordingAuthorized,
+                "windows": windows,
+            ]
+            if !screenRecordingAuthorized {
+                payload["warning"] = permissionWarning
+            }
+            print(jsonString(payload))
+            return
+        }
+        if !screenRecordingAuthorized {
+            Self.writeStderrLine(permissionWarning)
+        }
+        if windows.isEmpty {
             print(String(
                 localized: "cli.applicationSurface.list.empty",
                 defaultValue: "No application windows found"
@@ -16733,7 +16750,7 @@ struct CMUXCLI {
               window_id    process_id    owner    title
 
             \(String(localized: "cli.applicationSurface.list.help.jsonOutput", defaultValue: "JSON output:"))
-              {"windows":[{"window_id":123,"process_id":456,"owner":"Preview","title":"Document"}]}
+              {"screen_recording_authorized":true,"windows":[{"window_id":123,"process_id":456,"owner":"Preview","title":"Document"}]}
             """
         case "close-surface":
             return """
