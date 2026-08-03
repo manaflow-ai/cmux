@@ -139,7 +139,9 @@ struct WorkstreamTaskToolTodoTests {
             response: #"{"task":{"id":"7","subject":"probe"}}"#
         ))
         #expect(latestTodos(store)?.map(\.id) == ["7"])
-        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["7"])
+        // The provisional id stays owned so the checklist row written under
+        // it is retired rather than left behind as a duplicate.
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["cmux-pending-1", "7"])
 
         // An update against the authoritative id now lands on the real row.
         store.ingest(preToolUse("s1", tool: "TaskUpdate", input: #"{"taskId":"7","status":"completed"}"#))
@@ -154,8 +156,8 @@ struct WorkstreamTaskToolTodoTests {
 
         #expect(store.items.last?.kind == .todos)
         #expect(latestTodos(store)?.isEmpty == true)
-        // The id stays owned so the checklist sync can retire its row.
-        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+        // The ids stay owned so the checklist sync retires their rows.
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["cmux-pending-1", "1"])
     }
 
     @Test("Session end retires the accumulator")
@@ -176,7 +178,7 @@ struct WorkstreamTaskToolTodoTests {
             createTask(store, "s1", subject: "task \(index)", id: "\(index)")
         }
         #expect(latestTodos(store)?.count == WorkstreamTaskToolTodos.maxRetainedTodos)
-        #expect(store.ownedTaskIds(forWorkstream: "s1").count == WorkstreamTaskToolTodos.maxRetainedTodos)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").count <= WorkstreamTaskToolTodos.maxOwnedIds)
     }
 
     @Test("Non-task PreToolUse events stay tool-use telemetry")

@@ -34,12 +34,24 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// evicted first.
     static let maxRetainedTodos = 50
 
+    /// Upper bound on remembered owned ids. Larger than ``maxRetainedTodos``
+    /// because a task is owned under its provisional id as well as the
+    /// authoritative one, and deleted tasks stay owned so their checklist rows
+    /// can be retired. Oldest ids are forgotten first; forgetting one only
+    /// means a long-since-evicted row is left alone rather than retired.
+    static let maxOwnedIds = 200
+
     private var todos: [WorkstreamTaskTodo] = []
     private var provisionalCounter = 0
-    /// Every id this workstream has ever owned, including deleted rows, so the
-    /// checklist sync can retire exactly its own stale rows and leave rows
-    /// owned by other workstreams alone.
-    private(set) var ownedIds: Set<String> = []
+    /// Every id this workstream owns, including deleted rows and the
+    /// provisional ids their checklist rows were first written under, so the
+    /// sync can retire exactly its own stale rows and leave rows owned by
+    /// other workstreams alone. Bounded by ``maxOwnedIds``, oldest first.
+    private var ownedIdsInOrder: [String] = []
+    private var ownedIdSet: Set<String> = []
+
+    /// The ids this workstream currently owns.
+    var ownedIds: Set<String> { ownedIdSet }
 
     /// Ids of rows still awaiting their authoritative id from a tool result,
     /// oldest first.
@@ -54,13 +66,13 @@ struct WorkstreamTaskToolTodos: Sendable {
             guard !parsed.isEmpty else { return .ignored }
             todos = parsed
             provisionalIds.removeAll()
-            for todo in parsed { ownedIds.insert(todo.id) }
+            for todo in parsed { claimId(todo.id) }
             trimToCap()
             return .list(todos)
         case "TaskCreate":
             guard let input, let content = taskContent(in: input) else { return .ignored }
             let id = taskId(in: input) ?? mintProvisionalId()
-            ownedIds.insert(id)
+            claimId(id)
             let state = taskState(in: input) ?? .pending
             upsert(WorkstreamTaskTodo(id: id, content: content, state: state))
             trimToCap()
@@ -76,7 +88,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                 // parse failure: the caller retires this workstream's rows.
                 return .list(todos)
             }
-            ownedIds.insert(id)
+            claimId(id)
             guard let index = todos.firstIndex(where: { $0.id == id }) else {
                 // Update for a task we never saw created (resumed session, or
                 // hooks installed mid-run). Only adoptable with text to show.
@@ -121,7 +133,7 @@ struct WorkstreamTaskToolTodos: Sendable {
                     state: todos[index].state
                 )
             }
-            ownedIds.insert(authoritative)
+            claimId(authoritative)
             return .list(todos)
         }
 
@@ -140,8 +152,10 @@ struct WorkstreamTaskToolTodos: Sendable {
             state: todos[index].state
         )
         provisionalIds.removeAll { $0 == provisional }
-        ownedIds.remove(provisional)
-        ownedIds.insert(authoritative)
+        // The provisional id stays owned: its checklist row was already
+        // written, and only an owned id may be retired, so dropping it here
+        // would strand a duplicate row alongside the renamed one.
+        claimId(authoritative)
         return .list(todos)
     }
 
@@ -151,6 +165,17 @@ struct WorkstreamTaskToolTodos: Sendable {
         } else {
             todos.append(todo)
         }
+    }
+
+    /// Records `id` as owned by this workstream, forgetting the oldest ids
+    /// past the bound.
+    private mutating func claimId(_ id: String) {
+        guard ownedIdSet.insert(id).inserted else { return }
+        ownedIdsInOrder.append(id)
+        guard ownedIdsInOrder.count > Self.maxOwnedIds else { return }
+        let overflow = ownedIdsInOrder.count - Self.maxOwnedIds
+        for stale in ownedIdsInOrder.prefix(overflow) { ownedIdSet.remove(stale) }
+        ownedIdsInOrder.removeFirst(overflow)
     }
 
     private mutating func mintProvisionalId() -> String {
@@ -166,7 +191,6 @@ struct WorkstreamTaskToolTodos: Sendable {
         guard todos.count > Self.maxRetainedTodos else { return }
         let dropped = todos.prefix(todos.count - Self.maxRetainedTodos)
         for todo in dropped {
-            ownedIds.remove(todo.id)
             provisionalIds.removeAll { $0 == todo.id }
         }
         todos.removeFirst(todos.count - Self.maxRetainedTodos)
