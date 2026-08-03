@@ -1,7 +1,6 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
-import SwiftUI
 
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
@@ -14,51 +13,53 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
-    let isVisibleInUI: Bool
-    let themeBackgroundColor: NSColor
-    let themeForegroundColor: NSColor
-    let drawsBackground: Bool
-    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
-    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
-    let wordWrap: Bool
+@MainActor
+final class FilePreviewTextEditorController: NSObject, NSTextViewDelegate {
+    let scrollView = NSScrollView()
+    weak var panel: (any FilePreviewTextEditingPanel)?
+    private var isApplyingPanelUpdate = false
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.isHidden = !isVisibleInUI
+    init(
+        panel: any FilePreviewTextEditingPanel,
+        isVisibleInUI: Bool,
+        themeBackgroundColor: NSColor,
+        themeForegroundColor: NSColor,
+        drawsBackground: Bool,
+        wordWrap: Bool
+    ) {
+        self.panel = panel
+        super.init()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = drawsBackground
-
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
-        textView.delegate = context.coordinator
-        textView.drawsBackground = drawsBackground
+        textView.delegate = self
         textView.string = panel.textContent
         panel.attachTextView(textView)
-
         scrollView.documentView = textView
-        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
-        Self.applyTheme(
-            to: scrollView,
-            backgroundColor: themeBackgroundColor,
-            foregroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground
+        configure(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            themeBackgroundColor: themeBackgroundColor,
+            themeForegroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground,
+            wordWrap: wordWrap
         )
-        return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.panel = panel
+    func configure(
+        panel: any FilePreviewTextEditingPanel,
+        isVisibleInUI: Bool,
+        themeBackgroundColor: NSColor,
+        themeForegroundColor: NSColor,
+        drawsBackground: Bool,
+        wordWrap: Bool
+    ) {
+        self.panel = panel
         scrollView.isHidden = !isVisibleInUI
-        Self.applyTheme(
+        FilePreviewTextEditorTheme.apply(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
@@ -72,9 +73,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         guard textView.string != panel.textContent else { return }
         let selectedRanges = textView.selectedRanges
         let visibleOrigin = scrollView.contentView.bounds.origin
-        context.coordinator.isApplyingPanelUpdate = true
+        isApplyingPanelUpdate = true
         textView.string = panel.textContent
-        context.coordinator.isApplyingPanelUpdate = false
+        isApplyingPanelUpdate = false
         let contentLength = (textView.string as NSString).length
         let clampedRanges = selectedRanges.map { value -> NSValue in
             let range = value.rangeValue
@@ -92,7 +93,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.reflectScrolledClipView(clipView)
     }
 
-    static func applyTheme(
+    func textDidChange(_ notification: Notification) {
+        guard !isApplyingPanelUpdate,
+              let panel,
+              let textView = notification.object as? NSTextView else { return }
+        panel.updateTextContent(textView.string)
+    }
+}
+
+enum FilePreviewTextEditorTheme {
+    static func apply(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor,
@@ -111,22 +121,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var panel: PanelModel
-        var isApplyingPanelUpdate = false
-
-        init(panel: PanelModel) {
-            self.panel = panel
-        }
-
-        deinit {}
-
-        func textDidChange(_ notification: Notification) {
-            guard !isApplyingPanelUpdate,
-                  let textView = notification.object as? NSTextView else { return }
-            panel.updateTextContent(textView.string)
-        }
-    }
 }
 
 enum FilePreviewTextEditorLayout {
@@ -189,7 +183,7 @@ extension SavingTextView {
 extension NSTextView {
     /// Configures the text view and its scroll view for soft line wrapping
     /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
-    /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
+    /// (`wrap == false`). Idempotent, so it is safe to call on every host
     /// update; toggling the `fileEditor.wordWrap` setting reflows open editors.
     func applyFilePreviewWordWrap(_ wrap: Bool, scrollView: NSScrollView) {
         guard let textContainer else { return }

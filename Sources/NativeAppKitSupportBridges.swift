@@ -277,6 +277,70 @@ struct SidebarDividerTracker: NSViewRepresentable {
     }
 }
 
+struct PaneDropTargetRepresentable: NSViewRepresentable {
+    let dropContext: PaneDropContext?
+
+    func makeNSView(context: Context) -> PaneDropTargetView {
+        PaneDropTargetView(frame: .zero)
+    }
+
+    func updateNSView(_ view: PaneDropTargetView, context: Context) {
+        view.dropContext = dropContext
+        view.hostedView = nil
+        if dropContext == nil { view.draggingExited(nil) }
+    }
+}
+
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable
+where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
+    @ObservedObject var panel: PanelModel
+    let isVisibleInUI: Bool
+    let themeBackgroundColor: NSColor
+    let themeForegroundColor: NSColor
+    let drawsBackground: Bool
+    let wordWrap: Bool
+
+    func makeCoordinator() -> FilePreviewTextEditorController {
+        FilePreviewTextEditorController(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            themeBackgroundColor: themeBackgroundColor,
+            themeForegroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground,
+            wordWrap: wordWrap
+        )
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        context.coordinator.scrollView
+    }
+
+    func updateNSView(_ view: NSScrollView, context: Context) {
+        context.coordinator.configure(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            themeBackgroundColor: themeBackgroundColor,
+            themeForegroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground,
+            wordWrap: wordWrap
+        )
+    }
+}
+
+struct DetachedFolderDragIcon: NSViewRepresentable {
+    let directory: String
+
+    func makeNSView(context: Context) -> DraggableFolderNSView {
+        DraggableFolderNSView(directory: directory)
+    }
+
+    func updateNSView(_ view: DraggableFolderNSView, context: Context) {
+        guard view.directory != directory else { return }
+        view.directory = directory
+        view.updateIcon()
+    }
+}
+
 #if DEBUG
 private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
     static let defaultValue = MinimalModeInvalidationProbe()
