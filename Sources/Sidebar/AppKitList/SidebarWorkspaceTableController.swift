@@ -406,10 +406,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
+        var incrementalStructuralMutation: IncrementalStructuralMutation?
         var isSmallPureReorder = false
         if hasStructuralChanges {
             previousIds = previousRows.map(\.id)
             nextIds = nextRows.map(\.id)
+            incrementalStructuralMutation = Self.incrementalStructuralMutation(
+                previousIds: previousIds,
+                nextIds: nextIds
+            )
             // Positional mismatches bound the number of moveRow calls a drag
             // needs (a single dragged row misaligns one contiguous span).
             // Multiset equality (not Set) so duplicate ids — corrupt state —
@@ -443,7 +448,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            if heightChanges.isEmpty, isSmallPureReorder {
+            if let mutation = incrementalStructuralMutation {
+                // Small insert/remove diffs keep unaffected row views mounted.
+                // A full reload retires every visible hosted subtree, interrupts
+                // in-progress edits, and makes AppKit rebuild their constraint
+                // graphs even when one workspace was merely appended.
+                let table = containerView.tableView
+                table.beginUpdates()
+                table.removeRows(at: mutation.removedIndexes, withAnimation: [])
+                table.insertRows(at: mutation.insertedIndexes, withAnimation: [])
+                table.endUpdates()
+                reconfigureVisibleRows(contentChanges)
+                let retainedHeightChanges = heightChanges.subtracting(mutation.insertedIndexes)
+                if !retainedHeightChanges.isEmpty {
+                    noteHeightOfRowsWithoutAnimation(table, retainedHeightChanges)
+                }
+            } else if heightChanges.isEmpty, isSmallPureReorder {
                 // Stable-geometry reorder (drag-drop): move rows in place.
                 // reloadData tears down every visible cell and snaps the
                 // scroll position, while moves keep cells alive and settle
@@ -1119,6 +1139,50 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
     private static let maxAnimatedReorderMoves = 32
+
+    private struct IncrementalStructuralMutation {
+        let removedIndexes: IndexSet
+        let insertedIndexes: IndexSet
+    }
+
+    /// Produces an O(n) insert/remove plan when the retained row order is
+    /// unchanged. Reorders keep their dedicated move path, while large or
+    /// ambiguous mutations fall back to the atomic reload path.
+    private static func incrementalStructuralMutation(
+        previousIds: [SidebarWorkspaceRenderItemID],
+        nextIds: [SidebarWorkspaceRenderItemID]
+    ) -> IncrementalStructuralMutation? {
+        let previousSet = Set(previousIds)
+        let nextSet = Set(nextIds)
+        guard previousSet.count == previousIds.count,
+              nextSet.count == nextIds.count else {
+            return nil
+        }
+
+        let retainedPrevious = previousIds.filter(nextSet.contains)
+        let retainedNext = nextIds.filter(previousSet.contains)
+        guard retainedPrevious == retainedNext else { return nil }
+
+        let removedIndexes = IndexSet(previousIds.indices.filter {
+            !nextSet.contains(previousIds[$0])
+        })
+        let insertedIndexes = IndexSet(nextIds.indices.filter {
+            !previousSet.contains(nextIds[$0])
+        })
+        let mutationCount = removedIndexes.count + insertedIndexes.count
+        guard mutationCount > 0,
+              mutationCount <= maxIncrementalStructuralEdits else {
+            return nil
+        }
+        return IncrementalStructuralMutation(
+            removedIndexes: removedIndexes,
+            insertedIndexes: insertedIndexes
+        )
+    }
+
+    /// Bound AppKit's per-row update work. Bulk restores and group changes are
+    /// cheaper and safer through the existing atomic reload path.
+    private static let maxIncrementalStructuralEdits = 32
 
     private static func multisetEqual(
         _ a: [SidebarWorkspaceRenderItemID],

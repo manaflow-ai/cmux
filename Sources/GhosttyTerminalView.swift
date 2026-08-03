@@ -9008,7 +9008,10 @@ final class GhosttySurfaceScrollView: NSView {
     func setSessionContentWidthPresentation(_ presentation: SessionContentWidthPresentation) {
         guard sessionContentWidthPresentation != presentation else { return }
         sessionContentWidthPresentation = presentation
-        _ = synchronizeGeometryAndContent()
+        // This setter is called from representable and canvas update
+        // callbacks. Keep those callbacks mutation-only; the normal AppKit
+        // layout pass applies the new content frame before display.
+        needsLayout = true
     }
 
     private var sessionContentFrame: CGRect {
@@ -9271,10 +9274,12 @@ final class GhosttySurfaceScrollView: NSView {
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
-        // Preserve the bootstrap 800x600 surface until portal reattach churn
-        // has produced a real host size instead of a transient 1x1 placeholder.
-        guard bounds.width > 1, bounds.height > 1 else { return }
-        _ = synchronizeGeometryAndContent()
+        // SwiftUI calls this from updateNSView while its graph transaction is
+        // open. Forcing descendant AppKit layout there re-enters the window's
+        // layout engine and can starve every scene when a large workspace
+        // collection invalidates. Mark the host dirty and let AppKit reconcile
+        // on its normal layout pass instead.
+        needsLayout = true
         synchronizeCloudTerminalReconnectOverlay()
     }
 
