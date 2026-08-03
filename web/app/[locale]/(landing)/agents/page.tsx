@@ -6,6 +6,10 @@ import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../landing-ui";
 import { LandingFaq, LandingSchema } from "../landing-schema";
 import { englishFallbackContentLocales } from "@/i18n/locale-availability";
+import {
+  codingAgentPath,
+  codingAgents,
+} from "@/i18n/coding-agents";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -30,6 +34,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 const AGENTS: {
   href: string;
   key: string;
+  label?: string;
   locales?: readonly string[];
 }[] = [
   { href: "/agents/claude-code", key: "claude" },
@@ -44,6 +49,14 @@ const AGENTS: {
   { href: "/agents/aider", key: "aider" },
   { href: "/agents/amp", key: "amp" },
   { href: "/agents/cursor-cli", key: "cursorCli" },
+  ...codingAgents
+    .filter((agent) => agent.genericPage || agent.slug === "oh-my-pi")
+    .map((agent) => ({
+      href: codingAgentPath(agent),
+      key: agent.slug,
+      label: agent.name,
+      locales: englishFallbackContentLocales,
+    })),
 ];
 
 export default function AgentsPage() {
@@ -72,7 +85,7 @@ export default function AgentsPage() {
             {agents.map((a) => (
               <li key={a.href}>
                 <Link href={a.href} className="underline underline-offset-2">
-                  {tl(a.key)}
+                  {a.label ?? tl(a.key)}
                 </Link>
               </li>
             ))}

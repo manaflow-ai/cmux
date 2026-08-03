@@ -3,21 +3,16 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDevValues } from "./components/spacing-control";
+import { codingAgents } from "@/i18n/coding-agents";
 
 function usePhrases() {
   const t = useTranslations("home");
   return [
     t("typingCodingAgents"),
     t("typingMultitasking"),
+    ...codingAgents.map((agent) => agent.name),
     t("typingOrganization"),
     t("typingProgrammability"),
-    "Claude Code",
-    "Codex",
-    "OpenCode",
-    "Pi",
-    "Hermes Agent",
-    "OpenClaw",
-    "Gemini CLI",
   ];
 }
 

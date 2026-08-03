@@ -12,6 +12,7 @@ import {
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
+import { genericCodingAgents } from "../../i18n/coding-agents";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -233,6 +234,11 @@ export const agentReadablePages = [
     title: "Best terminal for Pi",
     locales: englishFallbackContentLocales,
   },
+  ...genericCodingAgents.map((agent) => ({
+    path: `/agents/${agent.slug}`,
+    title: `Best terminal for ${agent.seoName ?? agent.name}`,
+    locales: englishFallbackContentLocales,
+  })),
   { path: "/agents/gemini-cli", title: "Terminal for Gemini CLI" },
   { path: "/agents/aider", title: "Terminal for Aider" },
   { path: "/agents/amp", title: "Terminal for Amp" },
