@@ -757,6 +757,52 @@ class SessionDelta:
 
 SessionEvent = Union[SessionSnapshotItem, SessionDelta, Unknown]
 
+JournalClass = Literal["state", "observation", "effect", "checkpoint"]
+JournalReplayPolicy = Literal["required", "advisory", "never"]
+JournalSensitivity = Literal["public", "metadata", "sensitive", "secret"]
+
+
+@dataclass(frozen=True)
+class JournalProducer:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class JournalAuthority:
+    principal_id: str
+    lease_id: str
+    generation: str
+    role: str
+
+
+@dataclass(frozen=True)
+class JournalSubject:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class SessionJournalRecord:
+    sequence: str
+    event_id: str
+    schema_version: int
+    kind: str
+    class_: JournalClass
+    replay: JournalReplayPolicy
+    occurred_at_ms: str
+    committed_at_ms: str
+    producer: JournalProducer
+    authority: Optional[JournalAuthority]
+    causation_id: Optional[str]
+    correlation_id: Optional[str]
+    causation_depth: int
+    subjects: Tuple[JournalSubject, ...]
+    sensitivity: JournalSensitivity
+    payload: Any
+    resource_revision: Optional[str]
+    previous_resource_revision: Optional[str]
+
 
 @dataclass(frozen=True)
 class RenderCursor:
@@ -962,6 +1008,13 @@ __all__ = [
     "SessionSnapshotItem",
     "SessionDelta",
     "SessionEvent",
+    "JournalAuthority",
+    "JournalClass",
+    "JournalProducer",
+    "JournalReplayPolicy",
+    "JournalSensitivity",
+    "JournalSubject",
+    "SessionJournalRecord",
     "ShellCommand",
     "SidebarAttachItem",
     "SidebarAttachPatch",

@@ -82,6 +82,47 @@ public final class Options {
     public record SessionEvents(Stream stream, Optional<Cursor> cursor) {
         public SessionEvents { stream = Options.stream(stream); cursor = opt(cursor); }
     }
+    public enum JournalStart { TAIL, BEGINNING;
+        public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
+    }
+    public record JournalSubjectFilter(
+        Optional<String> kind,
+        Optional<String> id
+    ) {
+        public JournalSubjectFilter { kind = opt(kind); id = opt(id); }
+    }
+    public record JournalFilter(
+        List<String> kinds,
+        List<SessionJournalRecord.JournalClass> classes,
+        List<JournalSubjectFilter> subjects,
+        Optional<SessionJournalRecord.Sensitivity> maxSensitivity
+    ) {
+        public JournalFilter {
+            kinds = kinds == null ? List.of() : List.copyOf(kinds);
+            classes = classes == null ? List.of() : List.copyOf(classes);
+            subjects = subjects == null ? List.of() : List.copyOf(subjects);
+            maxSensitivity = opt(maxSensitivity);
+            if (maxSensitivity.orElse(null) == SessionJournalRecord.Sensitivity.SECRET) {
+                throw new IllegalArgumentException("secret journal records are unavailable in v1");
+            }
+        }
+    }
+    public record SessionJournal(
+        Stream stream,
+        Optional<Cursor> cursor,
+        Optional<JournalStart> start,
+        Optional<JournalFilter> filter
+    ) {
+        public SessionJournal {
+            stream = Options.stream(stream);
+            cursor = opt(cursor);
+            start = opt(start);
+            filter = opt(filter);
+            if (cursor.isPresent() && start.isPresent()) {
+                throw new IllegalArgumentException("journal cursor and start are mutually exclusive");
+            }
+        }
+    }
     public record CreationResolve(Read read, String correlationKey) {
         public CreationResolve {
             read = Options.read(read);

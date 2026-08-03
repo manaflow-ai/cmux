@@ -140,6 +140,8 @@ pub enum ResourceOperation {
     SessionCreationResolve,
     #[serde(rename = "session.events")]
     SessionEvents,
+    #[serde(rename = "session.journal.subscribe")]
+    SessionJournalSubscribe,
     #[serde(rename = "session.ping")]
     SessionPing,
     #[serde(rename = "session.shutdown")]
@@ -387,6 +389,7 @@ impl ResourceOperation {
         if matches!(
             self,
             Self::SessionEvents
+                | Self::SessionJournalSubscribe
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -1677,6 +1680,7 @@ mod tests {
     fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::TerminalAttach,
             ResourceOperation::BrowserAttach,
             ResourceOperation::SidebarViewAttach,
@@ -1709,6 +1713,7 @@ mod tests {
 
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::RequestCancel,
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,

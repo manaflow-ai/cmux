@@ -1,7 +1,7 @@
 # SDK ergonomics findings
 
 The seven public SDKs expose handwritten resource handles over the reviewed
-112-operation `cmux.protocol/1` catalog. The raw protocol inventory is a
+113-operation `cmux.protocol/1` catalog. The raw protocol inventory is a
 separate compatibility surface with 92 commands and 45 events. Deterministic
 generation is limited to those private protocol-10 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a
@@ -61,7 +61,7 @@ implemented public behavior. None remains protocol work.
 
 ## Conformance evidence
 
-The 112 public operations are the API inventory. The public fake-server matrix
+The 113 public operations are the API inventory. The public fake-server matrix
 is test inventory: 20 cases in each language, 140 cases total. It checks exact
 envelopes, decimal preservation, mutation replay, indeterminate effects,
 revision conflicts, duplicate-name ambiguity, bounded stream overflow,

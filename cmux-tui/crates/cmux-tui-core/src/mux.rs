@@ -1633,8 +1633,10 @@ pub struct Mux {
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
-    resource_event_epoch: Mutex<u64>,
-    resource_event_changed: Condvar,
+    /// Wake-only signal for durable journal subscribers. Consumers always
+    /// reread SQLite by cursor, so missed or coalesced notifications are safe.
+    journal_event_epoch: Mutex<u64>,
+    journal_event_changed: Condvar,
     terminal_exit_waiters: TerminalExitWaiters,
     #[cfg(test)]
     terminal_exit_state_queries: AtomicU64,
@@ -1961,8 +1963,8 @@ impl Mux {
             surface_notifications: Mutex::new(surface_notifications),
             notification_ledger: Mutex::new(notification_ledger),
             resource_machine_service: OnceLock::new(),
-            resource_event_epoch: Mutex::new(0),
-            resource_event_changed: Condvar::new(),
+            journal_event_epoch: Mutex::new(0),
+            journal_event_changed: Condvar::new(),
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
@@ -4305,22 +4307,34 @@ impl Mux {
     }
 
     fn publish_resource_event(&self) {
-        let mut epoch = self.resource_event_epoch.lock().unwrap();
+        self.publish_journal_event();
+    }
+
+    fn publish_journal_event(&self) {
+        let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
-        self.resource_event_changed.notify_all();
+        self.journal_event_changed.notify_all();
     }
 
-    pub(crate) fn resource_event_epoch(&self) -> u64 {
-        *self.resource_event_epoch.lock().unwrap()
+    pub(crate) fn journal_event_epoch(&self) -> u64 {
+        *self.journal_event_epoch.lock().unwrap()
     }
 
-    pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        let current = self.resource_event_epoch.lock().unwrap();
+    pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
+        let current = self.journal_event_epoch.lock().unwrap();
         if *current != epoch {
             return *current;
         }
-        let (current, _) = self.resource_event_changed.wait_timeout(current, timeout).unwrap();
+        let (current, _) = self.journal_event_changed.wait_timeout(current, timeout).unwrap();
         *current
+    }
+
+    pub(crate) fn resource_event_epoch(&self) -> u64 {
+        self.journal_event_epoch()
+    }
+
+    pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
+        self.wait_for_journal_event(epoch, timeout)
     }
 
     pub(crate) fn resource_events_after(
@@ -4328,6 +4342,24 @@ impl Mux {
         revision: u64,
     ) -> anyhow::Result<crate::workspace_registry::ResourceEventPage> {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
+    }
+
+    pub(crate) fn session_journal_after(
+        &self,
+        sequence: u64,
+        limit: usize,
+    ) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
+        self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
+    }
+
+    pub(crate) fn session_journal_reader(
+        &self,
+    ) -> anyhow::Result<Option<crate::workspace_registry::SessionJournalReader>> {
+        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
+        database_path
+            .as_deref()
+            .map(crate::workspace_registry::SessionJournalReader::open)
+            .transpose()
     }
 
     #[cfg(test)]

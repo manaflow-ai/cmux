@@ -87,6 +87,7 @@ import {
   type RenderSnapshot,
   type ScreenSnapshot,
   type SessionEvent,
+  type SessionJournalRecord,
   type SessionDelta,
   type SessionSnapshotItem,
   type SessionSnapshot,
@@ -138,6 +139,7 @@ import type {
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
+  SessionJournalOptions,
   SidebarEnsureOptions,
   SidebarInputOptions,
   SidebarResizeOptions,
@@ -1021,6 +1023,23 @@ function optionFields(options: object): Record<string, unknown> {
   return result;
 }
 
+function journalOptionsFields(options: SessionJournalOptions): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (options.cursor !== undefined) fields.cursor = options.cursor;
+  if (options.start !== undefined) fields.start = options.start;
+  const filter: Record<string, unknown> = {};
+  if (options.kinds !== undefined) filter.kinds = [...options.kinds];
+  if (options.classes !== undefined) filter.classes = [...options.classes];
+  if (options.subjects !== undefined) {
+    filter.subjects = options.subjects.map((subject) => ({ ...subject }));
+  }
+  if (options.maxSensitivity !== undefined) {
+    filter.max_sensitivity = options.maxSensitivity;
+  }
+  if (Object.keys(filter).length > 0) fields.filter = filter;
+  return fields;
+}
+
 function browserPointerFields(
   input: BrowserMouseOptions | BrowserWheelOptions,
 ): Record<string, unknown> {
@@ -1255,6 +1274,83 @@ function sessionEvent(value: unknown): SessionEvent {
     kind,
     raw: document(payload, "unknown session event"),
   }) satisfies Unknown;
+}
+
+function sessionJournalRecord(value: unknown): SessionJournalRecord {
+  const payload = record(value, "session journal record");
+  strictObject(payload, [
+    "sequence", "event_id", "schema_version", "kind", "class", "replay",
+    "occurred_at_ms", "committed_at_ms", "producer", "authority",
+    "causation_id", "correlation_id", "causation_depth", "subjects",
+    "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+  ], "session journal record");
+  for (const key of ["authority", "payload"] as const) {
+    if (!Object.hasOwn(payload, key)) {
+      throw new CmuxProtocolError(`session journal record omitted required field ${key}`);
+    }
+  }
+  const producer = record(payload.producer, "journal producer");
+  strictObject(producer, ["kind", "id"], "journal producer");
+  const authorityValue = payload.authority;
+  const authority = authorityValue === null ? null : (() => {
+    const authority = record(authorityValue, "journal authority");
+    strictObject(
+      authority,
+      ["principal_id", "lease_id", "generation", "role"],
+      "journal authority",
+    );
+    return Object.freeze({
+      principalId: requiredString(authority, "principal_id"),
+      leaseId: requiredString(authority, "lease_id"),
+      generation: requiredString(authority, "generation"),
+      role: requiredString(authority, "role"),
+    });
+  })();
+  if (!Array.isArray(payload.subjects)) {
+    throw new CmuxProtocolError("journal subjects must be an array");
+  }
+  const subjects = payload.subjects.map((subject, index) => {
+    const value = record(subject, `journal subject ${index}`);
+    strictObject(value, ["kind", "id"], "journal subject");
+    return Object.freeze({
+      kind: requiredString(value, "kind"),
+      id: requiredString(value, "id"),
+    });
+  });
+  return Object.freeze({
+    sequence: requiredDecimal(payload, "sequence"),
+    eventId: requiredString(payload, "event_id"),
+    schemaVersion: requiredPositiveUint32(payload, "schema_version"),
+    kind: requiredString(payload, "kind"),
+    class: requiredEnum(
+      payload,
+      "class",
+      ["state", "observation", "effect", "checkpoint"] as const,
+    ),
+    replay: requiredEnum(payload, "replay", ["required", "advisory", "never"] as const),
+    occurredAtMs: requiredDecimal(payload, "occurred_at_ms"),
+    committedAtMs: requiredDecimal(payload, "committed_at_ms"),
+    producer: Object.freeze({
+      kind: requiredString(producer, "kind"),
+      id: requiredString(producer, "id"),
+    }),
+    authority,
+    causationId: requiredNullableString(payload, "causation_id"),
+    correlationId: requiredNullableString(payload, "correlation_id"),
+    causationDepth: requiredUint16(payload, "causation_depth"),
+    subjects: Object.freeze(subjects),
+    sensitivity: requiredEnum(
+      payload,
+      "sensitivity",
+      ["public", "metadata", "sensitive", "secret"] as const,
+    ),
+    payload: jsonValue(payload.payload, "journal payload"),
+    resourceRevision: requiredNullableDecimal(payload, "resource_revision"),
+    previousResourceRevision: requiredNullableDecimal(
+      payload,
+      "previous_resource_revision",
+    ),
+  });
 }
 
 function color(payload: Record<string, unknown>, key: string): string {
@@ -2642,6 +2738,15 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       operations.sessionEvents,
       { ...this.params(), ...optionFields(options) },
       sessionEvent,
+      options,
+    );
+  }
+
+  journal(options: SessionJournalOptions = {}): Promise<ResourceStream<SessionJournalRecord>> {
+    return this.client[streamOperation](
+      operations.sessionJournalSubscribe,
+      { ...this.params(), ...journalOptionsFields(options) },
+      sessionJournalRecord,
       options,
     );
   }

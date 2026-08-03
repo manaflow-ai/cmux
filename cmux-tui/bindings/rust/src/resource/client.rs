@@ -666,7 +666,11 @@ fn operation_class(operation: &str) -> OperationClass {
 
     if matches!(
         operation,
-        ops::SESSION_EVENTS | ops::TERMINAL_ATTACH | ops::BROWSER_ATTACH | ops::SIDEBAR_VIEW_ATTACH
+        ops::SESSION_EVENTS
+            | ops::SESSION_JOURNAL_SUBSCRIBE
+            | ops::TERMINAL_ATTACH
+            | ops::BROWSER_ATTACH
+            | ops::SIDEBAR_VIEW_ATTACH
     ) {
         OperationClass::StreamOpen
     } else if matches!(

@@ -57,6 +57,7 @@ use resource_store::{
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
+pub(crate) use session_journal::SessionJournalReader;
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
     JournalSubject, SessionJournalPage, SessionJournalRecord,
@@ -356,6 +357,7 @@ pub struct ProjectionCommit {
 /// session concurrently.
 pub struct WorkspaceRegistry {
     connection: Connection,
+    database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -693,6 +695,7 @@ impl WorkspaceRegistry {
         }
         Ok(Self {
             connection,
+            database_path,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -703,6 +706,10 @@ impl WorkspaceRegistry {
             resource_patch_failures_remaining: Cell::new(0),
             _lease: lease,
         })
+    }
+
+    pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
+        self.database_path.clone()
     }
 
     pub(crate) fn resource_input_receipt_hmac(

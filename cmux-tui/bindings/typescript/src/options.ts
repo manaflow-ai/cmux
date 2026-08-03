@@ -63,6 +63,20 @@ export interface SessionEventsOptions extends RequestOptions {
   readonly cursor?: Cursor;
 }
 
+export interface JournalSubjectFilter {
+  readonly kind?: string;
+  readonly id?: string;
+}
+
+export interface SessionJournalOptions extends RequestOptions {
+  readonly cursor?: Cursor;
+  readonly start?: "tail" | "beginning";
+  readonly kinds?: readonly string[];
+  readonly classes?: readonly ("state" | "observation" | "effect" | "checkpoint")[];
+  readonly subjects?: readonly JournalSubjectFilter[];
+  readonly maxSensitivity?: "public" | "metadata" | "sensitive";
+}
+
 export interface TerminalHistoryOptions {
   readonly before?: DecimalString;
   readonly limit?: number;

@@ -52,6 +52,9 @@ class Operations:
     )
     SESSION_SNAPSHOT = _op("session.snapshot", "read", ("session",), "session")
     SESSION_EVENTS = _op("session.events", "stream_open", ("session",), "stream")
+    SESSION_JOURNAL_SUBSCRIBE = _op(
+        "session.journal.subscribe", "stream_open", ("session",), "stream"
+    )
     SESSION_PING = _op("session.ping", "read", ("session",))
     SESSION_SHUTDOWN = _op("session.shutdown", "mutation", ("session",))
     SESSION_RELOAD_CONFIG = _op("session.reload_config", "mutation", ("session",))

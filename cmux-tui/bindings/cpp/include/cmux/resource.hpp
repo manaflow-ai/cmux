@@ -49,6 +49,7 @@ enum class Operation {
     session_snapshot,
     session_creation_resolve,
     session_events,
+    session_journal_subscribe,
     session_ping,
     session_shutdown,
     session_reload_config,
@@ -456,6 +457,69 @@ struct TerminalAttachOptions {
 struct Cursor {
     std::string generation;
     std::uint64_t revision = 0;
+};
+
+enum class JournalStart { tail, beginning };
+enum class JournalClass { state, observation, effect, checkpoint };
+enum class JournalReplayPolicy { required, advisory, never };
+enum class JournalSensitivity { public_, metadata, sensitive, secret };
+
+struct JournalSubjectFilter {
+    std::optional<std::string> kind;
+    std::optional<std::string> id;
+};
+
+struct JournalFilter {
+    std::vector<std::string> kinds;
+    std::vector<JournalClass> classes;
+    std::vector<JournalSubjectFilter> subjects;
+    std::optional<JournalSensitivity> max_sensitivity;
+};
+
+struct SessionJournalOptions {
+    std::optional<Cursor> cursor;
+    std::optional<JournalStart> start;
+    JournalFilter filter;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+struct JournalProducer {
+    std::string kind;
+    std::string id;
+};
+
+struct JournalAuthority {
+    std::string principal_id;
+    std::string lease_id;
+    std::string generation;
+    std::string role;
+};
+
+struct JournalSubject {
+    std::string kind;
+    std::string id;
+};
+
+struct SessionJournalRecord {
+    std::uint64_t sequence = 0;
+    std::string event_id;
+    std::uint32_t schema_version = 0;
+    std::string kind;
+    JournalClass journal_class = JournalClass::state;
+    JournalReplayPolicy replay = JournalReplayPolicy::required;
+    std::uint64_t occurred_at_ms = 0;
+    std::uint64_t committed_at_ms = 0;
+    JournalProducer producer;
+    std::optional<JournalAuthority> authority;
+    std::optional<std::string> causation_id;
+    std::optional<std::string> correlation_id;
+    std::uint16_t causation_depth = 0;
+    std::vector<JournalSubject> subjects;
+    JournalSensitivity sensitivity = JournalSensitivity::sensitive;
+    Json payload;
+    std::optional<std::uint64_t> resource_revision;
+    std::optional<std::uint64_t> previous_resource_revision;
 };
 
 struct ConfirmationRequiredDetails {
@@ -1514,6 +1578,9 @@ namespace detail {
 [[nodiscard]] Result<SessionEvent> decode_session_event(
     const Json& value,
     const std::optional<Cursor>& envelope_cursor);
+[[nodiscard]] Result<SessionJournalRecord> decode_session_journal_record(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor);
 [[nodiscard]] Result<TerminalAttachmentItem> decode_terminal_attachment(
     const Json& value,
     const std::optional<Cursor>& envelope_cursor);
@@ -1535,6 +1602,8 @@ template <typename T>
     const std::optional<Cursor>& envelope_cursor) {
     if constexpr (std::same_as<T, SessionEvent>) {
         return decode_session_event(value, envelope_cursor);
+    } else if constexpr (std::same_as<T, SessionJournalRecord>) {
+        return decode_session_journal_record(value, envelope_cursor);
     } else if constexpr (std::same_as<T, TerminalAttachmentItem>) {
         return decode_terminal_attachment(value, envelope_cursor);
     } else if constexpr (std::same_as<T, BrowserAttachmentItem>) {
@@ -1621,6 +1690,7 @@ protected:
 };
 
 using SessionEventStream = TypedResourceStream<SessionEvent>;
+using SessionJournalStream = TypedResourceStream<SessionJournalRecord>;
 
 class TerminalAttachmentStream final
     : public TypedResourceStream<TerminalAttachmentItem> {
@@ -1814,6 +1884,9 @@ public:
         MutationOptions mutation = MutationOptions::unique()) const;
     [[nodiscard]] Result<SessionEventStream> events(
         std::optional<Cursor> cursor = std::nullopt,
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<SessionJournalStream> journal(
+        SessionJournalOptions options = {},
         CallOptions call = {}) const;
     [[nodiscard]] Result<MutationResult<ShutdownResult>> shutdown(
         MutationOptions options = MutationOptions::unique()) const;
@@ -2122,6 +2195,9 @@ public:
         Json::Object params = {},
         CallOptions call = {}) const;
     [[nodiscard]] Result<SessionEventStream> open_session_events(
+        Json::Object params = {},
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<SessionJournalStream> open_session_journal(
         Json::Object params = {},
         CallOptions call = {}) const;
     [[nodiscard]] Result<TerminalAttachmentStream> open_terminal_attachment(

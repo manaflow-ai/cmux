@@ -304,6 +304,13 @@ fn parse_session(
             add_optional_cursor(&mut params, flags)?;
             request(ResourceOperation::SessionEvents, selectors, flags, params)
         }
+        [selector, "journal", "subscribe"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags)?;
+            request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
+        }
         [selector, "ping"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionPing, selectors, flags, Map::new())
@@ -1883,6 +1890,117 @@ fn add_optional_cursor(
     }
 }
 
+fn add_journal_subscription(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let start = flags.take("from");
+    if let Some(start) = start.as_deref() {
+        validate_one_of("--from", start, &["tail", "beginning"])?;
+    }
+    let session_id = flags.take("cursor-session");
+    let sequence = flags.take("sequence");
+    match (session_id, sequence) {
+        (None, None) => {
+            if let Some(start) = start {
+                params.insert("start".into(), Value::String(start));
+            }
+        }
+        (Some(session_id), Some(sequence)) if start.is_none() => {
+            validate_prefixed_id("session", "session", &session_id)?;
+            validate_decimal("--sequence", &sequence)?;
+            params.insert("cursor".into(), json!({"generation":session_id,"revision":sequence}));
+        }
+        (Some(_), Some(_)) => {
+            return Err(UsageError::new("--from cannot be combined with a journal cursor"));
+        }
+        _ => {
+            return Err(UsageError::new(
+                "--cursor-session and --sequence must be supplied together",
+            ));
+        }
+    }
+
+    let mut filter = Map::new();
+    if let Some(kinds) = flags.take("kinds") {
+        let kinds = comma_separated("--kinds", &kinds)?;
+        for kind in &kinds {
+            validate_cli_journal_kind(kind)?;
+        }
+        filter.insert("kinds".into(), Value::Array(kinds.into_iter().map(Value::String).collect()));
+    }
+    if let Some(classes) = flags.take("classes") {
+        let classes = comma_separated("--classes", &classes)?;
+        for class in &classes {
+            validate_one_of("--classes", class, &["state", "observation", "effect", "checkpoint"])?;
+        }
+        filter.insert(
+            "classes".into(),
+            Value::Array(classes.into_iter().map(Value::String).collect()),
+        );
+    }
+    if let Some(subjects) = flags.take("subjects") {
+        let subjects = comma_separated("--subjects", &subjects)?
+            .into_iter()
+            .map(|subject| {
+                let (kind, id) = subject
+                    .split_once(':')
+                    .ok_or_else(|| UsageError::new("--subjects entries must use <kind>:<id>"))?;
+                if kind.is_empty()
+                    || id.is_empty()
+                    || !kind.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                {
+                    return Err(UsageError::new(
+                        "--subjects entries must use a lowercase <kind>:<id>",
+                    ));
+                }
+                Ok(json!({"kind":kind,"id":id}))
+            })
+            .collect::<Result<Vec<_>, UsageError>>()?;
+        filter.insert("subjects".into(), Value::Array(subjects));
+    }
+    if let Some(sensitivity) = flags.take("max-sensitivity") {
+        validate_one_of("--max-sensitivity", &sensitivity, &["public", "metadata", "sensitive"])?;
+        filter.insert("max_sensitivity".into(), Value::String(sensitivity));
+    }
+    if !filter.is_empty() {
+        params.insert("filter".into(), Value::Object(filter));
+    }
+    Ok(())
+}
+
+fn comma_separated(flag: &str, value: &str) -> Result<Vec<String>, UsageError> {
+    let values = value.split(',').map(str::to_string).collect::<Vec<_>>();
+    if values.is_empty()
+        || values.len() > 64
+        || values.iter().any(|value| value.is_empty() || value.len() > 256)
+    {
+        return Err(UsageError::new(format!(
+            "{flag} must contain 1 to 64 non-empty comma-separated values",
+        )));
+    }
+    Ok(values)
+}
+
+fn validate_cli_journal_kind(kind: &str) -> Result<(), UsageError> {
+    let base = kind.strip_suffix(".*").unwrap_or(kind);
+    if base.is_empty()
+        || kind.contains('*') != kind.ends_with(".*")
+        || base.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        Err(UsageError::new("--kinds entries must be dotted names with an optional terminal .*"))
+    } else {
+        Ok(())
+    }
+}
+
 fn parse_json_flag(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
     let value = flags.required(name)?;
     serde_json::from_str(&value)
@@ -2386,6 +2504,65 @@ mod tests {
     }
 
     #[test]
+    fn journal_subscribe_builds_replay_cursor_and_filter_contracts() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
+
+        let replay = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--from",
+            "beginning",
+            "--kinds",
+            "pane.*,tab.focus",
+            "--classes",
+            "state,effect",
+            "--subjects",
+            &format!("workspace:{WORKSPACE}"),
+            "--max-sensitivity",
+            "metadata",
+        ]);
+        assert_eq!(operation(&replay), "session.journal.subscribe");
+        assert!(replay.stream);
+        assert_eq!(replay.params["start"], "beginning");
+        assert_eq!(replay.params["filter"]["kinds"], json!(["pane.*", "tab.focus"]));
+        assert_eq!(replay.params["filter"]["classes"], json!(["state", "effect"]));
+        assert_eq!(
+            replay.params["filter"]["subjects"],
+            json!([{"kind":"workspace","id":WORKSPACE}])
+        );
+        assert_eq!(replay.params["filter"]["max_sensitivity"], "metadata");
+
+        let resumed = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert_eq!(resumed.params["cursor"], json!({"generation":SESSION,"revision":"42"}));
+        assert!(resumed.params.get("start").is_none());
+
+        for invalid in [
+            vec!["--from", "beginning", "--cursor-session", SESSION, "--sequence", "1"],
+            vec!["--cursor-session", SESSION],
+            vec!["--kinds", "pane*"],
+            vec!["--classes", "unknown"],
+            vec!["--subjects", "workspace"],
+            vec!["--max-sensitivity", "secret"],
+        ] {
+            let mut args = vec!["session", SESSION, "journal", "subscribe"];
+            args.extend(invalid);
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
+    }
+
+    #[test]
     fn run_never_infers_a_shell() {
         let direct = protocol(&["pane", "current", "run", "--", "printf", "%s", "a b"]);
         assert_eq!(direct.params["argv"], json!(["printf", "%s", "a b"]));
@@ -2704,6 +2881,19 @@ mod tests {
             (
                 vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
                 "session.events",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "subscribe",
+                    "--from",
+                    "beginning",
+                    "--kinds",
+                    "pane.*,tab.focus",
+                ],
+                "session.journal.subscribe",
             ),
             (vec!["session", SESSION, "ping"], "session.ping"),
             (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
@@ -3203,9 +3393,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 105);
+        assert_eq!(cases.len(), 106);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 112);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 113);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -3235,6 +3425,19 @@ mod tests {
         for (args, expected) in [
             (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
             (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "subscribe",
+                    "--cursor-session",
+                    SESSION,
+                    "--sequence",
+                    "42",
+                ],
+                "session.journal.subscribe",
+            ),
             (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
             (
                 vec![

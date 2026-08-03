@@ -148,6 +148,27 @@ class SessionEventsOptions:
 
 
 @dataclass(frozen=True)
+class JournalSubjectFilter:
+    kind: Optional[str] = None
+    id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class JournalFilter:
+    kinds: Optional[Sequence[str]] = None
+    classes: Optional[Sequence[str]] = None
+    subjects: Optional[Sequence[JournalSubjectFilter]] = None
+    max_sensitivity: Optional[Literal["public", "metadata", "sensitive"]] = None
+
+
+@dataclass(frozen=True)
+class SessionJournalOptions:
+    cursor: Optional[Cursor] = None
+    start: Optional[Literal["tail", "beginning"]] = None
+    filter: Optional[JournalFilter] = None
+
+
+@dataclass(frozen=True)
 class TerminalHistoryOptions:
     before: Optional[str] = None
     limit: Optional[int] = None
@@ -270,6 +291,9 @@ __all__ = [
     "RequestOptions",
     "RunOptions",
     "SessionEventsOptions",
+    "JournalFilter",
+    "JournalSubjectFilter",
+    "SessionJournalOptions",
     "SidebarEnsureOptions",
     "SidebarInputOptions",
     "SidebarResizeOptions",

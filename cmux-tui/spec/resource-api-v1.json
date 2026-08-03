@@ -96,6 +96,7 @@
         "session.creation.resolve",
         "session.events",
         "session.get",
+        "session.journal.subscribe",
         "session.list",
         "session.open",
         "session.ping",
@@ -255,6 +256,7 @@
         "stream_open": [
           "browser.attach",
           "session.events",
+          "session.journal.subscribe",
           "sidebar_view.attach",
           "terminal.attach"
         ],

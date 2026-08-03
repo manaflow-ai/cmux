@@ -61,6 +61,7 @@
     "session.creation.resolve",
     "session.events",
     "session.get",
+    "session.journal.subscribe",
     "session.list",
     "session.open",
     "session.ping",

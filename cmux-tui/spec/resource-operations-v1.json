@@ -197,6 +197,369 @@
       },
       "extra": false
     },
+    "JournalClass": {
+      "kind": "enum",
+      "values": [
+        "state",
+        "observation",
+        "effect",
+        "checkpoint"
+      ]
+    },
+    "JournalReplayPolicy": {
+      "kind": "enum",
+      "values": [
+        "required",
+        "advisory",
+        "never"
+      ]
+    },
+    "JournalSensitivity": {
+      "kind": "enum",
+      "values": [
+        "public",
+        "metadata",
+        "sensitive",
+        "secret"
+      ]
+    },
+    "JournalProducer": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        }
+      },
+      "extra": false
+    },
+    "JournalAuthority": {
+      "kind": "object",
+      "fields": {
+        "principal_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        },
+        "lease_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "JournalSubject": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        }
+      },
+      "extra": false
+    },
+    "JournalSubjectFilter": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "At least one of kind or id is required."
+      ]
+    },
+    "JournalFilter": {
+      "kind": "object",
+      "fields": {
+        "kinds": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 64,
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
+        "classes": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 4,
+            "items": {
+              "kind": "ref",
+              "name": "JournalClass"
+            }
+          }
+        },
+        "subjects": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "min_items": 1,
+            "max_items": 64,
+            "items": {
+              "kind": "ref",
+              "name": "JournalSubjectFilter"
+            }
+          }
+        },
+        "max_sensitivity": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "public",
+              "metadata",
+              "sensitive"
+            ]
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Dimensions are ANDed. Values within kinds, classes, and subjects are ORed.",
+        "A kind ending in .* matches that dotted namespace. Other kinds match exactly.",
+        "V1 trusted-local subscriptions never deliver secret records."
+      ]
+    },
+    "SessionJournalRecord": {
+      "kind": "object",
+      "fields": {
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "event_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        },
+        "schema_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "class": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalClass"
+          }
+        },
+        "replay": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalReplayPolicy"
+          }
+        },
+        "occurred_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "committed_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "producer": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalProducer"
+          }
+        },
+        "authority": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JournalAuthority"
+            }
+          }
+        },
+        "causation_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            }
+          }
+        },
+        "correlation_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            }
+          }
+        },
+        "causation_depth": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint16"
+          }
+        },
+        "subjects": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "max_items": 256,
+            "items": {
+              "kind": "ref",
+              "name": "JournalSubject"
+            }
+          }
+        },
+        "sensitivity": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JournalSensitivity"
+          }
+        },
+        "payload": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "resource_revision": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "previous_resource_revision": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "EmptyResult": {
       "kind": "object",
       "fields": {},
@@ -7816,6 +8179,85 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "session.journal.subscribe": {
+      "class": "stream_open",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stream_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "stream"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "Cursor"
+            }
+          },
+          "start": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "tail",
+                "beginning"
+              ]
+            }
+          },
+          "filter": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JournalFilter"
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "cursor and start are mutually exclusive.",
+          "Omitting both starts at the current head and delivers only later records.",
+          "For this operation Cursor.generation is the immutable session ID and Cursor.revision is the journal sequence."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "StreamOpened"
+      },
+      "stream": {
+        "item": {
+          "kind": "ref",
+          "name": "SessionJournalRecord"
+        },
+        "end": {
+          "kind": "ref",
+          "name": "StreamEnd"
+        },
+        "cursor": true,
+        "initial_snapshot": false
+      },
+      "errors": [
+        "cursor.gap",
+        "cursor.invalid",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "transport.closed",
         "validation.invalid"
       ]
     },

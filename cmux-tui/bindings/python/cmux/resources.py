@@ -103,6 +103,10 @@ from .models import (
     ScreenSnapshot,
     SessionDelta,
     SessionEvent,
+    JournalAuthority,
+    JournalProducer,
+    JournalSubject,
+    SessionJournalRecord,
     SessionSnapshotItem,
     SessionSnapshot,
     ShellCommand,
@@ -158,6 +162,7 @@ from .options import (
     RequestOptions,
     RunOptions,
     SessionEventsOptions,
+    SessionJournalOptions,
     SidebarEnsureOptions,
     SidebarInputOptions,
     SidebarResizeOptions,
@@ -232,6 +237,35 @@ def _options(value: object) -> Dict[str, Any]:
             result[item.name] = _plain(field_value)
         elif name is not None:
             result[name] = _plain(field_value)
+    return result
+
+
+def _journal_options(value: SessionJournalOptions) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    if value.cursor is not None:
+        result["cursor"] = asdict(value.cursor)
+    if value.start is not None:
+        result["start"] = value.start
+    if value.filter is None:
+        return result
+    filter_value: Dict[str, Any] = {}
+    if value.filter.kinds is not None:
+        filter_value["kinds"] = list(value.filter.kinds)
+    if value.filter.classes is not None:
+        filter_value["classes"] = list(value.filter.classes)
+    if value.filter.subjects is not None:
+        filter_value["subjects"] = [
+            {
+                key: item
+                for key, item in (("kind", subject.kind), ("id", subject.id))
+                if item is not None
+            }
+            for subject in value.filter.subjects
+        ]
+    if value.filter.max_sensitivity is not None:
+        filter_value["max_sensitivity"] = value.filter.max_sensitivity
+    if filter_value:
+        result["filter"] = filter_value
     return result
 
 
@@ -398,6 +432,16 @@ def _required_decimal(payload: Mapping[str, Any], key: str) -> str:
     ):
         raise ProtocolError(f"resource field {key} must be a uint64 decimal string")
     return value
+
+
+def _required_nullable_decimal(
+    payload: Mapping[str, Any], key: str
+) -> Optional[str]:
+    if key not in payload:
+        raise ProtocolError(f"resource result omitted required field {key}")
+    if payload[key] is None:
+        return None
+    return _required_decimal(payload, key)
 
 
 def _required_nullable_decimal_int(
@@ -1664,6 +1708,83 @@ def _event_item(value: Any) -> SessionEvent:
     return Unknown(kind, dict(payload))
 
 
+def _journal_record(value: Any) -> SessionJournalRecord:
+    payload = _mapping(value, "session journal record")
+    _strict_object(
+        payload,
+        (
+            "sequence", "event_id", "schema_version", "kind", "class", "replay",
+            "occurred_at_ms", "committed_at_ms", "producer", "authority",
+            "causation_id", "correlation_id", "causation_depth", "subjects",
+            "sensitivity", "payload", "resource_revision",
+            "previous_resource_revision",
+        ),
+        "session journal record",
+    )
+    for required in ("authority", "payload"):
+        if required not in payload:
+            raise ProtocolError(
+                f"session journal record omitted required field {required}"
+            )
+    producer = _mapping(payload.get("producer"), "journal producer")
+    _strict_object(producer, ("kind", "id"), "journal producer")
+    authority_value = payload.get("authority")
+    authority: Optional[JournalAuthority] = None
+    if authority_value is not None:
+        authority_payload = _mapping(authority_value, "journal authority")
+        _strict_object(
+            authority_payload,
+            ("principal_id", "lease_id", "generation", "role"),
+            "journal authority",
+        )
+        authority = JournalAuthority(
+            _required_string(authority_payload, "principal_id"),
+            _required_string(authority_payload, "lease_id"),
+            _required_string(authority_payload, "generation"),
+            _required_string(authority_payload, "role"),
+        )
+    subject_values = payload.get("subjects")
+    if not isinstance(subject_values, list):
+        raise ProtocolError("journal subjects must be an array")
+    subjects = []
+    for subject_value in subject_values:
+        subject = _mapping(subject_value, "journal subject")
+        _strict_object(subject, ("kind", "id"), "journal subject")
+        subjects.append(
+            JournalSubject(
+                _required_string(subject, "kind"),
+                _required_string(subject, "id"),
+            )
+        )
+    return SessionJournalRecord(
+        _required_decimal(payload, "sequence"),
+        _required_string(payload, "event_id"),
+        _required_positive_uint32(payload, "schema_version"),
+        _required_string(payload, "kind"),
+        _required_enum(payload, "class", ("state", "observation", "effect", "checkpoint")),  # type: ignore[arg-type]
+        _required_enum(payload, "replay", ("required", "advisory", "never")),  # type: ignore[arg-type]
+        _required_decimal(payload, "occurred_at_ms"),
+        _required_decimal(payload, "committed_at_ms"),
+        JournalProducer(
+            _required_string(producer, "kind"),
+            _required_string(producer, "id"),
+        ),
+        authority,
+        _required_nullable_string(payload, "causation_id"),
+        _required_nullable_string(payload, "correlation_id"),
+        _required_uint16(payload, "causation_depth"),
+        tuple(subjects),
+        _required_enum(
+            payload,
+            "sensitivity",
+            ("public", "metadata", "sensitive", "secret"),
+        ),  # type: ignore[arg-type]
+        payload["payload"],
+        _required_nullable_decimal(payload, "resource_revision"),
+        _required_nullable_decimal(payload, "previous_resource_revision"),
+    )
+
+
 def _color(payload: Mapping[str, Any], key: str) -> str:
     value = _required_string(payload, key)
     if len(value) != 7:
@@ -2687,6 +2808,15 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             Operations.SESSION_EVENTS,
             {**self._params(), **_options(options)},
             _event_item,
+        )
+
+    def journal(
+        self, options: SessionJournalOptions = SessionJournalOptions()
+    ) -> ResourceStream[SessionJournalRecord]:
+        return self._client._open_stream(
+            Operations.SESSION_JOURNAL_SUBSCRIBE,
+            {**self._params(), **_journal_options(options)},
+            _journal_record,
         )
 
     def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:

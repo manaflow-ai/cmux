@@ -1,6 +1,6 @@
 use super::id::*;
 use super::model::{Cursor, LayoutDocument};
-use super::typed_stream::ColorHex;
+use super::typed_stream::{ColorHex, JournalClass, JournalSensitivity};
 use crate::{Error, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -843,6 +843,28 @@ pub struct SidebarInputOptions {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EventStreamOptions {
     pub cursor: Option<Cursor>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalStart {
+    Tail,
+    Beginning,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct JournalSubjectFilter {
+    pub kind: Option<String>,
+    pub id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionJournalOptions {
+    pub cursor: Option<Cursor>,
+    pub start: Option<JournalStart>,
+    pub kinds: Vec<String>,
+    pub classes: Vec<JournalClass>,
+    pub subjects: Vec<JournalSubjectFilter>,
+    pub max_sensitivity: Option<JournalSensitivity>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

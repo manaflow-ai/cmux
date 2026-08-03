@@ -1043,6 +1043,7 @@ def _validate_catalog_type(
         if name == "JsonValue":
             allowed_json_contexts = {
                 "types.FrontendProjectionSnapshot.fields.projection",
+                "types.SessionJournalRecord.fields.payload",
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",

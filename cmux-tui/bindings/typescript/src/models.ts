@@ -633,6 +633,48 @@ export interface SessionDelta {
 
 export type SessionEvent = SessionSnapshotItem | SessionDelta | Unknown;
 
+export type JournalClass = "state" | "observation" | "effect" | "checkpoint";
+export type JournalReplayPolicy = "required" | "advisory" | "never";
+export type JournalSensitivity = "public" | "metadata" | "sensitive" | "secret";
+
+export interface JournalProducer {
+  readonly kind: string;
+  readonly id: string;
+}
+
+export interface JournalAuthority {
+  readonly principalId: string;
+  readonly leaseId: string;
+  readonly generation: string;
+  readonly role: string;
+}
+
+export interface JournalSubject {
+  readonly kind: string;
+  readonly id: string;
+}
+
+export interface SessionJournalRecord {
+  readonly sequence: DecimalString;
+  readonly eventId: string;
+  readonly schemaVersion: number;
+  readonly kind: string;
+  readonly class: JournalClass;
+  readonly replay: JournalReplayPolicy;
+  readonly occurredAtMs: DecimalString;
+  readonly committedAtMs: DecimalString;
+  readonly producer: JournalProducer;
+  readonly authority: JournalAuthority | null;
+  readonly causationId: string | null;
+  readonly correlationId: string | null;
+  readonly causationDepth: number;
+  readonly subjects: readonly JournalSubject[];
+  readonly sensitivity: JournalSensitivity;
+  readonly payload: JsonValue;
+  readonly resourceRevision: DecimalString | null;
+  readonly previousResourceRevision: DecimalString | null;
+}
+
 export interface RenderCursor {
   readonly x: number;
   readonly y: number;

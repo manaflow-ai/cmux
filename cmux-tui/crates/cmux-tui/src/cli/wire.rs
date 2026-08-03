@@ -9,7 +9,7 @@ use cmux_tui_core::resource::{
 };
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, random_prefixed};
+use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -80,7 +80,7 @@ fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
     }
     if matches!(
         &plan.operation,
-        super::command::WireOperation::Typed(
+        WireOperation::Typed(
             cmux_tui_core::resource::ResourceOperation::TerminalWait
                 | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
         )
@@ -134,6 +134,10 @@ fn run_response(
     request_id: &str,
 ) -> i32 {
     let mut accepted_stream = false;
+    let expose_stream_lifecycle = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe)
+    );
     let expected_stream_id = plan.params.get("stream_id").and_then(Value::as_str);
     loop {
         if plan.stream && crate::shutdown_requested() {
@@ -153,7 +157,7 @@ fn run_response(
         };
         match value.get("type").and_then(Value::as_str) {
             Some("response") => {
-                let response: ResponseEnvelope = match serde_json::from_value(value) {
+                let response: ResponseEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(response) => response,
                     Err(error) => {
                         eprintln!("protocol error: invalid response envelope: {error}");
@@ -180,6 +184,13 @@ fn run_response(
                     eprintln!("protocol error: stream response did not confirm the requested ID");
                     return 3;
                 }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
+                    return 3;
+                }
                 accepted_stream = true;
             }
             Some("stream_item") if plan.stream && accepted_stream => {
@@ -203,7 +214,7 @@ fn run_response(
                 }
             }
             Some("stream_end") if plan.stream && accepted_stream => {
-                let end: StreamEndEnvelope = match serde_json::from_value(value) {
+                let end: StreamEndEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(end) => end,
                     Err(error) => {
                         eprintln!("protocol error: invalid stream end: {error}");
@@ -215,6 +226,13 @@ fn run_response(
                     || Some(end.stream_id.as_str()) != expected_stream_id
                 {
                     eprintln!("protocol error: stream end does not match the opened stream");
+                    return 3;
+                }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
                     return 3;
                 }
                 if matches!(
@@ -549,9 +567,7 @@ mod tests {
     #[test]
     fn mutation_request_has_a_key_and_read_does_not() {
         let mutation = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceCreate,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
@@ -559,9 +575,7 @@ mod tests {
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
         let read = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceList,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceList),
             params: json!({}),
             idempotency_key: None,
             stream: false,
@@ -619,7 +633,7 @@ mod tests {
     fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
         for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
             let bounded = RequestPlan {
-                operation: super::super::command::WireOperation::Typed(operation),
+                operation: WireOperation::Typed(operation),
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,

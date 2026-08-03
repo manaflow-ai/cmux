@@ -2462,6 +2462,159 @@ Result<SessionEvent> decode_session_event(
     });
 }
 
+Result<SessionJournalRecord> decode_session_journal_record(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor) {
+    return guarded<SessionJournalRecord>([&] {
+        if (!envelope_cursor) {
+            fail("journal stream item requires an envelope cursor");
+        }
+        const auto& object = exact_object(
+            value,
+            {
+                "sequence", "event_id", "schema_version", "kind", "class", "replay",
+                "occurred_at_ms", "committed_at_ms", "producer", "authority",
+                "causation_id", "correlation_id", "causation_depth", "subjects",
+                "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+            },
+            {
+                "sequence", "event_id", "schema_version", "kind", "class", "replay",
+                "occurred_at_ms", "committed_at_ms", "producer", "authority",
+                "causation_id", "correlation_id", "causation_depth", "subjects",
+                "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+            },
+            "session journal record");
+        const auto sequence = decimal_value(
+            field(object, "sequence", "session journal record"),
+            "journal sequence");
+        if (sequence != envelope_cursor->revision) {
+            fail("journal sequence does not match envelope cursor");
+        }
+        const auto& producer_object = exact_object(
+            field(object, "producer", "session journal record"),
+            {"kind", "id"},
+            {"kind", "id"},
+            "journal producer");
+        const auto& raw_authority = field(
+            object, "authority", "session journal record");
+        std::optional<JournalAuthority> authority;
+        if (!raw_authority.is_null()) {
+            const auto& authority_object = exact_object(
+                raw_authority,
+                {"principal_id", "lease_id", "generation", "role"},
+                {"principal_id", "lease_id", "generation", "role"},
+                "journal authority");
+            authority = JournalAuthority{
+                bounded_string(
+                    field(authority_object, "principal_id", "journal authority"),
+                    "journal principal_id", 1, 512),
+                bounded_string(
+                    field(authority_object, "lease_id", "journal authority"),
+                    "journal lease_id", 1, 512),
+                bounded_string(
+                    field(authority_object, "generation", "journal authority"),
+                    "journal generation", 1, 128),
+                bounded_string(
+                    field(authority_object, "role", "journal authority"),
+                    "journal role", 1, 128),
+            };
+        }
+        auto nullable_string = [&](std::string_view name) {
+            auto result = required_nullable_string(object, name, "session journal record");
+            if (result && (result->empty() || result->size() > 512U)) {
+                fail(std::string(name) + " length is outside protocol bounds");
+            }
+            return result;
+        };
+        auto nullable_decimal = [&](std::string_view name) -> std::optional<std::uint64_t> {
+            const auto& raw = field(object, name, "session journal record");
+            if (raw.is_null()) {
+                return std::nullopt;
+            }
+            return decimal_value(raw, name);
+        };
+        return SessionJournalRecord{
+            sequence,
+            bounded_string(
+                field(object, "event_id", "session journal record"),
+                "journal event_id", 1, 512),
+            static_cast<std::uint32_t>(uint_value(
+                field(object, "schema_version", "session journal record"),
+                std::numeric_limits<std::uint32_t>::max(),
+                "journal schema_version",
+                true)),
+            bounded_string(
+                field(object, "kind", "session journal record"),
+                "journal kind", 1, 128),
+            enum_value<JournalClass>(
+                field(object, "class", "session journal record"),
+                {
+                    {"state", JournalClass::state},
+                    {"observation", JournalClass::observation},
+                    {"effect", JournalClass::effect},
+                    {"checkpoint", JournalClass::checkpoint},
+                },
+                "journal class"),
+            enum_value<JournalReplayPolicy>(
+                field(object, "replay", "session journal record"),
+                {
+                    {"required", JournalReplayPolicy::required},
+                    {"advisory", JournalReplayPolicy::advisory},
+                    {"never", JournalReplayPolicy::never},
+                },
+                "journal replay"),
+            decimal_value(
+                field(object, "occurred_at_ms", "session journal record"),
+                "journal occurred_at_ms"),
+            decimal_value(
+                field(object, "committed_at_ms", "session journal record"),
+                "journal committed_at_ms"),
+            JournalProducer{
+                bounded_string(
+                    field(producer_object, "kind", "journal producer"),
+                    "journal producer kind", 1, 128),
+                bounded_string(
+                    field(producer_object, "id", "journal producer"),
+                    "journal producer id", 1, 512),
+            },
+            std::move(authority),
+            nullable_string("causation_id"),
+            nullable_string("correlation_id"),
+            static_cast<std::uint16_t>(uint_value(
+                field(object, "causation_depth", "session journal record"),
+                std::numeric_limits<std::uint16_t>::max(),
+                "journal causation_depth")),
+            array_value<JournalSubject>(
+                field(object, "subjects", "session journal record"),
+                "journal subjects",
+                [](const Json& item) {
+                    const auto& subject = exact_object(
+                        item, {"kind", "id"}, {"kind", "id"}, "journal subject");
+                    return JournalSubject{
+                        bounded_string(
+                            field(subject, "kind", "journal subject"),
+                            "journal subject kind", 1, 128),
+                        bounded_string(
+                            field(subject, "id", "journal subject"),
+                            "journal subject id", 1, 512),
+                    };
+                }),
+            enum_value<JournalSensitivity>(
+                field(object, "sensitivity", "session journal record"),
+                {
+                    {"public", JournalSensitivity::public_},
+                    {"metadata", JournalSensitivity::metadata},
+                    {"sensitive", JournalSensitivity::sensitive},
+                    {"secret", JournalSensitivity::secret},
+                },
+                "journal sensitivity"),
+            field(object, "payload", "session journal record"),
+            nullable_decimal("resource_revision"),
+            nullable_decimal("previous_resource_revision"),
+        };
+    });
+}
+
 Result<TerminalAttachmentItem> decode_terminal_attachment(
     const Json& value,
     const std::optional<Cursor>& envelope_cursor) {

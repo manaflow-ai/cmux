@@ -42,6 +42,7 @@ pub const Operation = enum {
     session_snapshot,
     session_creation_resolve,
     session_events,
+    session_journal_subscribe,
     session_ping,
     session_shutdown,
     session_reload_config,
@@ -157,6 +158,7 @@ pub const Operation = enum {
             .session_snapshot => "session.snapshot",
             .session_creation_resolve => "session.creation.resolve",
             .session_events => "session.events",
+            .session_journal_subscribe => "session.journal.subscribe",
             .session_ping => "session.ping",
             .session_shutdown => "session.shutdown",
             .session_reload_config => "session.reload_config",
@@ -267,6 +269,7 @@ pub const Operation = enum {
     pub fn class(self: Operation) OperationClass {
         return switch (self) {
             .session_events,
+            .session_journal_subscribe,
             .terminal_attach,
             .browser_attach,
             .sidebar_view_attach,
@@ -364,6 +367,7 @@ pub const Operation = enum {
             .session_snapshot => .{ .owner = .session, .method = "fullSnapshot" },
             .session_creation_resolve => .{ .owner = .session, .method = "resolveCreation" },
             .session_events => .{ .owner = .session, .method = "eventsFrom" },
+            .session_journal_subscribe => .{ .owner = .session, .method = "journal" },
             .session_ping => .{ .owner = .session, .method = "ping" },
             .session_shutdown => .{ .owner = .session, .method = "shutdown" },
             .session_reload_config => .{ .owner = .session, .method = "reloadConfig" },
@@ -806,6 +810,99 @@ pub const InitialContent = enum {
 pub const Cursor = struct {
     generation: []const u8,
     revision: u64,
+};
+
+pub const JournalStart = enum {
+    tail,
+    beginning,
+
+    pub fn wireName(self: JournalStart) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalClass = enum {
+    state,
+    observation,
+    effect,
+    checkpoint,
+
+    pub fn wireName(self: JournalClass) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalReplayPolicy = enum {
+    required,
+    advisory,
+    never,
+};
+
+pub const JournalSensitivity = enum {
+    public,
+    metadata,
+    sensitive,
+    secret,
+
+    pub fn wireName(self: JournalSensitivity) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalSubjectFilter = struct {
+    kind: ?[]const u8 = null,
+    id: ?[]const u8 = null,
+};
+
+pub const JournalFilter = struct {
+    kinds: []const []const u8 = &.{},
+    classes: []const JournalClass = &.{},
+    subjects: []const JournalSubjectFilter = &.{},
+    max_sensitivity: ?JournalSensitivity = null,
+};
+
+pub const SessionJournalOptions = struct {
+    cursor: ?Cursor = null,
+    start: ?JournalStart = null,
+    filter: JournalFilter = .{},
+};
+
+pub const JournalProducer = struct {
+    kind: []const u8,
+    id: []const u8,
+};
+
+pub const JournalAuthority = struct {
+    principal_id: []const u8,
+    lease_id: []const u8,
+    generation: []const u8,
+    role: []const u8,
+};
+
+pub const JournalSubject = struct {
+    kind: []const u8,
+    id: []const u8,
+};
+
+pub const SessionJournalRecord = struct {
+    sequence: u64,
+    event_id: []const u8,
+    schema_version: u32,
+    kind: []const u8,
+    journal_class: JournalClass,
+    replay: JournalReplayPolicy,
+    occurred_at_ms: u64,
+    committed_at_ms: u64,
+    producer: JournalProducer,
+    authority: ?JournalAuthority,
+    causation_id: ?[]const u8,
+    correlation_id: ?[]const u8,
+    causation_depth: u16,
+    subjects: []JournalSubject,
+    sensitivity: JournalSensitivity,
+    payload: raw.wire.Value,
+    resource_revision: ?u64,
+    previous_resource_revision: ?u64,
 };
 
 pub const CreatedWorkspaceOnly = struct {
@@ -2882,6 +2979,23 @@ pub const Client = struct {
         ) };
     }
 
+    fn openSessionJournal(
+        self: *Client,
+        params: raw.wire.Value,
+    ) !SessionJournalStream {
+        var deadline = try TimeoutDeadline.start(self.timeout_ms);
+        const connection = try self.streamConnection(&deadline);
+        return .{ .raw_stream = try RawStream.open(
+            SessionJournalRecord,
+            self.allocator,
+            connection,
+            self.streamOptions(),
+            .session_journal_subscribe,
+            params,
+            &deadline,
+        ) };
+    }
+
     fn openTerminalAttachment(
         self: *Client,
         params: raw.wire.Value,
@@ -3643,6 +3757,206 @@ fn decodeSessionEvent(
     } };
 }
 
+fn journalBoundedString(
+    object: raw.wire.Object,
+    name: []const u8,
+    maximum: usize,
+) ![]const u8 {
+    const value = try objectString(object, name);
+    if (value.len == 0 or value.len > maximum) {
+        return error.InvalidJournalString;
+    }
+    return value;
+}
+
+fn journalNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    return switch (object.get(name) orelse return error.MissingField) {
+        .null => null,
+        .string => |value| if (value.len == 0 or value.len > 512)
+            error.InvalidJournalString
+        else
+            value,
+        else => error.ExpectedString,
+    };
+}
+
+fn journalNullableDecimal(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?u64 {
+    return switch (object.get(name) orelse return error.MissingField) {
+        .null => null,
+        else => |value| try decimalU64(value),
+    };
+}
+
+fn decodeJournalClass(value: []const u8) !JournalClass {
+    if (std.mem.eql(u8, value, "state")) return .state;
+    if (std.mem.eql(u8, value, "observation")) return .observation;
+    if (std.mem.eql(u8, value, "effect")) return .effect;
+    if (std.mem.eql(u8, value, "checkpoint")) return .checkpoint;
+    return error.InvalidJournalClass;
+}
+
+fn decodeJournalReplayPolicy(value: []const u8) !JournalReplayPolicy {
+    if (std.mem.eql(u8, value, "required")) return .required;
+    if (std.mem.eql(u8, value, "advisory")) return .advisory;
+    if (std.mem.eql(u8, value, "never")) return .never;
+    return error.InvalidJournalReplayPolicy;
+}
+
+fn decodeJournalSensitivity(value: []const u8) !JournalSensitivity {
+    if (std.mem.eql(u8, value, "public")) return .public;
+    if (std.mem.eql(u8, value, "metadata")) return .metadata;
+    if (std.mem.eql(u8, value, "sensitive")) return .sensitive;
+    if (std.mem.eql(u8, value, "secret")) return .secret;
+    return error.InvalidJournalSensitivity;
+}
+
+fn decodeJournalProducer(value: raw.wire.Value) !JournalProducer {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "kind", "id" });
+    return .{
+        .kind = try journalBoundedString(object, "kind", 128),
+        .id = try journalBoundedString(object, "id", 512),
+    };
+}
+
+fn decodeJournalAuthority(value: raw.wire.Value) !?JournalAuthority {
+    return switch (value) {
+        .null => null,
+        .object => |object| blk: {
+            try ensureOnlyFields(
+                object,
+                &.{ "principal_id", "lease_id", "generation", "role" },
+            );
+            break :blk .{
+                .principal_id = try journalBoundedString(
+                    object,
+                    "principal_id",
+                    512,
+                ),
+                .lease_id = try journalBoundedString(
+                    object,
+                    "lease_id",
+                    512,
+                ),
+                .generation = try journalBoundedString(
+                    object,
+                    "generation",
+                    128,
+                ),
+                .role = try journalBoundedString(object, "role", 128),
+            };
+        },
+        else => error.ExpectedObject,
+    };
+}
+
+fn decodeSessionJournalRecord(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+    envelope_cursor: ?Cursor,
+) !SessionJournalRecord {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{
+        "sequence",
+        "event_id",
+        "schema_version",
+        "kind",
+        "class",
+        "replay",
+        "occurred_at_ms",
+        "committed_at_ms",
+        "producer",
+        "authority",
+        "causation_id",
+        "correlation_id",
+        "causation_depth",
+        "subjects",
+        "sensitivity",
+        "payload",
+        "resource_revision",
+        "previous_resource_revision",
+    });
+    const sequence = try decimalU64(
+        object.get("sequence") orelse return error.MissingField,
+    );
+    const cursor = envelope_cursor orelse return error.MissingStreamCursor;
+    if (cursor.revision != sequence) return error.StreamCursorMismatch;
+    const raw_subjects = switch (object.get("subjects") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    if (raw_subjects.len > 256) return error.TooManyJournalSubjects;
+    const subjects = try allocator.alloc(JournalSubject, raw_subjects.len);
+    for (raw_subjects, 0..) |raw_subject, index| {
+        const subject = try detailObject(raw_subject);
+        try ensureOnlyFields(subject, &.{ "kind", "id" });
+        subjects[index] = .{
+            .kind = try journalBoundedString(subject, "kind", 128),
+            .id = try journalBoundedString(subject, "id", 512),
+        };
+    }
+    return .{
+        .sequence = sequence,
+        .event_id = try journalBoundedString(object, "event_id", 512),
+        .schema_version = try objectUnsigned(
+            u32,
+            object,
+            "schema_version",
+            1,
+        ),
+        .kind = try journalBoundedString(object, "kind", 128),
+        .journal_class = try decodeJournalClass(
+            try objectString(object, "class"),
+        ),
+        .replay = try decodeJournalReplayPolicy(
+            try objectString(object, "replay"),
+        ),
+        .occurred_at_ms = try decimalU64(
+            object.get("occurred_at_ms") orelse return error.MissingField,
+        ),
+        .committed_at_ms = try decimalU64(
+            object.get("committed_at_ms") orelse return error.MissingField,
+        ),
+        .producer = try decodeJournalProducer(
+            object.get("producer") orelse return error.MissingField,
+        ),
+        .authority = try decodeJournalAuthority(
+            object.get("authority") orelse return error.MissingField,
+        ),
+        .causation_id = try journalNullableString(object, "causation_id"),
+        .correlation_id = try journalNullableString(
+            object,
+            "correlation_id",
+        ),
+        .causation_depth = try objectUnsigned(
+            u16,
+            object,
+            "causation_depth",
+            0,
+        ),
+        .subjects = subjects,
+        .sensitivity = try decodeJournalSensitivity(
+            try objectString(object, "sensitivity"),
+        ),
+        .payload = object.get("payload") orelse return error.MissingField,
+        .resource_revision = try journalNullableDecimal(
+            object,
+            "resource_revision",
+        ),
+        .previous_resource_revision = try journalNullableDecimal(
+            object,
+            "previous_resource_revision",
+        ),
+    };
+}
+
 fn decodeRenderCursorStyle(value: []const u8) RenderCursorStyle {
     if (std.mem.eql(u8, value, "block")) return .block;
     if (std.mem.eql(u8, value, "underline")) return .underline;
@@ -4029,6 +4343,9 @@ fn domainItem(
 ) !Item {
     if (comptime Item == SessionEvent) {
         return decodeSessionEvent(allocator, value, cursor);
+    }
+    if (comptime Item == SessionJournalRecord) {
+        return decodeSessionJournalRecord(allocator, value, cursor);
     }
     if (comptime Item == TerminalAttachmentItem) {
         return decodeTerminalAttachmentItem(allocator, value);
@@ -4856,17 +5173,18 @@ fn nextTypedStreamItem(
         else => return error.ExpectedObject,
     };
     const envelope = try raw_stream.parseItemEnvelope(object);
+    const value = try domainItem(
+        Item,
+        decoded.allocator(),
+        envelope.item,
+        envelope.cursor,
+    );
     return .{
         .owned = message,
         .decoded = decoded,
         .sequence = envelope.sequence,
         .cursor = envelope.cursor,
-        .value = try domainItem(
-            Item,
-            decoded.allocator(),
-            envelope.item,
-            envelope.cursor,
-        ),
+        .value = value,
     };
 }
 
@@ -4897,6 +5215,7 @@ fn TypedStream(comptime Item: type) type {
 }
 
 pub const SessionEventStream = TypedStream(SessionEvent);
+pub const SessionJournalStream = TypedStream(SessionJournalRecord);
 pub const SidebarViewStream = TypedStream(SidebarViewItem);
 
 pub const TerminalAttachmentStream = struct {
@@ -5492,6 +5811,118 @@ fn Params(comptime Id: type) type {
             self.* = undefined;
         }
     };
+}
+
+fn encodeSessionJournalOptions(
+    comptime Id: type,
+    params: *Params(Id),
+    options: SessionJournalOptions,
+) !void {
+    if (options.cursor != null and options.start != null) {
+        return error.ConflictingJournalStart;
+    }
+    const allocator = params.arena.allocator();
+    if (options.cursor) |cursor| {
+        if (cursor.generation.len == 0 or cursor.generation.len > 128) {
+            return error.InvalidCursorGeneration;
+        }
+        var encoded = raw.wire.Object.init(allocator);
+        try encoded.put(
+            "generation",
+            .{ .string = try allocator.dupe(u8, cursor.generation) },
+        );
+        try encoded.put(
+            "revision",
+            .{ .string = try std.fmt.allocPrint(
+                allocator,
+                "{d}",
+                .{cursor.revision},
+            ) },
+        );
+        try params.putValue("cursor", .{ .object = encoded });
+    }
+    if (options.start) |start| {
+        try params.putString("start", start.wireName());
+    }
+
+    const filter = options.filter;
+    if (filter.kinds.len > 64 or
+        filter.classes.len > 4 or
+        filter.subjects.len > 64)
+    {
+        return error.TooManyJournalFilters;
+    }
+    if (filter.max_sensitivity == .secret) {
+        return error.SecretJournalRecordsUnavailable;
+    }
+    var encoded_filter = raw.wire.Object.init(allocator);
+    if (filter.kinds.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.kinds) |kind| {
+            if (kind.len == 0 or kind.len > 128) {
+                return error.InvalidJournalFilter;
+            }
+            try values.append(.{
+                .string = try allocator.dupe(u8, kind),
+            });
+        }
+        try encoded_filter.put("kinds", .{ .array = values });
+    }
+    if (filter.classes.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.classes) |journal_class| {
+            try values.append(.{
+                .string = try allocator.dupe(
+                    u8,
+                    journal_class.wireName(),
+                ),
+            });
+        }
+        try encoded_filter.put("classes", .{ .array = values });
+    }
+    if (filter.subjects.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.subjects) |subject| {
+            if (subject.kind == null and subject.id == null) {
+                return error.EmptyJournalSubjectFilter;
+            }
+            var encoded = raw.wire.Object.init(allocator);
+            if (subject.kind) |kind| {
+                if (kind.len == 0 or kind.len > 128) {
+                    return error.InvalidJournalFilter;
+                }
+                try encoded.put(
+                    "kind",
+                    .{ .string = try allocator.dupe(u8, kind) },
+                );
+            }
+            if (subject.id) |id| {
+                if (id.len == 0 or id.len > 512) {
+                    return error.InvalidJournalFilter;
+                }
+                try encoded.put(
+                    "id",
+                    .{ .string = try allocator.dupe(u8, id) },
+                );
+            }
+            try values.append(.{ .object = encoded });
+        }
+        try encoded_filter.put("subjects", .{ .array = values });
+    }
+    if (filter.max_sensitivity) |sensitivity| {
+        try encoded_filter.put(
+            "max_sensitivity",
+            .{
+                .string = try allocator.dupe(
+                    u8,
+                    sensitivity.wireName(),
+                ),
+            },
+        );
+    }
+    if (encoded_filter.count() > 0) {
+        try params.putValue("filter", .{ .object = encoded_filter });
+    }
 }
 
 fn encodeRun(
@@ -11384,6 +11815,24 @@ fn HandleImpl(
             return self.client.openSessionEvents(params.asValue());
         }
 
+        pub fn journal(
+            self: Self,
+            options: SessionJournalOptions,
+        ) !SessionJournalStream {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try encodeSessionJournalOptions(Id, &params, options);
+            return self.client.openSessionJournal(params.asValue());
+        }
+
         pub fn attachTerminal(self: Self) !TerminalAttachmentStream {
             return self.attachTerminalWith(.{});
         }
@@ -12026,6 +12475,13 @@ pub const Session = struct {
         cursor: ?Cursor,
     ) !SessionEventStream {
         return self.impl().eventsFrom(cursor);
+    }
+
+    pub fn journal(
+        self: Self,
+        options: SessionJournalOptions,
+    ) !SessionJournalStream {
+        return self.impl().journal(options);
     }
 };
 
@@ -13415,6 +13871,34 @@ const FakeShared = struct {
         try self.appendInput(item);
     }
 
+    fn appendJournalStreamItem(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        const item = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++
+                "\"session_11111111111111111111111111111111\"," ++
+                "\"revision\":\"1\"}},\"item\":{{" ++
+                "\"sequence\":\"1\",\"event_id\":\"evt_1\"," ++
+                "\"schema_version\":1,\"kind\":\"workspace.focus\"," ++
+                "\"class\":\"state\",\"replay\":\"required\"," ++
+                "\"occurred_at_ms\":\"10\",\"committed_at_ms\":\"11\"," ++
+                "\"producer\":{{\"kind\":\"resource_api\",\"id\":\"client_1\"}}," ++
+                "\"authority\":null,\"causation_id\":null," ++
+                "\"correlation_id\":null,\"causation_depth\":0," ++
+                "\"subjects\":[{{\"kind\":\"workspace\",\"id\":\"ws_1\"}}]," ++
+                "\"sensitivity\":\"public\",\"payload\":{{\"focused\":true}}," ++
+                "\"resource_revision\":\"4\"," ++
+                "\"previous_resource_revision\":\"3\"}}}}",
+            .{stream_id},
+        );
+        defer self.allocator.free(item);
+        try self.appendInput(item);
+    }
+
     fn appendCompletedStreamEnd(
         self: *FakeShared,
         stream_id: []const u8,
@@ -14229,6 +14713,20 @@ const FakeShared = struct {
                 } else if (self.stream_open_preamble == .item_before_ack) {
                     try self.appendSessionStreamItemAt(stream_id, 2);
                 }
+                continue;
+            }
+            if (std.mem.eql(
+                u8,
+                operation,
+                "session.journal.subscribe",
+            )) {
+                const params = switch (object.get("params").?) {
+                    .object => |item| item,
+                    else => return error.ExpectedObject,
+                };
+                const stream_id = try objectString(params, "stream_id");
+                try self.appendStreamOpenResponse(id, stream_id);
+                try self.appendJournalStreamItem(stream_id);
                 continue;
             }
             if (std.mem.eql(u8, operation, "stream.cancel")) {
@@ -15078,7 +15576,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 112), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 113), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -15138,6 +15636,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "createWorkspace",
         "events",
         "eventsFrom",
+        "journal",
     });
     try expectHandleCapabilities(Workspace, &.{
         "screen",
@@ -15264,6 +15763,7 @@ test "public facades expose only valid resource and stream capabilities" {
     });
 
     try expectStreamCapabilities(SessionEventStream, &.{});
+    try expectStreamCapabilities(SessionJournalStream, &.{});
     try expectStreamCapabilities(SidebarViewStream, &.{});
     try expectStreamCapabilities(TerminalAttachmentStream, &.{
         "resizeTerminalViewer",
@@ -18742,6 +19242,87 @@ test "typed session stream preserves unknown payload and cancel end order" {
         ),
     );
     try std.testing.expect(stream_shared.closed);
+}
+
+test "session journal encodes filters and decodes typed records" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).journal(.{
+        .start = .beginning,
+        .filter = .{
+            .kinds = &.{ "workspace.*", "tab.focus" },
+            .classes = &.{.state},
+            .subjects = &.{.{ .kind = "workspace", .id = "ws_1" }},
+            .max_sensitivity = .metadata,
+        },
+    });
+    defer stream.deinit();
+    var item = (try stream.next()).?;
+    defer item.deinit();
+    try std.testing.expectEqual(@as(u64, 1), item.value.sequence);
+    try std.testing.expectEqualStrings(
+        "workspace.focus",
+        item.value.kind,
+    );
+    try std.testing.expectEqual(
+        JournalClass.state,
+        item.value.journal_class,
+    );
+    try std.testing.expectEqual(@as(usize, 1), item.value.subjects.len);
+    try std.testing.expectEqualStrings(
+        "ws_1",
+        item.value.subjects[0].id,
+    );
+
+    const request_line = std.mem.sliceTo(stream_shared.output.items, '\n');
+    var request = try raw.wire.parse(
+        std.testing.allocator,
+        request_line,
+        .{},
+    );
+    defer request.deinit();
+    const request_object = try detailObject(request.value);
+    try std.testing.expectEqualStrings(
+        "session.journal.subscribe",
+        try objectString(request_object, "operation"),
+    );
+    const params = try detailObject(
+        request_object.get("params") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "beginning",
+        try objectString(params, "start"),
+    );
+    const filter = try detailObject(
+        params.get("filter") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "metadata",
+        try objectString(filter, "max_sensitivity"),
+    );
 }
 
 test "cancel failures preserve their error fail closed and never resend" {

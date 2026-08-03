@@ -124,6 +124,55 @@ Storage v1 conservatively marks generic resource payloads `sensitive` because
 whole-resource upserts may contain names, URLs, or upstream agent session IDs.
 Producer-specific redacted event shapes may lower that classification later.
 
+## Subscription API
+
+Consumers subscribe through the versioned resource API, never by opening the
+SQLite database. `session.journal.subscribe` is trusted-local in v1. It returns
+the ordinary bounded stream envelopes and a durable cursor whose `generation`
+is the immutable session ID and whose `revision` is the decimal journal
+sequence. Decimal strings avoid loss in JavaScript and other runtimes with
+bounded integer representations.
+
+With no starting position, a subscriber tails records committed after the
+open request captures the current head. `start: "beginning"` first replays all
+retained records. Reconnecting with the last delivered cursor resumes after
+that record. A cursor from another session, or one ahead of the current head,
+fails with `cursor.invalid`. A bounded subscriber that falls behind receives a
+`gap` stream end with its last safe cursor and reconnects from that cursor.
+
+Filters are optional. Filter dimensions are ANDed, entries within one
+dimension are ORed, and filtered records still advance the cursor:
+
+- `kinds` accepts exact dotted kinds and terminal prefixes such as `pane.*`;
+- `classes` accepts `state`, `observation`, `effect`, and `checkpoint`;
+- `subjects` matches a subject kind, ID, or both;
+- `max_sensitivity` accepts `public`, `metadata`, or `sensitive`.
+
+V1 never delivers `secret` records. Authorization and redaction must be added
+before this feed is exposed over a remote transport.
+
+The CLI is the language-neutral hook boundary. Human output prints records;
+`--jsonl` prints complete stream envelopes so a consumer can persist the
+cursor before performing an external effect:
+
+```bash
+cmux --session main --jsonl session current journal subscribe
+cmux --session main --jsonl session current journal subscribe \
+  --from beginning --kinds 'agent.*,pane.*' --classes state,observation
+cmux --session main --jsonl session current journal subscribe \
+  --cursor-session session_... --sequence 42
+```
+
+Quote kind prefixes containing `*` so shells such as zsh do not expand them.
+
+Each persistent subscriber uses an independent read-only WAL connection and
+short bounded queries, so it never acquires the registry writer mutex or pins a
+long read transaction. Filters run off the mutation path. Idle subscribers wait
+on a commit signal instead of polling the database. Hooks should store their own
+delivery cursor and idempotency receipt, then acknowledge effects in a separate
+durable projection. A hook process must never run synchronously inside the
+journal transaction.
+
 ## Focus, layout, resize, and content
 
 The following are replayable user intent:

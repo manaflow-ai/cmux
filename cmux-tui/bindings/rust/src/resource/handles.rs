@@ -4,7 +4,8 @@ use super::model::*;
 use super::ops;
 use super::options::*;
 use super::typed_stream::{
-    BrowserAttachment, SessionEventStream, SidebarViewStream, TerminalAttachment,
+    BrowserAttachment, SessionEventStream, SessionJournalStream, SidebarViewStream,
+    TerminalAttachment,
 };
 use super::wire::{self, Params, field};
 use crate::{Error, Result};
@@ -309,6 +310,99 @@ impl Session {
         self.client
             .stream(ops::SESSION_EVENTS, self.params().cursor(options.cursor.as_ref()))
             .map(SessionEventStream::new)
+    }
+
+    pub fn journal(&self, options: SessionJournalOptions) -> Result<SessionJournalStream> {
+        if options.cursor.is_some() && options.start.is_some() {
+            return Err(Error::InvalidArgument(
+                "journal cursor and start are mutually exclusive".to_string(),
+            ));
+        }
+        if options.max_sensitivity == Some(super::typed_stream::JournalSensitivity::Secret) {
+            return Err(Error::InvalidArgument(
+                "secret journal records are unavailable in v1".to_string(),
+            ));
+        }
+        if options.subjects.iter().any(|subject| subject.kind.is_none() && subject.id.is_none()) {
+            return Err(Error::InvalidArgument(
+                "journal subject filters require kind or id".to_string(),
+            ));
+        }
+        let mut params = self.params().cursor(options.cursor.as_ref());
+        if let Some(start) = options.start {
+            params = params.string(
+                "start",
+                match start {
+                    JournalStart::Tail => "tail",
+                    JournalStart::Beginning => "beginning",
+                },
+            );
+        }
+        let mut filter = Map::new();
+        if !options.kinds.is_empty() {
+            filter.insert("kinds".to_string(), serde_json::json!(options.kinds));
+        }
+        if !options.classes.is_empty() {
+            filter.insert(
+                "classes".to_string(),
+                Value::Array(
+                    options
+                        .classes
+                        .into_iter()
+                        .map(|value| {
+                            Value::String(
+                                match value {
+                                    super::typed_stream::JournalClass::State => "state",
+                                    super::typed_stream::JournalClass::Observation => "observation",
+                                    super::typed_stream::JournalClass::Effect => "effect",
+                                    super::typed_stream::JournalClass::Checkpoint => "checkpoint",
+                                }
+                                .to_string(),
+                            )
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if !options.subjects.is_empty() {
+            filter.insert(
+                "subjects".to_string(),
+                Value::Array(
+                    options
+                        .subjects
+                        .into_iter()
+                        .map(|subject| {
+                            let mut value = Map::new();
+                            if let Some(kind) = subject.kind {
+                                value.insert("kind".to_string(), Value::String(kind));
+                            }
+                            if let Some(id) = subject.id {
+                                value.insert("id".to_string(), Value::String(id));
+                            }
+                            Value::Object(value)
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(sensitivity) = options.max_sensitivity {
+            filter.insert(
+                "max_sensitivity".to_string(),
+                Value::String(
+                    match sensitivity {
+                        super::typed_stream::JournalSensitivity::Public => "public",
+                        super::typed_stream::JournalSensitivity::Metadata => "metadata",
+                        super::typed_stream::JournalSensitivity::Sensitive => "sensitive",
+                        super::typed_stream::JournalSensitivity::Secret => unreachable!(),
+                    }
+                    .to_string(),
+                ),
+            );
+        }
+        if !filter.is_empty() {
+            params = params.value("filter", Value::Object(filter));
+        }
+        self.client.stream(ops::SESSION_JOURNAL_SUBSCRIBE, params).map(SessionJournalStream::new)
     }
 
     pub fn ping(&self) -> Result<PingResult> {

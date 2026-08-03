@@ -605,6 +605,14 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
+        ResourceOperation::SessionJournalSubscribe => {
+            if supplied.contains_key("cursor") && supplied.contains_key("start") {
+                return Err(validation_error(
+                    "journal cursor and start are mutually exclusive",
+                    json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+                ));
+            }
+        }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
                 && !(0.0 < ratio && ratio < 1.0)
@@ -949,6 +957,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve
@@ -1554,7 +1563,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 113);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1573,7 +1582,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 112);
+        assert_eq!(operations.len(), 113);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

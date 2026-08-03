@@ -357,6 +357,22 @@ func (s *Session) Events(ctx context.Context, options SessionEventsOptions) (*St
 	merge(input, options.Extra)
 	return openStream(ctx, s.client, wirev1.SessionEvents, input, decodeSessionEvent)
 }
+func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*Stream[SessionJournalRecord], error) {
+	input := s.route.params()
+	if options.Cursor != nil {
+		input[wirev1.FieldCursor] = options.Cursor
+	}
+	if options.Start != nil {
+		input[wirev1.FieldStart] = *options.Start
+	}
+	if options.Filter != nil {
+		input["filter"] = options.Filter
+	}
+	merge(input, options.Extra)
+	return openStream(
+		ctx, s.client, wirev1.SessionJournalSubscribe, input, decodeSessionJournalRecord,
+	)
+}
 func (s *Session) Ping(ctx context.Context, options SessionPingOptions) (PingResult, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
@@ -2192,6 +2208,111 @@ func decodeSessionEvent(raw json.RawMessage) (SessionEvent, error) {
 	default:
 		return SessionEvent{Kind: kind, Raw: Document(fields)}, nil
 	}
+}
+
+func decodeSessionJournalRecord(raw json.RawMessage) (SessionJournalRecord, error) {
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &present); err != nil || present == nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid session journal record"}
+	}
+	for _, field := range []string{
+		"sequence", "event_id", "schema_version", "kind", "class", "replay",
+		"occurred_at_ms", "committed_at_ms", "producer", "authority", "causation_id",
+		"correlation_id", "causation_depth", "subjects", "sensitivity", "payload",
+		"resource_revision", "previous_resource_revision",
+	} {
+		if _, ok := present[field]; !ok {
+			return SessionJournalRecord{}, &ProtocolError{
+				Message: "session journal record omitted required field " + field,
+			}
+		}
+	}
+	var wire struct {
+		Sequence                 *Decimal             `json:"sequence"`
+		EventID                  *string              `json:"event_id"`
+		SchemaVersion            *uint32              `json:"schema_version"`
+		Kind                     *string              `json:"kind"`
+		Class                    *JournalClass        `json:"class"`
+		Replay                   *JournalReplayPolicy `json:"replay"`
+		OccurredAtMS             *Decimal             `json:"occurred_at_ms"`
+		CommittedAtMS            *Decimal             `json:"committed_at_ms"`
+		Producer                 *JournalProducer     `json:"producer"`
+		Authority                *JournalAuthority    `json:"authority"`
+		CausationID              *string              `json:"causation_id"`
+		CorrelationID            *string              `json:"correlation_id"`
+		CausationDepth           *uint16              `json:"causation_depth"`
+		Subjects                 *[]JournalSubject    `json:"subjects"`
+		Sensitivity              *JournalSensitivity  `json:"sensitivity"`
+		Payload                  json.RawMessage      `json:"payload"`
+		ResourceRevision         *Decimal             `json:"resource_revision"`
+		PreviousResourceRevision *Decimal             `json:"previous_resource_revision"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "invalid session journal record: " + err.Error(),
+		}
+	}
+	if wire.Sequence == nil || wire.EventID == nil || *wire.EventID == "" ||
+		wire.SchemaVersion == nil || *wire.SchemaVersion == 0 || wire.Kind == nil ||
+		*wire.Kind == "" || wire.Class == nil || wire.Replay == nil ||
+		wire.OccurredAtMS == nil || wire.CommittedAtMS == nil || wire.Producer == nil ||
+		wire.CausationDepth == nil || wire.Subjects == nil || wire.Sensitivity == nil ||
+		len(wire.Payload) == 0 {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "session journal record omitted a required field",
+		}
+	}
+	if wire.Producer.Kind == "" || wire.Producer.ID == "" {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal producer"}
+	}
+	if wire.Authority != nil &&
+		(wire.Authority.PrincipalID == "" || wire.Authority.LeaseID == "" ||
+			wire.Authority.Generation == "" || wire.Authority.Role == "") {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal authority"}
+	}
+	for _, subject := range *wire.Subjects {
+		if subject.Kind == "" || subject.ID == "" {
+			return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal subject"}
+		}
+	}
+	if *wire.Class != JournalClassState && *wire.Class != JournalClassObservation &&
+		*wire.Class != JournalClassEffect && *wire.Class != JournalClassCheckpoint {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal class"}
+	}
+	if *wire.Replay != JournalReplayRequired && *wire.Replay != JournalReplayAdvisory &&
+		*wire.Replay != JournalReplayNever {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal replay policy"}
+	}
+	if *wire.Sensitivity != JournalSensitivityPublic &&
+		*wire.Sensitivity != JournalSensitivityMetadata &&
+		*wire.Sensitivity != JournalSensitivitySensitive &&
+		*wire.Sensitivity != JournalSensitivitySecret {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal sensitivity"}
+	}
+	var payload JSONValue
+	if err := json.Unmarshal(wire.Payload, &payload); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal payload"}
+	}
+	return SessionJournalRecord{
+		Sequence:                 *wire.Sequence,
+		EventID:                  *wire.EventID,
+		SchemaVersion:            *wire.SchemaVersion,
+		Kind:                     *wire.Kind,
+		Class:                    *wire.Class,
+		Replay:                   *wire.Replay,
+		OccurredAtMS:             *wire.OccurredAtMS,
+		CommittedAtMS:            *wire.CommittedAtMS,
+		Producer:                 *wire.Producer,
+		Authority:                wire.Authority,
+		CausationID:              wire.CausationID,
+		CorrelationID:            wire.CorrelationID,
+		CausationDepth:           *wire.CausationDepth,
+		Subjects:                 *wire.Subjects,
+		Sensitivity:              *wire.Sensitivity,
+		Payload:                  payload,
+		ResourceRevision:         wire.ResourceRevision,
+		PreviousResourceRevision: wire.PreviousResourceRevision,
+	}, nil
 }
 
 func decodeTerminalAttachment(raw json.RawMessage) (TerminalAttachmentItem, error) {

@@ -150,6 +150,7 @@ machine <selector> session <selector> open
 
 session list
 session <selector> open|show|snapshot|events|ping|shutdown
+session <selector> journal subscribe [--from tail|beginning] [FILTERS]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear

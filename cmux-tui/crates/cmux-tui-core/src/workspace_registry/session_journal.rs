@@ -118,6 +118,29 @@ pub struct SessionJournalPage {
     pub records: Vec<SessionJournalRecord>,
 }
 
+/// A short-lived WAL reader owned by one subscriber thread. It never shares
+/// the registry writer connection or its mutex.
+pub(crate) struct SessionJournalReader {
+    connection: Connection,
+}
+
+impl SessionJournalReader {
+    pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
+        let connection = Connection::open_with_flags(
+            database_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("open session journal reader {}", database_path.display()))?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
+        Ok(Self { connection })
+    }
+
+    pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
+        query_session_journal_after(&self.connection, sequence, limit)
+    }
+}
+
 struct JournalAppend<'a> {
     event_id: &'a str,
     kind: &'a str,
@@ -454,24 +477,33 @@ impl WorkspaceRegistry {
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<SessionJournalPage> {
-        anyhow::ensure!(limit > 0, "journal page limit must be positive");
-        anyhow::ensure!(
-            limit <= MAX_JOURNAL_PAGE_SIZE,
-            "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
-        );
-        let head_sequence = self.connection.query_row(
-            "SELECT COALESCE(MAX(sequence), 0) FROM session_journal",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let head_sequence =
-            u64::try_from(head_sequence).context("journal head sequence is negative")?;
-        anyhow::ensure!(
-            sequence <= head_sequence,
-            "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
-        );
-        let mut statement = self.connection.prepare(
-            "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+        query_session_journal_after(&self.connection, sequence, limit)
+    }
+}
+
+fn query_session_journal_after(
+    connection: &Connection,
+    sequence: u64,
+    limit: usize,
+) -> anyhow::Result<SessionJournalPage> {
+    anyhow::ensure!(limit > 0, "journal page limit must be positive");
+    anyhow::ensure!(
+        limit <= MAX_JOURNAL_PAGE_SIZE,
+        "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+    );
+    let head_sequence = connection.query_row(
+        "SELECT COALESCE(MAX(sequence), 0) FROM session_journal",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let head_sequence =
+        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    anyhow::ensure!(
+        sequence <= head_sequence,
+        "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
+    );
+    let mut statement = connection.prepare(
+        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
                     sensitivity, payload_json, resource_revision, previous_resource_revision
@@ -479,40 +511,39 @@ impl WorkspaceRegistry {
              WHERE sequence > ?1
              ORDER BY sequence ASC
              LIMIT ?2",
-        )?;
-        let records = statement
-            .query_map(
-                params![
-                    i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                    i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
-                ],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                        row.get::<_, String>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                        row.get::<_, Option<String>>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                        row.get::<_, i64>(12)?,
-                        row.get::<_, String>(13)?,
-                        row.get::<_, String>(14)?,
-                        row.get::<_, String>(15)?,
-                        row.get::<_, Option<i64>>(16)?,
-                        row.get::<_, Option<i64>>(17)?,
-                    ))
-                },
-            )?
-            .map(|row| decode_record(row?))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(SessionJournalPage { head_sequence, records })
-    }
+    )?;
+    let records = statement
+        .query_map(
+            params![
+                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, i64>(12)?,
+                    row.get::<_, String>(13)?,
+                    row.get::<_, String>(14)?,
+                    row.get::<_, String>(15)?,
+                    row.get::<_, Option<i64>>(16)?,
+                    row.get::<_, Option<i64>>(17)?,
+                ))
+            },
+        )?
+        .map(|row| decode_record(row?))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(SessionJournalPage { head_sequence, records })
 }
 
 #[allow(clippy::type_complexity)]
@@ -994,5 +1025,38 @@ mod tests {
                 .to_string()
                 .contains("exceeds")
         );
+    }
+
+    #[test]
+    fn persistent_reader_observes_commits_on_an_independent_connection() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let reader = SessionJournalReader::open(&database_path).unwrap();
+        assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
+
+        let result = serde_json::json!({"workspace_id":format!("ws_{}", "1".repeat(32))});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "reader-test",
+            "reader-commit",
+            "workspace.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let page = reader.after(0, 1).unwrap();
+        assert_eq!(page.head_sequence, 1);
+        assert_eq!(page.records[0].kind, "workspace.focus");
+        drop(reader);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
     }
 }

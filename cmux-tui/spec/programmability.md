@@ -52,7 +52,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
 | Stream lifecycle | Repeated `subscribe` and `attach-surface` registrations share a connection and have no public identity | Client-generated `stream_id`, echoed events, and idempotent `cancel-stream` |
-| Event recovery | Durable resource mutations now enter the append-only session journal; private presentation events remain transient | Promote the journal cursor and filters into the public stream, add heartbeat, and classify remaining producers |
+| Event recovery | Trusted local consumers can replay or tail the session journal with cursors and filters; private presentation events remain transient | Add heartbeat checkpoints, retained-range discovery, remote authorization, and classify remaining producers |
 | Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers; some legacy acknowledgements do not prove a commit | One operation identity and receipt format for every side effect; success must identify committed, changed, or no-op state |
 | Errors | Response `error` is one string | `{code,message,details,retryable}` with stable codes |
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |

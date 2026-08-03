@@ -293,6 +293,10 @@ USAGE
   cmux session <selector> open|show|snapshot|ping|shutdown
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
+    [--cursor-session <session-id> --sequence <decimal>]
+    [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
+    [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear

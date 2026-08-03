@@ -72,6 +72,29 @@ type SessionEventsOptions struct {
 	StreamOptions
 	Cursor *Cursor
 }
+type JournalStart string
+
+const (
+	JournalStartTail      JournalStart = "tail"
+	JournalStartBeginning JournalStart = "beginning"
+)
+
+type JournalSubjectFilter struct {
+	Kind *string `json:"kind,omitempty"`
+	ID   *string `json:"id,omitempty"`
+}
+type JournalFilter struct {
+	Kinds          []string               `json:"kinds,omitempty"`
+	Classes        []JournalClass         `json:"classes,omitempty"`
+	Subjects       []JournalSubjectFilter `json:"subjects,omitempty"`
+	MaxSensitivity *JournalSensitivity    `json:"max_sensitivity,omitempty"`
+}
+type SessionJournalOptions struct {
+	StreamOptions
+	Cursor *Cursor
+	Start  *JournalStart
+	Filter *JournalFilter
+}
 type SessionPingOptions struct{ ReadOptions }
 type SessionShutdownOptions struct {
 	MutationOptions

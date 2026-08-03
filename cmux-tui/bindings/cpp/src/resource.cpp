@@ -82,6 +82,7 @@ struct OperationInfo {
     X(session_snapshot, "session.snapshot", read)                                     \
     X(session_creation_resolve, "session.creation.resolve", read)                     \
     X(session_events, "session.events", stream_open)                                  \
+    X(session_journal_subscribe, "session.journal.subscribe", stream_open)            \
     X(session_ping, "session.ping", read)                                             \
     X(session_shutdown, "session.shutdown", mutation)                                 \
     X(session_reload_config, "session.reload_config", mutation)                       \
@@ -1014,6 +1015,71 @@ Result<Json::Object> TerminalHistoryOptions::to_params() const {
     return params;
 }
 
+Result<Json::Object> SessionJournalOptions::to_params() const {
+    if (cursor && start) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal cursor and start are mutually exclusive");
+    }
+    if (filter.max_sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal records are unavailable in v1");
+    }
+    Json::Object params;
+    if (cursor) {
+        params.emplace("cursor", cursor_json(*cursor));
+    }
+    if (start) {
+        params.emplace(
+            "start",
+            Json(*start == JournalStart::tail ? "tail" : "beginning"));
+    }
+    Json::Object encoded_filter;
+    if (!filter.kinds.empty()) {
+        Json::Array values;
+        for (const auto& value : filter.kinds) values.emplace_back(value);
+        encoded_filter.emplace("kinds", Json(std::move(values)));
+    }
+    if (!filter.classes.empty()) {
+        Json::Array values;
+        for (const auto value : filter.classes) {
+            switch (value) {
+                case JournalClass::state: values.emplace_back("state"); break;
+                case JournalClass::observation: values.emplace_back("observation"); break;
+                case JournalClass::effect: values.emplace_back("effect"); break;
+                case JournalClass::checkpoint: values.emplace_back("checkpoint"); break;
+            }
+        }
+        encoded_filter.emplace("classes", Json(std::move(values)));
+    }
+    if (!filter.subjects.empty()) {
+        Json::Array values;
+        for (const auto& subject : filter.subjects) {
+            if (!subject.kind && !subject.id) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "journal subject filters require kind or id");
+            }
+            Json::Object encoded;
+            if (subject.kind) encoded.emplace("kind", Json(*subject.kind));
+            if (subject.id) encoded.emplace("id", Json(*subject.id));
+            values.emplace_back(std::move(encoded));
+        }
+        encoded_filter.emplace("subjects", Json(std::move(values)));
+    }
+    if (filter.max_sensitivity) {
+        const char* value = "sensitive";
+        if (*filter.max_sensitivity == JournalSensitivity::public_) value = "public";
+        if (*filter.max_sensitivity == JournalSensitivity::metadata) value = "metadata";
+        encoded_filter.emplace("max_sensitivity", Json(value));
+    }
+    if (!encoded_filter.empty()) {
+        params.emplace("filter", Json(std::move(encoded_filter)));
+    }
+    return params;
+}
+
 Result<Json::Object> TerminalAttachOptions::to_params() const {
     if (cols.has_value() != rows.has_value()) {
         return make_error(
@@ -1682,6 +1748,19 @@ Result<SessionEventStream> Client::open_session_events(
     return SessionEventStream(std::move(stream).value());
 }
 
+Result<SessionJournalStream> Client::open_session_journal(
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::session_journal_subscribe,
+        std::move(params),
+        std::move(call));
+    if (!stream) {
+        return std::move(stream).error();
+    }
+    return SessionJournalStream(std::move(stream).value());
+}
+
 Result<TerminalAttachmentStream> Client::open_terminal_attachment(
     Json::Object params,
     CallOptions call) const {
@@ -1990,6 +2069,26 @@ Result<SessionEventStream> Session::events(
         return std::move(stream).error();
     }
     return SessionEventStream(std::move(stream).value());
+}
+
+Result<SessionJournalStream> Session::journal(
+    SessionJournalOptions options,
+    CallOptions call) const {
+    auto encoded = options.to_params();
+    if (!encoded) {
+        return std::move(encoded).error();
+    }
+    auto params = routed_params();
+    params.merge(std::move(encoded).value());
+    auto stream = detail::resource_open_stream(
+        state_,
+        Operation::session_journal_subscribe,
+        std::move(params),
+        std::move(call));
+    if (!stream) {
+        return std::move(stream).error();
+    }
+    return SessionJournalStream(std::move(stream).value());
 }
 
 Result<MutationResult<ShutdownResult>> Session::shutdown(MutationOptions options) const {
@@ -3061,6 +3160,8 @@ template <typename T>
     switch (operation) {
         case Operation::session_events:
             return &validate_typed_stream_item<SessionEvent>;
+        case Operation::session_journal_subscribe:
+            return &validate_typed_stream_item<SessionJournalRecord>;
         case Operation::terminal_attach:
             return &validate_typed_stream_item<TerminalAttachmentItem>;
         case Operation::browser_attach:

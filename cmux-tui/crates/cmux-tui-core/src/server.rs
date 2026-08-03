@@ -65,11 +65,12 @@ use crate::surface::{
 };
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
-    DefaultColors, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
-    RenderAttachFrame, RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta,
-    TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, LayoutLeafSpec,
+    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
+    PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb, ScreenId,
+    SessionJournalRecord, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
+    SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -4237,10 +4238,180 @@ struct SessionEventStreamStart {
     epoch: u64,
 }
 
+const JOURNAL_STREAM_PAGE_SIZE: usize = 1024;
+
+struct SessionJournalStreamStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+    session_id: SessionPublicId,
+    next_sequence: u64,
+    last_sequence: u64,
+    epoch: u64,
+    filter: JournalStreamFilter,
+    reader: Option<crate::workspace_registry::SessionJournalReader>,
+}
+
+struct JournalStreamFilter {
+    kinds: Vec<String>,
+    classes: Vec<JournalClass>,
+    subjects: Vec<JournalSubjectFilter>,
+    max_sensitivity: Option<JournalSensitivity>,
+}
+
+impl Default for JournalStreamFilter {
+    fn default() -> Self {
+        Self {
+            kinds: Vec::new(),
+            classes: Vec::new(),
+            subjects: Vec::new(),
+            max_sensitivity: Some(JournalSensitivity::Sensitive),
+        }
+    }
+}
+
+struct JournalSubjectFilter {
+    kind: Option<String>,
+    id: Option<String>,
+}
+
+impl JournalStreamFilter {
+    fn parse(value: Option<&Value>) -> Result<Self, ResourceError> {
+        let Some(value) = value else { return Ok(Self::default()) };
+        let object = value.as_object().expect("catalog validates journal filters");
+        let kinds = object
+            .get("kinds")
+            .map(|value| {
+                value
+                    .as_array()
+                    .expect("catalog validates journal kind filters")
+                    .iter()
+                    .map(|value| {
+                        let kind =
+                            value.as_str().expect("catalog validates journal kind filter strings");
+                        validate_journal_kind_filter(kind)?;
+                        Ok(kind.to_string())
+                    })
+                    .collect::<Result<Vec<_>, ResourceError>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let classes = object
+            .get("classes")
+            .map(|value| {
+                value
+                    .as_array()
+                    .expect("catalog validates journal class filters")
+                    .iter()
+                    .map(|value| {
+                        serde_json::from_value::<JournalClass>(value.clone()).map_err(|_| {
+                            ResourceError::validation_invalid(
+                                Some("filter.classes"),
+                                "journal class filter is invalid",
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ResourceError>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let subjects = object
+            .get("subjects")
+            .map(|value| {
+                value
+                    .as_array()
+                    .expect("catalog validates journal subject filters")
+                    .iter()
+                    .map(|value| {
+                        let subject = value
+                            .as_object()
+                            .expect("catalog validates journal subject filter objects");
+                        let kind = subject.get("kind").and_then(Value::as_str).map(str::to_string);
+                        let id = subject.get("id").and_then(Value::as_str).map(str::to_string);
+                        if kind.is_none() && id.is_none() {
+                            return Err(ResourceError::validation_invalid(
+                                Some("filter.subjects"),
+                                "journal subject filters require kind or id",
+                            ));
+                        }
+                        Ok(JournalSubjectFilter { kind, id })
+                    })
+                    .collect::<Result<Vec<_>, ResourceError>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let max_sensitivity = object
+            .get("max_sensitivity")
+            .map(|value| {
+                serde_json::from_value::<JournalSensitivity>(value.clone()).map_err(|_| {
+                    ResourceError::validation_invalid(
+                        Some("filter.max_sensitivity"),
+                        "journal sensitivity filter is invalid",
+                    )
+                })
+            })
+            .transpose()?
+            .or(Some(JournalSensitivity::Sensitive));
+        Ok(Self { kinds, classes, subjects, max_sensitivity })
+    }
+
+    fn matches(&self, record: &SessionJournalRecord) -> bool {
+        let kind_matches = self.kinds.is_empty()
+            || self.kinds.iter().any(|filter| {
+                filter.strip_suffix(".*").map_or(record.kind == *filter, |prefix| {
+                    record.kind.strip_prefix(prefix).is_some_and(|suffix| suffix.starts_with('.'))
+                })
+            });
+        let class_matches = self.classes.is_empty() || self.classes.contains(&record.class);
+        let subject_matches = self.subjects.is_empty()
+            || self.subjects.iter().any(|filter| {
+                record.subjects.iter().any(|subject| {
+                    filter.kind.as_deref().is_none_or(|kind| subject.kind == kind)
+                        && filter.id.as_deref().is_none_or(|id| subject.id == id)
+                })
+            });
+        let sensitivity_matches = self.max_sensitivity.is_none_or(|maximum| {
+            journal_sensitivity_rank(record.sensitivity) <= journal_sensitivity_rank(maximum)
+        });
+        kind_matches && class_matches && subject_matches && sensitivity_matches
+    }
+}
+
+fn validate_journal_kind_filter(kind: &str) -> Result<(), ResourceError> {
+    let base = kind.strip_suffix(".*").unwrap_or(kind);
+    if base.is_empty()
+        || kind.trim() != kind
+        || kind.contains('*') != kind.ends_with(".*")
+        || base.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("filter.kinds"),
+            "journal kind filters must be dotted names with an optional terminal .*",
+        ));
+    }
+    Ok(())
+}
+
+const fn journal_sensitivity_rank(sensitivity: JournalSensitivity) -> u8 {
+    match sensitivity {
+        JournalSensitivity::Public => 0,
+        JournalSensitivity::Metadata => 1,
+        JournalSensitivity::Sensitive => 2,
+        JournalSensitivity::Secret => 3,
+    }
+}
+
 const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::SessionEvents
+            | ResourceOperation::SessionJournalSubscribe
             | ResourceOperation::SessionShutdown
             | ResourceOperation::PairingRequestList
             | ResourceOperation::PairingRequestResolve
@@ -4438,6 +4609,21 @@ fn handle_resource_connection_message(
                         return false;
                     }
                     start_session_event_stream(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            }
+        }
+        ResourceOperation::SessionJournalSubscribe => {
+            let prepared = trusted_local_resource_client(mux, client, operation)
+                .and_then(|()| prepare_session_journal_stream(mux, client, writer, &request));
+            match prepared {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
+                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
+                        return false;
+                    }
+                    start_session_journal_stream(mux.clone(), client, writer.clone(), start);
                     true
                 }
                 Err(error) => send_resource_response(writer, id, operation, Err(error)),
@@ -6391,6 +6577,275 @@ fn run_session_event_stream(
             }
             stream.next_sequence = stream.next_sequence.saturating_add(1);
             stream.last_revision = batch.revision;
+        }
+    }
+    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
+    json!({
+        "generation":session_id,
+        "revision":sequence.to_string(),
+    })
+}
+
+fn journal_record_value(record: SessionJournalRecord) -> Value {
+    json!({
+        "sequence":record.sequence.to_string(),
+        "event_id":record.event_id,
+        "schema_version":record.schema_version,
+        "kind":record.kind,
+        "class":record.class,
+        "replay":record.replay,
+        "occurred_at_ms":record.occurred_at_ms.to_string(),
+        "committed_at_ms":record.committed_at_ms.to_string(),
+        "producer":record.producer,
+        "authority":record.authority,
+        "causation_id":record.causation_id,
+        "correlation_id":record.correlation_id,
+        "causation_depth":record.causation_depth,
+        "subjects":record.subjects,
+        "sensitivity":record.sensitivity,
+        "payload":record.payload,
+        "resource_revision":record.resource_revision.map(|value| value.to_string()),
+        "previous_resource_revision":record
+            .previous_resource_revision
+            .map(|value| value.to_string()),
+    })
+}
+
+fn session_journal_page(
+    mux: &Mux,
+    reader: Option<&crate::workspace_registry::SessionJournalReader>,
+    sequence: u64,
+    limit: usize,
+) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
+    match reader {
+        Some(reader) => reader.after(sequence, limit),
+        None => mux.session_journal_after(sequence, limit),
+    }
+}
+
+fn prepare_session_journal_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, SessionJournalStreamStart), ResourceError> {
+    let session_id = resource_session_id(mux, &request.selectors)?;
+    let stream_id = resource_stream_id(request)?;
+    let epoch = mux.journal_event_epoch();
+    let reader = mux.session_journal_reader().map_err(|error| {
+        ResourceError::operation_failed(
+            "session.journal.subscribe",
+            "could not open the session journal reader",
+            json!({"error":error.to_string()}),
+        )
+    })?;
+    let head_sequence = session_journal_page(mux, reader.as_ref(), 0, 1)
+        .map_err(|error| {
+            ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "could not read the session journal",
+                json!({"error":error.to_string()}),
+            )
+        })?
+        .head_sequence;
+    let current_cursor = journal_cursor(&session_id, head_sequence);
+    let requested_cursor = request.fields.get("cursor").map(|cursor| {
+        let generation =
+            cursor["generation"].as_str().expect("catalog validates journal cursor generation");
+        let sequence = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+            .map(WireDecimal::get)
+            .expect("catalog validates journal cursor revision");
+        (generation, sequence)
+    });
+    let last_sequence = if let Some((generation, sequence)) = requested_cursor {
+        if generation != session_id.as_str() || sequence > head_sequence {
+            return Err(ResourceError::new(
+                "cursor.invalid",
+                "journal cursor does not belong to this session position",
+                json!({
+                    "requested":{
+                        "generation":generation,
+                        "revision":sequence.to_string(),
+                    },
+                    "current":current_cursor,
+                    "reason":if generation != session_id.as_str() {
+                        "cursor belongs to a different session"
+                    } else {
+                        "cursor sequence is ahead of the journal"
+                    },
+                }),
+                false,
+            ));
+        }
+        sequence
+    } else if request.fields.get("start").and_then(Value::as_str) == Some("beginning") {
+        0
+    } else {
+        head_sequence
+    };
+    let filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
+    let opened_cursor = journal_cursor(&session_id, last_sequence);
+    let overflow = resource_stream_end(
+        &stream_id,
+        "gap",
+        Some(opened_cursor.clone()),
+        Some("reconnect with the last journal cursor"),
+        None,
+    );
+    let outbound = writer
+        .start_stream(&overflow)
+        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+    let (canceled, worker_permit) = register_resource_outbound(
+        mux,
+        client,
+        &stream_id,
+        &outbound,
+        "session.journal.subscribe",
+    )?;
+    Ok((
+        json!({"stream_id":stream_id,"cursor":opened_cursor}),
+        SessionJournalStreamStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            session_id,
+            next_sequence: 0,
+            last_sequence,
+            epoch,
+            filter,
+            reader,
+        },
+    ))
+}
+
+fn start_session_journal_stream(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: SessionJournalStreamStart,
+) {
+    let stream_id = start.stream_id.clone();
+    let outbound = start.outbound.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-session-journal".into())
+        .spawn(move || run_session_journal_stream(&worker_mux, client, &worker_writer, start));
+    if spawn.is_err() {
+        let _ = mux.control_clients.take_resource_stream(client, &stream_id);
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a new session journal stream"),
+            Some((
+                ResourceOperation::SessionJournalSubscribe,
+                ResourceError::operation_failed(
+                    "session.journal.subscribe",
+                    "could not start the session journal stream",
+                    json!({}),
+                ),
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+    }
+}
+
+fn run_session_journal_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut stream: SessionJournalStreamStart,
+) {
+    'stream: loop {
+        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            break;
+        }
+        loop {
+            let page = match session_journal_page(
+                mux,
+                stream.reader.as_ref(),
+                stream.last_sequence,
+                JOURNAL_STREAM_PAGE_SIZE,
+            ) {
+                Ok(page) => page,
+                Err(_) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect with the last journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+            };
+            let head_sequence = page.head_sequence;
+            if page.records.is_empty() {
+                if stream.last_sequence < head_sequence {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                        Some("reconnect from a retained journal cursor"),
+                        None,
+                    );
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+                break;
+            }
+            for record in page.records {
+                let record_sequence = record.sequence;
+                if stream.filter.matches(&record) {
+                    let cursor = journal_cursor(&stream.session_id, record_sequence);
+                    if stream.canceled.load(Ordering::Acquire)
+                        || !send_resource_stream_item(
+                            writer,
+                            &stream.outbound,
+                            &stream.stream_id,
+                            stream.next_sequence,
+                            &cursor,
+                            journal_record_value(record),
+                        )
+                    {
+                        mux.control_clients.finish_resource_stream(
+                            client,
+                            &stream.stream_id,
+                            stream.outbound.id,
+                        );
+                        return;
+                    }
+                    stream.next_sequence = stream.next_sequence.saturating_add(1);
+                }
+                stream.last_sequence = record_sequence;
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                    Some("reconnect with the last journal cursor"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+            }
+            if stream.last_sequence >= head_sequence {
+                break;
+            }
+        }
+        loop {
+            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+                break 'stream;
+            }
+            let epoch = mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1));
+            if epoch != stream.epoch {
+                stream.epoch = epoch;
+                break;
+            }
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
@@ -11958,6 +12413,170 @@ mod tests {
     }
 
     #[test]
+    fn session_journal_stream_replays_filters_and_resumes_from_its_cursor() {
+        let mux = test_mux();
+        let created = crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"journal",
+                    "initial_content":"empty",
+                }),
+                Some("journal-create"),
+            ),
+        )
+        .unwrap();
+        let workspace_id = created["result"]["value"]["workspace_id"].as_str().unwrap().to_string();
+        let session_id =
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["session"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let first_stream = "stream_00000000000000000000000000000031";
+        let open = resource_request(
+            "journal-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":first_stream,
+                "start":"beginning",
+                "filter":{
+                    "kinds":["workspace.*"],
+                    "classes":["state"],
+                    "subjects":[{"kind":"workspace","id":workspace_id}],
+                    "max_sensitivity":"sensitive",
+                },
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "journal-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["cursor"]["generation"], session_id);
+        assert_eq!(response["result"]["cursor"]["revision"], "0");
+        let item = pop_json(&outbound);
+        assert_eq!(item["type"], "stream_item");
+        assert_eq!(item["stream_id"], first_stream);
+        assert_eq!(item["cursor"]["generation"], session_id);
+        assert_eq!(item["cursor"]["revision"], item["item"]["sequence"]);
+        assert_eq!(item["item"]["kind"], "workspace.create");
+        assert_eq!(item["item"]["class"], "state");
+        assert_eq!(item["item"]["sensitivity"], "sensitive");
+        assert!(item["item"]["payload"]["changes"].is_array());
+        let cursor = item["cursor"].clone();
+
+        let cancel = resource_request(
+            "journal-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":first_stream,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "journal-cancel");
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-rename",
+                "workspace.rename",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "workspace":workspace_id,
+                    "name":"resumed",
+                }),
+                Some("journal-rename"),
+            ),
+        )
+        .unwrap();
+        let second_stream = "stream_00000000000000000000000000000032";
+        let resume = resource_request(
+            "journal-resume",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":second_stream,
+                "cursor":cursor,
+                "filter":{"kinds":["workspace.rename"]},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &resume, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "journal-resume");
+        let resumed = pop_json(&outbound);
+        assert_eq!(resumed["item"]["kind"], "workspace.rename");
+        assert!(resumed["item"]["payload"]["changes"].as_array().unwrap().iter().any(|change| {
+            change["resource"] == "workspace" && change["value"]["name"] == "resumed"
+        }));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn session_journal_stream_rejects_remote_clients_and_foreign_cursors() {
+        let mux = test_mux();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        let (remote_writer, remote_outbound) = captured_writer();
+        let remote =
+            mux.control_clients.register(ClientTransport::WebSocket, remote_writer.clone());
+        let remote_open = resource_request(
+            "journal-remote",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000033",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, remote, &remote_open, &remote_writer, &scheduler,));
+        let rejected = pop_json(&remote_outbound);
+        assert_eq!(rejected["error"]["code"], "operation.failed");
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert!(disconnect_client(&mux, remote, false));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let foreign = resource_request(
+            "journal-foreign",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_00000000000000000000000000000034",
+                "cursor":{
+                    "generation":"session_ffffffffffffffffffffffffffffffff",
+                    "revision":"0",
+                },
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, local, &foreign, &local_writer, &scheduler,));
+        let rejected = pop_json(&local_outbound);
+        assert_eq!(rejected["error"]["code"], "cursor.invalid");
+        assert_eq!(rejected["error"]["details"]["reason"], "cursor belongs to a different session");
+        assert!(disconnect_client(&mux, local, false));
+    }
+
+    #[test]
     fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
         let mux = test_mux();
         let owner_writer = test_writer();
@@ -12326,7 +12945,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 21);
+        assert_eq!(connection_operations, 22);
     }
 
     #[test]
