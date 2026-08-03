@@ -28,9 +28,7 @@ extension TerminalController {
     ) -> Bool {
         switch requestOrigin {
         case .inProcess:
-            return Self.applicationSurfaceSocketControlIsAllowed(
-                accessMode: socketServer.accessMode
-            )
+            return true
         case .socket(let authorization):
             guard authorization.acceptedAccessMode == socketServer.accessMode,
                   Self.applicationSurfaceSocketControlIsAllowed(

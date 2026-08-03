@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 final class SimulatorFramePresentationPipeline {
     private let source: any SimulatorFrameSurfaceReading
+    private let framePublicationDidArrive: (@MainActor () -> Void)?
     private let presentationDidComplete: @MainActor () -> Void
     private let sourceFailureDidOccur: @MainActor () -> Void
     private nonisolated let framePublicationWakeup = SimulatorFramePublicationWakeup()
@@ -20,16 +21,15 @@ final class SimulatorFramePresentationPipeline {
 
     init(
         source: any SimulatorFrameSurfaceReading,
-        framePublicationNotificationsEnabled: Bool = true,
+        framePublicationDidArrive: (@MainActor () -> Void)? = nil,
         presentationDidComplete: @escaping @MainActor () -> Void,
         sourceFailureDidOccur: @escaping @MainActor () -> Void = {}
     ) {
         self.source = source
+        self.framePublicationDidArrive = framePublicationDidArrive
         self.presentationDidComplete = presentationDidComplete
         self.sourceFailureDidOccur = sourceFailureDidOccur
-        if framePublicationNotificationsEnabled {
-            setFramePublicationNotificationsEnabled(true)
-        }
+        setFramePublicationNotificationsEnabled(true)
     }
 
     func displayTick() -> SimulatorFramePresentation? {
@@ -107,6 +107,10 @@ final class SimulatorFramePresentationPipeline {
     private func framePublicationDidFire() {
         guard isActive, framePublicationHandlerIsInstalled else { return }
         guard !reportSourceFailureIfNeeded() else { return }
+        if let framePublicationDidArrive {
+            framePublicationDidArrive()
+            return
+        }
         if copyIsInFlight {
             publicationArrivedWhileCopying = true
             return
