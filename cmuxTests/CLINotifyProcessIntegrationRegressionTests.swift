@@ -3485,6 +3485,42 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(run: run)
     }
 
+    // Regression for #9423: the generated cmux-ssh-startup script must parse under
+    // /bin/sh. The no-progress retry loop prefixes the attach attempt with env
+    // assignments, so a compound command there produced
+    // "syntax error near unexpected token `then'" and cmux ssh failed immediately.
+    func testSSHPersistentPTYStartupScriptsAreValidPOSIXShell() throws {
+        let run = try runMockedSSH(arguments: [])
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let scripts = [
+            "initial_command": try XCTUnwrap(
+                decodedReusableStartupScript(from: try XCTUnwrap(createParams["initial_command"] as? String))
+            ),
+            "terminal_startup_command": try XCTUnwrap(
+                decodedReusableStartupScript(
+                    from: try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+                )
+            ),
+        ]
+
+        for (label, script) in scripts {
+            let path = NSTemporaryDirectory() + "cmux-ssh-startup-syntax-\(UUID().uuidString).sh"
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(atPath: path) }
+
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-n", path],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 10
+            )
+
+            XCTAssertFalse(result.timedOut, "\(label): /bin/sh -n timed out")
+            XCTAssertEqual(result.status, 0, "\(label) is not valid POSIX shell: \(result.stderr)\n\(script)")
+        }
+    }
+
     func testSSHPersistentPTYTreatsControlPersistZeroAsReusable() throws {
         let run = try runMockedSSH(arguments: ["--ssh-option", "ControlPersist=0"])
         try assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(run: run)
