@@ -9,9 +9,13 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
 
     var body: some View {
         IrohTransportDebugMenuButtons()
-        AgentSessionDebugMenuButtons(
-            openReact: openReact,
-            openSolid: openSolid
+        Button(
+            String(localized: "debug.menu.openAgentGuiReact", defaultValue: "Open Agent GUI (React)"),
+            action: openReact
+        )
+        Button(
+            String(localized: "debug.menu.openAgentGuiSolid", defaultValue: "Open Agent GUI (Solid)"),
+            action: openSolid
         )
     }
 }
