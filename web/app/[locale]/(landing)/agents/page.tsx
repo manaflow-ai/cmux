@@ -30,6 +30,7 @@ const AGENTS: { href: string; key: string }[] = [
   { href: "/agents/claude-code", key: "claude" },
   { href: "/agents/codex", key: "codex" },
   { href: "/agents/opencode", key: "opencode" },
+  { href: "/agents/pi", key: "pi" },
   { href: "/agents/gemini-cli", key: "geminiCli" },
   { href: "/agents/aider", key: "aider" },
   { href: "/agents/amp", key: "amp" },
@@ -58,7 +59,7 @@ export default function AgentsPage() {
             {AGENTS.map((a) => (
               <li key={a.href}>
                 <Link href={a.href} className="underline underline-offset-2">
-                  {tl(a.key)}
+                  {a.key === "pi" ? "Pi" : tl(a.key)}
                 </Link>
               </li>
             ))}

@@ -79,8 +79,8 @@
   },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
-    "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-    "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
+    "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+    "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, and any CLI tool."
   },
   "common": {
     "downloadForMac": "Download for Mac",
@@ -734,7 +734,7 @@
     "faqPlatformQ": "What platforms does it support?",
     "faqPlatformA": "Open the Download menu to see available cmux builds. <waitlist>Join the waitlist</waitlist> for any platform that is not released yet.",
     "faqAgentsQ": "What coding agents does cmux work with?",
-    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
+    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Pi, Hermes Agent, OpenClaw, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
     "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>agent hooks</hooksLink>. Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
@@ -3105,6 +3105,29 @@
       "faqQ3": "How do I know when OpenCode needs input?",
       "faqA3": "The pane rings and the sidebar shows an unread badge when OpenCode finishes or asks for input, so you can let it run and come back when it needs you.",
       "faqQ4": "Is cmux free to use with OpenCode?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "pi": {
+      "metaTitle": "Best terminal for Pi coding agent — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for Pi: organize parallel Pi coding-agent sessions in workspaces, see notification rings when Pi needs input, use oh-my-pi, and automate everything with a CLI and socket API.",
+      "title": "The best terminal for Pi coding agent",
+      "intro": "cmux is a native macOS terminal built for AI coding agents, and Pi runs in it out of the box. Run <code>pi</code> in any workspace, then use cmux to organize parallel sessions, spot the agent that needs you, and automate the whole workflow.",
+      "organizeTitle": "Keep parallel Pi sessions organized",
+      "organizeBody": "Open one workspace per task and run Pi in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and latest output, so parallel Pi sessions stay visible instead of disappearing into a tab strip.",
+      "notifyTitle": "Know when Pi needs input",
+      "notifyBody": "When Pi finishes or waits for a decision, cmux can ring the pane, mark the workspace unread, and send a native macOS notification. Jump straight to the latest unread agent instead of checking every terminal.",
+      "integrationTitle": "Use the Pi integration",
+      "integrationBody": "cmux supports Pi session tracking, restoration, sidebar status, progress, and notifications. The <link>oh-my-pi integration</link> adds cmux-aware multi-agent workflows while keeping every spawned agent in a visible native pane.",
+      "scriptTitle": "Automate Pi from the terminal",
+      "scriptBody": "The cmux CLI and Unix socket can create workspaces, launch Pi, send input, read screens, open splits, and drive the in-app browser. Pi can control the same tools directly while it works.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Pi work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>pi</code> runs in any workspace with no special terminal setup.",
+      "faqQ2": "Why is cmux a good terminal for Pi?",
+      "faqA2": "cmux keeps parallel Pi sessions visible in separate workspaces and shows notification rings and unread state when an agent needs attention.",
+      "faqQ3": "Can Pi control cmux?",
+      "faqA3": "Yes. Pi can use the cmux CLI and socket API to create panes and workspaces, send input, read screens, and automate the built-in browser.",
+      "faqQ4": "Is cmux free to use with Pi?",
       "faqA4": "Yes. cmux is free and open source for macOS."
     },
     "guides": {

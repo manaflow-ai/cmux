@@ -97,6 +97,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/claude-code", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/codex", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/opencode", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/agents/pi", lastModified: "2026-08-03", changeFrequency: "monthly" as const, priority: 0.6, locales: englishFallbackContentLocales },
     { path: "/agents/gemini-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },

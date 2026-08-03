@@ -34,6 +34,10 @@ const fallbackContentRoutes = [
     locales: fallbackContentLocales,
   },
   {
+    path: "/agents/pi",
+    locales: englishFallbackContentLocales,
+  },
+  {
     path: "/blog/claude-code-best-worktree-manager",
     locales: fallbackContentLocales,
   },

@@ -228,6 +228,11 @@ export const agentReadablePages = [
   { path: "/agents/claude-code", title: "Terminal for Claude Code" },
   { path: "/agents/codex", title: "Terminal for Codex CLI" },
   { path: "/agents/opencode", title: "Terminal for OpenCode" },
+  {
+    path: "/agents/pi",
+    title: "Best terminal for Pi",
+    locales: englishFallbackContentLocales,
+  },
   { path: "/agents/gemini-cli", title: "Terminal for Gemini CLI" },
   { path: "/agents/aider", title: "Terminal for Aider" },
   { path: "/agents/amp", title: "Terminal for Amp" },

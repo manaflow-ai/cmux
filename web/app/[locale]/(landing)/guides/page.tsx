@@ -5,7 +5,10 @@ import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
-import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
+import {
+  englishFallbackContentLocales,
+  remoteTmuxDocsLocales,
+} from "@/i18n/locale-availability";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -50,6 +53,12 @@ const ARTICLES: readonly Article[] = [
   { href: "/agents/claude-code", titleKey: "claude.title", descKey: "claude.metaDescription" },
   { href: "/agents/codex", titleKey: "codex.title", descKey: "codex.metaDescription" },
   { href: "/agents/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
+  {
+    href: "/agents/pi",
+    titleKey: "pi.title",
+    descKey: "pi.metaDescription",
+    locales: englishFallbackContentLocales,
+  },
   { href: "/agents/gemini-cli", titleKey: "geminiCli.title", descKey: "geminiCli.metaDescription" },
   { href: "/agents/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
   { href: "/agents/amp", titleKey: "amp.title", descKey: "amp.metaDescription" },
