@@ -861,6 +861,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
 		C0DEC0DE0000000000000001 /* CodeSidecarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000002 /* CodeSidecarService.swift */; };
+		C0DEC0DE0000000000000011 /* CodeWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000004 /* CodeWebViewBridge.swift */; };
+		C0DEC0DE0000000000000012 /* CodeWebViewWarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000005 /* CodeWebViewWarmer.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
@@ -3463,6 +3465,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE0000000000000002 /* CodeSidecarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeSidecarService.swift; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000004 /* CodeWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeWebViewBridge.swift; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000005 /* CodeWebViewWarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeWebViewWarmer.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
@@ -6578,6 +6582,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8054A00A000000000000000A /* BrowserJavaScriptEvaluationResult.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				C0DEC0DE0000000000000002 /* CodeSidecarService.swift */,
+				C0DEC0DE0000000000000004 /* CodeWebViewBridge.swift */,
+				C0DEC0DE0000000000000005 /* CodeWebViewWarmer.swift */,
 				B05F00000000000000000001 /* BrowserOffscreenRenderHost.swift */,
 				B05F00000000000000000003 /* BrowserOffscreenRenderPanel.swift */,
 				F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */,
@@ -8378,6 +8384,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				"$(SRCROOT)/webviews/code-sidecar/package.json",
 				"$(SRCROOT)/webviews/code-sidecar/bun.lock",
 				"$(SRCROOT)/webviews/code-sidecar/cmux-code.css",
+				"$(SRCROOT)/webviews/src/surfaces/codeBridge.ts",
 				"$(SRCROOT)/web/app/apple-icon.png",
 			);
 			name = "Build Code Sidecar";
@@ -8386,6 +8393,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-sidecar",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-sidecar/client/index.html",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-sidecar/client/cmux-code-bridge.js",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -8885,6 +8893,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
 				C0DEC0DE0000000000000001 /* CodeSidecarService.swift in Sources */,
+				C0DEC0DE0000000000000011 /* CodeWebViewBridge.swift in Sources */,
+				C0DEC0DE0000000000000012 /* CodeWebViewWarmer.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,

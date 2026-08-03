@@ -115,6 +115,7 @@ struct CodeWebThemeSnapshot: Equatable {
 private enum CodeSidecarError: LocalizedError {
     case bootstrapEncoding
     case bootstrapTokenGeneration(OSStatus)
+    case invalidAccessToken
     case missingResource(String)
     case noLoopbackPort
     case launchFailed
@@ -124,11 +125,17 @@ private enum CodeSidecarError: LocalizedError {
         case .bootstrapEncoding: return "The Code server bootstrap could not be encoded"
         case .bootstrapTokenGeneration(let status):
             return "The Code server bootstrap token could not be generated (status \(status))"
+        case .invalidAccessToken: return "The Code server returned an invalid access token"
         case .missingResource(let name): return "Missing bundled Code resource: \(name)"
         case .noLoopbackPort: return "No loopback port was available"
         case .launchFailed: return "The Code server did not start"
         }
     }
+}
+
+struct CodeSidecarConnection: Sendable {
+    let httpBaseURL: URL
+    let bearerToken: String
 }
 
 @MainActor
@@ -137,33 +144,30 @@ final class CodeSidecarService {
 
     private struct RunningProcess {
         let process: Process
-        let url: URL
+        let connection: CodeSidecarConnection
         let logHandle: FileHandle
     }
 
     private var activeSurfaceIDs = Set<UUID>()
     private var running: RunningProcess?
-    private var startupTask: Task<URL, Error>?
+    private var startupTask: Task<CodeSidecarConnection, Error>?
 
     static func launcherURL(bundle: Bundle = .main) -> URL? {
-        bundle.url(
-            forResource: "code",
-            withExtension: "html",
-            subdirectory: "markdown-viewer/webviews-app"
-        )
+        _ = bundle
+        return CodeStaticURLSchemeHandler.launcherURL
     }
 
-    func mount(surfaceID: UUID, workingDirectory: String?) async throws -> URL {
+    func mount(surfaceID: UUID, workingDirectory: String?) async throws -> CodeSidecarConnection {
         activeSurfaceIDs.insert(surfaceID)
         if let running, running.process.isRunning {
-            return running.url
+            return running.connection
         }
         if let running {
             running.logHandle.closeFile()
             self.running = nil
         }
 
-        let task: Task<URL, Error>
+        let task: Task<CodeSidecarConnection, Error>
         if let startupTask {
             task = startupTask
         } else {
@@ -176,7 +180,7 @@ final class CodeSidecarService {
         }
 
         do {
-            let url = try await task.value
+            let connection = try await task.value
             startupTask = nil
             guard activeSurfaceIDs.contains(surfaceID) else {
                 if activeSurfaceIDs.isEmpty {
@@ -184,7 +188,7 @@ final class CodeSidecarService {
                 }
                 throw CancellationError()
             }
-            return url
+            return connection
         } catch {
             startupTask = nil
             activeSurfaceIDs.remove(surfaceID)
@@ -212,7 +216,7 @@ final class CodeSidecarService {
         running.logHandle.closeFile()
     }
 
-    private func start(workingDirectory: String?) async throws -> URL {
+    private func start(workingDirectory: String?) async throws -> CodeSidecarConnection {
         guard let resources = Bundle.main.resourceURL else {
             throw CodeSidecarError.missingResource("Resources")
         }
@@ -237,7 +241,6 @@ final class CodeSidecarService {
         let port = try Self.allocateLoopbackPort()
         let healthURL = URL(string: "http://127.0.0.1:\(port)/")!
         let bootstrapToken = try Self.makeBootstrapToken()
-        let authenticatedURL = try Self.authenticatedURL(port: port, bootstrapToken: bootstrapToken)
         let bootstrapEnvelope = try Self.bootstrapEnvelope(
             port: port,
             dataDirectory: root,
@@ -284,10 +287,19 @@ final class CodeSidecarService {
             try bootstrapPipe.fileHandleForWriting.write(contentsOf: bootstrapEnvelope)
             try bootstrapPipe.fileHandleForWriting.close()
             try await Self.waitUntilReady(process: process, url: healthURL)
+            let bearerToken = try await Self.exchangeBootstrapToken(
+                bootstrapToken,
+                port: port,
+                process: process
+            )
             try Task.checkCancellation()
             guard !activeSurfaceIDs.isEmpty else { throw CancellationError() }
-            running = RunningProcess(process: process, url: authenticatedURL, logHandle: logHandle)
-            return authenticatedURL
+            let connection = CodeSidecarConnection(
+                httpBaseURL: healthURL,
+                bearerToken: bearerToken
+            )
+            running = RunningProcess(process: process, connection: connection, logHandle: logHandle)
+            return connection
         } catch {
             try? bootstrapPipe.fileHandleForWriting.close()
             if process.isRunning { process.terminate() }
@@ -320,6 +332,60 @@ final class CodeSidecarService {
             try await ContinuousClock().sleep(for: .milliseconds(100))
         }
         throw CodeSidecarError.launchFailed
+    }
+
+    private static func exchangeBootstrapToken(
+        _ bootstrapToken: String,
+        port: Int,
+        process: Process
+    ) async throws -> String {
+        guard process.isRunning,
+              let url = URL(string: "http://127.0.0.1:\(port)/oauth/token") else {
+            throw CodeSidecarError.launchFailed
+        }
+        var form = URLComponents()
+        form.queryItems = [
+            URLQueryItem(
+                name: "grant_type",
+                value: "urn:ietf:params:oauth:grant-type:token-exchange"
+            ),
+            URLQueryItem(name: "subject_token", value: bootstrapToken),
+            URLQueryItem(
+                name: "subject_token_type",
+                value: "urn:t3:params:oauth:token-type:environment-bootstrap"
+            ),
+            URLQueryItem(
+                name: "requested_token_type",
+                value: "urn:ietf:params:oauth:token-type:access_token"
+            ),
+            URLQueryItem(name: "client_label", value: "cmux Code"),
+            URLQueryItem(name: "client_device_type", value: "desktop"),
+            URLQueryItem(name: "client_os", value: "macOS"),
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 2
+        request.setValue(
+            "application/x-www-form-urlencoded",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.httpBody = Data((form.percentEncodedQuery ?? "").utf8)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 2
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.data(for: request)
+        guard process.isRunning,
+              let response = response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = object["access_token"] as? String,
+              !token.isEmpty else {
+            throw CodeSidecarError.invalidAccessToken
+        }
+        return token
     }
 
     private static var processArchitecture: String {
@@ -369,17 +435,6 @@ final class CodeSidecarService {
         }
         data.append(0x0A)
         return data
-    }
-
-    static func authenticatedURL(port: Int, bootstrapToken: String) throws -> URL {
-        guard var components = URLComponents(string: "http://127.0.0.1:\(port)/pair") else {
-            throw CodeSidecarError.bootstrapEncoding
-        }
-        components.fragment = "token=\(bootstrapToken)"
-        guard let url = components.url else {
-            throw CodeSidecarError.bootstrapEncoding
-        }
-        return url
     }
 
     private static func makeBootstrapToken() throws -> String {
@@ -444,24 +499,5 @@ final class CodeSidecarService {
             if (1...65535).contains(port) { return port }
         }
         throw CodeSidecarError.noLoopbackPort
-    }
-}
-
-@MainActor
-final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandler {
-    static let name = "cmuxCode"
-    weak var panel: BrowserPanel?
-
-    init(panel: BrowserPanel) {
-        self.panel = panel
-    }
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame,
-              let body = message.body as? [String: Any],
-              body["type"] as? String == "mount",
-              let panel,
-              panel.purpose == .code else { return }
-        panel.mountCodeSidecar()
     }
 }

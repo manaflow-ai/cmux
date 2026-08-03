@@ -19,6 +19,7 @@ extension CmuxWebView {
         onContextMenuDownloadStateChanged = nil
         onSessionDownloadEvent = nil
         onSubframeDownloadIntent = nil
+        onBrowserPortalPresentationSettled = nil
     }
 
     private static func scriptedDownloadInterceptionBootstrapScriptSource(token: String) -> String {

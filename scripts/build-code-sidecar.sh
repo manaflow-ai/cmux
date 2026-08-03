@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="${ROOT}/webviews/code-sidecar"
+BRIDGE_SOURCE="${ROOT}/webviews/src/surfaces/codeBridge.ts"
 PACKAGE_DIST="${SOURCE_DIR}/node_modules/t3/dist"
 BINARY_NAME="cmux-code-sidecar"
 BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${ROOT}/.build/code-sidecar}"
@@ -134,6 +135,21 @@ monitor_dir="${resources_dir}/code-sidecar/resource-monitor"
 mkdir -p "$binary_dir" "$client_dir" "$monitor_dir"
 rsync -a "$output_binary" "${binary_dir}/${BINARY_NAME}"
 rsync -a --delete --exclude '*.map' "${PACKAGE_DIST}/client/" "$client_dir/"
+# The desktop client only uses the native bridge for its local environment.
+# Remove the hosted-login and telemetry configuration inherited from the
+# pinned web bundle so the renderer has no embedded credential or relay path.
+find "$client_dir" -type f -name '*.js' -print0 \
+  | xargs -0 /usr/bin/perl -0777pi -e 'for my $key (qw(VITE_CLERK_CLI_OAUTH_CLIENT_ID VITE_CLERK_JWT_TEMPLATE VITE_CLERK_PUBLISHABLE_KEY VITE_RELAY_OTLP_TRACES_DATASET VITE_RELAY_OTLP_TRACES_TOKEN VITE_RELAY_OTLP_TRACES_URL VITE_T3CODE_RELAY_URL)) { if (/\Q$key\E:`([^`]*)`/) { my $value = $1; s{`\Q$value\E`}{``}g if length $value; } }'
+if ! find "$client_dir" -type f -name '*.js' -print0 \
+    | xargs -0 grep -Fq 'VITE_RELAY_OTLP_TRACES_TOKEN:``'; then
+  echo "error: failed to remove hosted Code configuration from the client" >&2
+  exit 1
+fi
+if find "$client_dir" -type f -name '*.js' -print0 \
+    | xargs -0 grep -Eil 'xaat-|pk_live_[[:alnum:]]{8,}|api\.axiom\.co|relay\.t3\.codes|relay-traces' >/dev/null; then
+  echo "error: a hosted credential or relay endpoint remains in the Code client" >&2
+  exit 1
+fi
 cp "${ROOT}/web/app/apple-icon.png" "${client_dir}/apple-touch-icon.png"
 rm -rf "${monitor_dir}/darwin-arm64" "${monitor_dir}/darwin-x64"
 rsync -a "${PACKAGE_DIST}/resource-monitor/darwin-arm64" "$monitor_dir/"
@@ -143,8 +159,26 @@ for monitor in "$monitor_dir"/darwin-*/t3-resource-monitor; do
   mv "$monitor" "$(dirname "$monitor")/cmux-code-resource-monitor"
 done
 cp "${SOURCE_DIR}/cmux-code.css" "${client_dir}/cmux-code.css"
+"$BUN_BIN" build "$BRIDGE_SOURCE" \
+  --outfile "${client_dir}/cmux-code-bridge.js" \
+  --target browser \
+  --format iife \
+  --minify
 
-/usr/bin/perl -0pi -e 's{href="/favicon\.ico"}{href="/apple-touch-icon.png"}; s{<title>(?:T3 )?Code \(Alpha\)</title>}{<title>Code</title>}; s{</head>}{  <link rel="stylesheet" href="/cmux-code.css" />\n</head>}' "${client_dir}/index.html"
+/usr/bin/perl -0pi -e 's{href="/favicon\.ico"}{href="/apple-touch-icon.png"}; s{<title>(?:T3 )?Code \(Alpha\)</title>}{<title>Code</title>}; s{<script type="module" crossorigin src="([^"]+)"></script>}{<script src="/cmux-code-bridge.js"></script>\n    <script type="application/x-cmux-code-module" data-cmux-code-main="$1"></script>}; s{<link rel="modulepreload" crossorigin href="([^"]+)">}{<link data-cmux-code-modulepreload href="$1">}g; s{<link rel="stylesheet" crossorigin href="([^"]+)">}{<link data-cmux-code-stylesheet href="$1">}g; s{</head>}{  <link rel="stylesheet" href="/cmux-code.css" />\n</head>}' "${client_dir}/index.html"
+/usr/bin/perl -0pi -e 's{<body>.*?</body>}{<body>\n    <main id="boot-shell" class="code-instant">\n      <header class="code-instant__topbar">\n        <button class="code-instant__new-thread" type="button">\n          <span data-cmux-string="newThread">New thread</span>\n        </button>\n      </header>\n      <section class="code-instant__stage">\n        <div class="code-instant__empty-state">\n          <p data-cmux-string="emptyState">Send a message to start the conversation.</p>\n        </div>\n      </section>\n      <form class="code-instant__composer">\n        <textarea id="cmux-code-instant-draft" rows="2" autofocus data-cmux-placeholder="prompt" placeholder="Describe a task or ask a question"></textarea>\n        <div class="code-instant__composer-footer">\n          <button class="code-instant__control" type="button" data-cmux-string="fullAccess">Full access</button>\n          <button class="code-instant__control" type="button" data-cmux-string="build">Build</button>\n          <button class="code-instant__send" type="submit" aria-label="Send" data-cmux-aria-label="send">↑</button>\n        </div>\n      </form>\n    </main>\n    <div id="root"></div>\n  </body>}s' "${client_dir}/index.html"
+if ! grep -Fq '<script src="/cmux-code-bridge.js"></script>' "${client_dir}/index.html"; then
+  echo "error: failed to install the Code WebView bridge" >&2
+  exit 1
+fi
+if ! grep -Fq 'class="code-instant__composer"' "${client_dir}/index.html" \
+    || ! grep -Fq '<div id="root"></div>' "${client_dir}/index.html" \
+    || ! grep -Fq 'type="application/x-cmux-code-module"' "${client_dir}/index.html" \
+    || grep -Fq '<script type="module"' "${client_dir}/index.html" \
+    || grep -Fq '<img id="boot-shell-logo"' "${client_dir}/index.html"; then
+  echo "error: failed to install the static Code app shell" >&2
+  exit 1
+fi
 sidebar_default_open='className:`h-dvh! min-h-0!`,defaultOpen:!0,style:'
 sidebar_default_closed='className:`h-dvh! min-h-0!`,defaultOpen:!1,style:'
 sidebar_asset=""

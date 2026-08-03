@@ -2420,14 +2420,15 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
+    @discardableResult
     private func runHostedWebViewRefreshPass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
         reattachRenderingState: Bool
-    ) {
-        guard !containerView.isHidden else { return }
+    ) -> Bool {
+        guard !containerView.isHidden else { return false }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             cmuxDebugLog(
@@ -2436,14 +2437,14 @@ final class WindowBrowserPortal: NSObject {
                 "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
             )
 #endif
-            return
+            return false
         }
 
         let hostedWebKitSubviews = hostedWebKitSubviews(
             in: containerView,
             primaryWebView: webView
         )
-        guard !hostedWebKitSubviews.isEmpty else { return }
+        guard !hostedWebKitSubviews.isEmpty else { return false }
 
         containerView.needsLayout = true
         containerView.needsDisplay = true
@@ -2493,6 +2494,7 @@ final class WindowBrowserPortal: NSObject {
             "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
         )
 #endif
+        return true
     }
 
     private func cancelPendingHostedWebViewRefreshes(
@@ -2571,13 +2573,16 @@ final class WindowBrowserPortal: NSObject {
             guard let self else { return }
             guard let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewRefreshPass(
+            let presented = self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "delayed",
                 reattachRenderingState: true
             )
+            if presented {
+                (webView as? CmuxWebView)?.onBrowserPortalPresentationSettled?()
+            }
         }
     }
 

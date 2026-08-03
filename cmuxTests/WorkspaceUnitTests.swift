@@ -3735,7 +3735,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
 
 @MainActor
 final class CodeWorkspaceCreationTests: XCTestCase {
-    func testDesktopBootstrapUsesInheritedEnvelopeAndFragmentCredential() throws {
+    func testDesktopBootstrapCredentialStaysInNativeEnvelope() throws {
         let dataDirectory = URL(fileURLWithPath: "/tmp/cmux-code-data", isDirectory: true)
         let resourceMonitor = URL(fileURLWithPath: "/tmp/cmux-code-resource-monitor")
         let token = "bootstrap-token_123"
@@ -3759,13 +3759,50 @@ final class CodeWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(decoded["desktopBootstrapToken"] as? String, token)
         XCTAssertEqual(decoded["resourceMonitorPath"] as? String, resourceMonitor.path)
 
-        let url = try CodeSidecarService.authenticatedURL(port: 4123, bootstrapToken: token)
-        XCTAssertEqual(url.scheme, "http")
-        XCTAssertEqual(url.host, "127.0.0.1")
-        XCTAssertEqual(url.port, 4123)
-        XCTAssertEqual(url.path, "/pair")
-        XCTAssertEqual(url.fragment, "token=\(token)")
-        XCTAssertFalse(url.absoluteString.contains("?token="))
+        let launcherURL = try XCTUnwrap(CodeSidecarService.launcherURL())
+        XCTAssertEqual(launcherURL.scheme, CodeStaticURLSchemeHandler.scheme)
+        XCTAssertEqual(launcherURL.host, CodeStaticURLSchemeHandler.host)
+        XCTAssertEqual(launcherURL.path, "/index.html")
+        XCTAssertFalse(launcherURL.absoluteString.contains(token))
+    }
+
+    func testCodeStaticSchemeOnlyResolvesReadableFilesInsideClientRoot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-code-static-\(UUID().uuidString)", isDirectory: true)
+        let assets = root.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = root.appendingPathComponent("index.html")
+        let script = assets.appendingPathComponent("app.js")
+        try Data("index".utf8).write(to: index)
+        try Data("script".utf8).write(to: script)
+
+        XCTAssertEqual(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/")),
+                rootURL: root
+            ),
+            index
+        )
+        XCTAssertEqual(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/assets/app.js")),
+                rootURL: root
+            ),
+            script
+        )
+        XCTAssertNil(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://other/index.html")),
+                rootURL: root
+            )
+        )
+        XCTAssertNil(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/%2e%2e/outside")),
+                rootURL: root
+            )
+        )
     }
 
     func testAutomaticProjectDirectoryRejectsBroadRoots() throws {
@@ -3834,6 +3871,26 @@ final class CodeWorkspaceCreationTests: XCTestCase {
         )
         XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
         XCTAssertTrue(script.contains("cmux:ghostty-theme-change"))
+    }
+
+    func testCodeStaticBootstrapInjectsLocalizedFirstFrameAndGhosttyTheme() throws {
+        var terminalTheme = TerminalTheme.monokai
+        terminalTheme.background = "#121416"
+        terminalTheme.foreground = "#f4f5f6"
+        let theme = CodeWebThemeSnapshot(terminalTheme: terminalTheme, backgroundOpacity: 0.7)
+
+        let script = try XCTUnwrap(
+            CodeStaticBootstrap.scriptSource(
+                theme: theme,
+                strings: ["headline": "Build immediately"]
+            )
+        )
+
+        XCTAssertTrue(script.contains("cmux-code:"))
+        XCTAssertTrue(script.contains("__cmuxCodeStaticBootstrap"))
+        XCTAssertTrue(script.contains("Build immediately"))
+        XCTAssertTrue(script.contains("#121416"))
+        XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
     }
 
     func testContextualTabAndSplitCreationPreserveCodeKind() throws {

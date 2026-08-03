@@ -229,3 +229,118 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(harness.madeWebViews[0].window == nil)
     }
 }
+
+@MainActor
+private final class CodeWebViewWarmerHarness {
+    let dataStore = WKWebsiteDataStore.nonPersistent()
+    private(set) var madeWebViews: [CmuxWebView] = []
+    private(set) var loadedRequests: [URLRequest] = []
+    let warmer: CodeWebViewWarmer
+
+    init(capacity: Int = 1) {
+        var recordWebView: (@MainActor (CmuxWebView) -> Void)!
+        var recordRequest: (@MainActor (URLRequest) -> Void)!
+        let dataStore = dataStore
+        warmer = CodeWebViewWarmer(
+            capacity: capacity,
+            makeWebView: { _, _ in
+                let configuration = WKWebViewConfiguration()
+                configuration.websiteDataStore = dataStore
+                let webView = CmuxWebView(frame: .zero, configuration: configuration)
+                recordWebView(webView)
+                return webView
+            },
+            startLoad: { _, request in
+                recordRequest(request)
+            }
+        )
+        recordWebView = { [weak self] in self?.madeWebViews.append($0) }
+        recordRequest = { [weak self] in self?.loadedRequests.append($0) }
+    }
+}
+
+@MainActor
+struct CodeWebViewWarmerTests {
+    @Test func prewarmFillsTheConfiguredBurstCapacitySerially() {
+        let harness = CodeWebViewWarmerHarness(capacity: 4)
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+
+        #expect(harness.warmer.entryCount == 1)
+        #expect(harness.madeWebViews.count == 1)
+        #expect(harness.loadedRequests.count == 1)
+
+        for index in 0..<4 {
+            harness.warmer.webView(harness.madeWebViews[index], didFinish: nil)
+        }
+        #expect(harness.warmer.entryCount == 4)
+        #expect(harness.madeWebViews.count == 4)
+        #expect(harness.loadedRequests.count == 4)
+        #expect(harness.warmer.readyCount == 4)
+        harness.warmer.discard(reason: "test-teardown")
+    }
+
+    @Test func prewarmKeepsOneCompleteInactiveFrameUntilClaimed() {
+        let harness = CodeWebViewWarmerHarness()
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+
+        #expect(harness.warmer.entryCount == 1)
+        #expect(harness.warmer.readyCount == 0)
+        #expect(harness.madeWebViews.count == 1)
+        #expect(harness.loadedRequests.map(\.url) == [CodeStaticURLSchemeHandler.launcherURL])
+        #expect(harness.madeWebViews[0].window != nil)
+
+        harness.warmer.webView(harness.madeWebViews[0], didFinish: nil)
+        #expect(harness.warmer.readyCount == 1)
+
+        let claimed = harness.warmer.claim(
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+        #expect(claimed === harness.madeWebViews[0])
+        #expect(claimed?.window == nil)
+        #expect(claimed?.superview == nil)
+        #expect(claimed?.navigationDelegate == nil)
+        #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
+        #expect(harness.warmer.entryCount == 0)
+    }
+
+    @Test func claimPrefersTheNewestCompletedFrame() {
+        let harness = CodeWebViewWarmerHarness(capacity: 2)
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+        harness.warmer.webView(harness.madeWebViews[0], didFinish: nil)
+        harness.warmer.webView(harness.madeWebViews[1], didFinish: nil)
+
+        let claimed = harness.warmer.claim(
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+
+        #expect(claimed === harness.madeWebViews[1])
+        #expect(harness.warmer.entryCount == 1)
+        harness.warmer.discard(reason: "test-teardown")
+    }
+
+    @Test func claimBeforeLoadFinishesKeepsTheLoadingFrame() {
+        let harness = CodeWebViewWarmerHarness()
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+
+        let claimed = harness.warmer.claim(
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+
+        #expect(claimed == nil)
+        #expect(harness.warmer.entryCount == 1)
+        harness.warmer.discard(reason: "test-teardown")
+    }
+
+    @Test func repeatPrewarmForTheSameProfileKeepsTheExistingWarmer() {
+        let harness = CodeWebViewWarmerHarness()
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+
+        #expect(harness.madeWebViews.count == 1)
+        #expect(harness.loadedRequests.count == 1)
+        harness.warmer.discard(reason: "test-teardown")
+    }
+}

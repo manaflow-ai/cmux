@@ -988,6 +988,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
+    "cmux-code",
     "cmux-diff-viewer",
     "data",
     "file",
@@ -3111,7 +3112,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
     var codeSurfaceMessageHandler: CodeSurfaceMessageHandler?
-    private var codeMountTask: Task<Void, Never>?
+    private var codePrewarmedClaimedAt: TimeInterval?
 
     private func setMediaActivity(
         isPlayingAudio: Bool? = nil,
@@ -3641,6 +3642,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
             )
         }
+        if configuration.urlSchemeHandler(forURLScheme: CodeStaticURLSchemeHandler.scheme) == nil {
+            configuration.setURLSchemeHandler(
+                CodeStaticURLSchemeHandler.shared,
+                forURLScheme: CodeStaticURLSchemeHandler.scheme
+            )
+        }
+        if let codeBootstrap = CodeStaticBootstrap.currentUserScript() {
+            configuration.userContentController.addUserScript(codeBootstrap)
+        }
         // Review-comment persistence + TextBox attach for diff viewer pages.
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
@@ -3739,6 +3749,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
+        webView.onBrowserPortalPresentationSettled = { [weak self, weak webView] in
+            guard let self, let webView, self.webView === webView else { return }
+            self.activateCodeSurfaceForVisiblePanel(in: webView)
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -3812,39 +3826,36 @@ final class BrowserPanel: Panel, ObservableObject {
         let handler = CodeSurfaceMessageHandler(panel: self)
         codeSurfaceMessageHandler = handler
         let userContentController = webView.configuration.userContentController
-        userContentController.removeScriptMessageHandler(forName: CodeSurfaceMessageHandler.name)
-        userContentController.add(handler, name: CodeSurfaceMessageHandler.name)
+        userContentController.removeScriptMessageHandler(
+            forName: CodeSurfaceMessageHandler.name,
+            contentWorld: .page
+        )
+        userContentController.addScriptMessageHandler(
+            handler,
+            contentWorld: .page,
+            name: CodeSurfaceMessageHandler.name
+        )
     }
 
-    func mountCodeSidecar() {
-        guard purpose == .code, codeMountTask == nil else { return }
-        let workingDirectory = AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory
-        codeMountTask = Task { [weak self] in
-            guard let self else { return }
-            defer { self.codeMountTask = nil }
-            do {
-                let url = try await CodeSidecarService.shared.mount(
-                    surfaceID: self.id,
-                    workingDirectory: workingDirectory
-                )
-                try Task.checkCancellation()
-                self.navigateWithoutInsecureHTTPPrompt(
-                    to: url,
-                    recordTypedNavigation: false,
-                    cachePolicy: .reloadIgnoringLocalAndRemoteCacheData
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-#if DEBUG
-                cmuxDebugLog("code.sidecar.mount.failed panel=\(self.id.uuidString.prefix(5)) error=\(error)")
-#endif
-                self.renderCodeSidecarLaunchError()
-            }
+    private func activateCodeSurfaceForVisiblePanel(in webView: WKWebView) {
+        guard purpose == .code,
+              self.webView === webView,
+              CodeStaticURLSchemeHandler.isTrustedURL(webView.url) else {
+            return
         }
+#if DEBUG
+        if let claimedAt = codePrewarmedClaimedAt {
+            let elapsedMilliseconds = Int(
+                (ProcessInfo.processInfo.systemUptime - claimedAt) * 1_000
+            )
+            cmuxDebugLog("code.firstFrame.visible elapsedMs=\(elapsedMilliseconds)")
+            codePrewarmedClaimedAt = nil
+        }
+#endif
+        webView.evaluateJavaScript(CodeStaticBootstrap.activationJavaScript, completionHandler: nil)
     }
 
-    private func renderCodeSidecarLaunchError() {
+    func renderCodeSidecarLaunchError() {
         let title = Self.htmlEscaped(
             String(localized: "code.sidecar.error.title", defaultValue: "Code could not open")
         )
@@ -3859,9 +3870,9 @@ final class BrowserPanel: Panel, ObservableObject {
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
         :root{color-scheme:light dark;font-size:14px}html,body{background:transparent}body{align-items:center;color:var(--cmux-ghostty-foreground,light-dark(#262626,#f5f5f5));display:flex;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;height:100vh;justify-content:center;margin:0}.card{max-width:320px;padding:24px;text-align:center}h1{font-size:1rem;margin:0 0 7px}p{color:color-mix(in srgb,currentColor 62%,transparent);font-size:.875rem;line-height:1.45;margin:0 0 16px}button{background:var(--cmux-ghostty-primary,#6073cc);border:0;border-radius:7px;color:var(--cmux-ghostty-primary-foreground,white);font:inherit;padding:6px 12px}
-        </style></head><body><main class="card"><h1>\(title)</h1><p>\(message)</p><button onclick="window.webkit.messageHandlers.cmuxCode.postMessage({type:'mount'})">\(retry)</button></main></body></html>
+        </style></head><body><main class="card"><h1>\(title)</h1><p>\(message)</p><button onclick="window.location.replace('cmux-code://app/index.html')">\(retry)</button></main></body></html>
         """
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: CodeStaticURLSchemeHandler.launcherURL)
     }
 
     private static func htmlEscaped(_ value: String) -> String {
@@ -3947,6 +3958,12 @@ final class BrowserPanel: Panel, ObservableObject {
                     self.refreshFavicon(from: webView)
                 }
                 self.applyCurrentAppWebTheme(to: webView)
+                if self.purpose == .code, self.isWebViewVisibleInUI {
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: webView,
+                        reason: "codeDocumentReady"
+                    )
+                }
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -4224,6 +4241,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
         if let prewarmed = Self.claimedPrewarmedWebView(
+            purpose: purpose,
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -4241,6 +4259,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
+        if adoptedPrewarmedWebView {
+            self.codePrewarmedClaimedAt = ProcessInfo.processInfo.systemUptime
+        }
         mobileBrowserDialogBroker.onPresented = { [weak self] dialog in
             guard let self, !self.mobileBrowserStreamSignalHandlers.isEmpty else { return }
             self.publishMobileBrowserStreamSignal(.dialog(dialog))
@@ -4450,6 +4471,15 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        if purpose == .code,
+           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            DispatchQueue.main.async {
+                CodeWebViewWarmer.shared.prewarm(
+                    profileID: resolvedProfileID,
+                    websiteDataStore: websiteDataStore
+                )
+            }
+        }
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
@@ -5202,7 +5232,11 @@ final class BrowserPanel: Panel, ObservableObject {
             contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
         )
         sameDocumentNavigationMessageHandler = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: CodeSurfaceMessageHandler.name)
+        codeSurfaceMessageHandler?.closeAll()
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: CodeSurfaceMessageHandler.name,
+            contentWorld: .page
+        )
         codeSurfaceMessageHandler = nil
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
@@ -5707,8 +5741,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
-        codeMountTask?.cancel()
-        codeMountTask = nil
+        codeSurfaceMessageHandler?.closeAll()
         if purpose == .code {
             CodeSidecarService.shared.release(surfaceID: id)
         }

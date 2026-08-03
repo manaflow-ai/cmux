@@ -12,6 +12,7 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    var onBrowserPortalPresentationSettled: (() -> Void)?
 
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
