@@ -19339,7 +19339,7 @@ mod tests {
         )
         .unwrap();
         insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
-        let (placement, canonical_workspace, changed) =
+        let (placement, canonical_workspace, changed, _created_path) =
             mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
         assert!(changed);
         assert_eq!(canonical_workspace, second.key);
