@@ -31589,6 +31589,24 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
+            // The prompt strip describes accepted user input, not the duration
+            // of the agent turn. Publish it before lifecycle/socket work so a
+            // fast Stop cannot race the strip out of existence.
+            if !suppressVisibleMutations,
+               !incomingCodexTurnIsTerminal,
+               def.name == "codex",
+               let prompt = feedPromptText(from: input.rawObject ?? input.object) {
+                do {
+                    try publishLatestCodexUserMessageOverlay(
+                        prompt,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                } catch {
+                    telemetry.breadcrumb("codex-hook.prompt-submit.overlay-failed")
+                }
+            }
             if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
@@ -31677,19 +31695,6 @@ export default CMUXSessionRestore;
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
-                }
-                if def.name == "codex",
-                   let prompt = feedPromptText(from: input.rawObject ?? input.object) {
-                    do {
-                        try publishLatestCodexUserMessageOverlay(
-                            prompt,
-                            workspaceId: workspaceId,
-                            surfaceId: surfaceId,
-                            client: client
-                        )
-                    } catch {
-                        telemetry.breadcrumb("codex-hook.prompt-submit.overlay-failed")
-                    }
                 }
                 setAgentLifecycle(
                     client: client,

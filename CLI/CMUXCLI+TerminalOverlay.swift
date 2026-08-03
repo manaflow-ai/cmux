@@ -187,7 +187,7 @@ extension CMUXCLI {
                 "surface_id": surfaceId,
                 "overlay_id": "agent.codex.latest-user-message",
                 "text": boundedPrompt,
-                "anchor": "sticky",
+                "anchor": "viewport",
                 "position": "left",
             ]
         )
