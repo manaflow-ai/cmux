@@ -2,9 +2,9 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
-import Combine
 import Darwin
 import Foundation
+import Observation
 import os
 import SQLite3
 
@@ -180,15 +180,15 @@ enum SectionIcon: Equatable {
 }
 
 /// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// `objectWillChange` on the data store, so rows and gaps don't re-render
-/// every time a drag begins or clears.
+/// `SessionIndexStore`. Isolating this keeps drag state out of the data store,
+/// so rows and gaps don't refresh every time a drag begins or clears.
 @MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
+@Observable
+final class SessionDragCoordinator {
+    var draggedKey: SectionKey?
 }
 
-/// Immutable per-directory snapshot consumed by `SectionPopoverView` for
+/// Immutable per-directory snapshot consumed by the native section popover for
 /// empty-query scrolling. All entries are merged across the three agent
 /// sources and sorted by `modified` desc. The popover slices this array
 /// in-memory to page, so scrolling fires zero store/disk calls.
@@ -199,23 +199,24 @@ struct DirectorySnapshot: Sendable {
 }
 
 @MainActor
-final class SessionIndexStore: ObservableObject {
+@Observable
+final class SessionIndexStore {
     private let snapshotLoader: SessionIndexSnapshotLoader
 
-    @Published private(set) var entries: [SessionEntry] = [] {
+    private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published private(set) var isLoading: Bool = false
-    @Published var scopeToCurrentDirectory: Bool = false {
+    private(set) var isLoading: Bool = false
+    var scopeToCurrentDirectory: Bool = false {
         didSet {
             guard scopeToCurrentDirectory != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published var currentDirectory: String? = nil {
+    var currentDirectory: String? = nil {
         didSet {
             guard scopeToCurrentDirectory, currentDirectory != oldValue else { return }
             invalidateSectionsCache()
@@ -227,7 +228,7 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
-    @Published var grouping: SessionGrouping {
+    var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
             UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
@@ -243,7 +244,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for agent sections.
-    @Published var agentOrder: [SessionAgent] {
+    var agentOrder: [SessionAgent] {
         didSet {
             guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
             Self.persistAgentOrder(agentOrder)
@@ -252,7 +253,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for directory sections (absolute paths; "" means "no folder").
-    @Published var directoryOrder: [String] {
+    var directoryOrder: [String] {
         didSet {
             guard directoryOrder != oldValue else { return }
             Self.persistDirectoryOrder(directoryOrder)
@@ -330,9 +331,9 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
-    /// already tracked. Kept out of the view-body path: it mutates `@Published`
-    /// state and must only run in response to real data changes (new scan
-    /// results, grouping switch) — not on every SwiftUI update tick.
+    /// already tracked. Kept out of presentation evaluation because it mutates
+    /// observable state and must only run in response to real data changes
+    /// (new scan results or a grouping switch).
     private func backfillDirectoryOrderFromEntries() {
         let knownPaths = Set(directoryOrder)
         var latestByPath: [String: Date] = [:]

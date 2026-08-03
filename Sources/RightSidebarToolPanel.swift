@@ -244,7 +244,7 @@ final class RightSidebarToolPanelViewController: NSViewController,
     private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
     private let focusAnchor = RightSidebarToolFocusAnchorView(frame: .zero)
     private var fileExplorerController: FileExplorerPanelController?
-    private var sessionController: SessionIndexTransitionalHostingController?
+    private var sessionController: SessionIndexNativeViewController?
     private weak var panel: RightSidebarToolPanel?
     private var flashCancellable: AnyCancellable?
     private var onRequestPanelFocus: () -> Void = {}
@@ -311,6 +311,7 @@ final class RightSidebarToolPanelViewController: NSViewController,
         flashCancellable = nil
         fileExplorerController?.teardown()
         fileExplorerController = nil
+        sessionController?.teardown()
         sessionController?.view.removeFromSuperview()
         sessionController?.removeFromParent()
         sessionController = nil
@@ -358,16 +359,25 @@ final class RightSidebarToolPanelViewController: NSViewController,
     private func installSessionIndex(panel: RightSidebarToolPanel, tabManager: TabManager) {
         if fileExplorerController != nil || sessionController == nil {
             clearInstalledContent()
-            let controller = SessionIndexTransitionalHostingController(
+            let controller = SessionIndexNativeViewController(
                 store: panel.sessionIndexStore,
-                tabManager: tabManager
+                onResume: { [weak tabManager] entry in
+                    guard let tabManager else { return }
+                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                }
             )
             addChild(controller)
             sessionController = controller
             install(view: controller.view)
             panel.attachSessionIndexFocusAnchor(focusAnchor)
         } else {
-            sessionController?.update(store: panel.sessionIndexStore, tabManager: tabManager)
+            sessionController?.update(
+                store: panel.sessionIndexStore,
+                onResume: { [weak tabManager] entry in
+                    guard let tabManager else { return }
+                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                }
+            )
         }
     }
 
@@ -385,6 +395,7 @@ final class RightSidebarToolPanelViewController: NSViewController,
     private func clearInstalledContent() {
         fileExplorerController?.teardown()
         fileExplorerController = nil
+        sessionController?.teardown()
         sessionController?.view.removeFromSuperview()
         sessionController?.removeFromParent()
         sessionController = nil

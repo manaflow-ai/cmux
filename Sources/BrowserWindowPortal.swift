@@ -1174,7 +1174,7 @@ final class WindowBrowserSlotView: NSView {
     private var searchOverlayHostingView: BrowserSearchOverlay?
     private var designComposerView: BrowserDesignModeComposerView?
     private var designComposerPanelId: UUID?
-    private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
+    private var omnibarSuggestionsView: BrowserPortalOmnibarSuggestionsOverlayView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var forwardedDropZone: DropZone?
@@ -1464,7 +1464,7 @@ final class WindowBrowserSlotView: NSView {
             "window=\(window?.windowNumber ?? -1) " +
             "items=\(configuration?.items.count ?? 0) " +
             "frame=\(browserPortalDebugFrame(configuration?.popupFrame ?? .zero)) " +
-            "hasOverlay=\(omnibarSuggestionsHostingView != nil ? 1 : 0)"
+            "hasOverlay=\(omnibarSuggestionsView != nil ? 1 : 0)"
         )
 #endif
     }
@@ -1472,13 +1472,13 @@ final class WindowBrowserSlotView: NSView {
     func setOmnibarSuggestions(_ configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
         guard let configuration else {
             logOmnibarSuggestionsEvent("remove", configuration: nil)
-            omnibarSuggestionsHostingView?.removeFromSuperview()
-            omnibarSuggestionsHostingView = nil
+            omnibarSuggestionsView?.removeFromSuperview()
+            omnibarSuggestionsView = nil
             return
         }
 
         logOmnibarSuggestionsEvent("set", configuration: configuration)
-        if let overlay = omnibarSuggestionsHostingView {
+        if let overlay = omnibarSuggestionsView {
             logOmnibarSuggestionsEvent("updateExisting", configuration: configuration)
             overlay.update(configuration: configuration)
             if overlay.superview !== self {
@@ -1495,7 +1495,7 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let overlay = BrowserPortalOmnibarSuggestionsHostingView(configuration: configuration)
+        let overlay = BrowserPortalOmnibarSuggestionsOverlayView(configuration: configuration)
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
         NSLayoutConstraint.activate([
@@ -1504,7 +1504,7 @@ final class WindowBrowserSlotView: NSView {
             overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        omnibarSuggestionsHostingView = overlay
+        omnibarSuggestionsView = overlay
         logOmnibarSuggestionsEvent("create", configuration: configuration)
         bringInteractionLayersToFrontIfNeeded()
     }
@@ -1712,7 +1712,7 @@ final class WindowBrowserSlotView: NSView {
 
     private func interactionLayerPriority(of view: NSView) -> Int {
         if view === paneDropTargetView { return 4 }
-        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === omnibarSuggestionsView { return 3 }
         if view === searchOverlayHostingView { return 2 }
         if view === designComposerView { return 1 }
         return 0

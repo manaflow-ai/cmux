@@ -18,6 +18,15 @@ import ExtensionFoundation
 import SwiftUI
 
 extension View {
+    @ViewBuilder
+    func safeHelp(_ text: String) -> some View {
+        if text.isEmpty {
+            self
+        } else {
+            help(text)
+        }
+    }
+
     func shortcutHintTransition() -> some View {
         transition(.opacity)
     }
@@ -703,73 +712,28 @@ struct KeyboardShortcutRecorder: NSViewRepresentable {
 }
 
 @MainActor
-final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
-    PanelContentControllerUpdating
-{
+final class TransitionalPanelLeafHostingController: NSViewController, PanelContentControllerUpdating {
     private var configuration: PanelContentConfiguration
 
     init(configuration: PanelContentConfiguration) {
         self.configuration = configuration
-        super.init(rootView: AnyView(EmptyView()))
-        sizingOptions = []
-        render()
+        super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        self.view = view
     }
 
     func update(configuration: PanelContentConfiguration) {
         self.configuration = configuration
-        render()
-    }
-
-    private func render() {
-        let configuration = configuration
-        let panel = configuration.panel
-        switch panel.panelType {
-        case .browser:
-            setEmpty()
-        case .terminal, .project, .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
-             .rightSidebarTool, .customSidebar, .markdown, .filePreview, .cloudVMLoading,
-             .workspaceTodo:
-            setEmpty()
-        }
-        rootView = AnyView(
-            rootView
-                .environment(\.settingsRuntime, configuration.settingsRuntime)
-                .environment(\.cmuxCanvasInlineBrowserHosting, configuration.canvasInlineBrowserHosting)
-        )
-    }
-
-    private func setEmpty() {
-        rootView = AnyView(EmptyView())
-    }
-}
-
-@MainActor
-final class SessionIndexTransitionalHostingController: NSHostingController<AnyView> {
-    init(store: SessionIndexStore, tabManager: TabManager) {
-        super.init(rootView: AnyView(EmptyView()))
-        sizingOptions = []
-        update(store: store, tabManager: tabManager)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(store: SessionIndexStore, tabManager: TabManager) {
-        rootView = AnyView(
-            SessionIndexView(
-                store: store,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-                }
-            )
-        )
     }
 }
 
@@ -1963,32 +1927,26 @@ struct GPUSpinner: NSViewRepresentable {
     }
 }
 
-struct SessionIndexTableView: NSViewRepresentable {
-    let rows: [SessionIndexTableRow]
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
+struct SessionIndexView: NSViewControllerRepresentable {
+    let store: SessionIndexStore
+    let onResume: ((SessionEntry) -> Void)?
 
-    func makeCoordinator() -> SessionIndexTableController { SessionIndexTableController() }
-
-    func makeNSView(context: Context) -> SessionIndexTableContainerView {
-        context.coordinator.makeContainerView()
+    func makeNSViewController(context: Context) -> SessionIndexNativeViewController {
+        SessionIndexNativeViewController(store: store, onResume: onResume)
     }
 
-    func updateNSView(_ view: SessionIndexTableContainerView, context: Context) {
-        context.coordinator.apply(
-            rows: rows,
-            environment: SessionIndexTableEnvironmentSnapshot(
-                colorScheme: colorScheme == .dark ? .dark : .light,
-                globalFontMagnificationPercent: globalFontMagnificationPercent
-            )
-        )
-    }
-
-    static func dismantleNSView(
-        _ view: SessionIndexTableContainerView,
-        coordinator: SessionIndexTableController
+    func updateNSViewController(
+        _ controller: SessionIndexNativeViewController,
+        context: Context
     ) {
-        coordinator.dismantle()
+        controller.update(store: store, onResume: onResume)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SessionIndexNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
     }
 }
 

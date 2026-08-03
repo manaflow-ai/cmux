@@ -1,6 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
-import Combine
+import Observation
 import SQLite3
 import SwiftUI
 import Testing
@@ -259,18 +259,24 @@ struct SessionIndexViewTests {
     }
 
     @Test
-    func currentDirectorySetterDoesNotPublishEqualValue() {
+    func currentDirectorySetterDoesNotInvalidateEqualValue() {
         let store = SessionIndexStore()
-        var emittedValues: [String?] = []
-        let cancellable = store.$currentDirectory
-            .dropFirst()
-            .sink { emittedValues.append($0) }
-        defer { cancellable.cancel() }
+        var invalidationCount = 0
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            invalidationCount += 1
+        }
 
         store.setCurrentDirectoryIfChanged("/foo")
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            invalidationCount += 1
+        }
         store.setCurrentDirectoryIfChanged("/foo")
 
-        #expect(emittedValues == ["/foo"])
+        #expect(invalidationCount == 1)
     }
 
     @Test

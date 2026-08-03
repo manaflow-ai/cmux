@@ -69,9 +69,9 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 26 importing files remaining under `Sources`, including the
-    application root, feed, and sidebar. Workspace, terminal, browser, and the
-    browser design-mode composer are native AppKit.
+  - [ ] Replace the 21 importing files remaining under `Sources`, including the
+    application root, feed, and sidebar. Workspace, terminal, browser, Vault,
+    and the browser design-mode composer are native AppKit.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (172 import files; notification feed, terminal

@@ -2,7 +2,7 @@ import AppKit
 
 /// Full-slot event-routing host for the native address-bar suggestions popup.
 @MainActor
-final class BrowserPortalOmnibarSuggestionsHostingView: NSView {
+final class BrowserPortalOmnibarSuggestionsOverlayView: NSView {
     private let popupView: OmnibarSuggestionsView
     private(set) var popupFrameInTopLeftCoordinates: CGRect = .zero
 

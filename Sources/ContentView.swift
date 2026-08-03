@@ -924,7 +924,7 @@ struct ContentView: View {
     @State private var sidebarRenderWorkerClientStore = RenderWorkerClientStore()
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -3732,7 +3732,7 @@ struct ContentView: View {
         case singleLine(
             accessibilityIdentifier: String,
             focus: FocusState<Bool>.Binding,
-            onDeleteBackward: ((EventModifiers) -> BackportKeyPressResult)?
+            onDeleteBackward: ((EventModifiers) -> KeyPress.Result)?
         )
         case multiline(
             accessibilityIdentifier: String,
@@ -3760,8 +3760,8 @@ struct ContentView: View {
                 .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                 .focused(focus)
                 .accessibilityIdentifier(accessibilityIdentifier)
-                .backport.onKeyPress(.delete) { modifiers in
-                    onDeleteBackward?(modifiers) ?? .ignored
+                .onKeyPress(.delete, phases: [.down, .repeat]) { keyPress in
+                    onDeleteBackward?(keyPress.modifiers) ?? .ignored
                 }
                 .onSubmit {
                     onSubmit(text.wrappedValue)
@@ -8997,7 +8997,7 @@ struct ContentView: View {
 
     private func handleCommandPaletteRenameDeleteBackward(
         modifiers: EventModifiers
-    ) -> BackportKeyPressResult {
+    ) -> KeyPress.Result {
         guard case .renameInput = commandPaletteMode else { return .ignored }
         let blockedModifiers: EventModifiers = [.command, .control, .option, .shift]
         guard modifiers.intersection(blockedModifiers).isEmpty else { return .ignored }

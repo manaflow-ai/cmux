@@ -37,7 +37,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
     private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
     private let webHost = BrowserWebViewNativeConfiguration.NativeHost()
     private var localSearchOverlay: BrowserSearchOverlay?
-    private var localSuggestionsHost: BrowserPortalOmnibarSuggestionsHostingView?
+    private var localSuggestionsHost: BrowserPortalOmnibarSuggestionsOverlayView?
     private var toolbarHeightConstraint: NSLayoutConstraint!
 
     private let backButton = BrowserToolbarButton()
@@ -809,7 +809,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
         if let localSuggestionsHost {
             localSuggestionsHost.update(configuration: config)
         } else {
-            let host = BrowserPortalOmnibarSuggestionsHostingView(configuration: config)
+            let host = BrowserPortalOmnibarSuggestionsOverlayView(configuration: config)
             host.translatesAutoresizingMaskIntoConstraints = false
             rootView.addSubview(host, positioned: .above, relativeTo: flashRing)
             NSLayoutConstraint.activate([
