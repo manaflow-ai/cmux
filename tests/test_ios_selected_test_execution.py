@@ -40,18 +40,55 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rejects_zero_tests_for_requested_filter(self) -> None:
-        test_filter = "cmuxUITests/testMissingMethod"
+        test_filter = "cmuxUITests/testMissingMethod\n::error::injected"
         result = self.run_guard(
             "Executed 0 tests, with 0 failures (0 unexpected)",
             test_filter,
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(test_filter, result.stderr)
-        self.assertIn("zero tests", result.stderr)
+        self.assertEqual(
+            result.stderr,
+            "selected iOS test filter matched zero tests; "
+            "use target/class or target/class/method syntax\n",
+        )
+        self.assertNotIn(test_filter, result.stderr)
 
     def test_rejects_missing_execution_summary_for_requested_filter(self) -> None:
         result = self.run_guard("** TEST SUCCEEDED **", "cmuxUITests/testMissingMethod")
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stderr,
+            "selected iOS test execution summary was not found; "
+            "verify the test log format\n",
+        )
+
+    def test_missing_log_does_not_echo_its_path(self) -> None:
+        missing_log = "/tmp/private-selected-test-output.log"
+        result = subprocess.run(
+            ["bash", str(GUARD), missing_log, "cmuxUITests/testExample"],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "selected iOS test execution log is unavailable\n",
+        )
+        self.assertNotIn(missing_log, result.stderr)
+
+    def test_accepts_mixed_nested_summaries_when_tests_executed(self) -> None:
+        result = self.run_guard(
+            "\n".join(
+                (
+                    "Executed 0 tests, with 0 failures (0 unexpected)",
+                    "Executed 1 test, with 0 failures (0 unexpected)",
+                )
+            ),
+            "cmuxUITests/cmuxUITests/testExample",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_allows_empty_filter_without_an_execution_summary(self) -> None:
         result = self.run_guard("** TEST SUCCEEDED **", "")
