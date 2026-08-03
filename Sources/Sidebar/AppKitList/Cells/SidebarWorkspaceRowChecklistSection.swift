@@ -1,14 +1,12 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 /// Pure-AppKit parity port of the legacy `SidebarWorkspaceChecklistSection`:
 /// a progress summary line plus either an inline expansion (ordered items in
 /// a 6-row-capped scrollable viewport, tap-to-edit, attachments, hover
 /// delete, ghost add row) or an anchored checklist popover, per the
 /// `sidebar.beta.workspaceTodos.checklistStyle` setting. The popover reuses
-/// the legacy SwiftUI `SidebarWorkspaceChecklistPopover` wholesale (popovers
-/// sit off the scroll path).
+/// the same native AppKit row controls in its anchored popover.
 ///
 /// All height-affecting state is model-derived (expansion, popover
 /// presentation, add-field activation token, editing item id) so the height
@@ -25,7 +23,7 @@ final class SidebarRowChecklistSection: NSView {
     private var orderedLines: [SidebarRowChecklistItemLine] = []
     private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
-    private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    private let popoverPresenter = SidebarRowChecklistPopoverPresenter()
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
@@ -90,8 +88,6 @@ final class SidebarRowChecklistSection: NSView {
         addSubview(scrollView)
         addRow.isHidden = true
         addSubview(addRow)
-        popoverPresenter.minWidth = 320
-        popoverPresenter.maxHeight = 520
     }
 
     required init?(coder: NSCoder) {
@@ -376,7 +372,11 @@ final class SidebarRowChecklistSection: NSView {
             let popoverModel = checklistPopoverModel(model)
             if lastPopoverModel != popoverModel {
                 lastPopoverModel = popoverModel
-                popoverPresenter.update(checklistPopoverContent(popoverModel, actions: actions))
+                popoverPresenter.update(
+                    popoverModel: popoverModel,
+                    rowModel: model,
+                    actions: actions
+                )
             }
         } else {
             // Defer to layout(): this view may not have a window or resolved
@@ -414,7 +414,13 @@ final class SidebarRowChecklistSection: NSView {
         // Legacy anchor: the section's top-trailing corner, opening to the
         // right (`preferredEdge: .maxX`, min width 320, max 520).
         popoverPresenter.present(
-            checklistPopoverContent(popoverModel, actions: actions),
+            popoverModel: popoverModel,
+            rowModel: model,
+            actions: actions,
+            onConsumeAddFieldActivation: actions.onConsumeChecklistAddFieldActivation,
+            onClose: { [weak self] in
+                self?.closeChecklistPopoverFromContent()
+            },
             relativeTo: NSRect(x: max(0, bounds.width - 1), y: 0, width: 1, height: 1),
             of: self,
             preferredEdge: .maxX
@@ -440,20 +446,6 @@ final class SidebarRowChecklistSection: NSView {
         )
     }
 
-    private func checklistPopoverContent(
-        _ popoverModel: SidebarWorkspaceChecklistPopoverModel,
-        actions: SidebarAppKitRowActions
-    ) -> AnyView {
-        AnyView(SidebarWorkspaceChecklistPopover(
-            model: popoverModel,
-            actions: Self.checklistActions(from: actions),
-            onConsumeAddFieldActivation: actions.onConsumeChecklistAddFieldActivation,
-            onClose: { [weak self] in
-                self?.closeChecklistPopoverFromContent()
-            }
-        ))
-    }
-
     private func closeChecklistPopoverFromContent() {
         // Same latch as the external-dismiss path: the container's
         // `presented = false` write lands asynchronously, and a stale
@@ -463,22 +455,6 @@ final class SidebarRowChecklistSection: NSView {
         popoverPresenter.close()
         activePopoverDismissContext?()
         activePopoverDismissContext = nil
-    }
-
-    private static func checklistActions(
-        from actions: SidebarAppKitRowActions
-    ) -> SidebarWorkspaceChecklistActions {
-        SidebarWorkspaceChecklistActions(
-            setItemState: actions.checklistSetItemState,
-            removeItem: actions.checklistRemoveItem,
-            addItem: actions.checklistAddItem,
-            editItem: actions.checklistEditItem,
-            moveItem: actions.checklistMoveItem,
-            openPane: actions.checklistOpenPane,
-            addAttachments: actions.checklistAddAttachments,
-            removeAttachment: actions.checklistRemoveAttachment,
-            openAttachments: actions.checklistOpenAttachments
-        )
     }
 
     private func resetTransientChildren() {
