@@ -299,6 +299,79 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func workspaceInsertionInvalidatesSidebarWithoutRebuildingContentRoot() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewInsertionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let tabManager = TabManager()
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        counts.reset()
+
+        tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.contentViewBody == 0,
+            "Adding an unselected workspace must not rebuild the window content root."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "Adding an unselected workspace must not rebuild mounted terminal content."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody > 0,
+            "The sidebar leaf must still observe and render the inserted workspace."
+        )
+        let workspaceRows = window.contentView.map { root in
+            Self.descendants(of: root)
+                .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+        } ?? []
+        #expect(workspaceRows.count == tabManager.tabs.count)
+    }
+
+    @Test
+    @MainActor
     func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
         _ = NSApplication.shared
 
