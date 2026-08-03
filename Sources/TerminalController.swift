@@ -3719,6 +3719,12 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        // A named-but-unresolvable workspace yields no target, the same way an
+        // unresolvable `window_id` does. This is the choke point every routed
+        // command reaches, so no consumer with an optional workspace (todos,
+        // status, remote-tmux host selection) can quietly read the flag as
+        // "workspace omitted" and act on the caller's own window (issue #9191).
+        if routing.hasWorkspaceIDParam, routing.workspaceID == nil { return nil }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)

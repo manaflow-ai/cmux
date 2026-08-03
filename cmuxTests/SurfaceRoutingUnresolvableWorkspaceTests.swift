@@ -45,6 +45,37 @@ struct SurfaceRoutingUnresolvableWorkspaceTests {
         #expect(resolved?.id == selected.id)
     }
 
+    /// `resolveTabManager` is the choke point every routed command reaches,
+    /// including the ones whose own workspace param is optional (todos,
+    /// status, remote-tmux host selection). It has to refuse a named-but-
+    /// unresolvable workspace there, or those commands mutate the caller's
+    /// focused workspace instead.
+    @Test
+    func unresolvableWorkspaceIDResolvesToNoTabManager() {
+        #expect(TerminalController.shared.resolveTabManager(
+            routing: Self.routing(workspaceID: nil, hasWorkspaceIDParam: true)
+        ) == nil)
+    }
+
+    /// A non-surface mutation: `workspace.todo.add` carries an optional
+    /// workspace param, so an unknown ref used to fall through to the selected
+    /// workspace and add the item there. It must refuse instead.
+    @Test
+    func unresolvableWorkspaceIDDoesNotMutateTheFocusedWorkspaceTodos() {
+        let result = TerminalController.shared.controlWorkspaceTodoAdd(
+            routing: Self.routing(workspaceID: nil, hasWorkspaceIDParam: true),
+            workspaceID: nil,
+            text: "must not land in the focused workspace",
+            stateRaw: nil,
+            originRaw: nil
+        )
+
+        guard case .tabManagerUnavailable = result else {
+            Issue.record("expected the add to be refused, got \(result)")
+            return
+        }
+    }
+
     /// The app-side request decoder is the single place every non-coordinator
     /// entrypoint (`surface.read_text` on the socket-worker lane, the
     /// remote-tmux paths) gets its selectors from, so the presence flag cannot

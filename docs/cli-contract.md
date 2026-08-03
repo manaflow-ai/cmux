@@ -50,8 +50,8 @@ stable identity, and the input RPCs (`surface.send_text`, `surface.send_key`,
 talk to it must carry the UUID. `cmux workspace create` therefore reports both:
 plain output prints `OK <workspace_ref> <workspace_uuid>`, and `--json` keeps
 `workspace_id`, `surface_id`, and `pane_id` in the payload even in the default
-`refs` id-format. A `workspace_id` that the app cannot resolve is rejected with
-`not_found` rather than falling back to the focused workspace.
+`refs` id-format. A `workspace_id` the app cannot resolve is rejected, rather
+than falling back to the caller's focused workspace, for every routed command.
 
 Environment:
 
