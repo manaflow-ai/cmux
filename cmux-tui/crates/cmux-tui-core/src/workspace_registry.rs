@@ -700,6 +700,7 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
@@ -2023,6 +2024,37 @@ fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Resul
                 updated_revision,
                 deleted_revision
             ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Seed the shared compatibility default after legacy workspace backfill.
+///
+/// Frontends keep their actual focus in client-local state. The registry still
+/// exposes one default for legacy commands and initial placement, and older
+/// registries can have live public workspaces without that metadata. Preserve
+/// any stored value so invariant validation still rejects dangling selections.
+fn initialize_compatibility_active_workspace(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if meta_value(transaction, "active_workspace_id")?.is_some() {
+        return Ok(());
+    }
+    let active_workspace = transaction
+        .query_row(
+            "SELECT rw.public_id
+             FROM workspaces w
+             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position ASC, w.workspace_key ASC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(active_workspace) = active_workspace {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)",
+            [active_workspace],
         )?;
     }
     Ok(())
