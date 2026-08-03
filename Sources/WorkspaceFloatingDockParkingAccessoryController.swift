@@ -24,7 +24,8 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private let accessoryView: WorkspaceFloatingDockParkingAccessoryView
     private let glassEffect = WindowGlassEffect()
     private var presentationGeneration = 0
-    private var anchorFrame: CGRect?
+    private var ownerWindowObserverTokens: [any NSObjectProtocol] = []
+    private weak var observedOwnerWindow: NSWindow?
     private var parkingEdge: WorkspaceFloatingDockParkingEdge = .trailing
     private(set) var isEditing = false
 
@@ -90,19 +91,17 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func show(
         attachedTo ownerWindow: NSWindow,
         title: String,
-        anchorFrame: CGRect,
         parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         presentationGeneration &+= 1
-        self.anchorFrame = anchorFrame
         self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         let targetFrame = frame(
-            anchorFrame: anchorFrame,
+            relativeTo: ownerWindow,
             width: accessoryView.preferredWidth,
             parkingEdge: parkingEdge
         )
@@ -142,20 +141,18 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func update(
         title: String,
         attachedTo ownerWindow: NSWindow,
-        anchorFrame: CGRect,
         parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         guard panel.isVisible else { return }
-        self.anchorFrame = anchorFrame
         self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         setFrame(
             frame(
-                anchorFrame: anchorFrame,
+                relativeTo: ownerWindow,
                 width: accessoryView.preferredWidth,
                 parkingEdge: parkingEdge
             ),
@@ -164,12 +161,12 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     }
 
     func beginRenaming() {
-        guard panel.isVisible, let anchorFrame else { return }
+        guard panel.isVisible, let ownerWindow = panel.parent else { return }
         presentationGeneration &+= 1
         accessoryView.cancelPendingActivation()
         accessoryView.beginRenaming()
         let targetFrame = frame(
-            anchorFrame: anchorFrame,
+            relativeTo: ownerWindow,
             width: accessoryView.preferredWidth,
             parkingEdge: parkingEdge
         )
@@ -184,6 +181,18 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             "editor=\(String(describing: accessoryView.renameField.currentEditor()))"
         )
 #endif
+    }
+
+    private func synchronizeWithOwner() {
+        guard panel.isVisible, let ownerWindow = panel.parent else { return }
+        setFrame(
+            frame(
+                relativeTo: ownerWindow,
+                width: accessoryView.preferredWidth,
+                parkingEdge: parkingEdge
+            ),
+            animated: false
+        )
     }
 
     func hide(animated: Bool) {
@@ -257,18 +266,20 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         if panel.parent !== ownerWindow {
             ownerWindow.addChildWindow(panel, ordered: .above)
         }
+        installOwnerWindowObservers(for: ownerWindow)
     }
 
     private func detach() {
+        removeOwnerWindowObservers()
         panel.parent?.removeChildWindow(panel)
-        anchorFrame = nil
     }
 
     private func frame(
-        anchorFrame: CGRect,
+        relativeTo ownerWindow: NSWindow,
         width: CGFloat,
         parkingEdge: WorkspaceFloatingDockParkingEdge
     ) -> CGRect {
+        let anchorFrame = ownerWindow.frame
         var minX: CGFloat = switch parkingEdge {
         case .leading:
             anchorFrame.maxX + Self.gap
@@ -276,9 +287,11 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             anchorFrame.minX - Self.gap - width
         }
         var minY = anchorFrame.midY - (Self.height / 2)
-        if let visibleFrame = NSScreen.screens.first(where: {
-            !$0.frame.intersection(anchorFrame).isNull
-        })?.visibleFrame ?? NSScreen.main?.visibleFrame {
+        if let visibleFrame = ownerWindow.screen?.visibleFrame
+            ?? NSScreen.screens.first(where: {
+                !$0.frame.intersection(anchorFrame).isNull
+            })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame {
             minX = min(max(minX, visibleFrame.minX), visibleFrame.maxX - width)
             minY = min(max(minY, visibleFrame.minY), visibleFrame.maxY - Self.height)
         }
@@ -288,6 +301,46 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             width: width,
             height: Self.height
         )
+    }
+
+    private func installOwnerWindowObservers(for ownerWindow: NSWindow) {
+        guard observedOwnerWindow !== ownerWindow || ownerWindowObserverTokens.isEmpty else { return }
+        removeOwnerWindowObservers()
+        observedOwnerWindow = ownerWindow
+        let handler: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.synchronizeWithOwner()
+            }
+        }
+        let center = NotificationCenter.default
+        ownerWindowObserverTokens = [
+            center.addObserver(
+                forName: NSWindow.didMoveNotification,
+                object: ownerWindow,
+                queue: .main,
+                using: handler
+            ),
+            center.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: ownerWindow,
+                queue: .main,
+                using: handler
+            ),
+            center.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: ownerWindow,
+                queue: .main,
+                using: handler
+            ),
+        ]
+    }
+
+    private func removeOwnerWindowObservers() {
+        for token in ownerWindowObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        ownerWindowObserverTokens.removeAll()
+        observedOwnerWindow = nil
     }
 
     private func inwardHorizontalOffset(

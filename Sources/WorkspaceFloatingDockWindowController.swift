@@ -250,7 +250,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.update(
                 title: dock.title,
                 attachedTo: panel,
-                anchorFrame: parkingAccessoryAnchorFrame(for: panel),
                 parkingEdge: parkingSnapshot?.edge ?? .trailing,
                 appearance: appearance,
                 animated: false
@@ -912,7 +911,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.show(
                 attachedTo: panel,
                 title: dock.title,
-                anchorFrame: parkingAccessoryAnchorFrame(for: panel),
                 parkingEdge: .trailing,
                 appearance: resolvedBackdropAppearance(),
                 animated: true
@@ -1072,15 +1070,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         parkingAccessoryController.show(
             attachedTo: panel,
             title: dock.title,
-            anchorFrame: panel.frame,
             parkingEdge: snapshot.edge,
             appearance: resolvedBackdropAppearance(),
             animated: animated
         )
-    }
-
-    private func parkingAccessoryAnchorFrame(for panel: NSWindow) -> CGRect {
-        panel.frame
     }
 
     private func detachParkedPanel(_ panel: NSWindow) {

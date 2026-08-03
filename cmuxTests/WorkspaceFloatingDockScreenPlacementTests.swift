@@ -372,11 +372,11 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             owner.close()
         }
         let floatingWindowFrame = CGRect(x: 420, y: 180, width: 520, height: 380)
+        owner.setFrame(floatingWindowFrame, display: false)
 
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            anchorFrame: floatingWindowFrame,
             parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
@@ -384,9 +384,9 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
 
         #expect(
             controller.window.frame.maxX
-                == floatingWindowFrame.minX - WorkspaceFloatingDockParkingAccessoryController.gap
+                == owner.frame.minX - WorkspaceFloatingDockParkingAccessoryController.gap
         )
-        #expect(controller.window.frame.midY == floatingWindowFrame.midY)
+        #expect(controller.window.frame.midY == owner.frame.midY)
         #expect(controller.window.frame.height == 32)
         #expect(controller.window.frame.width < 170)
     }
@@ -425,7 +425,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            anchorFrame: owner.frame,
             parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
@@ -437,6 +436,17 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
 
         controller.beginRenaming()
         try? await Task.sleep(nanoseconds: 250_000_000)
+
+        #expect(
+            controller.window.frame.maxX
+                == owner.frame.minX - WorkspaceFloatingDockParkingAccessoryController.gap
+        )
+        #expect(controller.window.frame.midY == owner.frame.midY)
+
+        var resizedOwnerFrame = owner.frame
+        resizedOwnerFrame.size.height += 80
+        owner.setFrame(resizedOwnerFrame, display: true)
+        await Task.yield()
 
         #expect(
             controller.window.frame.maxX
@@ -668,7 +678,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            anchorFrame: CGRect(x: 900, y: 400, width: 1, height: 44),
             parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
