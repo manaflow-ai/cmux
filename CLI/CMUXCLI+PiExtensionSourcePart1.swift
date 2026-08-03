@@ -17,6 +17,7 @@ interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
   turnId: string;
+  suppressNotification: boolean;
 }
 
 interface SessionState {
@@ -387,6 +388,25 @@ function lastAssistantMessage(event: unknown): string | undefined {
     if (text) return text;
   }
   return undefined;
+}
+
+function completionSuppressesNotification(event: unknown): boolean {
+  const messagesValue = objectValue(event, ["messages"]);
+  const messages = Array.isArray(messagesValue) ? messagesValue : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const typed = message as {
+      role?: unknown;
+      stopReason?: unknown;
+      cmuxSuppressNotification?: unknown;
+    };
+    if (typed.role !== "assistant") continue;
+    // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
+    // the marker preserves the interruption intent across that normalization.
+    return typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+  }
+  return false;
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {
