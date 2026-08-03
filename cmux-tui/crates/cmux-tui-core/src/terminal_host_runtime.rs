@@ -594,14 +594,23 @@ mod unix {
     }
 
     impl ControlResponses {
+        #[cfg(test)]
         pub(crate) fn resolve(&self, frame: &Frame) -> bool {
-            let mut waiters = self.waiters.lock().unwrap();
-            let Some(waiter) = waiters.remove(&frame.request_id) else {
-                return false;
+            self.resolve_after(frame, || {})
+        }
+
+        pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
+            let waiter = {
+                let mut waiters = self.waiters.lock().unwrap();
+                let Some(waiter) = waiters.remove(&frame.request_id) else {
+                    return false;
+                };
+                waiter
             };
             if waiter.kind != frame.kind {
                 return false;
             }
+            before_resolve();
             let _ = waiter.sender.try_send(frame.payload.clone());
             true
         }
@@ -741,6 +750,7 @@ mod unix {
             )?;
             match response.as_slice() {
                 [CLEAR_HISTORY_ACK_OK] => {}
+                [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => {}
                 [status] => {
                     let Some(failure) = clear_history_ack_failure(*status) else {
                         self.disconnect();
@@ -1819,6 +1829,21 @@ mod unix {
             cursor
         }
 
+        fn publish_after_targeted(
+            &self,
+            targeted: &HostTap,
+            targeted_frame: Frame,
+            mut frame: Frame,
+        ) -> (u64, bool) {
+            let _broadcast = self.broadcast_lock.lock().unwrap();
+            let targeted_queued = targeted.try_send(targeted_frame);
+            let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
+            frame.sequence = cursor;
+            self.retained.lock().unwrap().push(frame.clone());
+            self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+            (cursor, targeted_queued)
+        }
+
         fn mark_applied(&self, cursor: u64) {
             let prior = self.applied_cursor.fetch_max(cursor, Ordering::AcqRel);
             debug_assert!(prior <= cursor, "smart parser cursor moved backwards");
@@ -1925,6 +1950,10 @@ mod unix {
             source_cursor: u64,
             response: SyncSender<()>,
         },
+        ClearHistory {
+            fallback_key: Option<KeyInput>,
+            response: SyncSender<Result<ParserClearHistoryResult, String>>,
+        },
         Drain,
     }
 
@@ -1932,6 +1961,19 @@ mod unix {
     struct ParserResizeResult {
         acknowledgement_queued: bool,
         changed: bool,
+    }
+
+    enum ParserClearHistoryResult {
+        Cleared(Vec<u8>),
+        Blocked,
+        EncodedFallback(Vec<u8>),
+        Noop,
+    }
+
+    enum ClearHistoryAckDisposition {
+        Pending,
+        Queued,
+        ConnectionClosed,
     }
 
     struct ParserBudget {
@@ -2298,23 +2340,83 @@ mod unix {
         fn clear_history_or_encode_key(
             &self,
             fallback_key: Option<&KeyInput>,
-        ) -> Result<(), ClearHistoryFailure> {
+            smart_ack: Option<(u64, &HostTap)>,
+        ) -> Result<ClearHistoryAckDisposition, ClearHistoryFailure> {
             let mut observed_progress = self.stream_progress.revision();
             let mut stream_wait = None;
             loop {
-                let mut term = self.term.lock().unwrap();
-                match apply_clear_history_transition(&mut term, fallback_key)
-                    .map_err(ClearHistoryFailure::known_not_delivered)?
-                {
-                    ClearHistoryTransition::Cleared(clear) => {
-                        // Keep the authoritative parser lock through sequence
-                        // publication so child output cannot overtake the
-                        // emulator-only erase on any attached mirror.
-                        self.broadcast(MessageKind::Output, clear);
-                        return Ok(());
+                // Clear-history observes and mutates parser state. Keep its
+                // command in the same FIFO as PTY output while holding source
+                // order so neither already-read nor later bytes can cross the
+                // emulator-only transition.
+                let (result, acknowledgement) = {
+                    let _source_order = self.source_order_lock.lock().unwrap();
+                    let (response, applied) = sync_channel(1);
+                    if self
+                        .parser_commands
+                        .send(ParserCommand::ClearHistory {
+                            fallback_key: fallback_key.cloned(),
+                            response,
+                        })
+                        .is_err()
+                    {
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal parser worker stopped"
+                        )));
                     }
-                    ClearHistoryTransition::Blocked => {
-                        drop(term);
+                    let result = applied
+                        .recv()
+                        .map_err(|_| {
+                            ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                                "terminal parser worker stopped"
+                            ))
+                        })?
+                        .map_err(|error| {
+                            ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(error))
+                        })?;
+                    let acknowledgement = match &result {
+                        ParserClearHistoryResult::Cleared(clear) => {
+                            let marker = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                            let (source_cursor, acknowledgement) =
+                                if let Some((request_id, target)) = smart_ack {
+                                    let mut payload = Vec::with_capacity(1 + clear.len());
+                                    payload.push(CLEAR_HISTORY_ACK_OK);
+                                    payload.extend_from_slice(clear);
+                                    let mut response =
+                                        Frame::new(MessageKind::ClearHistoryAck, payload);
+                                    response.request_id = request_id;
+                                    let (source_cursor, queued) =
+                                        self.smart.publish_after_targeted(target, response, marker);
+                                    (
+                                        source_cursor,
+                                        if queued {
+                                            ClearHistoryAckDisposition::Queued
+                                        } else {
+                                            ClearHistoryAckDisposition::ConnectionClosed
+                                        },
+                                    )
+                                } else {
+                                    (
+                                        self.smart.publish(marker),
+                                        ClearHistoryAckDisposition::Pending,
+                                    )
+                                };
+                            self.smart.mark_applied(source_cursor);
+                            Some(acknowledgement)
+                        }
+                        _ => None,
+                    };
+                    (result, acknowledgement)
+                };
+                match result {
+                    ParserClearHistoryResult::Cleared(_) => {
+                        return Ok(acknowledgement
+                            .expect("a cleared parser transition has an acknowledgement"));
+                    }
+                    ParserClearHistoryResult::Noop => {
+                        return Ok(ClearHistoryAckDisposition::Pending);
+                    }
+                    ParserClearHistoryResult::Blocked => {
                         let deadline = stream_wait
                             .get_or_insert_with(|| {
                                 self.stream_progress
@@ -2331,19 +2433,39 @@ mod unix {
                         };
                         observed_progress = progress;
                     }
-                    ClearHistoryTransition::EncodedFallback(encoded) => {
-                        drop(term);
+                    ParserClearHistoryResult::EncodedFallback(encoded) => {
                         let mut writer = self.writer.lock().unwrap();
                         let master = self.master.lock().unwrap();
                         return write_clear_history_fallback(
                             master.as_ref(),
                             writer.as_mut(),
                             &encoded,
-                        );
+                        )
+                        .map(|()| ClearHistoryAckDisposition::Pending);
                     }
-                    ClearHistoryTransition::Noop => return Ok(()),
                 }
             }
+        }
+
+        fn apply_parser_clear_history(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> anyhow::Result<ParserClearHistoryResult> {
+            let mut term = self.term.lock().unwrap();
+            Ok(match apply_clear_history_transition(&mut term, fallback_key)? {
+                ClearHistoryTransition::Cleared(clear) => {
+                    // Legacy mirrors consume this replay directly. The
+                    // command submitter publishes the smart resync marker
+                    // while it still owns source order.
+                    self.broadcast(MessageKind::Output, clear.clone());
+                    ParserClearHistoryResult::Cleared(clear)
+                }
+                ClearHistoryTransition::Blocked => ParserClearHistoryResult::Blocked,
+                ClearHistoryTransition::EncodedFallback(encoded) => {
+                    ParserClearHistoryResult::EncodedFallback(encoded)
+                }
+                ClearHistoryTransition::Noop => ParserClearHistoryResult::Noop,
+            })
         }
 
         fn remove_client(&self, client: u64) {
@@ -3298,6 +3420,16 @@ mod unix {
                         parser_host.note_parser_progress();
                         let _ = response.send(());
                     }
+                    ParserCommand::ClearHistory { fallback_key, response } => {
+                        let result = parser_host
+                            .apply_parser_clear_history(fallback_key.as_ref())
+                            .map_err(|error| error.to_string());
+                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
+                            parser_host.note_parser_progress();
+                            parser_host.stream_progress.notify();
+                        }
+                        let _ = response.send(result);
+                    }
                     ParserCommand::Drain => {
                         // FIFO reception proves every source byte published by
                         // the PTY reader has reached the authoritative parser.
@@ -3646,9 +3778,15 @@ mod unix {
                         else {
                             break;
                         };
-                        let status = clear_history_ack_status(
-                            command_host.clear_history_or_encode_key(fallback_key.as_ref()),
-                        );
+                        let status = match command_host.clear_history_or_encode_key(
+                            fallback_key.as_ref(),
+                            smart_renderer.then_some((frame.request_id, &command_sender)),
+                        ) {
+                            Ok(ClearHistoryAckDisposition::Queued) => continue,
+                            Ok(ClearHistoryAckDisposition::ConnectionClosed) => break,
+                            Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
+                            Err(failure) => clear_history_ack_status(Err(failure)),
+                        };
                         let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
                         response.request_id = frame.request_id;
                         let _broadcast = command_host.broadcast_lock.lock().unwrap();

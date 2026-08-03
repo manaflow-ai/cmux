@@ -41,7 +41,8 @@ use crate::browser::{
 };
 #[cfg(unix)]
 use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION, decode_terminal_exit,
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION,
+    decode_terminal_exit,
 };
 use cmux_tui_cdp::BrowserMode;
 
@@ -1507,6 +1508,40 @@ impl Surface {
     }
 
     #[cfg(unix)]
+    fn apply_hosted_clear_history_replay(
+        surface: &Arc<Surface>,
+        pty: &PtySurface,
+        replay: &[u8],
+        mux: &Weak<Mux>,
+    ) {
+        let mut scroll_changed = None;
+        let generation = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            let normalized = term.vt_write_with_normalized(replay);
+            let output = match normalized {
+                Cow::Borrowed(_) => replay.to_vec(),
+                Cow::Owned(normalized) => normalized,
+            };
+            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.broadcast_attach_output(&output);
+            let after = terminal_scroll_position(&term);
+            if before != after {
+                scroll_changed = Some(after);
+                broadcast_render_scroll_locked(pty, after);
+            }
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.stream_progress.notify();
+        pty.request_frame(generation);
+        if let Some((offset, at_bottom)) = scroll_changed
+            && let Some(mux) = mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+        }
+    }
+
+    #[cfg(unix)]
     fn spawn_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1626,8 +1661,28 @@ impl Surface {
                             if frame.version != PROTOCOL_VERSION
                                 || frame.flags != 0
                                 || frame.sequence != 0
-                                || !control_responses.resolve(&frame)
                             {
+                                break;
+                            }
+                            let clear_replay = if frame.kind == MessageKind::ClearHistoryAck
+                                && frame.payload.len() > 1
+                            {
+                                if !smart_renderer
+                                    || frame.payload.first() != Some(&CLEAR_HISTORY_ACK_OK)
+                                {
+                                    break;
+                                }
+                                Some(&frame.payload[1..])
+                            } else {
+                                None
+                            };
+                            if !control_responses.resolve_after(&frame, || {
+                                if let Some(replay) = clear_replay {
+                                    Self::apply_hosted_clear_history_replay(
+                                        &surface, pty, replay, &mux,
+                                    );
+                                }
+                            }) {
                                 break;
                             }
                             continue;
