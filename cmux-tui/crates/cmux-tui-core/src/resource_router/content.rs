@@ -12,7 +12,10 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
-use super::{ParsedResourceRequest, required_string, resource_operation_error, validation_error};
+use super::{
+    ParsedResourceRequest, required_string, resolve_terminal_wait_exit_id,
+    resource_operation_error, validation_error,
+};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
 use crate::mux::ResourceEffectProjection;
@@ -250,35 +253,7 @@ fn terminal_wait_exit(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let terminal_id = match mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)
-    {
-        Ok(path) => {
-            path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?
-        }
-        Err(error) => {
-            let selectors = &request.selectors;
-            if selectors.workspace.is_some()
-                || selectors.screen.is_some()
-                || selectors.pane.is_some()
-                || selectors.tab.is_some()
-            {
-                return Err(error);
-            }
-            let Some(raw) = selectors.terminal.as_deref() else {
-                return Err(error);
-            };
-            let Ok(terminal_id) = TerminalPublicId::parse(raw) else {
-                return Err(error);
-            };
-            let session_selectors = ResourceSelectors {
-                machine: selectors.machine.clone(),
-                session: selectors.session.clone(),
-                ..ResourceSelectors::default()
-            };
-            mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
-            terminal_id
-        }
-    };
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = optional_decimal(&request.fields, "timeout_ms")?.map(Duration::from_millis);
     mux.wait_for_terminal_exit(&terminal_id, timeout).map_err(resource_operation_error)
 }

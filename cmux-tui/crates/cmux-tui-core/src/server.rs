@@ -3999,9 +3999,8 @@ fn run_terminal_resource_wait_exit(
     request: &crate::resource_router::ParsedResourceRequest,
     canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
-    let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
     let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+        crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = resource_wait_timeout(request);
     let deadline = timeout
         .map(|timeout| {
@@ -9805,10 +9804,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-connection-wait-exit-restart-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         let session = "connection-wait-exit-restart";
         let first = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
@@ -9829,10 +9825,9 @@ mod tests {
         assert!(handle_connection_message(&first, client, &create, &writer, &scheduler));
         let created = pop_json(&outbound);
         assert_eq!(created["ok"], true, "{created}");
-        let terminal_id = TerminalPublicId::parse(
-            created["result"]["value"]["terminal_id"].as_str().unwrap(),
-        )
-        .unwrap();
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
         let exit = crate::terminal_host_protocol::TerminalExit {
             outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
             exited_at_ms: 4_567_890,
@@ -9853,9 +9848,8 @@ mod tests {
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let (writer, outbound) = captured_writer();
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
-        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(
-            reopened.surface_operation_admission.clone(),
-        ));
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
         let wait = resource_request(
             "wait-for-exit-after-restart",
             "terminal.wait_exit",
