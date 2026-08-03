@@ -131,7 +131,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
     }
 
     @Test
-    func parkedWindowUsesTheExposedSideOfItsOwnerDisplay() {
+    func parkedWindowUsesTheRightEdgeWithoutSpillingOntoAnAdjacentDisplay() {
         let ownerScreen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let rightNeighbor = CGRect(x: 1_440, y: 0, width: 1_920, height: 1_080)
         let snapshot = WorkspaceFloatingDockParkingSnapshot(
@@ -140,22 +140,27 @@ struct WorkspaceFloatingDockScreenPlacementTests {
             availableScreenFrames: [ownerScreen, rightNeighbor]
         )
 
-        #expect(snapshot.edge == .leading)
-        #expect(ownerScreen.intersection(snapshot.parkedFrame).width == 80)
+        let parkedVisibleFrame = ownerScreen.intersection(snapshot.parkedFrame)
+        #expect(parkedVisibleFrame.width == 80)
+        #expect(parkedVisibleFrame.maxX == ownerScreen.maxX)
+        #expect(snapshot.parkedFrame.width == 80)
         #expect(rightNeighbor.intersection(snapshot.parkedFrame).isNull)
-        #expect(ownerScreen.intersection(snapshot.revealedFrame).width == 176)
+        let revealedVisibleFrame = ownerScreen.intersection(snapshot.revealedFrame)
+        #expect(revealedVisibleFrame.width == 176)
+        #expect(revealedVisibleFrame.maxX == ownerScreen.maxX)
+        #expect(snapshot.revealedFrame.width == 176)
         #expect(snapshot.containsRevealedPoint(CGPoint(
-            x: ownerScreen.minX + 176 + 10,
+            x: revealedVisibleFrame.minX - 10,
             y: snapshot.revealedFrame.midY
         )))
         #expect(!snapshot.containsRevealedPoint(CGPoint(
-            x: ownerScreen.minX + 176 + 16,
+            x: revealedVisibleFrame.minX - 16,
             y: snapshot.revealedFrame.midY
         )))
     }
 
     @Test
-    func parkedWindowMigrationReevaluatesTheDestinationDisplayEdge() {
+    func parkedWindowMigrationKeepsTheRightEdgeOnTheDestinationDisplay() {
         let leftScreen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let rightScreen = CGRect(x: 1_440, y: -180, width: 1_920, height: 1_080)
         let screens = [leftScreen, rightScreen]
@@ -165,20 +170,22 @@ struct WorkspaceFloatingDockScreenPlacementTests {
             availableScreenFrames: screens
         )
 
-        #expect(snapshot.edge == .trailing)
+        #expect(rightScreen.intersection(snapshot.parkedFrame).maxX == rightScreen.maxX)
         let migrated = snapshot.migrated(
             toVisibleScreenFrame: leftScreen,
             availableScreenFrames: screens
         )
 
-        #expect(migrated.edge == .leading)
         #expect(migrated.restoreFrame.size == snapshot.restoreFrame.size)
-        #expect(leftScreen.intersection(migrated.parkedFrame).width == 80)
+        let migratedVisibleFrame = leftScreen.intersection(migrated.parkedFrame)
+        #expect(migratedVisibleFrame.width == 80)
+        #expect(migratedVisibleFrame.maxX == leftScreen.maxX)
+        #expect(migrated.parkedFrame.width == 80)
         #expect(rightScreen.intersection(migrated.parkedFrame).isNull)
     }
 
     @Test
-    func parkedWindowStackUsesOneExposedEdgeAcrossUnevenDisplays() {
+    func parkedWindowStackKeepsTheRightEdgeAcrossUnevenDisplays() {
         let ownerScreen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let upperRightNeighbor = CGRect(x: 1_440, y: 450, width: 1_920, height: 630)
         let snapshots = WorkspaceFloatingDockParkingSnapshot.arranged(
@@ -190,10 +197,14 @@ struct WorkspaceFloatingDockScreenPlacementTests {
             availableScreenFrames: [ownerScreen, upperRightNeighbor]
         )
 
-        #expect(snapshots.map(\.edge) == [.leading, .leading])
         #expect(snapshots.allSatisfy {
             upperRightNeighbor.intersection($0.parkedFrame).isNull
         })
+        #expect(snapshots.allSatisfy {
+            ownerScreen.intersection($0.parkedFrame).maxX == ownerScreen.maxX
+        })
+        #expect(snapshots[0].parkedFrame.width == 620)
+        #expect(snapshots[1].parkedFrame.width == 80)
     }
 }
 
