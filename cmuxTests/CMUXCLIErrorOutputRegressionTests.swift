@@ -16,6 +16,13 @@ import Testing
         let timedOut: Bool
     }
 
+    @Test func terminalTextSanitizerRejectsUnicodeLayoutControls() {
+        let unsafe = "owner\u{2028}forged row\u{2029}next\u{202E}reordered\u{2066}isolated"
+        let sanitized = CMUXCLI.sanitizeForTerminal(unsafe)
+
+        #expect(sanitized == "owner\u{FFFD}forged row\u{FFFD}next\u{FFFD}reordered\u{FFFD}isolated")
+    }
+
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(

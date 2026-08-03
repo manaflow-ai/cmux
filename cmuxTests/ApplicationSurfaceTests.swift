@@ -18,6 +18,23 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
+    @Test func applicationSurfaceRejectsOversizedFrameTransports() {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult([
+            "sessionId": "oversized-session",
+            "frameTransport": [
+                "sharedMemoryName": "/cmux-sim-frame-oversized",
+                "width": 4_096,
+                "height": 2_048,
+                "bytesPerRow": 16_384,
+                "slotCount": 3,
+                "sharedMemoryByteCount": 100_667_392,
+            ],
+        ])
+
+        #expect(parsed.sessionID == "oversized-session")
+        #expect(parsed.descriptor == nil)
+    }
+
     @Test func runtimeDaemonRequestsCannotUseUnboundedOneShotReads() throws {
         let serviceSourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
