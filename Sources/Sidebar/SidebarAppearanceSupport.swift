@@ -297,7 +297,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
     }
     return WorkspaceTabColorSettings.displayNSColor(
         hex: customColorHex,
-        colorScheme: colorScheme,
+        colorScheme: colorScheme.nativeWindowChromeColorScheme,
         forceBright: true
     )
 }
@@ -307,10 +307,12 @@ func sidebarWorkspaceRowExplicitRailNSColor(
     customColorHex: String?,
     colorScheme: WindowChromeColorScheme
 ) -> NSColor? {
-    sidebarWorkspaceRowExplicitRailNSColor(
-        activeTabIndicatorStyle: activeTabIndicatorStyle,
-        customColorHex: customColorHex,
-        colorScheme: colorScheme == .dark ? ColorScheme.dark : .light
+    guard activeTabIndicatorStyle == .leftRail,
+          let customColorHex else { return nil }
+    return WorkspaceTabColorSettings.displayNSColor(
+        hex: customColorHex,
+        colorScheme: colorScheme,
+        forceBright: true
     )
 }
 
@@ -330,7 +332,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
-            colorScheme: colorScheme,
+            colorScheme: colorScheme.nativeWindowChromeColorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
         )
     }

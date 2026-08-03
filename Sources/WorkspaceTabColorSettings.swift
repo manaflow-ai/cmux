@@ -1,7 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxSettings
-import SwiftUI
 
 /// Workspace tab color palette: persistence, legacy migration, palette
 /// math, and display-color rendering.
@@ -9,7 +8,7 @@ import SwiftUI
 /// Fused-enum split status (TabManager decomposition): the storage key is
 /// the CmuxSettings catalog's `workspaceColors.palette` entry (sourced below
 /// so the wire string is defined once); the pure palette math is **staged
-/// for CmuxWorkspaces (Wave 4)**; the `NSColor`/SwiftUI rendering stays
+/// for CmuxWorkspaces (Wave 4)**; the `NSColor` rendering stays
 /// app-side until the workspace UI package exists. Moved out of
 /// `TabManager.swift` verbatim.
 enum WorkspaceTabColorSettings {
@@ -135,20 +134,9 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
-    static func displayColor(
-        hex: String,
-        colorScheme: ColorScheme,
-        forceBright: Bool = false
-    ) -> Color? {
-        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
-            return nil
-        }
-        return Color(nsColor: color)
-    }
-
     static func displayNSColor(
         hex: String,
-        colorScheme: ColorScheme,
+        colorScheme: WindowChromeColorScheme,
         forceBright: Bool = false
     ) -> NSColor? {
         guard let normalized = normalizedHex(hex),
@@ -160,18 +148,6 @@ enum WorkspaceTabColorSettings {
             return brightenedForDarkAppearance(baseColor)
         }
         return baseColor
-    }
-
-    static func displayNSColor(
-        hex: String,
-        colorScheme: WindowChromeColorScheme,
-        forceBright: Bool = false
-    ) -> NSColor? {
-        displayNSColor(
-            hex: hex,
-            colorScheme: colorScheme == .dark ? ColorScheme.dark : .light,
-            forceBright: forceBright
-        )
     }
 
     private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {

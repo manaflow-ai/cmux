@@ -15916,7 +15916,7 @@ struct TabItemView: View, Equatable {
     func tabColorSwatchColor(for hex: String) -> NSColor {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
-            colorScheme: colorScheme,
+            colorScheme: colorScheme.nativeWindowChromeColorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
         ) ?? NSColor(hex: hex) ?? .gray
     }
