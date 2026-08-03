@@ -270,18 +270,34 @@ function parseHostedAccount(value: unknown): SubrouterAccount {
   if (!isRecord(value) || !isString(value.id) || !isString(value.provider)) {
     throw new HostedSubrouterError("invalid hosted account", 502);
   }
+  const explicitLabel = value.label;
+  const createdAt = value.createdAt ?? value.created_at;
+  if (
+    (explicitLabel !== undefined &&
+      explicitLabel !== null &&
+      typeof explicitLabel !== "string") ||
+    (createdAt !== undefined && typeof createdAt !== "string")
+  ) {
+    throw new HostedSubrouterError("invalid hosted account", 502);
+  }
   const authMode = isString(value.auth_mode) ? value.auth_mode : "";
   const kind = authMode === "apikey"
     ? value.provider === "claude"
       ? "anthropic-apikey"
       : "openai-apikey"
     : value.provider;
-  const label = isString(value.email) && value.email ? value.email : value.id;
+  const fallbackLabel = isString(value.email) ? value.email : value.id;
   const apiKeyPrefix = `apikey:${kind}:`;
+  const label = explicitLabel !== undefined
+    ? explicitLabel
+    : fallbackLabel.startsWith(apiKeyPrefix)
+    ? fallbackLabel.slice(apiKeyPrefix.length)
+    : fallbackLabel;
   return {
     id: value.id,
     kind,
-    label: label.startsWith(apiKeyPrefix) ? label.slice(apiKeyPrefix.length) : label,
+    label,
+    ...(createdAt !== undefined ? { createdAt } : {}),
     ...parseHealth(value.health),
   };
 }
