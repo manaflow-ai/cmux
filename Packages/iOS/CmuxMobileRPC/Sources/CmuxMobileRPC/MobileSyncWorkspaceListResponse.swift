@@ -193,9 +193,13 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
     /// The full workspace list.
     public let workspaces: [Workspace]
-    /// Group sections, in section order. Empty on Macs old enough not to emit
-    /// groups (the field is decoded with `decodeIfPresent`).
+    /// Group sections, in section order. Empty when the Mac reports no groups or
+    /// when an older payload omits the field.
     public let groups: [Group]
+    /// Whether the decoded payload carried a `groups` field at all. Older or
+    /// partial responses omit the field, and callers use that to preserve the
+    /// last authoritative group headers across reconnect churn.
+    public let groupsFieldWasPresent: Bool
     /// Identifier of a workspace created by the request, if any.
     public let createdWorkspaceID: String?
     /// Identifier of a terminal created by the request, if any.
@@ -216,6 +220,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
+        groupsFieldWasPresent = container.contains(.groups)
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
         createdWorkspaceID = try container.decodeIfPresent(String.self, forKey: .createdWorkspaceID)
         createdTerminalID = try container.decodeIfPresent(String.self, forKey: .createdTerminalID)
@@ -239,11 +244,13 @@ extension MobileSyncWorkspaceListResponse {
     public init(
         workspaces: [Workspace],
         groups: [Group],
+        groupsFieldWasPresent: Bool = true,
         createdWorkspaceID: String?,
         createdTerminalID: String?
     ) {
         self.workspaces = workspaces
         self.groups = groups
+        self.groupsFieldWasPresent = groupsFieldWasPresent
         self.createdWorkspaceID = createdWorkspaceID
         self.createdTerminalID = createdTerminalID
     }

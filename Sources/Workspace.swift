@@ -2734,6 +2734,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Removes proxy-only daemon log entries appended by
+    /// `applyRemoteDaemonStatusUpdate`, without touching the connection-state
+    /// artifacts owned by `applyRemoteConnectionStateUpdate`.
+    func clearProxyOnlyRemoteDaemonSidebarArtifacts() {
+        logEntries.removeAll { entry in
+            entry.source == "remote-daemon" && Self.isProxyOnlyRemoteError(entry.message)
+        }
+    }
+
     private func remoteNotificationCooldownKey(target: String) -> String? {
         let rawTarget = (remoteConfiguration?.destination ?? target)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6921,6 +6930,12 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
+            if status.state == .ready {
+                // #8917: a transport bounce that re-bootstrapped successfully is
+                // not a workspace failure, so retract its sidebar error the same
+                // way the connection-state path retracts on `.connected`.
+                clearProxyOnlyRemoteDaemonSidebarArtifacts()
+            }
             return
         }
         let trimmedDetail = status.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "remote daemon error"
