@@ -370,6 +370,72 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_survives_a_nonretryable_writer_failure() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-writer-retry-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-writer-retry",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let injector = rusqlite::Connection::open(database_path).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_test_terminal_output
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.output'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'injected terminal journal failure');
+                 END;",
+            )
+            .unwrap();
+
+        let terminal_id = Arc::new(public_id("term", 11, TerminalPublicId::parse));
+        mux.journal_terminal_output(
+            terminal_id.clone(),
+            Arc::from("writer-retry-generation"),
+            b"must survive retry".to_vec(),
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
+        mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
+            event_id: "event_writer_retry_barrier".into(),
+            generation: "writer-retry-frontend".into(),
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        })
+        .unwrap();
+
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let output = records
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("terminal output retained across writer recovery");
+        assert_eq!(output.terminal_output.as_deref(), Some(b"must survive retry".as_slice()));
+        assert!(
+            output.subjects.iter().any(|subject| {
+                subject.kind == "terminal" && subject.id == terminal_id.as_str()
+            })
+        );
+
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn terminal_output_is_chunked_before_entering_the_bounded_queue() {
         let (sender, receiver) = JournalIngressSender::new(true);
         let receiver = receiver.unwrap();
