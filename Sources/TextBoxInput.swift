@@ -3245,12 +3245,20 @@ final class TextBoxInputTextView: NSTextView {
     var onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool = { _, _ in false }
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
+    var onPerformWorkspaceTerminalFontSizeShortcut: @MainActor (KeyboardShortcutSettings.Action, NSEvent) -> Void = { action, event in
+        AppDelegate.shared?.performWorkspaceTerminalFontSizeShortcut(action, event: event)
+    }
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
+    private static let workspaceTerminalFontSizeShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .increaseWorkspaceTerminalFontSize,
+        .decreaseWorkspaceTerminalFontSize,
+        .resetWorkspaceTerminalFontSize,
+    ]
     private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
     private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
         "cmux.textBoxPendingAttachmentUploadID"
@@ -4803,6 +4811,13 @@ final class TextBoxInputTextView: NSTextView {
         }
         if textBoxShortcut(event, matches: .attachTextBoxFile) {
             onChooseFiles()
+            return true
+        }
+        // Per-workspace terminal font-size zoom must keep working while the
+        // text box owns focus (issue #9463).
+        for action in Self.workspaceTerminalFontSizeShortcutActions
+        where textBoxShortcut(event, matches: action) {
+            onPerformWorkspaceTerminalFontSizeShortcut(action, event)
             return true
         }
         return false
