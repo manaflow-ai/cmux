@@ -73,8 +73,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
     application root, workspace content, terminal, browser, feed, and sidebar.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
-  - [ ] `CmuxMobileShellUI` (176 import files; notification feed and terminal
-    composer are UIKit)
+  - [ ] `CmuxMobileShellUI` (174 import files; notification feed, terminal
+    composer, and terminal artifact chip are UIKit)
   - [ ] `CmuxMobileSupport` (2 shared presentation helper import files)
   - [x] `CmuxAgentChatUI` (0)
   - [x] `CmuxMobileChanges` (0)

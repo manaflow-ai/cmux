@@ -198,7 +198,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// Owns the native terminal composer installed in the surface's composer
         /// band. Built lazily on first open and torn down on dismantle.
         private var composerController: TerminalComposerViewController?
-        var artifactChipController: UIHostingController<TerminalArtifactChipView>?
+        var artifactChipView: TerminalArtifactChipView?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
         /// Pending debounced chip unmount; cancelled whenever a positive count
         /// arrives so transient zero counts cannot flicker the chip.

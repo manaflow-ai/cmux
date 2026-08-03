@@ -152,7 +152,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         /// the settle window, so the grace has margin over that.
         static let artifactChipHideGracePeriod: Duration = .seconds(3.5)
 
-        /// Projects the workspace's value count into a small SwiftUI chip hosted
+        /// Projects the workspace's value count into a native chip mounted
         /// by the terminal surface, preserving the dock's keyboard geometry.
         ///
         /// Shows are immediate; hides wait out ``artifactChipHideGracePeriod``
@@ -182,21 +182,18 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         @MainActor
         private func mountArtifactChip(count: Int, on surfaceView: GhosttySurfaceView) {
-            let chip = TerminalArtifactChipView(count: count) { [weak self] in
-                self?.requestArtifactFilesFromChip()
-            }
-            let controller: UIHostingController<TerminalArtifactChipView>
-            if let existing = artifactChipController {
-                existing.rootView = chip
-                controller = existing
+            let chip: TerminalArtifactChipView
+            if let existing = artifactChipView {
+                existing.update(count: count)
+                chip = existing
             } else {
-                controller = UIHostingController(rootView: chip)
-                controller.view.backgroundColor = .clear
-                controller.sizingOptions = .intrinsicContentSize
-                artifactChipController = controller
+                chip = TerminalArtifactChipView(count: count) { [weak self] in
+                    self?.requestArtifactFilesFromChip()
+                }
+                artifactChipView = chip
             }
-            controller.view.invalidateIntrinsicContentSize()
-            surfaceView.mountArtifactChipView(controller.view, animated: true)
+            chip.invalidateIntrinsicContentSize()
+            surfaceView.mountArtifactChipView(chip, animated: true)
         }
 
         @MainActor
@@ -211,8 +208,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 guard !Task.isCancelled else { return }
                 self.artifactChipHideTask = nil
                 // A positive report can land in the delegate just before this
-                // deadline and only cancel the hide after its SwiftUI round
-                // trip; hiding then would remount moments later — the exact
+                // deadline and only cancel the hide after its observation
+                // update; hiding then would remount moments later, the exact
                 // flicker this grace exists to remove. Re-drive the state
                 // machine with the fresh count instead: it remounts and
                 // clears the pending-hide state in one step.
@@ -234,7 +231,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         @MainActor
         private func requestArtifactFilesFromChip() {
             guard artifactChipGate.isEnabled else { return }
-            guard let surfaceView, let chipView = artifactChipController?.view else { return }
+            guard let surfaceView, let chipView = artifactChipView else { return }
             let frame = chipView.convert(chipView.bounds, to: surfaceView)
             let width = max(surfaceView.bounds.width, 1)
             let height = max(surfaceView.bounds.height, 1)
@@ -249,7 +246,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             cancelArtifactChipHide()
             artifactChipVisibility.reset()
             surfaceView?.mountArtifactChipView(nil, animated: false)
-            artifactChipController = nil
+            artifactChipView = nil
         }
 
         private func revalidatedTapPath(
