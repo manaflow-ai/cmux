@@ -1207,6 +1207,60 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The Composer pill scroller must clip between its neighboring controls;
+    /// it must not underlap them to render a blur or fade at either edge.
+    @MainActor
+    func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(scroller.waitForExistence(timeout: 3))
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+
+        XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            options.frame.maxX,
+            "The scroller must begin after the fixed options control"
+        )
+        XCTAssertLessThanOrEqual(
+            scroller.frame.maxX,
+            submit.frame.minX,
+            "The scroller must end before the fixed submit control"
+        )
+
+        let agentPill = app.buttons["MobileTaskComposerAgentPill"]
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(agentPill.waitForExistence(timeout: 3))
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        let modelXBeforeScroll = modelPill.frame.midX
+
+        scroller.swipeLeft(velocity: .slow)
+
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelXBeforeScroll,
+            "The constrained pill region must remain horizontally scrollable"
+        )
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
+        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-hard-scroll-edges"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Switching templates without a template-specific directory must keep the
     /// selected Mac's focused project instead of restoring older task history.
     @MainActor
