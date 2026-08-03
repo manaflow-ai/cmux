@@ -145,6 +145,44 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func surfaceCloseRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+    }
+
+    @Test func surfaceRespawnRejectsUnresolvedExplicitSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.respawn",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string("surface:99999"),
+                "command": .string("echo nope"),
+            ]
+        ))
+
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected not_found error")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data == nil)
+    }
+
     @Test func surfaceListIncludesLiveSimulatorIdentity() throws {
         let context = FakeSurfaceControlCommandContext()
         let workspaceID = UUID()

@@ -108,10 +108,13 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors.
     ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
+    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all, so
+    ///     an unresolvable explicit ref cannot fall back to the focused surface.
     /// - Returns: The close resolution.
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution
 
     // MARK: - move / reorder

@@ -4953,7 +4953,12 @@ struct CMUXCLI {
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            let sfId: String?
+            if let surfaceRaw, let wsId {
+                sfId = try resolveSurfaceId(surfaceRaw, workspaceId: wsId, client: client)
+            } else {
+                sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            }
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
@@ -15370,22 +15375,29 @@ struct CMUXCLI {
     }
 
     private func resolveSurfaceId(_ raw: String?, workspaceId: String, client: SocketClient) throws -> String {
-        if let raw, isUUID(raw) {
-            return raw
-        }
-        if let raw, isHandleRef(raw) {
-            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            for item in items where (item["ref"] as? String) == raw {
-                if let id = item["id"] as? String { return id }
-            }
-            throw CLIError(message: "Surface ref not found: \(raw)")
-        }
-
         let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
-        if let raw, let index = Int(raw) {
+        if let raw {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw CLIError(message: "Surface handle is blank")
+            }
+            if isUUID(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: "Surface not found: \(trimmed)")
+            }
+            if isHandleRef(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: "Surface ref not found: \(trimmed)")
+            }
+            guard let index = Int(trimmed) else {
+                throw CLIError(message: "Invalid surface handle: \(trimmed) (expected UUID, ref like surface:1, or index)")
+            }
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
             }

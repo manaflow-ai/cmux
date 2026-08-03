@@ -16,12 +16,20 @@ extension ControlCommandCoordinator {
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
     func tabAction(_ params: [String: JSONValue]) -> ControlCallResult {
         let action = actionKey(params)
+        let surfaceID = uuid(params, "surface_id")
+        let tabID = uuid(params, "tab_id")
+        if hasNonNull(params, "surface_id"), surfaceID == nil {
+            return .err(code: "not_found", message: "Surface not found", data: nil)
+        }
+        if hasNonNull(params, "tab_id"), tabID == nil {
+            return .err(code: "not_found", message: "Tab not found", data: nil)
+        }
         let resolution = systemContext?.controlTabAction(
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
             rawURL: string(params, "url"),
-            surfaceID: uuid(params, "surface_id") ?? uuid(params, "tab_id"),
+            surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
             moveParams: params
         ) ?? .tabManagerUnavailable

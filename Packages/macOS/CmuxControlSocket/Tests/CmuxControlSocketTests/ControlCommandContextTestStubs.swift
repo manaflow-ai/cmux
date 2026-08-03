@@ -437,7 +437,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {

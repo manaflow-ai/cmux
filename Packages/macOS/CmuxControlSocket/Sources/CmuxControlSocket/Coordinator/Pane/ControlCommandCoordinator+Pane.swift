@@ -506,10 +506,14 @@ extension ControlCommandCoordinator {
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let surfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), surfaceID == nil {
+            return .err(code: "not_found", message: "Surface not found", data: nil)
+        }
         let resolution = context?.controlPaneBreak(
             routing: routing,
             paneID: uuid(params, "pane_id"),
-            surfaceID: uuid(params, "surface_id"),
+            surfaceID: surfaceID,
             requestedFocus: bool(params, "focus") ?? false
         ) ?? .tabManagerUnavailable
         switch resolution {
@@ -555,10 +559,14 @@ extension ControlCommandCoordinator {
         guard let targetPaneID = uuid(params, "target_pane_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid target_pane_id", data: nil)
         }
+        let surfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), surfaceID == nil {
+            return .err(code: "not_found", message: "Surface not found", data: nil)
+        }
         let hasFocusParam = bool(params, "focus") != nil
         let resolution = context?.controlPaneJoin(
             targetPaneID: targetPaneID,
-            surfaceID: uuid(params, "surface_id"),
+            surfaceID: surfaceID,
             sourcePaneID: uuid(params, "pane_id"),
             hasFocusParam: hasFocusParam,
             focus: bool(params, "focus") ?? false
