@@ -14240,9 +14240,15 @@ struct VerticalTabsSidebar: View, Equatable {
         _ url: URL,
         workspace: Workspace,
         index: Int,
+        visibleWorkspaceIDs: [UUID],
         opensInCmuxBrowser: Bool
     ) {
-        selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
+        selectWorkspaceRow(
+            workspace,
+            index: index,
+            modifiers: NSEvent.modifierFlags,
+            visibleWorkspaceIDs: visibleWorkspaceIDs
+        )
         if opensInCmuxBrowser,
            tabManager.openBrowser(
                inWorkspace: workspace.id,
@@ -14259,6 +14265,7 @@ struct VerticalTabsSidebar: View, Equatable {
         _ port: Int,
         workspace: Workspace,
         index: Int,
+        visibleWorkspaceIDs: [UUID],
         opensInCmuxBrowser: Bool
     ) {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
@@ -14266,6 +14273,7 @@ struct VerticalTabsSidebar: View, Equatable {
             url,
             workspace: workspace,
             index: index,
+            visibleWorkspaceIDs: visibleWorkspaceIDs,
             opensInCmuxBrowser: opensInCmuxBrowser
         )
     }
@@ -14643,6 +14651,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     url,
                     workspace: tab,
                     index: index,
+                    visibleWorkspaceIDs: visibleWorkspaceIDs,
                     opensInCmuxBrowser: settings.openPullRequestLinksInCmuxBrowser
                 )
             },
@@ -14652,6 +14661,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     port,
                     workspace: tab,
                     index: index,
+                    visibleWorkspaceIDs: visibleWorkspaceIDs,
                     opensInCmuxBrowser: settings.openPortLinksInCmuxBrowser
                 )
             },
