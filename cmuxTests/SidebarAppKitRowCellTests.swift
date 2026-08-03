@@ -3,8 +3,8 @@ import CmuxSidebar
 import Testing
 @testable import cmux_DEV
 
-/// Behavior tests for the pure-AppKit workspace row cell: hover enforcement
-/// (authoritative sweep) and optimistic selection paint semantics.
+/// Behavior tests for the pure-AppKit sidebar cells: hover enforcement,
+/// palette parity, and optimistic selection paint semantics.
 @Suite
 @MainActor
 struct SidebarAppKitRowCellTests {
@@ -13,6 +13,28 @@ struct SidebarAppKitRowCellTests {
             colorScheme: .dark,
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
+        )
+    }
+
+    private static func makeGroupHeaderModel(
+        groupId: UUID,
+        anchorWorkspaceId: UUID,
+        isAnchorActive: Bool
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: groupId, anchorWorkspaceId: anchorWorkspaceId,
+            name: "for next version stuff", iconSymbol: "folder", tintHex: nil,
+            isCollapsed: false, isPinned: false,
+            isAnchorActive: isAnchorActive,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1, anchorUnreadCount: 0,
+            canMarkRead: false, canMarkUnread: true, hasLatestNotifications: false,
+            canMarkAllRead: false, canMarkAllUnread: true,
+            shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
+            fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
+            rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
+            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false
         )
     }
 
@@ -234,6 +256,22 @@ struct SidebarAppKitRowCellTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func resolvedTextColor(
+        in view: NSView,
+        matching text: String
+    ) throws -> NSColor {
+        let field = try #require(
+            descendants(of: view)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == text }
+        )
+        var resolvedColor: NSColor?
+        field.effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = field.textColor?.usingColorSpace(.sRGB)
+        }
+        return try #require(resolvedColor)
     }
 
     private static let linkedMetadataMarkdown =
@@ -760,6 +798,80 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
+    }
+
+    @Test
+    func groupHeaderTitleMatchesDefaultWorkspaceTitleAcrossSelectionInDarkMode() throws {
+        let appearance = try #require(NSAppearance(named: .darkAqua))
+        let workspaceCell = Self.configuredCell(model: Self.makeModel())
+        let headerCell = SidebarGroupHeaderTableCellView()
+        let groupId = UUID()
+        let anchorWorkspaceId = UUID()
+        let inactiveHeader = Self.makeGroupHeaderModel(
+            groupId: groupId,
+            anchorWorkspaceId: anchorWorkspaceId,
+            isAnchorActive: false
+        )
+        let activeHeader = Self.makeGroupHeaderModel(
+            groupId: groupId,
+            anchorWorkspaceId: anchorWorkspaceId,
+            isAnchorActive: true
+        )
+        headerCell.configurePresentation(
+            model: inactiveHeader,
+            environment: Self.tableEnvironment
+        )
+
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        root.addSubview(workspaceCell)
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = appearance
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let workspaceTitleColor = try Self.resolvedTextColor(
+            in: workspaceCell,
+            matching: "Workspace"
+        )
+        let inactiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: inactiveHeader.name
+        )
+
+        headerCell.showOptimisticAnchorActive()
+        let optimisticActiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: inactiveHeader.name
+        )
+
+        headerCell.configurePresentation(
+            model: activeHeader,
+            environment: Self.tableEnvironment
+        )
+        let activeHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: activeHeader.name
+        )
+
+        headerCell.showOptimisticDeselection()
+        let optimisticInactiveHeaderColor = try Self.resolvedTextColor(
+            in: headerCell,
+            matching: activeHeader.name
+        )
+
+        #expect(inactiveHeaderColor == workspaceTitleColor)
+        #expect(optimisticActiveHeaderColor == workspaceTitleColor)
+        #expect(activeHeaderColor == workspaceTitleColor)
+        #expect(optimisticInactiveHeaderColor == workspaceTitleColor)
     }
 
     @Test

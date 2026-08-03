@@ -457,7 +457,7 @@ struct SidebarWorkspaceTableSuspensionTests {
                 .first { $0.stringValue == model.name }
         )
         var resolvedColor: NSColor?
-        darkAppearance.performAsCurrentDrawingAppearance {
+        nameField.effectiveAppearance.performAsCurrentDrawingAppearance {
             resolvedColor = nameField.textColor?.usingColorSpace(.sRGB)
         }
         let color = try #require(resolvedColor)
