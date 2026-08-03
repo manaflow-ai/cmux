@@ -52,7 +52,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] Modernize its concurrency and prove the fork branch is reachable on
     `manaflow-ai/bonsplit` before updating cmux's pointer.
 - [ ] macOS packages
-  - [ ] `CmuxSettingsUI` (3 temporary bridge import files remain; native
+  - [ ] `CmuxSettingsUI` (2 temporary bridge import files remain; native
     settings root, navigation, editors, account, and Sleepy controls complete)
   - [x] `CmuxSimulator` (0)
   - [x] `CmuxSwiftRenderUI` (0)
@@ -87,12 +87,12 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [ ] Replace the SwiftUI `App` and scene graph with `UIApplicationDelegate`,
     `UISceneDelegate`, and UIKit coordinators.
   - [ ] Remove every `UIHostingController` and `UIHostingConfiguration` boundary.
-- [ ] Ghostty fork
-  - [ ] Replace the macOS application, settings, command palette, split tree,
+- [x] Ghostty fork
+  - [x] Replace the macOS application, settings, command palette, split tree,
     terminal chrome, update UI, overlays, and helpers with AppKit.
-  - [ ] Replace the Ghostty iOS application surface with UIKit.
-  - [ ] Remove SwiftUI from GhosttyKit's public API and embedded build graph.
-  - [ ] Modernize concurrency and prove the fork branch is reachable on
+  - [x] Replace the Ghostty iOS application surface with UIKit.
+  - [x] Remove the legacy declarative UI framework from GhosttyKit's public API and embedded build graph.
+  - [x] Modernize concurrency and prove the fork branch is reachable on
     `manaflow-ai/ghostty` before updating cmux's pointer.
 - [ ] External dependencies
   - [ ] Remove the stale MarkdownUI and NetworkImage package products.
