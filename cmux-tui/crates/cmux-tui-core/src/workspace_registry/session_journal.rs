@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
+const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -220,26 +222,40 @@ pub(super) fn migrate_resource_events_to_session_journal(
         "resource_head_revision": resource_head_revision.to_string(),
         "history_complete": history_complete,
     });
-    append_journal_record(
-        transaction,
-        &JournalAppend {
-            event_id: "event_session_journal_v9_migration",
-            kind: "session.journal.migrated",
-            class: JournalClass::Checkpoint,
-            replay: JournalReplayPolicy::Required,
-            occurred_at_ms: 0,
-            producer: &producer,
-            authority: None,
-            causation_id: None,
-            correlation_id: None,
-            causation_depth: 0,
-            subjects: &[subject],
-            sensitivity: JournalSensitivity::Metadata,
-            payload: &payload,
-            resource_revision: None,
-            previous_resource_revision: None,
-        },
-    )?;
+    let existing_migration_kind = transaction
+        .query_row(
+            "SELECT kind FROM session_journal WHERE event_id = ?1",
+            [MIGRATION_EVENT_ID],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(existing_kind) = existing_migration_kind {
+        anyhow::ensure!(
+            existing_kind == MIGRATION_EVENT_KIND,
+            "session journal migration event id has unexpected kind {existing_kind:?}"
+        );
+    } else {
+        append_journal_record(
+            transaction,
+            &JournalAppend {
+                event_id: MIGRATION_EVENT_ID,
+                kind: MIGRATION_EVENT_KIND,
+                class: JournalClass::Checkpoint,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: 0,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &[subject],
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+    }
 
     let rows = if has_resource_events {
         let mut statement = transaction.prepare(
