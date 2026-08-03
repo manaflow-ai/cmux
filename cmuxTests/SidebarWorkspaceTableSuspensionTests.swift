@@ -597,4 +597,156 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 }
+
+@Suite
+@MainActor
+struct SidebarWorkspaceTableIncrementalMutationTests {
+    @Test
+    func appendingWorkspaceAtScaleKeepsVisibleInlineEditMounted() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let editableModel = SidebarWorkspaceRowSuspensionTests.makeModel()
+        var committedTitles: [String] = []
+        var atomicStructuralReloads = 0
+        controller.atomicStructuralReloadProbe = { atomicStructuralReloads += 1 }
+        let editableRow = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: editableModel,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: editableModel,
+                onCommitRename: { committedTitles.append($0) }
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let trailingRows = (0..<74).map { _ in
+            makeRowConfiguration(workspaceId: UUID(), fixedHeight: 24)
+        }
+        let initialRows = [editableRow] + trailingRows
+        let initialWorkspaceIds = initialRows.map(\.workspaceId)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        window.orderFrontRegardless()
+        defer {
+            controller.dismantleContainerView(container)
+            controller.flushPendingMutationsForTesting()
+            window.contentView = nil
+            window.orderOut(nil)
+            window.close()
+        }
+
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: initialWorkspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.flushPendingMutationsForTesting()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        // The initial 75-row materialization intentionally uses the bounded
+        // atomic path. Count only the one-row mutation exercised below.
+        atomicStructuralReloads = 0
+        let editingCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        editingCell.isEditing = true
+        editingCell.renameField.stringValue = "Uncommitted rename"
+
+        let appendedRow = makeRowConfiguration(workspaceId: UUID(), fixedHeight: 24)
+        controller.apply(
+            rows: initialRows + [appendedRow],
+            actions: makeTableActions(),
+            workspaceIds: initialWorkspaceIds + [appendedRow.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.flushPendingMutationsForTesting()
+
+        #expect(
+            atomicStructuralReloads == 0,
+            "Appending one workspace must use a row insertion instead of an atomic table reload."
+        )
+        #expect(
+            committedTitles.isEmpty,
+            "Appending one workspace must not retire the visible inline editor."
+        )
+        let retainedCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        #expect(retainedCell === editingCell)
+        #expect(retainedCell.isEditing)
+        #expect(retainedCell.renameField.stringValue == "Uncommitted rename")
+        #expect(container.tableView.numberOfRows == 76)
+    }
+
+    private func makeRowConfiguration(
+        workspaceId: UUID,
+        fixedHeight: CGFloat
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: FixedHeightRow(height: fixedHeight)
+        ) { _, _ in
+            AnyView(FixedHeightRow(height: fixedHeight))
+        }
+    }
+
+    private func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _, _ in nil },
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
+    }
+
+    private struct FixedHeightRow: View, Equatable {
+        let height: CGFloat
+
+        var body: some View {
+            Color.clear.frame(height: height)
+        }
+    }
+}
 #endif
