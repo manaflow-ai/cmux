@@ -224,8 +224,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         branchIconView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(branchIconView)
         contentContainer.addSubview(checklistSection)
-        statusPopoverPresenter.minWidth = 200
-        statusPopoverPresenter.maxHeight = 400
 
         topDropIndicator.wantsLayer = true
         bottomDropIndicator.wantsLayer = true
