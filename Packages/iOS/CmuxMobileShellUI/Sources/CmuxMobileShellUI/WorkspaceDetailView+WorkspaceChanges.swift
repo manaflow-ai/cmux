@@ -1,6 +1,5 @@
 #if os(iOS)
 import CmuxMobileShell
-import SwiftUI
 
 extension WorkspaceDetailView {
     var workspaceChangesChip: MobileWorkspaceChangesChip? {

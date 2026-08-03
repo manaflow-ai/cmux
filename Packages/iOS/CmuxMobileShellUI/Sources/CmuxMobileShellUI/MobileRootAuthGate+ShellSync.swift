@@ -1,6 +1,5 @@
 import CmuxMobileShell
 import CmuxMobileWorkspace
-import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)

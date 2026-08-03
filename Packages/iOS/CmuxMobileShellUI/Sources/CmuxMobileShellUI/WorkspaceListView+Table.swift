@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import SwiftUI
 
 extension WorkspaceListView {
     var showsWorkspaceTableFilterEmptyRow: Bool {

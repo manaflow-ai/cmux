@@ -2,7 +2,6 @@
 import CMUXMobileCore
 import CmuxMobileTerminal
 import CmuxMobileShellModel
-import SwiftUI
 import Testing
 import UIKit
 @testable import CmuxMobileShell

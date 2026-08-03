@@ -1,7 +1,6 @@
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import Foundation
-import SwiftUI
 
 extension WorkspaceListView {
     /// Pipelining bound: with reorder enabled during pending moves, a slow or
@@ -77,7 +76,7 @@ extension WorkspaceListView {
             return
         }
         var movedWorkspaces = sourceWorkspaces
-        movedWorkspaces.move(fromOffsets: sourceOffsets, toOffset: destination)
+        movedWorkspaces.moveWorkspaceListElements(fromOffsets: sourceOffsets, toOffset: destination)
         optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler(
             optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
             pendingBases: optimisticFlatState.pendingBases
@@ -240,6 +239,24 @@ extension WorkspaceListView {
             }
             return accepted
         }
+    }
+}
+
+extension Array {
+    /// Native equivalent of the collection move used by the workspace table.
+    mutating func moveWorkspaceListElements(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let validOffsets = source.filter(indices.contains)
+        guard !validOffsets.isEmpty else { return }
+        let elements = validOffsets.map { self[$0] }
+        let removedBeforeDestination = validOffsets.count(where: { $0 < destination })
+        for index in validOffsets.reversed() {
+            remove(at: index)
+        }
+        let insertionIndex = Swift.min(
+            Swift.max(0, destination - removedBeforeDestination),
+            count
+        )
+        insert(contentsOf: elements, at: insertionIndex)
     }
 }
 
