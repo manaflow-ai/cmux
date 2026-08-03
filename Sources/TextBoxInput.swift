@@ -48,6 +48,21 @@ enum TextBoxLayout {
     }
 }
 
+enum TextBoxAttachmentCapacity {
+    static let maximumCount = 100
+
+    static func canInsert(
+        existingCount: Int,
+        replacingCount: Int,
+        incomingCount: Int
+    ) -> Bool {
+        guard incomingCount > 0 else { return false }
+        let retainedCount = max(0, existingCount - replacingCount)
+        guard retainedCount <= maximumCount else { return false }
+        return incomingCount <= maximumCount - retainedCount
+    }
+}
+
 struct TextBoxFailedSubmitRollbackSnapshot: Equatable {
     let revision: UInt64
     let text: String
@@ -218,7 +233,6 @@ struct TextBoxAttachment: Identifiable {
     let submissionText: String
     let submissionPath: String
     let localURL: URL?
-    let thumbnail: NSImage?
     let inlineThumbnailSource: TextBoxInlineAttachmentThumbnailSource?
     let cleanupLocalURLWhenDisposed: Bool
 
@@ -237,9 +251,8 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath
         self.localURL = standardizedURL
-        let thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.thumbnail = thumbnail
-        self.inlineThumbnailSource = if let standardizedURL, thumbnail != nil {
+        self.inlineThumbnailSource = if let standardizedURL,
+            TextBoxAttachment.isImageFileURL(standardizedURL) {
             TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
         } else {
             nil
@@ -260,18 +273,16 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath ?? standardizedURL.path
         self.localURL = standardizedURL
-        let thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.thumbnail = thumbnail
-        self.inlineThumbnailSource = thumbnail.map { _ in
+        self.inlineThumbnailSource = if TextBoxAttachment.isImageFileURL(standardizedURL) {
             TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
+        } else {
+            nil
         }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 
     var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
+        inlineThumbnailSource != nil
     }
 
     var escapedSubmissionPath: String {
@@ -296,14 +307,6 @@ struct TextBoxAttachment: Identifiable {
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
-    }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
     }
 
     private static func isImageFileURL(_ url: URL) -> Bool {
@@ -756,8 +759,6 @@ enum TextBoxPasteboardRestorationGuard {
 }
 
 private enum TextBoxAttachmentPreviewLayout {
-    static let maxImageSize = CGSize(width: 408, height: 288)
-    static let minImageSize = CGSize(width: 220, height: 140)
     static let cornerRadius: CGFloat = 14
     static let topButtonPadding: CGFloat = 8
     static let previewPadding: CGFloat = 8
@@ -768,8 +769,8 @@ private struct TextBoxAttachmentPreviewMetrics {
     let imageSize: CGSize
     let contentSize: NSSize
 
-    static func metrics(for attachment: TextBoxAttachment) -> TextBoxAttachmentPreviewMetrics {
-        let imageSize = fittedImageSize(for: attachment)
+    static func metrics(for _: TextBoxAttachment) -> TextBoxAttachmentPreviewMetrics {
+        let imageSize = CGSize(width: 260, height: 160)
         let padding = TextBoxAttachmentPreviewLayout.previewPadding
         return TextBoxAttachmentPreviewMetrics(
             imageSize: imageSize,
@@ -779,39 +780,6 @@ private struct TextBoxAttachmentPreviewMetrics {
             )
         )
     }
-
-    private static func fittedImageSize(for attachment: TextBoxAttachment) -> CGSize {
-        let fallback = CGSize(width: 260, height: 160)
-        guard let image = attachment.thumbnail else { return fallback }
-
-        let natural = naturalSize(for: image)
-        guard natural.width > 0, natural.height > 0 else { return fallback }
-
-        let minSize = TextBoxAttachmentPreviewLayout.minImageSize
-        let maxSize = TextBoxAttachmentPreviewLayout.maxImageSize
-        let maxScale = min(maxSize.width / natural.width, maxSize.height / natural.height)
-        let needsMinimumSize = natural.width < minSize.width || natural.height < minSize.height
-        let scale: CGFloat
-        if needsMinimumSize {
-            let minScale = max(minSize.width / natural.width, minSize.height / natural.height)
-            scale = min(minScale, maxScale)
-        } else {
-            scale = min(1, maxScale)
-        }
-        return CGSize(
-            width: max(1, floor(natural.width * scale)),
-            height: max(1, floor(natural.height * scale))
-        )
-    }
-
-    private static func naturalSize(for image: NSImage) -> CGSize {
-        if let rep = image.representations.max(by: { lhs, rhs in
-            lhs.pixelsWide * lhs.pixelsHigh < rhs.pixelsWide * rhs.pixelsHigh
-        }), rep.pixelsWide > 0, rep.pixelsHigh > 0 {
-            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
-        }
-        return image.size
-    }
 }
 
 private struct TextBoxAttachmentPreviewPopoverView: View {
@@ -819,6 +787,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
     let imageSize: CGSize
 
     @State private var isPresented = false
+    @State private var thumbnail: NSImage?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -857,11 +826,14 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 isPresented = true
             }
         }
+        .task(id: attachment.id) {
+            await loadThumbnail()
+        }
     }
 
     @ViewBuilder
     private var previewContent: some View {
-        if let thumbnail = attachment.thumbnail {
+        if let thumbnail {
             Image(nsImage: thumbnail)
                 .resizable()
                 .scaledToFit()
@@ -869,7 +841,11 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
+                CmuxSystemSymbolImage(
+                    magnified: attachment.isImage ? "photo" : "doc",
+                    pointSize: 42,
+                    weight: .regular
+                )
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
@@ -879,6 +855,21 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
             .foregroundStyle(.primary.opacity(0.86))
             .frame(width: imageSize.width, height: imageSize.height)
         }
+    }
+
+    private func loadThumbnail() async {
+        guard let source = attachment.inlineThumbnailSource else { return }
+        let scale = max(1, NSScreen.main?.backingScaleFactor ?? 1)
+        let pixelSize = TextBoxInlineAttachmentThumbnailSize(
+            width: max(1, Int(ceil(imageSize.width * scale))),
+            height: max(1, Int(ceil(imageSize.height * scale)))
+        )
+        guard let pixels = await source.thumbnail(pixelSize: pixelSize),
+              !Task.isCancelled else { return }
+        thumbnail = TextBoxAttachmentThumbnailImageFactory.image(
+            from: pixels,
+            pointSize: NSSize(width: imageSize.width, height: imageSize.height)
+        )
     }
 
     private func openInPreview() {
@@ -940,22 +931,15 @@ private struct TextBoxAttachmentChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if let thumbnail = attachment.thumbnail {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            } else {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-            }
+            CmuxSystemSymbolImage(
+                magnified: attachment.isImage ? "photo" : "doc",
+                pointSize: 12,
+                weight: .medium
+            )
+            .frame(
+                width: TextBoxLayout.attachmentImageSize,
+                height: TextBoxLayout.attachmentImageSize
+            )
 
             Text(attachment.displayName)
                 .cmuxFont(size: 11, weight: .medium)
@@ -2696,10 +2680,7 @@ struct TextBoxInputContainer: View {
     }
 
     private func insertSelectedFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        return insertPreparedContent(.fileURLs(standardizedURLs), into: textView)
+        insertPreparedContent(.fileURLs(fileURLs), into: textView)
     }
 
     private func focusTerminal() {
@@ -2745,10 +2726,16 @@ struct TextBoxInputContainer: View {
     }
 
     private func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        guard !standardizedURLs.isEmpty else { return false }
+        let localFileURLs = fileURLs.filter(\.isFileURL)
+        guard !localFileURLs.isEmpty else { return false }
+        guard textView.canInsertAttachments(count: localFileURLs.count) else {
+            presentAttachmentLimitAlert(
+                selectedCount: localFileURLs.count,
+                textView: textView
+            )
+            return true
+        }
+        let standardizedURLs = localFileURLs.map(\.standardizedFileURL)
 
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: standardizedURLs,
@@ -2776,6 +2763,34 @@ struct TextBoxInputContainer: View {
         case .reject:
             return false
         }
+    }
+
+    private func presentAttachmentLimitAlert(
+        selectedCount: Int,
+        textView: TextBoxInputTextView
+    ) {
+        guard let window = textView.window else {
+            NSSound.beep()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "textbox.attachmentLimit.title",
+            defaultValue: "Too Many Files"
+        )
+        let messageFormat = String(
+            localized: "textbox.attachmentLimit.message",
+            defaultValue: "You selected %1$lld files. TextBox supports up to %2$lld total attachments. No files were added."
+        )
+        alert.informativeText = String.localizedStringWithFormat(
+            messageFormat,
+            Int64(selectedCount),
+            Int64(TextBoxAttachmentCapacity.maximumCount)
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        _ = alert.runCmuxModal(presentingWindow: window)
     }
 
     private func uploadFileAttachments(
@@ -3568,8 +3583,26 @@ final class TextBoxInputTextView: NSTextView {
         }.joined()
     }
 
+    static func boundedSessionDraft(
+        _ draft: SessionTextBoxInputDraftSnapshot
+    ) -> SessionTextBoxInputDraftSnapshot {
+        var attachmentCount = 0
+        let boundedParts = draft.parts.filter { part in
+            guard part.kind == .attachment else { return true }
+            guard attachmentCount < TextBoxAttachmentCapacity.maximumCount else {
+                return false
+            }
+            attachmentCount += 1
+            return true
+        }
+        return SessionTextBoxInputDraftSnapshot(
+            isActive: draft.isActive,
+            parts: boundedParts
+        )
+    }
+
     static func attachments(from draft: SessionTextBoxInputDraftSnapshot) -> [TextBoxAttachment] {
-        draft.parts.compactMap { part -> TextBoxAttachment? in
+        boundedSessionDraft(draft).parts.compactMap { part -> TextBoxAttachment? in
             guard part.kind == .attachment,
                   let attachment = part.attachment else { return nil }
             return attachment.textBoxAttachment()
@@ -3603,7 +3636,7 @@ final class TextBoxInputTextView: NSTextView {
 
     private func attributedContent(from draft: SessionTextBoxInputDraftSnapshot) -> NSAttributedString {
         let attributed = NSMutableAttributedString()
-        for part in draft.parts {
+        for part in Self.boundedSessionDraft(draft).parts {
             switch part.kind {
             case .text:
                 guard let text = part.text,
@@ -3617,11 +3650,25 @@ final class TextBoxInputTextView: NSTextView {
         return attributed
     }
 
-    func insertAttachments(_ attachments: [TextBoxAttachment]) {
-        guard !attachments.isEmpty else { return }
+    func canInsertAttachments(count incomingCount: Int, replacing range: NSRange? = nil) -> Bool {
+        let replacementRange = range ?? selectedRange()
+        return TextBoxAttachmentCapacity.canInsert(
+            existingCount: inlineAttachments().count,
+            replacingCount: inlineTextAttachments(in: replacementRange).count,
+            incomingCount: incomingCount
+        )
+    }
+
+    @discardableResult
+    func insertAttachments(_ attachments: [TextBoxAttachment]) -> Bool {
+        guard !attachments.isEmpty,
+              canInsertAttachments(count: attachments.count) else {
+            return false
+        }
         window?.makeFirstResponder(self)
 
         insertAttachments(attachments, replacementRange: selectedRange())
+        return true
     }
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
@@ -3646,7 +3693,8 @@ final class TextBoxInputTextView: NSTextView {
     ) -> Bool {
         guard !attachments.isEmpty,
               let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
+              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id),
+              canInsertAttachments(count: attachments.count, replacing: placeholderRange) else {
             return false
         }
 

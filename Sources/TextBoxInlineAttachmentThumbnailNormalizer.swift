@@ -48,11 +48,31 @@ struct TextBoxInlineAttachmentThumbnailNormalizer:
         }
 
         context.interpolationQuality = .high
-        context.setBlendMode(.copy)
-        context.draw(
-            sourceThumbnail,
-            in: CGRect(x: 0, y: 0, width: pixelSize.width, height: pixelSize.height)
+        let targetRect = CGRect(
+            x: 0,
+            y: 0,
+            width: pixelSize.width,
+            height: pixelSize.height
         )
+        let sourceWidth = CGFloat(sourceThumbnail.width)
+        let sourceHeight = CGFloat(sourceThumbnail.height)
+        let scale = min(
+            targetRect.width / sourceWidth,
+            targetRect.height / sourceHeight
+        )
+        let fittedSize = CGSize(
+            width: max(1, floor(sourceWidth * scale)),
+            height: max(1, floor(sourceHeight * scale))
+        )
+        let fittedRect = CGRect(
+            x: floor((targetRect.width - fittedSize.width) / 2),
+            y: floor((targetRect.height - fittedSize.height) / 2),
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+        context.clear(targetRect)
+        context.setBlendMode(.copy)
+        context.draw(sourceThumbnail, in: fittedRect)
         guard !isCurrentTaskCancelled(), let data = context.data else { return nil }
 
         return TextBoxInlineAttachmentThumbnailPixels(

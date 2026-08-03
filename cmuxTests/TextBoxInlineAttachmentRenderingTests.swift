@@ -34,6 +34,65 @@ import Testing
         #expect(textView.inlineAttachments().isEmpty)
     }
 
+    @Test func attachmentBatchAtLimitIsInserted() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let attachments = (0..<TextBoxAttachmentCapacity.maximumCount).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        #expect(textView.insertAttachments(attachments))
+        #expect(textView.inlineAttachments().count == TextBoxAttachmentCapacity.maximumCount)
+    }
+
+    @Test func imageAttachmentCreatesThumbnailSourceWithoutReadingTheFile() {
+        let missingImageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).png")
+        let attachment = TextBoxAttachment(
+            localURL: missingImageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: missingImageURL)
+        )
+
+        #expect(attachment.isImage)
+        #expect(attachment.inlineThumbnailSource != nil)
+    }
+
+    @Test func oversizedSessionDraftIsBoundedBeforeRendering() {
+        let attachmentParts = (0..<101).map { index in
+            SessionTextBoxInputDraftPart.attachment(
+                SessionTextBoxInputAttachmentSnapshot(
+                    displayName: "file-\(index).txt",
+                    submissionText: "/tmp/file-\(index).txt",
+                    submissionPath: "/tmp/file-\(index).txt",
+                    localPath: nil,
+                    cleanupLocalPathWhenDisposed: false
+                )
+            )
+        }
+        let draft = SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("before ")] + attachmentParts + [.text(" after")]
+        )
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+
+        textView.installSessionDraft(draft)
+
+        #expect(textView.inlineAttachments().count == TextBoxAttachmentCapacity.maximumCount)
+        #expect(textView.plainText() == "before  after")
+    }
+
     @Test func identicalRefreshReusesRenderedChipImage() throws {
         let fixture = try AttachmentFixture()
         defer { fixture.cleanup() }
