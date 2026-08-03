@@ -1,4 +1,3 @@
-import SwiftUI
 import Testing
 
 @testable import CmuxMobileWorkspace
@@ -33,7 +32,7 @@ import Testing
     }
 
     @Test func contentInsetsProtectLandscapeCameraArea() {
-        let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
+        let landscapeInsets = MobileTerminalSafeAreaInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
 
         #expect(
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
@@ -47,7 +46,7 @@ import Testing
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
+                safeAreaInsets: MobileTerminalSafeAreaInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
             ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
         )
 
@@ -55,7 +54,7 @@ import Testing
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+                safeAreaInsets: MobileTerminalSafeAreaInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
                 symmetricCameraEdge: .leading
             ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
         )
@@ -64,7 +63,7 @@ import Testing
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+                safeAreaInsets: MobileTerminalSafeAreaInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
                 symmetricCameraEdge: .none
             ) == .zero
         )
@@ -73,7 +72,7 @@ import Testing
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
+                safeAreaInsets: MobileTerminalSafeAreaInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
             ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
         )
 
@@ -81,7 +80,7 @@ import Testing
             MobileTerminalContentSafeAreaPolicy.horizontalInsets(
                 context: .fullWidth,
                 hasCompactVerticalSize: true,
-                safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
+                safeAreaInsets: MobileTerminalSafeAreaInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
             ) == .zero
         )
         #expect(

@@ -200,8 +200,8 @@ struct WorkspaceShellView: View {
     var usesCompactStack: Bool {
         #if os(iOS)
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: horizontalSizeClass,
-            verticalSizeClass: verticalSizeClass
+            hasCompactHorizontalSize: horizontalSizeClass == .compact,
+            hasCompactVerticalSize: verticalSizeClass == .compact
         )
         #else
         false

@@ -1,5 +1,3 @@
-public import SwiftUI
-
 /// The set of edges a terminal should expand past the safe area into.
 public struct MobileTerminalSafeAreaExpansionEdges: Equatable, Sendable {
     /// Whether the terminal should expand across both horizontal safe-area edges.
@@ -19,17 +17,5 @@ public struct MobileTerminalSafeAreaExpansionEdges: Equatable, Sendable {
     /// Whether any edge expansion is requested.
     public var hasEdges: Bool {
         horizontal || bottom
-    }
-
-    /// The SwiftUI `Edge.Set` corresponding to the requested edges.
-    public var edgeSet: Edge.Set {
-        var edges: Edge.Set = []
-        if horizontal {
-            edges.formUnion(.horizontal)
-        }
-        if bottom {
-            edges.formUnion(.bottom)
-        }
-        return edges
     }
 }

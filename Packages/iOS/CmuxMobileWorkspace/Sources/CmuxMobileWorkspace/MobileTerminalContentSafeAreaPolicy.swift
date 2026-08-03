@@ -1,4 +1,19 @@
-public import SwiftUI
+public import CoreGraphics
+
+/// Platform-neutral safe-area measurements used by terminal layout policy.
+public struct MobileTerminalSafeAreaInsets: Equatable, Sendable {
+    public var top: CGFloat
+    public var leading: CGFloat
+    public var bottom: CGFloat
+    public var trailing: CGFloat
+
+    public init(top: CGFloat, leading: CGFloat, bottom: CGFloat, trailing: CGFloat) {
+        self.top = top
+        self.leading = leading
+        self.bottom = bottom
+        self.trailing = trailing
+    }
+}
 
 /// Pure policy computing horizontal content insets that keep terminal content
 /// clear of the landscape camera area.
@@ -23,7 +38,7 @@ public struct MobileTerminalContentSafeAreaPolicy {
     public static func horizontalInsets(
         context: MobileTerminalSafeAreaContext,
         hasCompactVerticalSize: Bool,
-        safeAreaInsets: EdgeInsets,
+        safeAreaInsets: MobileTerminalSafeAreaInsets,
         symmetricCameraEdge: MobileTerminalLandscapeCameraEdge = .trailing
     ) -> MobileTerminalContentInsets {
         guard context == .fullWidth, hasCompactVerticalSize else {

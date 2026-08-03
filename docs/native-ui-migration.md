@@ -79,7 +79,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] `CmuxMobileToast` (0)
   - [x] `CmuxMobileBrowserStream` (0)
   - [x] `CmuxMobileBrowser` (0)
-  - [ ] `CmuxMobileWorkspace` (2)
+  - [x] `CmuxMobileWorkspace` (0)
   - [ ] Replace the SwiftUI `App` and scene graph with `UIApplicationDelegate`,
     `UISceneDelegate`, and UIKit coordinators.
   - [ ] Remove every `UIHostingController` and `UIHostingConfiguration` boundary.

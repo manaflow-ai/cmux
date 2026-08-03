@@ -1,4 +1,3 @@
-import SwiftUI
 import Testing
 
 @testable import CmuxMobileWorkspace
@@ -7,20 +6,20 @@ import Testing
     @Test func compactHeightUsesStackWorkspaceNavigation() {
         #expect(
             MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-                horizontalSizeClass: .regular,
-                verticalSizeClass: .compact
+                hasCompactHorizontalSize: false,
+                hasCompactVerticalSize: true
             )
         )
         #expect(
             MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-                horizontalSizeClass: .compact,
-                verticalSizeClass: .regular
+                hasCompactHorizontalSize: true,
+                hasCompactVerticalSize: false
             )
         )
         #expect(
             !MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-                horizontalSizeClass: .regular,
-                verticalSizeClass: .regular
+                hasCompactHorizontalSize: false,
+                hasCompactVerticalSize: false
             )
         )
     }

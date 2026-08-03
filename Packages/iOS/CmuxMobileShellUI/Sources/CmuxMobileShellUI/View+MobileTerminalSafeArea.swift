@@ -17,8 +17,14 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
             includesBottom: includesBottom
         )
         if edges.hasEdges {
+            let edgeSet: Edge.Set = {
+                var result: Edge.Set = []
+                if edges.horizontal { result.formUnion(.horizontal) }
+                if edges.bottom { result.formUnion(.bottom) }
+                return result
+            }()
             content
-                .ignoresSafeArea(.container, edges: edges.edgeSet)
+                .ignoresSafeArea(.container, edges: edgeSet)
         } else {
             content
         }
