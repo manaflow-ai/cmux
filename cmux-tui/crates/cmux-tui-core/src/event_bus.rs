@@ -492,6 +492,41 @@ mod tests {
     }
 
     #[test]
+    fn scroll_churn_keeps_one_latest_position_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::ScrollChanged { surface: 1, offset: 0, at_bottom: true });
+        broadcaster.emit(MuxEvent::Bell(2));
+        for offset in 1..10_000 {
+            broadcaster.emit(MuxEvent::ScrollChanged {
+                surface: 1,
+                offset,
+                at_bottom: false,
+            });
+            broadcaster.emit(MuxEvent::ScrollChanged {
+                surface: 3,
+                offset: offset * 2,
+                at_bottom: false,
+            });
+        }
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::ScrollChanged { surface: 1, offset: 9_999, at_bottom: false }
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::ScrollChanged { surface: 3, offset: 19_998, at_bottom: false }
+        ));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn surface_exit_discards_its_pending_output() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();

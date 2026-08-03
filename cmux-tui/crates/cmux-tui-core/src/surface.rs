@@ -6475,6 +6475,35 @@ mod tests {
     }
 
     #[test]
+    fn slow_attach_coalesces_adjacent_output_without_losing_bytes() {
+        let mux = Mux::new_for_test("attach-output-coalescing", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        let expected = (0..ATTACH_STREAM_CAPACITY * 4)
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+
+        for (index, byte) in expected.iter().copied().enumerate() {
+            assert!(
+                pty.broadcast_attach_output(&[byte]),
+                "lossless attach disconnected at small output chunk {index}"
+            );
+        }
+
+        assert!(!attach.lifecycle.overflowed());
+        let mut received = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            match frame {
+                AttachFrame::Output(bytes) => received.extend(bytes),
+                other => panic!("unexpected frame in output-only stream: {other:?}"),
+            }
+        }
+        assert_eq!(received, expected);
+    }
+
+    #[test]
     fn resized_replay_payload_is_shared_across_attach_taps() {
         let mux = Mux::new("shared-resize-replay", SurfaceOptions::default());
         let surface =
