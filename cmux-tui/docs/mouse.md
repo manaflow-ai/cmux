@@ -6,7 +6,9 @@ The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, 
 
 The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
-When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a host address or pairing code. A negotiated dynamic provider receives that value as opaque input; the static catalog accepts `host` or `user@host` and creates a temporary local SSH target. A provider that advertises create capability also shows `+ new machine`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
+When configured, the machine rail uses the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a host address or pairing code. Click `+ new machine` to run a provider create action or choose among configured prototype sources. The prototype picker adds only a local catalog row and never invokes Docker or a cloud API.
+
+An ordered `tabs` column shows every tab in the highlighted workspace. Clicking a row activates its workspace, screen, pane, and tab. Wheel input scrolls long tab lists. Drag any native column's right divider to set its independent session-local width.
 
 Each pane has a border box. Click inside a pane to focus it. The top border is the tab bar: click a tab chip to select it, click `+` to create a PTY tab, click `‹` or `›` to scroll overflowing tabs, or wheel over the bar to scroll tab chips while keeping the active tab visible.
 
@@ -41,7 +43,7 @@ Drag pane borders to resize the matching split. Dragging a corner adjusts both i
 
 On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable. One continuous divider drag is coalesced into one `Ctrl-b U` layout-undo entry.
 
-Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. The configured base widths come from `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`; each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
+Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. `sidebar.columns` supplies explicit base and maximum widths; legacy layouts still use `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`. Resizing one column preserves every other visible column while leaving at least 40 columns for panes.
 
 ## Context Menus
 

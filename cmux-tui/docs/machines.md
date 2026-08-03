@@ -1,16 +1,16 @@
 # Machines
 
-The optional machine rail adds a connection layer to the left of the existing workspace rail. Selecting a machine replaces the attached cmux session while the client, rail layout, mouse handling, and workspace rendering stay local.
+The optional machine rail adds a connection layer to the native column stack. Selecting a machine replaces the attached cmux session while the client, rail layout, mouse handling, and workspace rendering stay local.
 
-The feature is disabled by default. It activates when `machine_sidebar.enabled` is `true` or the `machines` array contains at least one valid entry. An active static catalog always starts with the current local session, labeled with the local hostname and `local`, followed by configured Unix-socket and SSH targets. A configured machine with id `current` is skipped because that id belongs to the local entry.
+The feature is disabled by default. It activates when `machine_sidebar.enabled` is `true`, `machine_sidebar.create_sources` is nonempty, or the `machines` array contains at least one valid entry. An active static catalog always starts with the current local session, labeled with the local hostname and `local`, followed by configured Unix-socket and SSH targets. A configured machine with id `current` is skipped because that id belongs to the local entry.
 
 ## Layout and input
 
-The machine list and built-in workspace list use the same rail renderer, selection treatment, two-line entries, and divider. Each right divider has an independent drag width. `machine_sidebar.width` and `sidebar.width` provide their separate starting widths; their `max_width` settings provide separate drag limits. Both rails preserve at least 40 columns for pane content. When the terminal cannot fit two 10-column rails and the content minimum, cmux hides the machine rail first.
+Machine, workspace, and tab columns use the same rail renderer, selection treatment, two-line entries, and divider. `sidebar.columns` controls their order and widths. Every divider remains independently draggable, and all columns preserve at least 40 pane columns. A narrow terminal hides machines first, then tabs.
 
-`Ctrl-b S` focuses the workspace rail. Left or `h` moves to the machine rail, and Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine. Home, End, PageUp, and PageDown move through long catalogs. Enter connects to the selected machine or invokes the selected footer action. Esc returns focus to the active pane. Mouse clicks focus either rail; a machine switch occurs on release over the same machine row. Drag either divider to resize only that rail. Wheel input scrolls the rail body, or the footer when a very short terminal clips its actions.
+`Ctrl-b S` focuses the workspace rail. Left or `h` and Right or `l` traverse adjacent configured columns. Up/Down or `k`/`j` changes the current selection. Enter activates it, and Esc returns to the active pane. Mouse clicks focus a column directly. Every divider resizes only its column.
 
-The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ new machine` is capability-gated and does not appear for the static catalog.
+The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ new machine` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
 
 ## Static targets
 

@@ -387,7 +387,8 @@
     {"variant": "RestoreAllClientSizing", "classification": "direct", "route": "set-client-sizing enabled:true without client"},
     {"variant": "DisconnectClient", "classification": "composite", "route": "self: close frontend transport; peer: detach-client"},
     {"variant": "SelectProviderScope", "classification": "external-protocol", "route": "machine-provider select_scope"},
-    {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"}
+    {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"},
+    {"variant": "CreateMachineFrom", "classification": "composite", "route": "native source picker + client-local machine catalog"}
   ],
   "feature_families": [
     {"id": "topology-layout-focus", "wire_status": "implemented", "programmability": "partial", "route": "control commands and tree snapshots/events; SDK and conformance parity remain incomplete"},

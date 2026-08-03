@@ -31,6 +31,11 @@
 //!     "width": 22,
 //!     "compact_width": 10,
 //!     "max_width": 0,
+//!     "columns": [
+//!       {"kind": "machines", "width": 18},
+//!       {"kind": "workspaces", "width": 22},
+//!       {"kind": "tabs", "width": 24}
+//!     ],
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
 //!       "cwd": "/optional"
@@ -39,7 +44,8 @@
 //!   "machine_sidebar": {
 //!     "enabled": false,
 //!     "width": 22,
-//!     "max_width": 0
+//!     "max_width": 0,
+//!     "create_sources": []
 //!   },
 //!   "machine_provider": {
 //!     "cloud": {
@@ -431,7 +437,16 @@ struct RawSidebar {
     width: Option<u16>,
     compact_width: Option<u16>,
     max_width: Option<u16>,
+    columns: Option<Vec<RawSidebarColumn>>,
     plugin: Option<RawSidebarPlugin>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarColumn {
+    kind: String,
+    width: Option<u16>,
+    max_width: Option<u16>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -447,6 +462,15 @@ struct RawMachineSidebar {
     enabled: Option<bool>,
     width: Option<u16>,
     max_width: Option<u16>,
+    create_sources: Option<Vec<RawMachineCreationSource>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineCreationSource {
+    id: String,
+    name: String,
+    subtitle: Option<String>,
 }
 
 #[derive(Debug)]
@@ -703,6 +727,10 @@ pub struct Sidebar {
     pub width: u16,
     pub compact_width: u16,
     pub max_width: u16,
+    /// Ordered native columns. The legacy width fields remain the defaults for
+    /// machine/workspace columns when this list is omitted from the config.
+    pub columns: Vec<SidebarColumn>,
+    pub columns_explicit: bool,
     pub plugin: Option<SidebarPluginOptions>,
 }
 
@@ -713,18 +741,47 @@ impl Default for Sidebar {
             width: 22,
             compact_width: 10,
             max_width: 0,
+            columns: vec![
+                SidebarColumn { kind: SidebarColumnKind::Machines, width: 22, max_width: 0 },
+                SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
+            ],
+            columns_explicit: false,
             plugin: None,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarColumnKind {
+    Machines,
+    Workspaces,
+    Tabs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarColumn {
+    pub kind: SidebarColumnKind,
+    pub width: u16,
+    pub max_width: u16,
+}
+
 /// Optional client-local rail listing connection targets. It is disabled for
 /// ordinary local cmux sessions and enabled by a machine provider or config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineSidebar {
     pub enabled: bool,
     pub width: u16,
     pub max_width: u16,
+    /// Session-local prototype sources. They exercise the native provider
+    /// picker without starting containers or consuming cloud resources.
+    pub create_sources: Vec<MachineCreationSourceConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineCreationSourceConfig {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -778,7 +835,7 @@ pub enum MachineTargetConfig {
 
 impl Default for MachineSidebar {
     fn default() -> Self {
-        Self { enabled: false, width: 22, max_width: 0 }
+        Self { enabled: false, width: 22, max_width: 0, create_sources: Vec::new() }
     }
 }
 
@@ -804,6 +861,17 @@ fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
         "workspaces" => Ok(SidebarView::Workspaces),
         _ => Err(format!(
             "cmux-tui: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
+        )),
+    }
+}
+
+fn parse_sidebar_column_kind(value: &str) -> Result<SidebarColumnKind, String> {
+    match value {
+        "machines" => Ok(SidebarColumnKind::Machines),
+        "workspaces" => Ok(SidebarColumnKind::Workspaces),
+        "tabs" => Ok(SidebarColumnKind::Tabs),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar column {value:?}; expected \"machines\", \"workspaces\", or \"tabs\""
         )),
     }
 }
@@ -2354,6 +2422,74 @@ pub fn load() -> Config {
     if let Some(max_width) = raw.machine_sidebar.max_width {
         config.machine_sidebar.max_width = max_width;
     }
+    if let Some(sources) = raw.machine_sidebar.create_sources {
+        let mut source_ids = HashSet::new();
+        for source in sources {
+            let id = source.id.trim().to_string();
+            let name = source.name.trim().to_string();
+            if id.is_empty() || name.is_empty() || !source_ids.insert(id.clone()) {
+                eprintln!(
+                    "cmux-tui: ignoring machine creation source with an empty or duplicate id/name"
+                );
+                continue;
+            }
+            let subtitle =
+                source.subtitle.map(|subtitle| subtitle.trim().to_string()).unwrap_or_default();
+            config.machine_sidebar.create_sources.push(MachineCreationSourceConfig {
+                id,
+                name,
+                subtitle,
+            });
+        }
+    }
+    if let Some(columns) = raw.sidebar.columns {
+        let mut seen = HashSet::new();
+        let mut resolved = Vec::new();
+        for column in columns {
+            let kind = match parse_sidebar_column_kind(column.kind.trim()) {
+                Ok(kind) => kind,
+                Err(warning) => {
+                    eprintln!("{warning}");
+                    continue;
+                }
+            };
+            if !seen.insert(kind) {
+                eprintln!("cmux-tui: ignoring duplicate sidebar column {:?}", column.kind);
+                continue;
+            }
+            let (default_width, default_max_width) = match kind {
+                SidebarColumnKind::Machines => {
+                    (config.machine_sidebar.width, config.machine_sidebar.max_width)
+                }
+                SidebarColumnKind::Workspaces => (config.sidebar.width, config.sidebar.max_width),
+                SidebarColumnKind::Tabs => (22, 0),
+            };
+            resolved.push(SidebarColumn {
+                kind,
+                width: column.width.unwrap_or(default_width).clamp(10, 60),
+                max_width: column.max_width.unwrap_or(default_max_width),
+            });
+        }
+        if resolved.is_empty() {
+            eprintln!("cmux-tui: sidebar.columns had no usable entries; keeping defaults");
+        } else {
+            config.sidebar.columns = resolved;
+            config.sidebar.columns_explicit = true;
+        }
+    } else {
+        config.sidebar.columns = vec![
+            SidebarColumn {
+                kind: SidebarColumnKind::Machines,
+                width: config.machine_sidebar.width,
+                max_width: config.machine_sidebar.max_width,
+            },
+            SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: config.sidebar.width,
+                max_width: config.sidebar.max_width,
+            },
+        ];
+    }
     let cloud = raw.machine_provider.cloud;
     if let Some(enabled) = cloud.enabled {
         config.machine_provider.cloud.enabled = enabled;
@@ -3426,6 +3562,11 @@ mod tests {
                     "width": 30,
                     "compact_width": 12,
                     "max_width": 38,
+                    "columns": [
+                        {"kind": "machines", "width": 18},
+                        {"kind": "workspaces", "width": 24},
+                        {"kind": "tabs", "width": 26, "max_width": 40}
+                    ],
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
@@ -3434,7 +3575,11 @@ mod tests {
                 "machine_sidebar": {
                     "enabled": true,
                     "width": 26,
-                    "max_width": 34
+                    "max_width": 34,
+                    "create_sources": [
+                        {"id": "docker", "name": "Docker", "subtitle": "container prototype"},
+                        {"id": "e2b", "name": "E2B"}
+                    ]
                 },
                 "machine_provider": {
                     "cloud": {
@@ -3489,9 +3634,34 @@ mod tests {
         assert_eq!(config.sidebar.compact_width, 12);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
+        assert!(config.sidebar.columns_explicit);
+        assert_eq!(
+            config.sidebar.columns,
+            vec![
+                SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 34 },
+                SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 24, max_width: 38 },
+                SidebarColumn { kind: SidebarColumnKind::Tabs, width: 26, max_width: 40 },
+            ]
+        );
         assert_eq!(
             config.machine_sidebar,
-            MachineSidebar { enabled: true, width: 26, max_width: 34 }
+            MachineSidebar {
+                enabled: true,
+                width: 26,
+                max_width: 34,
+                create_sources: vec![
+                    MachineCreationSourceConfig {
+                        id: "docker".into(),
+                        name: "Docker".into(),
+                        subtitle: "container prototype".into(),
+                    },
+                    MachineCreationSourceConfig {
+                        id: "e2b".into(),
+                        name: "E2B".into(),
+                        subtitle: String::new(),
+                    },
+                ],
+            }
         );
         assert_eq!(
             config.machine_provider.cloud,

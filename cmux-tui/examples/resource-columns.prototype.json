@@ -1,0 +1,35 @@
+{
+  "sidebar": {
+    "view": "workspaces",
+    "columns": [
+      { "kind": "machines", "width": 18 },
+      { "kind": "workspaces", "width": 22 },
+      { "kind": "tabs", "width": 24 }
+    ]
+  },
+  "machine_sidebar": {
+    "enabled": true,
+    "create_sources": [
+      {
+        "id": "docker",
+        "name": "Docker",
+        "subtitle": "container prototype"
+      },
+      {
+        "id": "e2b",
+        "name": "E2B",
+        "subtitle": "hosted microVM prototype"
+      },
+      {
+        "id": "firecracker",
+        "name": "Firecracker",
+        "subtitle": "self-hosted microVM prototype"
+      },
+      {
+        "id": "tart",
+        "name": "Tart",
+        "subtitle": "macOS VM prototype"
+      }
+    ]
+  }
+}

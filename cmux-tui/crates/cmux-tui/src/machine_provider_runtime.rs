@@ -584,6 +584,9 @@ impl ProviderMachineRuntime {
                 )?;
                 Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
             }
+            MachineRequest::CreateFrom { .. } => {
+                anyhow::bail!(localization::catalog().sidebar.machine_creation_source_unavailable)
+            }
             MachineRequest::Connect { .. } => {
                 unreachable!("external connect requests are routed by ProviderMachineController")
             }

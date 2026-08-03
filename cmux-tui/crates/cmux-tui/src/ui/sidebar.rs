@@ -259,6 +259,72 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     app.hits.extend(hits);
 }
 
+/// Native third-level column for tabs in the highlighted workspace.
+pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
+    let Some(area) = app.tabs_sidebar_area(frame.area().height) else { return };
+    let targets = app.sidebar_tab_targets();
+    app.tabs_rail_selection = app.tabs_rail_selection.min(targets.len().saturating_sub(1));
+    let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
+    let messages = &localization::catalog().sidebar;
+    rail::prepare(frame, area, palette);
+    rail::header(frame, area, messages.tabs, palette);
+
+    let body_rows = if targets.is_empty() { 1 } else { targets.len() * rail::ENTRY_STRIDE };
+    let selected =
+        (!targets.is_empty() && app.tabs_sidebar_focused() && app.tabs_rail_follow_selection)
+            .then_some(rail::RowSpan::new(
+                app.tabs_rail_selection * rail::ENTRY_STRIDE,
+                rail::ENTRY_HEIGHT,
+            ));
+    let viewport = rail::viewport(
+        area,
+        body_rows,
+        0,
+        &mut app.tabs_rail_scroll,
+        &mut app.tabs_footer_scroll,
+        selected,
+        None,
+    );
+
+    if targets.is_empty() {
+        if let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1)) {
+            rail::button(frame, area, y, messages.no_tabs, false, palette);
+        }
+    } else {
+        for (target_index, target) in targets.iter().enumerate() {
+            let span = rail::RowSpan::new(target_index * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
+            let Some(y) = viewport.body_y(span) else { continue };
+            let selected = app.tabs_sidebar_focused()
+                && app.tabs_rail_selection == target_index
+                && app.tabs_rail_follow_selection;
+            rail::entry(
+                frame,
+                area,
+                y,
+                rail::Entry {
+                    name: &target.name,
+                    subtitle: &target.subtitle,
+                    highlighted: target.active || selected,
+                    active: target.active,
+                    indicator: None,
+                    dimmed: false,
+                },
+                palette,
+            );
+            let hit = Hit::SidebarTab {
+                workspace: target.workspace,
+                screen: target.screen,
+                pane: target.pane,
+                index: target.index,
+                surface: target.surface,
+            };
+            app.hits.push((rail::row(area, y), hit));
+            app.hits.push((rail::row(area, y + 1), hit));
+        }
+    }
+    app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Tabs)));
+}
+
 fn draw_plugin(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
     let width = area.width;

@@ -333,6 +333,11 @@ pub enum MachineRequest {
     /// before reopening the selected machine.
     ReconnectProvider,
     Create,
+    /// Select one native creation source advertised by the client-local
+    /// catalog. Dynamic providers continue to own the source-less `Create`.
+    CreateFrom {
+        source_id: String,
+    },
     Connect {
         target: String,
         route: MachineConnectRoute,
@@ -505,6 +510,13 @@ pub enum MachineRailTarget {
     ConnectMachine,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineCreationSource {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct MachineUiState {
     pub snapshot: MachineSnapshot,
@@ -515,6 +527,7 @@ pub struct MachineUiState {
     pub provider: Option<ProviderPresentation>,
     pub connect_accepts_pairing_code: bool,
     pub rail_selection: MachineRailSelection,
+    pub creation_sources: Vec<MachineCreationSource>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     managed_machines: Vec<ManagedMachineDescriptor>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
@@ -606,6 +619,7 @@ impl MachineUiState {
             provider: None,
             connect_accepts_pairing_code: false,
             rail_selection: MachineRailSelection::Machine,
+            creation_sources: Vec::new(),
             workspace_creation: HashMap::new(),
             managed_machines: Vec::new(),
             managed_workspaces: HashMap::new(),

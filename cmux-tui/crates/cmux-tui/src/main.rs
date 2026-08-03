@@ -1472,8 +1472,16 @@ fn run_server(
         None
     };
 
-    let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
-        .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
+    let machine_runtime = (config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty())
+    .then(|| {
+        MachineRuntime::with_creation_sources(
+            socket_path.clone(),
+            config.machines.clone(),
+            config.machine_sidebar.create_sources.clone(),
+        )
+    });
     let result = if args.headless {
         #[cfg(unix)]
         {
@@ -1545,7 +1553,10 @@ enum SessionClientMode {
 }
 
 fn session_client_mode(config: &config::Config) -> SessionClientMode {
-    if config.machine_sidebar.enabled || !config.machines.is_empty() {
+    if config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty()
+    {
         SessionClientMode::Machines
     } else {
         SessionClientMode::Plain
@@ -1565,7 +1576,11 @@ fn run_connected_session_client(
     match session_client_mode(&config) {
         SessionClientMode::Plain => run_tui(session, session_label, None),
         SessionClientMode::Machines => {
-            let runtime = MachineRuntime::new(socket_path, config.machines);
+            let runtime = MachineRuntime::with_creation_sources(
+                socket_path,
+                config.machines,
+                config.machine_sidebar.create_sources,
+            );
             run_machine_client_with_initial(runtime, session)
         }
     }
@@ -1583,7 +1598,7 @@ fn run_machine_client_with_initial(
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
-    let machine_ui = MachineUiState::new(runtime.snapshot(active));
+    let machine_ui = runtime.ui_state(active);
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, pending_active: None });
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
@@ -1614,6 +1629,12 @@ impl MachineController for StaticMachineController {
                 )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
+            }
+            MachineRequest::CreateFrom { source_id } => {
+                let (_, name) = self.runtime.create_from(&source_id)?;
+                let message =
+                    format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
+                Ok(self.notice(message))
             }
             MachineRequest::SelectProviderScope(_)
             | MachineRequest::InvokeProviderAction { .. }
@@ -1652,12 +1673,12 @@ impl StaticMachineController {
         let session = self.runtime.connect(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
         self.pending_active = Some(machine);
-        let ui = MachineUiState::new(self.runtime.snapshot(machine));
+        let ui = self.runtime.ui_state(machine);
         Ok(MachineActionResult::replace(ui, session, label))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
-        let mut ui = MachineUiState::new(self.runtime.snapshot(self.active));
+        let mut ui = self.runtime.ui_state(self.active);
         ui.notice = Some(notice.into());
         MachineActionResult::ui(ui)
     }

@@ -1,6 +1,6 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::io::{self, BufReader, Write};
 #[cfg(test)]
@@ -17,9 +17,10 @@ use std::thread::{self, JoinHandle};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use crate::config::{MachineConfig, MachineTargetConfig};
+use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
-    MachineCapabilities, MachineDescriptor, MachineKey, MachineSnapshot, MachineStatus,
+    MachineCapabilities, MachineCreationSource, MachineDescriptor, MachineKey, MachineSnapshot,
+    MachineStatus, MachineUiState,
 };
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 use crate::session::{
@@ -50,11 +51,24 @@ pub struct MachineRuntime {
     entries: Vec<Entry>,
     next_key: u64,
     connect_enabled: bool,
+    creation_sources: Vec<MachineCreationSourceConfig>,
+    creation_counts: HashMap<String, usize>,
+    prototype_target: Option<MachineTargetConfig>,
 }
 
 impl MachineRuntime {
+    #[cfg(test)]
     pub fn new(current_socket: PathBuf, configured: Vec<MachineConfig>) -> Self {
+        Self::with_creation_sources(current_socket, configured, Vec::new())
+    }
+
+    pub fn with_creation_sources(
+        current_socket: PathBuf,
+        configured: Vec<MachineConfig>,
+        creation_sources: Vec<MachineCreationSourceConfig>,
+    ) -> Self {
         let current_name = local_hostname().unwrap_or_else(|| "this machine".to_string());
+        let prototype_target = MachineTargetConfig::Unix { socket: current_socket.clone() };
         let mut runtime = Self {
             entries: vec![Entry {
                 descriptor: MachineDescriptor {
@@ -68,6 +82,9 @@ impl MachineRuntime {
             }],
             next_key: 2,
             connect_enabled: true,
+            creation_sources,
+            creation_counts: HashMap::new(),
+            prototype_target: Some(prototype_target),
         };
         let mut seen_ids = HashSet::from(["current".to_string()]);
         for machine in configured {
@@ -84,8 +101,14 @@ impl MachineRuntime {
     /// session. Ephemeral SSH targets are enabled only for trusted local
     /// launch modes such as `--cloud`.
     pub fn external(configured: Vec<MachineConfig>, connect_enabled: bool) -> Self {
-        let mut runtime =
-            Self { entries: Vec::new(), next_key: CLIENT_MACHINE_KEY_START, connect_enabled };
+        let mut runtime = Self {
+            entries: Vec::new(),
+            next_key: CLIENT_MACHINE_KEY_START,
+            connect_enabled,
+            creation_sources: Vec::new(),
+            creation_counts: HashMap::new(),
+            prototype_target: None,
+        };
         let mut seen_ids = HashSet::new();
         for machine in configured {
             if !seen_ids.insert(machine.id.clone()) {
@@ -124,8 +147,52 @@ impl MachineRuntime {
         MachineSnapshot {
             machines: self.entries.iter().map(|entry| entry.descriptor.clone()).collect(),
             active,
-            capabilities: MachineCapabilities { create: false, connect: self.connect_enabled },
+            capabilities: MachineCapabilities {
+                create: !self.creation_sources.is_empty(),
+                connect: self.connect_enabled,
+            },
         }
+    }
+
+    pub fn ui_state(&self, active: MachineKey) -> MachineUiState {
+        let mut ui = MachineUiState::new(self.snapshot(active));
+        ui.creation_sources = self
+            .creation_sources
+            .iter()
+            .map(|source| MachineCreationSource {
+                id: source.id.clone(),
+                name: source.name.clone(),
+                subtitle: source.subtitle.clone(),
+            })
+            .collect();
+        ui
+    }
+
+    /// Add a session-local catalog entry using the current mux transport.
+    /// This intentionally proves the provider picker and column behavior
+    /// without invoking Docker or a billable VM API.
+    pub fn create_from(&mut self, source_id: &str) -> anyhow::Result<(MachineKey, String)> {
+        let source = self
+            .creation_sources
+            .iter()
+            .find(|source| source.id == source_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("unknown machine creation source {source_id:?}"))?;
+        let target = self
+            .prototype_target
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("machine creation is unavailable in this client"))?;
+        let ordinal = self.creation_counts.entry(source.id.clone()).or_default();
+        *ordinal = ordinal.saturating_add(1);
+        let ordinal = *ordinal;
+        let name = format!("{} {ordinal}", source.name);
+        let key = self.push(MachineConfig {
+            id: format!("prototype:{}:{ordinal}", source.id),
+            name: name.clone(),
+            subtitle: source.subtitle,
+            target,
+        });
+        Ok((key, name))
     }
 
     pub fn contains(&self, key: MachineKey) -> bool {
@@ -610,6 +677,37 @@ mod tests {
             MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine.clone(), machine]);
 
         assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+    }
+
+    #[test]
+    fn prototype_creation_sources_add_local_catalog_entries_without_provisioning() {
+        let mut runtime = MachineRuntime::with_creation_sources(
+            PathBuf::from("/tmp/current.sock"),
+            Vec::new(),
+            vec![MachineCreationSourceConfig {
+                id: "docker".into(),
+                name: "Docker".into(),
+                subtitle: "container prototype".into(),
+            }],
+        );
+        let active = runtime.initial_key();
+
+        let ui = runtime.ui_state(active);
+        assert!(ui.snapshot.capabilities.create);
+        assert_eq!(ui.creation_sources[0].id, "docker");
+
+        let (first, first_name) = runtime.create_from("docker").unwrap();
+        let (second, second_name) = runtime.create_from("docker").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(first_name, "Docker 1");
+        assert_eq!(second_name, "Docker 2");
+        let snapshot = runtime.snapshot(active);
+        assert_eq!(snapshot.machines.len(), 3);
+        assert_eq!(snapshot.machines[1].id, "prototype:docker:1");
+        assert!(matches!(
+            runtime.entry(first).map(|entry| &entry.target),
+            Some(MachineTargetConfig::Unix { socket }) if socket == &PathBuf::from("/tmp/current.sock")
+        ));
     }
 
     #[test]

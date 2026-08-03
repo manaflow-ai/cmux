@@ -113,6 +113,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         sidebar::draw_machines(app, frame);
     }
     let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
+    if app.tabs_sidebar_width > 0 {
+        sidebar::draw_tabs(app, frame);
+    }
 
     let pane_cursors = pane::draw_all(app, frame);
     if app.is_surface_only() {
