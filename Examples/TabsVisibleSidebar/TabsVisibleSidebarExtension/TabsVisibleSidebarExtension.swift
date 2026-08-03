@@ -1,6 +1,6 @@
 import CmuxExtensionKit
+import Foundation
 import Observation
-import SwiftUI
 
 @main
 @Observable
@@ -28,8 +28,12 @@ final class TabsVisibleSidebarExtension: @MainActor CmuxSidebarExtension {
 
     required init() {}
 
-    var body: some View {
-        TabsVisibleSidebarView(extensionModel: self)
+    var presentation: CmuxSidebarPresentation {
+        TabsVisibleSidebarPresentation.make(
+            snapshot: snapshot,
+            errorText: errorText,
+            expandedWorkspaceIDs: expandedWorkspaceIDs
+        )
     }
 
     func update(context: CmuxSidebarContext) {
@@ -53,20 +57,39 @@ final class TabsVisibleSidebarExtension: @MainActor CmuxSidebarExtension {
         }
     }
 
-    func selectWorkspace(_ workspaceID: UUID) {
-        guard let host else { return }
-        expandedWorkspaceIDs.insert(workspaceID)
-        Task { @MainActor in
-            await apply { try await host.selectWorkspace(workspaceID) }
+    func handlePresentationAction(_ id: String) async {
+        let components = id.split(separator: ":", omittingEmptySubsequences: false)
+        guard let kind = components.first else { return }
+        switch kind {
+        case "toggle" where components.count == 2:
+            guard let workspaceID = UUID(uuidString: String(components[1])) else { return }
+            if expandedWorkspaceIDs.contains(workspaceID) {
+                expandedWorkspaceIDs.remove(workspaceID)
+            } else {
+                expandedWorkspaceIDs.insert(workspaceID)
+            }
+        case "workspace" where components.count == 2:
+            guard let workspaceID = UUID(uuidString: String(components[1])) else { return }
+            await selectWorkspace(workspaceID)
+        case "surface" where components.count == 3:
+            guard let workspaceID = UUID(uuidString: String(components[1])),
+                  let surfaceID = UUID(uuidString: String(components[2])) else { return }
+            await selectSurface(workspaceID: workspaceID, surfaceID: surfaceID)
+        default:
+            return
         }
     }
 
-    func selectSurface(workspaceID: UUID, surfaceID: UUID) {
+    private func selectWorkspace(_ workspaceID: UUID) async {
         guard let host else { return }
         expandedWorkspaceIDs.insert(workspaceID)
-        Task { @MainActor in
-            await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
-        }
+        await apply { try await host.selectWorkspace(workspaceID) }
+    }
+
+    private func selectSurface(workspaceID: UUID, surfaceID: UUID) async {
+        guard let host else { return }
+        expandedWorkspaceIDs.insert(workspaceID)
+        await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
     }
 
     private func apply(_ operation: () async throws -> Void) async {

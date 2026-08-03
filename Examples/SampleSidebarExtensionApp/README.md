@@ -47,12 +47,16 @@ final class SampleSidebarExtension: CmuxSidebarExtension {
 
     required init() {}
 
-    var body: some View {
-        SampleSidebarView(model: model)
+    var presentation: CmuxSidebarPresentation {
+        SampleSidebarPresentation.make(model: model)
     }
 
     func update(context: CmuxSidebarContext) {
         model.update(context: context)
+    }
+
+    func handlePresentationAction(_ id: String) async {
+        await model.handlePresentationAction(id)
     }
 }
 
@@ -81,9 +85,10 @@ final class SidebarConnectionModel {
 }
 ```
 
-`CmuxSidebarExtension` owns the ExtensionKit scene and XPC connection, so extension
-authors do not define `configuration`, bind an extension point in Swift, or touch
-`NSXPCConnection`.
+`CmuxSidebarExtension` owns its UI-less ExtensionKit configuration and XPC
+connection, so extension authors do not define `configuration`, bind an extension
+point in Swift, or touch `NSXPCConnection`. CMUX renders the typed presentation
+tree with AppKit.
 
 `CmuxSidebarContext` exposes one typed host channel through `context.host`.
 

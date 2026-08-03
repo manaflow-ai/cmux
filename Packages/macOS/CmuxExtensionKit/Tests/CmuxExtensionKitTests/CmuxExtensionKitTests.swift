@@ -240,6 +240,34 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarXPCCodecRoundTripsNativePresentationTree() throws {
+        let presentation = CmuxSidebarPresentation(
+            root: .scroll(.inset(
+                .all(12),
+                .stack(axis: .vertical, spacing: 8, children: [
+                    .text("Workspaces", style: .heading),
+                    .panel(.stack(axis: .horizontal, spacing: 6, children: [
+                        .symbol("folder", color: .accent),
+                        .button(CmuxSidebarPresentationButton(
+                            id: "workspace:example",
+                            title: "Example",
+                            systemImageName: "terminal",
+                            help: "Select workspace"
+                        )),
+                    ])),
+                    .progress,
+                ])
+            ))
+        )
+
+        let decoded = try CmuxSidebarXPCCodec.decodePresentation(
+            try CmuxSidebarXPCCodec.encodePresentation(presentation)
+        )
+
+        #expect(decoded == presentation)
+    }
+
+    @Test
     @MainActor
     func testSidebarHostTypedHelpersSendExpectedActions() async throws {
         var actions = [CmuxSidebarAction]()

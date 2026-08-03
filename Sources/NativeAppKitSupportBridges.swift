@@ -1,5 +1,5 @@
 import CmuxAppKitSupportUI
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import ExtensionFoundation
 import SwiftUI
 
@@ -98,18 +98,20 @@ struct NativeScrollBackgroundClearer: NSViewRepresentable {
 @available(macOS 14.0, *)
 struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
     let identity: AppExtensionIdentity
-    var sceneID = CmuxSidebarExtensionPoint.defaultSceneID
+    let presentation: CmuxSidebarPresentation?
     var onConnection: (@MainActor (NSXPCConnection) -> Void)?
     var onDeactivation: (@MainActor ((any Error)?) -> Void)?
     var onTeardown: (@MainActor () -> Void)?
+    var onPresentationAction: (@MainActor (String) -> Void)?
 
     func makeNSViewController(context: Context) -> CMUXSidebarExtensionHostView {
         CMUXSidebarExtensionHostView(
             identity: identity,
-            sceneID: sceneID,
+            presentation: presentation,
             onConnection: onConnection,
             onDeactivation: onDeactivation,
-            onTeardown: onTeardown
+            onTeardown: onTeardown,
+            onPresentationAction: onPresentationAction
         )
     }
 
@@ -119,10 +121,11 @@ struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
     ) {
         viewController.update(
             identity: identity,
-            sceneID: sceneID,
+            presentation: presentation,
             onConnection: onConnection,
             onDeactivation: onDeactivation,
-            onTeardown: onTeardown
+            onTeardown: onTeardown,
+            onPresentationAction: onPresentationAction
         )
     }
 

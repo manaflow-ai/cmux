@@ -42,13 +42,12 @@ The extension target declares the extension point manually in its `Info.plist`:
 
 Define your ExtensionKit entrypoint by conforming directly to `CmuxSidebarExtension`.
 The SDK refines `ExtensionFoundation.AppExtension`, supplies the ExtensionKit
-configuration, owns the scene/XPC wiring, and uses the stable sidebar scene ID.
-Your extension provides the manifest, SwiftUI view, and update handling:
+configuration and owns the XPC wiring. Your extension provides the manifest,
+value-only presentation tree, update handling, and typed action dispatch:
 
 ```swift
 import CmuxExtensionKit
 import Observation
-import SwiftUI
 
 @main
 @Observable
@@ -66,14 +65,18 @@ final class ExampleSidebarExtension: CmuxSidebarExtension {
 
     required init() {}
 
-    var body: some View {
-        List(snapshot?.workspaces ?? []) { workspace in
-            Button(workspace.title) {
-                Task { @MainActor in
-                    try? await host?.selectWorkspace(workspace.id)
-                }
+    var presentation: CmuxSidebarPresentation {
+        CmuxSidebarPresentation(root: .stack(
+            axis: .vertical,
+            spacing: 8,
+            children: (snapshot?.workspaces ?? []).map { workspace in
+                .button(CmuxSidebarPresentationButton(
+                    id: "workspace:\(workspace.id.uuidString)",
+                    title: workspace.title,
+                    systemImageName: "folder"
+                ))
             }
-        }
+        ))
     }
 
     func update(context: CmuxSidebarContext) {
@@ -84,15 +87,22 @@ final class ExampleSidebarExtension: CmuxSidebarExtension {
     func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
         // Update optional connection UI here.
     }
+
+    func handlePresentationAction(_ id: String) async {
+        guard id.hasPrefix("workspace:"),
+              let workspaceID = UUID(uuidString: String(id.dropFirst("workspace:".count))) else { return }
+        try? await host?.selectWorkspace(workspaceID)
+    }
 }
 ```
 
 ## Extension Protocols
 
 `CmuxSidebarExtension` is the public extension protocol. It refines `AppExtension`,
-requires a manifest and SwiftUI `body`, and delivers `CmuxSidebarContext`, which
-contains the filtered `CmuxSidebarSnapshot` and a typed `CmuxSidebarHost` command
-channel.
+requires a manifest and `CmuxSidebarPresentation`, and delivers
+`CmuxSidebarContext`, which contains the filtered `CmuxSidebarSnapshot` and a
+typed `CmuxSidebarHost` command channel. CMUX renders the presentation tree with
+AppKit, so extension processes remain UI-less.
 
 The lower-level transport lives behind CMUX host SPI. New sidebar extensions should
 conform to `CmuxSidebarExtension` and should not handle XPC directly.

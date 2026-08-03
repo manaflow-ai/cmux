@@ -2,9 +2,8 @@ import Foundation
 
 /// Lower-level transport object for sidebar extensions.
 ///
-/// Most extension authors should use `CmuxSidebarExtensionScene(_:)`, which owns
-/// ExtensionKit scene setup and `NSXPCConnection` handling. This type remains
-/// internal so the public SDK keeps extension authors on typed CMUX protocols.
+/// The public extension protocol owns this transport. This type remains
+/// internal so extension authors stay on typed cmux APIs.
 /// `@unchecked Sendable` is safe because mutable transport state is guarded by
 /// `lock` or `lifecycleLock`, and callbacks cross back to `@MainActor`.
 final class CMUXSidebarExtensionConnection: @unchecked Sendable {
@@ -17,31 +16,38 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     /// Receives the result for a host action request.
     typealias ActionReplyHandler = @MainActor @Sendable (CmuxSidebarActionResult) -> Void
 
+    typealias PresentationProvider = @MainActor @Sendable () -> CmuxSidebarPresentation
+    typealias PresentationActionHandler = @MainActor @Sendable (String) async -> Void
+
     /// Manifest presented to CMUX for identity, compatibility, and permissions.
     let manifest: CmuxExtensionManifest
 
     private let onSnapshot: SnapshotHandler
     private let onStatus: StatusHandler
+    private let presentationProvider: PresentationProvider
+    private let presentationActionHandler: PresentationActionHandler
     private let lifecycleLock = NSLock()
     private let lock = NSLock()
     private var state = ConnectionState()
 
     /// Creates a lower-level sidebar transport connection.
     ///
-    /// Prefer `CmuxSidebarExtensionScene(_:)` for new extensions.
     init(
         manifest: CmuxExtensionManifest,
         onSnapshot: @escaping SnapshotHandler,
-        onStatus: @escaping StatusHandler = { _ in }
+        onStatus: @escaping StatusHandler = { _ in },
+        presentationProvider: @escaping PresentationProvider,
+        presentationActionHandler: @escaping PresentationActionHandler
     ) {
         self.manifest = manifest
         self.onSnapshot = onSnapshot
         self.onStatus = onStatus
+        self.presentationProvider = presentationProvider
+        self.presentationActionHandler = presentationActionHandler
     }
 
     /// Accepts a host-provided XPC connection.
     ///
-    /// Prefer `CmuxSidebarExtensionScene(_:)` for new extensions.
     @discardableResult
     func accept(_ connection: NSXPCConnection) -> Bool {
         lifecycleLock.lock()
@@ -54,6 +60,13 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
             manifest: manifest,
             receiveSnapshot: { [weak self] payload, receiverGeneration in
                 self?.receive(snapshot: Data(referencing: payload), ifCurrentGeneration: receiverGeneration)
+            },
+            performPresentationAction: { [weak self] actionID, receiverGeneration, reply in
+                self?.performPresentationAction(
+                    actionID,
+                    ifCurrentGeneration: receiverGeneration,
+                    reply: reply
+                )
             },
             generation: generation
         )
@@ -183,6 +196,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
             guard let self, self.isCurrent(generation) else { return }
             onSnapshot(snapshot)
             onStatus(.connected)
+            publishPresentation(ifCurrentGeneration: generation)
         }
     }
 
@@ -190,6 +204,40 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         Task { @MainActor [weak self] in
             guard let self, self.isCurrent(generation) else { return }
             onStatus(status)
+            publishPresentation(ifCurrentGeneration: generation)
+        }
+    }
+
+    @MainActor
+    private func publishPresentation(ifCurrentGeneration generation: UInt64) {
+        guard isCurrent(generation), let target = currentHost(), target.generation == generation else { return }
+        do {
+            target.host.sidebarPresentationDidChange(
+                try CmuxSidebarXPCCodec.encodePresentation(presentationProvider())
+            )
+        } catch {
+            onStatus(.error(error.localizedDescription))
+        }
+    }
+
+    private func performPresentationAction(
+        _ actionID: String,
+        ifCurrentGeneration generation: UInt64,
+        reply: @escaping (NSString?) -> Void
+    ) {
+        let replyBox = CMUXSidebarPresentationActionReply(reply)
+        Task { @MainActor [weak self] in
+            guard let self, isCurrent(generation) else {
+                replyBox.call("cmux connection changed")
+                return
+            }
+            await presentationActionHandler(actionID)
+            guard isCurrent(generation) else {
+                replyBox.call("cmux connection changed")
+                return
+            }
+            publishPresentation(ifCurrentGeneration: generation)
+            replyBox.call(nil)
         }
     }
 
@@ -333,6 +381,20 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     }
 }
 
+/// XPC owns reply block synchronization; this box moves its one-shot callback
+/// into the main-actor task without claiming the block itself is Sendable.
+private final class CMUXSidebarPresentationActionReply: @unchecked Sendable {
+    private let reply: (NSString?) -> Void
+
+    init(_ reply: @escaping (NSString?) -> Void) {
+        self.reply = reply
+    }
+
+    func call(_ error: NSString?) {
+        reply(error)
+    }
+}
+
 private struct ConnectionState {
     var connection: NSXPCConnection?
     var host: CMUXSidebarHostXPC?
@@ -348,15 +410,26 @@ private struct PendingAction {
 private final class CMUXSidebarExtensionXPCReceiver: NSObject, CMUXSidebarExtensionXPC {
     private let manifest: CmuxExtensionManifest
     private let receiveSnapshot: @Sendable (NSData, UInt64) -> Void
+    private let performPresentationActionHandler: @Sendable (
+        String,
+        UInt64,
+        @escaping (NSString?) -> Void
+    ) -> Void
     private let generation: UInt64
 
     init(
         manifest: CmuxExtensionManifest,
         receiveSnapshot: @escaping @Sendable (NSData, UInt64) -> Void,
+        performPresentationAction: @escaping @Sendable (
+            String,
+            UInt64,
+            @escaping (NSString?) -> Void
+        ) -> Void,
         generation: UInt64
     ) {
         self.manifest = manifest
         self.receiveSnapshot = receiveSnapshot
+        self.performPresentationActionHandler = performPresentationAction
         self.generation = generation
     }
 
@@ -370,5 +443,12 @@ private final class CMUXSidebarExtensionXPCReceiver: NSObject, CMUXSidebarExtens
 
     func sidebarSnapshotDidChange(_ payload: NSData) {
         receiveSnapshot(payload, generation)
+    }
+
+    func performSidebarPresentationAction(
+        _ actionID: NSString,
+        reply: @escaping (NSString?) -> Void
+    ) {
+        performPresentationActionHandler(String(actionID), generation, reply)
     }
 }

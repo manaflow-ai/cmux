@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SwiftUI
 import CmuxExtensionKit
 
 @Observable
@@ -35,6 +34,35 @@ final class SidebarConnectionModel {
 
     func refreshSnapshot() {
         host?.refresh()
+    }
+
+    func handlePresentationAction(_ id: String) async {
+        let components = id.split(separator: ":", omittingEmptySubsequences: false)
+        guard let action = components.first else { return }
+        switch action {
+        case "refresh":
+            refreshSnapshot()
+        case "previous-workspace":
+            await selectPreviousWorkspace()
+        case "next-workspace":
+            await selectNextWorkspace()
+        case "previous-surface":
+            await selectPreviousSurface()
+        case "next-surface":
+            await selectNextSurface()
+        case "workspace" where components.count == 2:
+            guard let workspaceID = UUID(uuidString: String(components[1])) else { return }
+            await selectWorkspace(workspaceID)
+        case "surface" where components.count == 3:
+            guard let workspaceID = UUID(uuidString: String(components[1])),
+                  let surfaceID = UUID(uuidString: String(components[2])) else { return }
+            await selectSurface(workspaceID: workspaceID, surfaceID: surfaceID)
+        case "create-surface" where components.count == 2:
+            let workspaceID = components[1].isEmpty ? nil : UUID(uuidString: String(components[1]))
+            await createTerminalSurface(in: workspaceID)
+        default:
+            return
+        }
     }
 
     func selectWorkspace(_ id: UUID) async {

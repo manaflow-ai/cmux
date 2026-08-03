@@ -1,42 +1,41 @@
 public import AppKit
 public import ExtensionFoundation
-public import ExtensionKit
 @_spi(CmuxHostTransport) public import CmuxExtensionKit
 public import Foundation
 
-/// Native controller that embeds an ExtensionKit sidebar scene.
+/// Native controller that launches a UI-less sidebar extension process and
+/// renders its typed presentation tree locally.
 @available(macOS 14.0, *)
 @MainActor
 @_spi(CmuxHostTransport)
-public final class CMUXSidebarExtensionHostView: NSViewController, EXHostViewControllerDelegate {
-    private struct HostConfigurationKey: Equatable {
-        var bundleIdentifier: String
-        var sceneID: String
-    }
-
-    private let extensionController = EXHostViewController()
-    private var currentKey: HostConfigurationKey?
+public final class CMUXSidebarExtensionHostView: NSViewController {
     private var identity: AppExtensionIdentity
-    private var sceneID: String
+    private var presentation: CmuxSidebarPresentation?
     private var onConnection: (@MainActor (NSXPCConnection) -> Void)?
     private var onDeactivation: (@MainActor ((any Error)?) -> Void)?
     private var onTeardown: (@MainActor () -> Void)?
+    private var onPresentationAction: (@MainActor (String) -> Void)?
+    private var process: AppExtensionProcess?
+    private var activationTask: Task<Void, Never>?
+    private var generation: UInt64 = 0
     private var isTornDown = false
+    private let presentationView = CMUXSidebarPresentationView()
 
     public init(
         identity: AppExtensionIdentity,
-        sceneID: String = CmuxSidebarExtensionPoint.defaultSceneID,
+        presentation: CmuxSidebarPresentation? = nil,
         onConnection: (@MainActor (NSXPCConnection) -> Void)? = nil,
         onDeactivation: (@MainActor ((any Error)?) -> Void)? = nil,
-        onTeardown: (@MainActor () -> Void)? = nil
+        onTeardown: (@MainActor () -> Void)? = nil,
+        onPresentationAction: (@MainActor (String) -> Void)? = nil
     ) {
         self.identity = identity
-        self.sceneID = sceneID
+        self.presentation = presentation
         self.onConnection = onConnection
         self.onDeactivation = onDeactivation
         self.onTeardown = onTeardown
+        self.onPresentationAction = onPresentationAction
         super.init(nibName: nil, bundle: nil)
-        applyConfigurationIfNeeded()
     }
 
     @available(*, unavailable)
@@ -46,74 +45,114 @@ public final class CMUXSidebarExtensionHostView: NSViewController, EXHostViewCon
 
     public override func loadView() {
         let container = NSView()
+        container.setAccessibilityIdentifier("CMUXExtensionSidebarHostView")
         view = container
-        addChild(extensionController)
-        let hostedView = extensionController.view
-        hostedView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostedView)
+        presentationView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(presentationView)
         NSLayoutConstraint.activate([
-            hostedView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostedView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostedView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            hostedView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            presentationView.topAnchor.constraint(equalTo: container.topAnchor),
+            presentationView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            presentationView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            presentationView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-        extensionController.delegate = self
+        updatePresentationView()
+        activateExtension()
     }
 
-    /// Reconfigures the existing controller without rebuilding its AppKit
-    /// containment hierarchy.
+    /// Updates the existing host without rebuilding its AppKit hierarchy.
     public func update(
         identity: AppExtensionIdentity,
-        sceneID: String = CmuxSidebarExtensionPoint.defaultSceneID,
+        presentation: CmuxSidebarPresentation? = nil,
         onConnection: (@MainActor (NSXPCConnection) -> Void)? = nil,
         onDeactivation: (@MainActor ((any Error)?) -> Void)? = nil,
-        onTeardown: (@MainActor () -> Void)? = nil
+        onTeardown: (@MainActor () -> Void)? = nil,
+        onPresentationAction: (@MainActor (String) -> Void)? = nil
     ) {
+        let identityChanged = self.identity.bundleIdentifier != identity.bundleIdentifier
         self.identity = identity
-        self.sceneID = sceneID
+        self.presentation = presentation
         self.onConnection = onConnection
         self.onDeactivation = onDeactivation
         self.onTeardown = onTeardown
+        self.onPresentationAction = onPresentationAction
         isTornDown = false
-        applyConfigurationIfNeeded()
-    }
-
-    public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
-        guard let onConnection else { return }
-        do {
-            onConnection(try viewController.makeXPCConnection())
-        } catch {
-            onDeactivation?(error)
+        if isViewLoaded {
+            updatePresentationView()
+            if identityChanged {
+                activateExtension()
+            }
         }
     }
 
-    public func hostViewControllerWillDeactivate(
-        _ viewController: EXHostViewController,
-        error: (any Error)?
-    ) {
-        onDeactivation?(error)
-    }
-
-    /// Ends the extension scene and runs the owner's cleanup exactly once.
+    /// Stops the process and runs owner cleanup exactly once.
     public func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
+        generation &+= 1
+        activationTask?.cancel()
+        activationTask = nil
+        process?.invalidate()
+        process = nil
         onTeardown?()
-        currentKey = nil
-        extensionController.delegate = nil
-        extensionController.configuration = nil
     }
 
-    private func applyConfigurationIfNeeded() {
-        let key = HostConfigurationKey(
-            bundleIdentifier: identity.bundleIdentifier,
-            sceneID: sceneID
+    private func updatePresentationView() {
+        presentationView.update(
+            presentation: presentation,
+            onAction: { [weak self] actionID in
+                self?.onPresentationAction?(actionID)
+            }
         )
-        guard currentKey != key else { return }
-        currentKey = key
-        extensionController.configuration = EXHostViewController.Configuration(
-            appExtension: identity,
-            sceneID: sceneID
-        )
+    }
+
+    private func activateExtension() {
+        generation &+= 1
+        let activationGeneration = generation
+        activationTask?.cancel()
+        process?.invalidate()
+        process = nil
+        presentationView.showLoading()
+
+        let identity = self.identity
+        let interruption = CMUXExtensionProcessInterruption { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, generation == activationGeneration else { return }
+                process = nil
+                onDeactivation?(nil)
+            }
+        }
+        activationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let process = try AppExtensionProcess(
+                    configuration: AppExtensionProcess.Configuration(
+                        appExtensionIdentity: identity,
+                        onInterruption: { interruption.call() }
+                    )
+                )
+                guard !Task.isCancelled, generation == activationGeneration else {
+                    process.invalidate()
+                    return
+                }
+                self.process = process
+                onConnection?(try process.makeXPCConnection())
+            } catch {
+                guard !Task.isCancelled, generation == activationGeneration else { return }
+                presentationView.showError(error.localizedDescription)
+                onDeactivation?(error)
+            }
+        }
+    }
+}
+
+private final class CMUXExtensionProcessInterruption: @unchecked Sendable {
+    private let handler: @Sendable () -> Void
+
+    init(_ handler: @escaping @Sendable () -> Void) {
+        self.handler = handler
+    }
+
+    func call() {
+        handler()
     }
 }

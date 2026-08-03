@@ -1,168 +1,115 @@
-import SwiftUI
+import CmuxExtensionKit
 
-struct SampleSidebarView: View {
-    var model: SidebarConnectionModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let insights = model.insights {
-                    header(insights)
-                    if let errorText = model.errorText {
-                        statusBanner(errorText)
-                    } else if !insights.canSelectWorkspace {
-                        statusBanner(String(localized: "sampleSidebar.selectionLimited", defaultValue: "Review access in cmux to enable selecting workspaces from this extension."))
-                    }
-                    actionBar(insights)
-                    workspaceList(insights)
-                    Divider()
-                    signalSummary(insights)
-                } else {
-                    waitingState
-                }
-                Spacer(minLength: 0)
+@MainActor
+enum SampleSidebarPresentation {
+    static func make(model: SidebarConnectionModel) -> CmuxSidebarPresentation {
+        var content: [CmuxSidebarPresentationNode]
+        if let insights = model.insights {
+            content = header(insights)
+            if let errorText = model.errorText {
+                content.append(.panel(.text(errorText, style: .secondary)))
+            } else if !insights.canSelectWorkspace {
+                content.append(.panel(.text(
+                    String(localized: "sampleSidebar.selectionLimited", defaultValue: "Review access in cmux to enable selecting workspaces from this extension."),
+                    style: .secondary
+                )))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            content.append(actionBar(insights))
+            content.append(workspaceList(insights))
+            content.append(.divider)
+            content.append(signalSummary(insights))
+        } else {
+            content = waitingState(errorText: model.errorText)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        content.append(.spacer())
+        return CmuxSidebarPresentation(
+            root: .scroll(.inset(
+                CmuxSidebarPresentationInsets(top: 14, leading: 12, bottom: 14, trailing: 12),
+                .stack(axis: .vertical, spacing: 12, children: content)
+            ))
+        )
     }
 
-    private func header(_ insights: SidebarInsightModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "sampleSidebar.title", defaultValue: "Workspace Signals"))
-                .font(.system(size: 14, weight: .semibold))
-            Text(String.localizedStringWithFormat(
+    private static func header(_ insights: SidebarInsightModel) -> [CmuxSidebarPresentationNode] {
+        [
+            .text(String(localized: "sampleSidebar.title", defaultValue: "Workspace Signals"), style: .heading),
+            .text(String.localizedStringWithFormat(
                 String(localized: "sampleSidebar.workspaceCount", defaultValue: "%d workspaces shared by cmux"),
                 insights.totalCount
+            ), style: .secondary),
+            .stack(axis: .horizontal, spacing: 6, children: [
+                SummaryPill.node(value: "\(insights.totalCount)", label: String(localized: "sampleSidebar.workspaces", defaultValue: "Workspaces")),
+                SummaryPill.node(value: "\(insights.unreadCount)", label: String(localized: "sampleSidebar.unread", defaultValue: "Unread")),
+                SummaryPill.node(value: "\(insights.pinnedCount)", label: String(localized: "sampleSidebar.pinned", defaultValue: "Pinned")),
+            ]),
+        ]
+    }
+
+    private static func actionBar(_ insights: SidebarInsightModel) -> CmuxSidebarPresentationNode {
+        .stack(axis: .horizontal, spacing: 6, children: [
+            actionButton("previous-workspace", "chevron.up", insights.canNavigateWorkspace, String(localized: "sampleSidebar.previousWorkspace", defaultValue: "Previous workspace")),
+            actionButton("next-workspace", "chevron.down", insights.canNavigateWorkspace, String(localized: "sampleSidebar.nextWorkspace", defaultValue: "Next workspace")),
+            .divider,
+            actionButton("previous-surface", "chevron.left", insights.canNavigateSurface, String(localized: "sampleSidebar.previousSurface", defaultValue: "Previous surface")),
+            actionButton("next-surface", "chevron.right", insights.canNavigateSurface, String(localized: "sampleSidebar.nextSurface", defaultValue: "Next surface")),
+            actionButton(
+                "create-surface:\(insights.selectedWorkspace?.id.uuidString ?? "")",
+                "plus.rectangle.on.rectangle",
+                insights.canCreateSurface,
+                String(localized: "sampleSidebar.newTerminalSurface", defaultValue: "New terminal surface")
+            ),
+        ])
+    }
+
+    private static func actionButton(
+        _ id: String,
+        _ symbol: String,
+        _ isEnabled: Bool,
+        _ help: String
+    ) -> CmuxSidebarPresentationNode {
+        .button(CmuxSidebarPresentationButton(
+            id: id,
+            title: "",
+            systemImageName: symbol,
+            isEnabled: isEnabled,
+            help: help
+        ))
+    }
+
+    private static func workspaceList(_ insights: SidebarInsightModel) -> CmuxSidebarPresentationNode {
+        var rows: [CmuxSidebarPresentationNode] = [
+            .text(String(localized: "sampleSidebar.allWorkspaces", defaultValue: "All Workspaces"), style: .secondary),
+        ]
+        if !insights.hasWorkspaceMetadata {
+            rows.append(.text(
+                String(localized: "sampleSidebar.metadataLimited", defaultValue: "Workspace metadata has not been shared yet. Review access in cmux to show workspace rows."),
+                style: .secondary
             ))
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                SummaryPill(value: "\(insights.totalCount)", label: String(localized: "sampleSidebar.workspaces", defaultValue: "Workspaces"))
-                SummaryPill(value: "\(insights.unreadCount)", label: String(localized: "sampleSidebar.unread", defaultValue: "Unread"))
-                SummaryPill(value: "\(insights.pinnedCount)", label: String(localized: "sampleSidebar.pinned", defaultValue: "Pinned"))
-            }
+        } else if insights.allWorkspaces.isEmpty {
+            rows.append(.text(
+                String(localized: "sampleSidebar.noWorkspaces", defaultValue: "No workspaces were shared by cmux."),
+                style: .secondary
+            ))
+        } else {
+            rows.append(contentsOf: insights.allWorkspaces.map(WorkspaceInsightRow.node))
         }
+        return .stack(axis: .vertical, spacing: 7, children: rows)
     }
 
-    private func statusBanner(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.9))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    }
-
-    private func actionBar(_ insights: SidebarInsightModel) -> some View {
-        HStack(spacing: 6) {
-            Button {
-                Task { @MainActor in await model.selectPreviousWorkspace() }
-            } label: {
-                Image(systemName: "chevron.up")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!insights.canNavigateWorkspace)
-            .help(String(localized: "sampleSidebar.previousWorkspace", defaultValue: "Previous workspace"))
-
-            Button {
-                Task { @MainActor in await model.selectNextWorkspace() }
-            } label: {
-                Image(systemName: "chevron.down")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!insights.canNavigateWorkspace)
-            .help(String(localized: "sampleSidebar.nextWorkspace", defaultValue: "Next workspace"))
-
-            Divider()
-                .frame(height: 18)
-
-            Button {
-                Task { @MainActor in await model.selectPreviousSurface() }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!insights.canNavigateSurface)
-            .help(String(localized: "sampleSidebar.previousSurface", defaultValue: "Previous surface"))
-
-            Button {
-                Task { @MainActor in await model.selectNextSurface() }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!insights.canNavigateSurface)
-            .help(String(localized: "sampleSidebar.nextSurface", defaultValue: "Next surface"))
-
-            Button {
-                Task { @MainActor in await model.createTerminalSurface(in: insights.selectedWorkspace?.id) }
-            } label: {
-                Image(systemName: "plus.rectangle.on.rectangle")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!insights.canCreateSurface)
-            .help(String(localized: "sampleSidebar.newTerminalSurface", defaultValue: "New terminal surface"))
+    private static func signalSummary(_ insights: SidebarInsightModel) -> CmuxSidebarPresentationNode {
+        let detail: String
+        if insights.focusQueue.isEmpty {
+            detail = String(localized: "sampleSidebar.noSignals", defaultValue: "No active workspace signals beyond the selected workspace")
+        } else {
+            detail = signalSummaryText(insights.focusQueue)
         }
-        .buttonStyle(.borderless)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.secondary)
+        return .stack(axis: .vertical, spacing: 7, children: [
+            .text(String(localized: "sampleSidebar.focusQueue", defaultValue: "Focus Queue"), style: .secondary),
+            .text(detail, style: .secondary),
+        ])
     }
 
-    private func workspaceList(_ insights: SidebarInsightModel) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(String(localized: "sampleSidebar.allWorkspaces", defaultValue: "All Workspaces"))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            if !insights.hasWorkspaceMetadata {
-                Text(String(localized: "sampleSidebar.metadataLimited", defaultValue: "Workspace metadata has not been shared yet. Review access in cmux to show workspace rows."))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if insights.allWorkspaces.isEmpty {
-                Text(String(localized: "sampleSidebar.noWorkspaces", defaultValue: "No workspaces were shared by cmux."))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(insights.allWorkspaces) { insight in
-                    WorkspaceInsightRow(
-                        insight: insight,
-                        action: {
-                            Task { @MainActor in await model.selectWorkspace(insight.id) }
-                        },
-                        surfaceAction: { surfaceID in
-                            Task { @MainActor in await model.selectSurface(workspaceID: insight.id, surfaceID: surfaceID) }
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    private func signalSummary(_ insights: SidebarInsightModel) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(String(localized: "sampleSidebar.focusQueue", defaultValue: "Focus Queue"))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            if insights.focusQueue.isEmpty {
-                Text(String(localized: "sampleSidebar.noSignals", defaultValue: "No active workspace signals beyond the selected workspace"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(signalSummaryText(insights.focusQueue))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func signalSummaryText(_ insights: [WorkspaceInsight]) -> String {
+    private static func signalSummaryText(_ insights: [WorkspaceInsight]) -> String {
         let names = insights.prefix(3).map(\.title).joined(separator: ", ")
         if insights.count <= 3 {
             return String.localizedStringWithFormat(
@@ -177,19 +124,18 @@ struct SampleSidebarView: View {
         )
     }
 
-    private var waitingState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text(model.errorText ?? String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux"))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(String(localized: "sampleSidebar.refresh", defaultValue: "Refresh")) {
-                model.refreshSnapshot()
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 12, weight: .medium))
-        }
+    private static func waitingState(errorText: String?) -> [CmuxSidebarPresentationNode] {
+        [
+            .progress,
+            .text(
+                errorText ?? String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux"),
+                style: .secondary
+            ),
+            .button(CmuxSidebarPresentationButton(
+                id: "refresh",
+                title: String(localized: "sampleSidebar.refresh", defaultValue: "Refresh"),
+                systemImageName: "arrow.clockwise"
+            )),
+        ]
     }
 }

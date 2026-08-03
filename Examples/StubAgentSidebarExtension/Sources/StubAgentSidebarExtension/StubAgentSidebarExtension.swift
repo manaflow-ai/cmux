@@ -1,6 +1,6 @@
 import CmuxExtensionKit
+import Foundation
 import Observation
-import SwiftUI
 
 @main
 @Observable
@@ -28,35 +28,51 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
 
     public required init() {}
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            ForEach(snapshot?.workspaces ?? []) { workspace in
-                Button(workspace.title.isEmpty ? workspace.id.uuidString : workspace.title) {
-                    Task { @MainActor in
-                        await self.apply { try await self.selectWorkspace(workspace.id) }
-                    }
-                }
-            }
-
-            Button(String(localized: "stubAgent.createWorkspace", defaultValue: "Create Workspace")) {
-                Task { @MainActor in
-                    await self.apply { try await self.createWorkspace() }
-                }
-            }
+    public var presentation: CmuxSidebarPresentation {
+        var children: [CmuxSidebarPresentationNode] = []
+        if let errorText {
+            children.append(.panel(.text(errorText, style: .secondary)))
         }
-        .padding()
+        children.append(contentsOf: (snapshot?.workspaces ?? []).map { workspace in
+            .button(
+                CmuxSidebarPresentationButton(
+                    id: "workspace:\(workspace.id.uuidString)",
+                    title: workspace.title.isEmpty ? workspace.id.uuidString : workspace.title,
+                    systemImageName: "folder"
+                )
+            )
+        })
+        children.append(
+            .button(
+                CmuxSidebarPresentationButton(
+                    id: "create",
+                    title: String(localized: "stubAgent.createWorkspace", defaultValue: "Create Workspace"),
+                    systemImageName: "plus"
+                )
+            )
+        )
+        return CmuxSidebarPresentation(
+            root: .inset(
+                .all(12),
+                .stack(axis: .vertical, spacing: 8, children: children)
+            )
+        )
     }
 
     public func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
         errorText = nil
+    }
+
+    public func handlePresentationAction(_ id: String) async {
+        if id == "create" {
+            await apply { try await createWorkspace() }
+            return
+        }
+        guard id.hasPrefix("workspace:"),
+              let workspaceID = UUID(uuidString: String(id.dropFirst("workspace:".count))) else { return }
+        await apply { try await selectWorkspace(workspaceID) }
     }
 
     private func selectWorkspace(_ id: UUID) async throws {

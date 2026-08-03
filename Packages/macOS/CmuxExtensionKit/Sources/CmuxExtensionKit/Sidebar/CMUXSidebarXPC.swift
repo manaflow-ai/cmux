@@ -3,11 +3,13 @@ import Foundation
 @_spi(CmuxHostTransport) @objc public protocol CMUXSidebarHostXPC: NSObjectProtocol {
     func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void)
     func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void)
+    func sidebarPresentationDidChange(_ payload: NSData)
 }
 
 @_spi(CmuxHostTransport) @objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {
     @objc optional func requestExtensionManifest(reply: @escaping (NSData?, NSString?) -> Void)
     func sidebarSnapshotDidChange(_ payload: NSData)
+    func performSidebarPresentationAction(_ actionID: NSString, reply: @escaping (NSString?) -> Void)
 }
 
 @_spi(CmuxHostTransport)
@@ -16,6 +18,7 @@ public enum CmuxSidebarXPCCodec {
     public static let maximumManifestPayloadBytes = 64 * 1024
     public static let maximumActionPayloadBytes = 8 * 1024
     public static let maximumActionResultPayloadBytes = 8 * 1024
+    public static let maximumPresentationPayloadBytes = 512 * 1024
 
     public static func encodeSnapshot(_ snapshot: CmuxSidebarSnapshot) throws -> NSData {
         try encode(snapshot, kind: "snapshot", maximumBytes: maximumSnapshotPayloadBytes)
@@ -51,6 +54,23 @@ public enum CmuxSidebarXPCCodec {
     public static func decodeActionResult(_ payload: NSData) throws -> CmuxSidebarActionResult {
         try validatePayloadSize(payload, kind: "actionResult", maximumBytes: maximumActionResultPayloadBytes)
         return try JSONDecoder().decode(CmuxSidebarActionResult.self, from: payload as Data)
+    }
+
+    public static func encodePresentation(_ presentation: CmuxSidebarPresentation) throws -> NSData {
+        try encode(
+            presentation,
+            kind: "presentation",
+            maximumBytes: maximumPresentationPayloadBytes
+        )
+    }
+
+    public static func decodePresentation(_ payload: NSData) throws -> CmuxSidebarPresentation {
+        try validatePayloadSize(
+            payload,
+            kind: "presentation",
+            maximumBytes: maximumPresentationPayloadBytes
+        )
+        return try JSONDecoder().decode(CmuxSidebarPresentation.self, from: payload as Data)
     }
 
     private static func validatePayloadSize(_ payload: NSData, kind: String, maximumBytes: Int) throws {

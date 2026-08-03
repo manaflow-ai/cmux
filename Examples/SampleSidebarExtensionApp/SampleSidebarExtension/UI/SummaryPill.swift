@@ -1,19 +1,13 @@
-import SwiftUI
+import CmuxExtensionKit
 
-struct SummaryPill: View {
-    var value: String
-    var label: String
-
-    var body: some View {
-        VStack(spacing: 1) {
-            Text(value)
-                .font(.system(size: 13, weight: .semibold))
-            Text(label)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 5)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+enum SummaryPill {
+    static func node(value: String, label: String) -> CmuxSidebarPresentationNode {
+        .panel(.inset(
+            CmuxSidebarPresentationInsets(top: 5, leading: 8, bottom: 5, trailing: 8),
+            .stack(axis: .vertical, spacing: 1, children: [
+                .text(value, style: CmuxSidebarPresentationTextStyle(size: 13, weight: .semibold)),
+                .text(label, style: CmuxSidebarPresentationTextStyle(size: 9, weight: .medium, color: .secondary)),
+            ])
+        ))
     }
 }

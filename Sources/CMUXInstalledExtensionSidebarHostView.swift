@@ -239,6 +239,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var hostReloadToken: UInt64 = 0
     @State private var snapshotCache = CMUXSidebarSnapshotCache()
+    @State private var extensionPresentation: CmuxSidebarPresentation?
 
     var body: some View {
         Group {
@@ -250,6 +251,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     }
                     NativeSidebarExtensionHostBridge(
                         identity: identity,
+                        presentation: extensionPresentation,
                         onConnection: { connection in
                             xpcHost.attach(
                                 connection: connection,
@@ -263,11 +265,15 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 },
                                 onManifestBlocked: { reason in
                                     blockedManifestReason = reason
+                                },
+                                onPresentationChanged: { presentation in
+                                    extensionPresentation = presentation
                                 }
                             )
                         },
                         onDeactivation: { error in
                             xpcHost.invalidate()
+                            extensionPresentation = nil
                             effectiveGrant = nil
                             if self.identity?.bundleIdentifier == identity.bundleIdentifier {
                                 blockedManifestReason = "connectionInterrupted"
@@ -276,6 +282,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         },
                         onTeardown: {
                             xpcHost.invalidate()
+                            extensionPresentation = nil
+                        },
+                        onPresentationAction: { actionID in
+                            xpcHost.performPresentationAction(actionID)
                         }
                     )
                     .id("\(identity.bundleIdentifier)-\(hostReloadToken)")
@@ -1145,6 +1155,7 @@ private final class CMUXSidebarExtensionHostXPC {
     private var currentManifest: CmuxExtensionManifest?
     private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
     private var onManifestBlocked: ((String?) -> Void)?
+    private var onPresentationChanged: ((CmuxSidebarPresentation?) -> Void)?
     private var awaitingManifestGeneration: UInt64?
     private var manifestRequestTimeoutTask: Task<Void, Never>?
     private let grantStore = CMUXSidebarExtensionGrantStore()
@@ -1170,7 +1181,8 @@ private final class CMUXSidebarExtensionHostXPC {
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
         onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
-        onManifestBlocked: @escaping @MainActor (String?) -> Void
+        onManifestBlocked: @escaping @MainActor (String?) -> Void,
+        onPresentationChanged: @escaping @MainActor (CmuxSidebarPresentation?) -> Void
     ) {
         invalidate()
         connectionGeneration += 1
@@ -1181,6 +1193,7 @@ private final class CMUXSidebarExtensionHostXPC {
             onAcceptedAction: { [weak self] in
                 self?.sendSnapshotDidChange()
             },
+            onPresentationChanged: onPresentationChanged,
             isCurrentGeneration: { [weak self] in
                 self?.connectionGeneration == generation
             }
@@ -1206,6 +1219,7 @@ private final class CMUXSidebarExtensionHostXPC {
         self.currentManifest = nil
         self.onGrantChanged = onGrantChanged
         self.onManifestBlocked = onManifestBlocked
+        self.onPresentationChanged = onPresentationChanged
         self.allowedScopes = Self.untrustedScopes
         self.allowedActionScopes = Self.untrustedActionScopes
         self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
@@ -1229,6 +1243,17 @@ private final class CMUXSidebarExtensionHostXPC {
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    func performPresentationAction(_ actionID: String) {
+        guard let extensionProxy else { return }
+        extensionProxy.performSidebarPresentationAction(actionID as NSString) { error in
+#if DEBUG
+            if let error {
+                cmuxDebugLog("extension.sidebar.presentation.action.failed error=\(error)")
+            }
 #endif
         }
     }
@@ -1262,6 +1287,8 @@ private final class CMUXSidebarExtensionHostXPC {
         onGrantChanged = nil
         onManifestBlocked?(nil)
         onManifestBlocked = nil
+        onPresentationChanged?(nil)
+        onPresentationChanged = nil
     }
 
     private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
@@ -1415,6 +1442,7 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     @MainActor var snapshotProvider: () -> CmuxSidebarSnapshot
     @MainActor var actionHandler: (CmuxSidebarAction) -> CmuxSidebarActionResult
     @MainActor var onAcceptedAction: () -> Void
+    @MainActor var onPresentationChanged: (CmuxSidebarPresentation) -> Void
     @MainActor var isCurrentGeneration: () -> Bool
 
     @MainActor
@@ -1422,11 +1450,13 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
         onAcceptedAction: @escaping @MainActor () -> Void,
+        onPresentationChanged: @escaping @MainActor (CmuxSidebarPresentation) -> Void,
         isCurrentGeneration: @escaping @MainActor () -> Bool
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
         self.onAcceptedAction = onAcceptedAction
+        self.onPresentationChanged = onPresentationChanged
         self.isCurrentGeneration = isCurrentGeneration
     }
 
@@ -1459,6 +1489,19 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
                 }
             } catch {
                 reply(nil, error.localizedDescription as NSString)
+            }
+        }
+    }
+
+    func sidebarPresentationDidChange(_ payload: NSData) {
+        Task { @MainActor in
+            guard isCurrentGeneration() else { return }
+            do {
+                onPresentationChanged(try CmuxSidebarXPCCodec.decodePresentation(payload))
+            } catch {
+#if DEBUG
+                cmuxDebugLog("extension.sidebar.presentation.decode.failed error=\(error.localizedDescription)")
+#endif
             }
         }
     }

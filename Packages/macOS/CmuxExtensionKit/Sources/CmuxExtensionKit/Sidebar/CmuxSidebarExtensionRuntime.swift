@@ -26,6 +26,12 @@ final class CmuxSidebarExtensionRuntime: @unchecked Sendable {
             },
             onStatus: { [weak sidebarExtension] status in
                 sidebarExtension?.connectionStatusDidChange(status)
+            },
+            presentationProvider: { [weak sidebarExtension] in
+                sidebarExtension?.presentation ?? CmuxSidebarPresentation(root: .empty)
+            },
+            presentationActionHandler: { [weak sidebarExtension] actionID in
+                await sidebarExtension?.handlePresentationAction(actionID)
             }
         )
         self.connection = transport

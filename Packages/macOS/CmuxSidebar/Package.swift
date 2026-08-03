@@ -40,6 +40,7 @@ let package = Package(
                 "CmuxSidebar",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

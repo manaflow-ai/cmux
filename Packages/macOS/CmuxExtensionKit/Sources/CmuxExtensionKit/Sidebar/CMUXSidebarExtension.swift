@@ -1,51 +1,57 @@
 @_exported import ExtensionFoundation
-@_exported import ExtensionKit
-import SwiftUI
+import Foundation
 
-/// Current state of the connection between a sidebar extension and CMUX.
+/// Current state of the connection between a sidebar extension and cmux.
 public enum CmuxSidebarConnectionStatus: Equatable, Sendable {
-    /// The extension is connected and receiving host updates.
     case connected
-
-    /// The extension has no active CMUX host connection yet.
     case waitingForHost
-
-    /// The host connection reported an error message suitable for diagnostics.
     case error(String)
 }
 
-/// A SwiftUI sidebar extension hosted by CMUX.
+/// A UI-less sidebar app extension whose value tree is rendered by cmux.
 ///
-/// Conform to this protocol from your `@main` app extension type. The SDK
-/// supplies the ExtensionKit configuration, scene, and XPC wiring. Your
-/// extension supplies the manifest, SwiftUI body, and snapshot update handling.
+/// Conform from the extension's `@main` type. The SDK supplies the extension
+/// configuration and XPC transport. The extension supplies its manifest,
+/// current presentation, snapshot handling, and action handling.
 @MainActor
-public protocol CmuxSidebarExtension: AppExtension, AnyObject where Configuration == AppExtensionSceneConfiguration {
-    /// Manifest describing this sidebar extension and the data/actions it requests.
+public protocol CmuxSidebarExtension: AppExtension, AnyObject
+where Configuration == CmuxSidebarExtensionConfiguration {
     static var manifest: CmuxExtensionManifest { get }
 
-    /// SwiftUI content rendered inside the extension scene.
-    associatedtype Body: View
+    /// Current value-only native presentation sent to the host.
+    var presentation: CmuxSidebarPresentation { get }
 
-    /// The view CMUX hosts for this extension.
-    @ViewBuilder var body: Body { get }
-
-    /// Called whenever CMUX sends a new filtered sidebar snapshot.
+    /// Called whenever cmux sends a filtered sidebar snapshot.
     func update(context: CmuxSidebarContext)
 
-    /// Called when the CMUX host connection changes state or reports an error.
+    /// Called when the cmux host connection changes state.
     func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus)
 
+    /// Handles a button identifier emitted by ``presentation``.
+    func handlePresentationAction(_ id: String) async
 }
 
 public extension CmuxSidebarExtension {
-    /// ExtensionKit configuration for the CMUX sidebar extension point.
-    ///
-    /// Extension authors should not implement this unless they are deliberately
-    /// replacing the SDK's ExtensionKit scene wiring.
-    var configuration: AppExtensionSceneConfiguration {
-        AppExtensionSceneConfiguration(CmuxSidebarExtensionScene(self))
+    var configuration: CmuxSidebarExtensionConfiguration {
+        let runtime = CmuxSidebarExtensionRuntime(sidebarExtension: self)
+        return CmuxSidebarExtensionConfiguration { connection in
+            runtime.accept(connection)
+        }
     }
 
     func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {}
+    func handlePresentationAction(_ id: String) async {}
+}
+
+/// Connection-only configuration usable on every cmux-supported macOS version.
+public struct CmuxSidebarExtensionConfiguration: AppExtensionConfiguration, Sendable {
+    private let acceptConnection: @Sendable (NSXPCConnection) -> Bool
+
+    init(acceptConnection: @escaping @Sendable (NSXPCConnection) -> Bool) {
+        self.acceptConnection = acceptConnection
+    }
+
+    nonisolated public func accept(connection: NSXPCConnection) -> Bool {
+        acceptConnection(connection)
+    }
 }

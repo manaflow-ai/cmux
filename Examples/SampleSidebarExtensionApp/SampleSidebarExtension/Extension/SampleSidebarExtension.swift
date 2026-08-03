@@ -1,5 +1,4 @@
 import CmuxExtensionKit
-import SwiftUI
 
 @main
 final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
@@ -27,8 +26,8 @@ final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
 
     required init() {}
 
-    var body: some View {
-        SampleSidebarView(model: model)
+    var presentation: CmuxSidebarPresentation {
+        SampleSidebarPresentation.make(model: model)
     }
 
     func update(context: CmuxSidebarContext) {
@@ -37,5 +36,9 @@ final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
 
     func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
         model.connectionStatusDidChange(status)
+    }
+
+    func handlePresentationAction(_ id: String) async {
+        await model.handlePresentationAction(id)
     }
 }

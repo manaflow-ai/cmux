@@ -26,7 +26,7 @@ cat > "$DEST" <<EOF
     <key>EXExtensionPointIsPublic</key>
     <true/>
     <key>EXPresentsUserInterface</key>
-    <true/>
+    <false/>
   </dict>
 </dict>
 </plist>
