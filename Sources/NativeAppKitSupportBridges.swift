@@ -461,6 +461,22 @@ struct WorkspaceCanvasHostView: NSViewControllerRepresentable {
     }
 }
 
+struct CommandPaletteCommandListRenderView: NSViewRepresentable {
+    let renderModel: CommandPaletteOverlayRenderModel
+    let onRunResult: (String) -> Void
+
+    func makeNSView(context: Context) -> CommandPaletteCommandListNativeView {
+        CommandPaletteCommandListNativeView(
+            renderModel: renderModel,
+            onRunResult: onRunResult
+        )
+    }
+
+    func updateNSView(_ view: CommandPaletteCommandListNativeView, context: Context) {
+        view.update(renderModel: renderModel, onRunResult: onRunResult)
+    }
+}
+
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating

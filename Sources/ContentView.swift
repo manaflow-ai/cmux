@@ -952,7 +952,7 @@ struct ContentView: View {
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteSelectionAnchorCommandID: String?
     @State private var commandPaletteScrollTargetIndex: Int?
-    @State private var commandPaletteScrollTargetAnchor: UnitPoint?
+    @State private var commandPaletteScrollTargetAnchor: CommandPaletteScrollAnchor?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
@@ -8913,10 +8913,10 @@ struct ContentView: View {
     static func commandPaletteScrollPositionAnchor(
         selectedIndex: Int,
         resultCount: Int
-    ) -> UnitPoint? {
+    ) -> CommandPaletteScrollAnchor? {
         guard resultCount > 0 else { return nil }
-        if selectedIndex <= 0 { return UnitPoint.top }
-        if selectedIndex >= resultCount - 1 { return UnitPoint.bottom }
+        if selectedIndex <= 0 { return .top }
+        if selectedIndex >= resultCount - 1 { return .bottom }
         return nil
     }
 

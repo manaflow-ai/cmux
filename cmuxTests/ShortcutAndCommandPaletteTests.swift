@@ -933,7 +933,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
             selectedIndex: 0,
             resultCount: 20
         )
-        XCTAssertEqual(anchor, UnitPoint.top)
+        XCTAssertEqual(anchor, .top)
     }
 
     func testLastEntryPinsToBottomAnchor() {
@@ -941,7 +941,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
             selectedIndex: 19,
             resultCount: 20
         )
-        XCTAssertEqual(anchor, UnitPoint.bottom)
+        XCTAssertEqual(anchor, .bottom)
     }
 
     func testMiddleEntryUsesNilAnchorForMinimalScroll() {
