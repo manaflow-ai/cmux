@@ -36,6 +36,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let experiencePolicy: MobileExperiencePolicy
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
@@ -83,6 +84,7 @@ public struct CMUXMobileRootScene: View {
     ///   - reachability: The process-wide reachability monitor, injected into
     ///     the shell store (already used to build `auth`).
     ///   - analytics: The app-root analytics emitter, injected into the store.
+    ///   - experiencePolicy: Product-surface policy applied at the shell boundary.
     ///   - pushCoordinator: The app-root push coordinator (shared with the app
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
@@ -104,6 +106,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        experiencePolicy: MobileExperiencePolicy = .full,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         connectionMethodStore: MobileConnectionMethodStore,
@@ -119,6 +122,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.experiencePolicy = experiencePolicy
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.connectionMethodStore = connectionMethodStore
@@ -139,12 +143,14 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        experiencePolicy: MobileExperiencePolicy = .full,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.experiencePolicy = experiencePolicy
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
@@ -392,6 +398,7 @@ public struct CMUXMobileRootScene: View {
         }
         return CMUXMobileShellStore(
             runtime: runtime,
+            experiencePolicy: experiencePolicy,
             pairedMacStore: backedUpPairedMacStore,
             connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,

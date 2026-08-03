@@ -1,4 +1,9 @@
 extension MobileShellComposite {
+    /// Publishes one profile-filtered capability snapshot to all shell feature gates.
+    func applySupportedHostCapabilities(_ capabilities: Set<String>) {
+        supportedHostCapabilities = experiencePolicy.filteredHostCapabilities(capabilities)
+    }
+
     /// Whether the connected Mac supports browser-pane streaming.
     public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
     /// Whether the connected Mac can reflow a browser stream to the phone viewport.

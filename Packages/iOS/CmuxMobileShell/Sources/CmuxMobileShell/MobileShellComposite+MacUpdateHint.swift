@@ -40,6 +40,10 @@ extension MobileShellComposite {
         statusMacAppVersion: String?,
         macDeviceID: String?
     ) {
+        guard experiencePolicy.profile == .full else {
+            clearMacUpdateHint()
+            return
+        }
         let version = statusMacAppVersion ?? activeTicket?.macAppVersion
         // Fail closed without a stable Mac identity: a shared fallback key
         // would let a dismissal on one anonymous Mac suppress the hint on

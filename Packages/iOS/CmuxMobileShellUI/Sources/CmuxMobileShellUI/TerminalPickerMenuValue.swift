@@ -11,6 +11,8 @@ struct TerminalPickerMenuValue: Equatable {
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
     let activeBrowserStreamPanelID: String?
+    let showsBrowserStreamSection: Bool
+    let allowsLocalBrowser: Bool
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -21,7 +23,9 @@ struct TerminalPickerMenuValue: Equatable {
         isChatMode: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
-        activeBrowserStreamPanelID: String? = nil
+        activeBrowserStreamPanelID: String? = nil,
+        showsBrowserStreamSection: Bool = true,
+        allowsLocalBrowser: Bool = true
     ) {
         rows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -35,5 +39,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
+        self.showsBrowserStreamSection = showsBrowserStreamSection
+        self.allowsLocalBrowser = allowsLocalBrowser
     }
 }

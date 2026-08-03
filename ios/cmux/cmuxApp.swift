@@ -19,6 +19,14 @@ struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    private static let experiencePolicy = MobileExperiencePolicy(
+        profile: MobileExperienceProfile(
+            configurationValue: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXExperienceProfile"
+            ) as? String
+        )
+    )
+
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
     private static let root: AppCompositionRoot = {
@@ -163,6 +171,7 @@ struct cmuxApp: App {
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
+            experiencePolicy: Self.experiencePolicy,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             connectionMethodStore: Self.root.connectionMethodStore,

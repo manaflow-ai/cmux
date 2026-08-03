@@ -638,7 +638,7 @@ extension MobileShellComposite {
             workspacesByMac[ownerKey] = nil
             workspacesByMac[foregroundMacKey] = promotedState
         }
-        supportedHostCapabilities = sub.supportedHostCapabilities
+        applySupportedHostCapabilities(sub.supportedHostCapabilities)
         // Promotion has already authenticated this capability snapshot on the
         // control connection. Publish its terminal mode synchronously so input
         // can use the warm connection immediately while the render listener

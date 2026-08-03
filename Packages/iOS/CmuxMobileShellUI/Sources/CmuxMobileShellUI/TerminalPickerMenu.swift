@@ -59,8 +59,8 @@ struct TerminalPickerMenu: View, Equatable {
             }
         }
 
-        if value.supportsBrowserStream {
-            if !value.browserStreamRows.isEmpty {
+        if value.showsBrowserStreamSection {
+            if value.supportsBrowserStream, !value.browserStreamRows.isEmpty {
                 Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
                     ForEach(value.browserStreamRows) { panel in
                         Button { actions.selectBrowserStream(panel.id) } label: {
@@ -74,14 +74,14 @@ struct TerminalPickerMenu: View, Equatable {
                         .accessibilityIdentifier("BrowserStreamMenuItem-\(panel.id)")
                     }
                 }
-            }
-        } else {
-            Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
-                Label(
-                    L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),
-                    systemImage: "arrow.down.circle"
-                )
-                .accessibilityIdentifier("BrowserStreamMacUpdateHint")
+            } else if !value.supportsBrowserStream {
+                Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                    Label(
+                        L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),
+                        systemImage: "arrow.down.circle"
+                    )
+                    .accessibilityIdentifier("BrowserStreamMacUpdateHint")
+                }
             }
         }
 
@@ -100,13 +100,15 @@ struct TerminalPickerMenu: View, Equatable {
             }
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
-            Button(action: actions.openBrowser) {
-                Label(
-                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: value.hasActiveBrowser ? "checkmark.circle.fill" : "globe"
-                )
+            if value.allowsLocalBrowser {
+                Button(action: actions.openBrowser) {
+                    Label(
+                        L10n.string("mobile.browser.new", defaultValue: "New Browser"),
+                        systemImage: value.hasActiveBrowser ? "checkmark.circle.fill" : "globe"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewBrowserMenuItem")
             }
-            .accessibilityIdentifier("MobileNewBrowserMenuItem")
         }
 
         #if canImport(UIKit)

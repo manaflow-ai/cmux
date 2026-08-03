@@ -596,7 +596,9 @@ struct WorkspaceShellView: View {
         )
         return WorkspaceListView(
             workspaces: store.workspaces,
-            groups: store.workspaceGroups,
+            groups: store.experiencePolicy.allowsAdvancedWorkspaceManagement
+                ? store.workspaceGroups
+                : [],
             selectedWorkspaceID: store.selectedWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,

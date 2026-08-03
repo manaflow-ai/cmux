@@ -10,6 +10,10 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
 
 Build, install, and launch the cmux iOS app with an isolated tag.
 
+Pass --mvp to verify the focused first-release product surface. Tagged builds
+otherwise use the complete development surface. CMUX_IOS_EXPERIENCE_PROFILE may
+also be set to `full` or `mvp`.
+
 Verification default is simulator + iPhone: when a default iPhone is configured
 (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
 enabled automatically; --simulator-only opts out explicitly. Without a
@@ -91,6 +95,9 @@ SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # against the production Stack project. Build compatibility remains exact-tag
 # DEV to DEV.
 PROD_AUTH=0
+# Product surface baked into CMUXExperienceProfile. Tagged development defaults
+# to full; --mvp mirrors the Release/TestFlight experience.
+EXPERIENCE_PROFILE="${CMUX_IOS_EXPERIENCE_PROFILE:-full}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -173,6 +180,10 @@ while [[ $# -gt 0 ]]; do
       PROD_AUTH=1
       shift
       ;;
+    --mvp)
+      EXPERIENCE_PROFILE="mvp"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -188,6 +199,11 @@ done
 if [[ -z "$TAG" ]]; then
   echo "error: --tag is required" >&2
   usage >&2
+  exit 1
+fi
+
+if [[ "$EXPERIENCE_PROFILE" != "full" && "$EXPERIENCE_PROFILE" != "mvp" ]]; then
+  echo "error: CMUX_IOS_EXPERIENCE_PROFILE must be 'full' or 'mvp'" >&2
   exit 1
 fi
 
@@ -659,6 +675,7 @@ reload_simulator() {
     CMUX_DEV_TAG="$TAG" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
+    CMUX_IOS_EXPERIENCE_PROFILE="$EXPERIENCE_PROFILE" \
     CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
     CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
@@ -866,6 +883,7 @@ reload_device() {
     CMUX_DEV_TAG="$TAG"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
+    CMUX_IOS_EXPERIENCE_PROFILE="$EXPERIENCE_PROFILE"
     CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"
     CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist

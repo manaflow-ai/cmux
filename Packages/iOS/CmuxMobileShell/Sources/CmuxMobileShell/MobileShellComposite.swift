@@ -429,6 +429,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
+    /// Product policy that narrows the complete shell into a release profile.
+    @ObservationIgnored public let experiencePolicy: MobileExperiencePolicy
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -1319,6 +1321,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Parameter browserStreamEvents: App-lifetime browser stream state kept outside workspace previews.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
+        experiencePolicy: MobileExperiencePolicy = .full,
         isSignedIn: Bool = false,
         connectionState: MobileConnectionState = .disconnected,
         connectedHostName: String = "",
@@ -1358,6 +1361,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
+        self.experiencePolicy = experiencePolicy
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
@@ -4316,7 +4320,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .permanentFailure
         }
-        let capabilities = Set(status.capabilities)
+        let capabilities = experiencePolicy.filteredHostCapabilities(Set(status.capabilities))
         if !capabilities.contains("events.v1") {
             mobileShellLog.info(
                 "secondary client using refresh-only fallback mac=\(mac.macDeviceID, privacy: .private)"
@@ -8121,6 +8125,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         hint: pairedMacDeviceID
                     )
                     let authenticatedCapabilities = Set(status.capabilities)
+                    let effectiveCapabilities = experiencePolicy.filteredHostCapabilities(
+                        authenticatedCapabilities
+                    )
                     if let previousFocusedConnection {
                         let resolvesToSameMac = !resolvedForegroundMacID.isEmpty
                             && cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
@@ -8219,7 +8226,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     } else {
                         foregroundMacDeviceID = resolvedForegroundMacID
                     }
-                    supportedHostCapabilities = authenticatedCapabilities
+                    applySupportedHostCapabilities(authenticatedCapabilities)
                     // Publish transport selection with the authenticated
                     // capability snapshot before exposing `.connected`.
                     // The listener reuses this same status below, but starts in
@@ -8286,9 +8293,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: liveConnectionGeneration,
                             displayName: connectedHostName,
                             instanceTag: activeMacInstanceTag,
-                            supportedHostCapabilities: authenticatedCapabilities,
+                            supportedHostCapabilities: effectiveCapabilities,
                             actionCapabilities: Self.workspaceActionCapabilities(
-                                from: authenticatedCapabilities,
+                                from: effectiveCapabilities,
                                 allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
                             )
                         ))
@@ -8949,7 +8956,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         deactivateAllTerminalLanes()
-        supportedHostCapabilities = []
+        applySupportedHostCapabilities([])
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -10117,7 +10124,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .rawBytes
             }
-            supportedHostCapabilities = Set(payload.capabilities)
+            applySupportedHostCapabilities(Set(payload.capabilities))
             restartActiveMobileBrowserStreams()
             refreshVisibleMobileBrowserPanels()
             prepareTerminalThemeRevisionAuthority(

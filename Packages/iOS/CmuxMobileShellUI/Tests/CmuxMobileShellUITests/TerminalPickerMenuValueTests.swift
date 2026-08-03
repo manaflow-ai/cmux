@@ -75,6 +75,22 @@ import Testing
         #expect(noTerminals.selectedName == nil)
     }
 
+    @Test func firstReleasePolicyCanHideBothBrowserEntryPoints() {
+        let value = TerminalPickerMenuValue(
+            liveTerminals: [],
+            snapshotRows: [],
+            selectedID: nil,
+            canCreateWorkspace: true,
+            hasActiveBrowser: false,
+            isChatMode: false,
+            showsBrowserStreamSection: false,
+            allowsLocalBrowser: false
+        )
+
+        #expect(!value.showsBrowserStreamSection)
+        #expect(!value.allowsLocalBrowser)
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],

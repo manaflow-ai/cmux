@@ -590,7 +590,9 @@ struct WorkspaceDetailView: View {
                 isChatMode: isChatMode,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
-                activeBrowserStreamPanelID: activeBrowserStream?.id
+                activeBrowserStreamPanelID: activeBrowserStream?.id,
+                showsBrowserStreamSection: store.experiencePolicy.allowsBrowserStream,
+                allowsLocalBrowser: store.experiencePolicy.allowsLocalBrowser
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,

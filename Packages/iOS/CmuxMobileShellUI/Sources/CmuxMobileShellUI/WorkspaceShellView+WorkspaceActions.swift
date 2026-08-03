@@ -415,6 +415,7 @@ extension WorkspaceShellView {
     /// Group collapse/expand closure. Present when the Mac advertises
     /// `workspace.groups.v1` or has actually emitted group sections.
     var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
+        guard store.experiencePolicy.allowsAdvancedWorkspaceManagement else { return nil }
         guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }

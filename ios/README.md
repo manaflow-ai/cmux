@@ -19,6 +19,25 @@ Build and reload the simulator:
 ios/scripts/reload.sh --tag iossh
 ```
 
+## First-release experience profile
+
+Release/TestFlight builds use the focused `mvp` profile. It keeps the complete
+remote-agent loop: sign in and pairing, computer/workspace selection, terminal
+view and input, task creation, push alerts, release information, and
+diagnostics. Browser surfaces, artifact/diff galleries, workspace groups and
+advanced mutations, team switching, and advanced Iroh/relay settings remain in
+the codebase but are hidden from this profile.
+
+Tagged Debug builds use `full` by default. Verify the distribution surface with:
+
+```bash
+ios/scripts/reload.sh --tag ios-mvp --mvp
+```
+
+The equivalent build setting is `CMUX_IOS_EXPERIENCE_PROFILE=full|mvp`; it is
+baked into the `CMUXExperienceProfile` Info.plist key. Unknown or missing values
+fall back to `full` so a local developer build cannot silently lose tools.
+
 Run package tests:
 
 ```bash

@@ -66,7 +66,8 @@ struct MobileSettingsView: View {
                 // small set). Selecting a team writes `selectedTeamID`, which the root
                 // view observes to re-scope the team-bound surfaces (paired Macs,
                 // presence, backup) to that team without dropping the live terminal.
-                if authManager.availableTeams.count > 1 {
+                if experiencePolicy.allowsTeamSwitching,
+                   authManager.availableTeams.count > 1 {
                     Section {
                         Picker(selection: teamSelection) {
                             ForEach(authManager.availableTeams) { team in
@@ -162,7 +163,8 @@ struct MobileSettingsView: View {
                     )
                 }
 
-                if let irohSettingsController {
+                if experiencePolicy.allowsAdvancedNetworking,
+                   let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
                             MobileIrohSettingsView(controller: irohSettingsController)
@@ -185,13 +187,15 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
 
-                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFolderTap",
-                            defaultValue: "Open Folders on Tap"
-                        ))
+                    if experiencePolicy.allowsArtifacts {
+                        Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                            Text(L10n.string(
+                                "mobile.settings.terminalFolderTap",
+                                defaultValue: "Open Folders on Tap"
+                            ))
+                        }
+                        .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
                     }
-                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
 
                     Button {
                         showingShortcuts = true
@@ -230,13 +234,15 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
 
-                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFilesChip",
-                            defaultValue: "Terminal Files Chip"
-                        ))
+                    if experiencePolicy.allowsArtifacts {
+                        Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                            Text(L10n.string(
+                                "mobile.settings.terminalFilesChip",
+                                defaultValue: "Terminal Files Chip"
+                            ))
+                        }
+                        .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
                     }
-                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
 
                     Toggle(isOn: $toasts.isEnabled) {
                         Text(L10n.string(
@@ -511,6 +517,10 @@ struct MobileSettingsView: View {
         default:
             true
         }
+    }
+
+    private var experiencePolicy: MobileExperiencePolicy {
+        store?.experiencePolicy ?? .full
     }
 
     private func retryAutomaticConnection() {
