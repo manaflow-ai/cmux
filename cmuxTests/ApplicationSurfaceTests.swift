@@ -946,6 +946,39 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func applicationPanelClosePurgesSearchIndexExactlyOnce() {
+        let panelID = UUID()
+        var purgedPanelIDs: [UUID] = []
+        let panel = ApplicationPanel(
+            id: panelID,
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Private quarterly plan",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            searchIndexPurge: { purgedPanelIDs.append($0) }
+        )!
+
+        panel.close()
+        panel.close()
+
+        #expect(purgedPanelIDs == [panelID])
+    }
+
+    @Test func applicationTitlesStayOutOfPersistentGlobalSearch() {
+        #expect(
+            !GlobalSearchDocuments.shouldPersistTitleDocument(
+                for: .application
+            )
+        )
+        #expect(
+            GlobalSearchDocuments.shouldPersistTitleDocument(
+                for: .terminal
+            )
+        )
+    }
+
     @Test func dismantlingRepresentableSuspendsItsHostedCapture() {
         let panel = ApplicationPanel(
             workspaceId: UUID(),
