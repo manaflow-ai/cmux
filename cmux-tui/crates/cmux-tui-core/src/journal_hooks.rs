@@ -312,11 +312,9 @@ fn scan_hooks(
             let applied = mux.schedule_journal_hook_deliveries(&scans)?;
             anyhow::ensure!(applied.len() == keys.len(), "journal hook scan result is incomplete");
             for (key, applied) in keys.iter().zip(applied) {
-                if applied {
-                    if let Some(hook) = hooks.get_mut(key) {
-                        hook.cursor_sequence = scanned_to;
-                        progressed = true;
-                    }
+                if applied && let Some(hook) = hooks.get_mut(key) {
+                    hook.cursor_sequence = scanned_to;
+                    progressed = true;
                 }
             }
         }

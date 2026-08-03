@@ -941,7 +941,7 @@ fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
                 "type":"response",
                 "id":subscribe["id"],
                 "ok":true,
-                "result":{"stream_id":stream_id.clone()}
+                "result":{"stream_id":stream_id}
             }),
             json!({
                 "protocol":"cmux.protocol/1",

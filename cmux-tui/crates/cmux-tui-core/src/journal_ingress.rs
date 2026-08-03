@@ -97,26 +97,27 @@ pub(crate) enum JournalIngressEvent {
 }
 
 impl JournalIngressEvent {
-    fn merge_output(&mut self, next: Self) -> Result<(), Self> {
-        match (self, next) {
-            (
-                Self::TerminalOutput { terminal_id, generation, bytes, .. },
+    fn merge_output(&mut self, next: Self) -> Option<Self> {
+        match self {
+            Self::TerminalOutput { terminal_id, generation, bytes, .. } => match next {
                 Self::TerminalOutput {
                     terminal_id: next_terminal,
                     generation: next_generation,
                     occurred_at_ms: _,
                     bytes: next_bytes,
-                },
-            ) if (Arc::ptr_eq(terminal_id, &next_terminal)
-                || terminal_id.as_ref() == next_terminal.as_ref())
-                && (Arc::ptr_eq(generation, &next_generation)
-                    || generation.as_ref() == next_generation.as_ref())
-                && bytes.len().saturating_add(next_bytes.len()) <= TERMINAL_OUTPUT_BATCH_BYTES =>
-            {
-                bytes.extend_from_slice(&next_bytes);
-                Ok(())
-            }
-            (_, next) => Err(next),
+                } if (Arc::ptr_eq(terminal_id, &next_terminal)
+                    || terminal_id.as_ref() == next_terminal.as_ref())
+                    && (Arc::ptr_eq(generation, &next_generation)
+                        || generation.as_ref() == next_generation.as_ref())
+                    && bytes.len().saturating_add(next_bytes.len())
+                        <= TERMINAL_OUTPUT_BATCH_BYTES =>
+                {
+                    bytes.extend(next_bytes);
+                    None
+                }
+                next => Some(next),
+            },
+            _ => Some(next),
         }
     }
 }
@@ -127,14 +128,11 @@ pub(crate) struct QueuedJournalEvent {
 }
 
 impl QueuedJournalEvent {
-    fn merge_output(&mut self, next: Self) -> Result<(), Self> {
+    fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
-            return Err(next);
+            return Some(next);
         }
-        match self.event.merge_output(next.event) {
-            Ok(()) => Ok(()),
-            Err(event) => Err(Self { event, completion: None }),
-        }
+        self.event.merge_output(next.event).map(|event| Self { event, completion: None })
     }
 }
 
@@ -221,7 +219,7 @@ fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             };
             let Some(last) = batch.last_mut() else { return };
-            if let Err(next) = last.merge_output(next) {
+            if let Some(next) = last.merge_output(next) {
                 batch.push(next);
             }
         }

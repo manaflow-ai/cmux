@@ -856,7 +856,7 @@ impl WorkspaceRegistry {
                                     .transpose()
                                     .context("terminal journal offset is negative")?
                                     .unwrap_or(0);
-                                terminal_offsets.insert(key.clone(), offset);
+                                terminal_offsets.insert(key, offset);
                                 offset
                             }
                         };
@@ -935,7 +935,7 @@ impl WorkspaceRegistry {
                     causation_id: None,
                     correlation_id: None,
                     causation_depth: 0,
-                    subjects: &subjects,
+                    subjects,
                     sensitivity: JournalSensitivity::Sensitive,
                     payload: &payload,
                     content,
