@@ -10,22 +10,25 @@ Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
   put demo credentials in this repository.
-- After sign-in, use the Add Computer flow shown in the app. Pairing can be
-  tested with a prepared review Mac after joining the supplied Tailscale network
-  and entering the exact Name, Tailscale Host, and Port values supplied in the
-  Review Information notes, or by scanning a generated QR/link whose ticketed
-  route is reachable from the same review network path.
+- For a Mailinator demo account, put the exact demo email in the ASC demo
+  account field and put the public inbox URL in ASC notes. State that the app
+  sends a one-time email code and that no Mailinator account is required.
 - The reviewer does not need to own or install cmux on a Mac. Before submission,
-  append the prepared review Mac details below directly into App Store Connect:
+  keep the prepared review Mac online, signed in to the same demo account, and
+  visible to the iOS app through the production device registry or relay path.
+  If automatic discovery is verified, the ASC notes should say that the review
+  Mac appears automatically after sign-in and that no VPN or network
+  configuration is required.
+- Keep a manual fallback ready in ASC notes if automatic discovery fails:
   - Name: `App Review Mac`
   - Host: `<TAILSCALE_MAGICDNS_OR_100_X_ADDRESS>`
   - Port: `<CMUX_MOBILE_HOST_PORT>`
   - Tailscale access: `<TAILSCALE_REVIEW_ACCESS>`
   - Review contact: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`
 - The prepared Mac must use a dedicated review-only macOS user, no personal or
-  developer credentials, a safe `App Review` workspace, and a network route
-  restricted to the cmux mobile host port. Revoke the credentials and reset the
-  review user after App Review finishes.
+  developer credentials, a safe `App Review` workspace, and a route restricted
+  to review access. Revoke the credentials and reset the review user after App
+  Review finishes.
 - The app may request Local Network permission during pairing so it can discover
   and connect to the user's Mac.
 - Camera permission is used only to scan cmux pairing QR codes.
@@ -57,13 +60,11 @@ Privacy and account handling:
 Primary review path:
 
 1. Sign in with the demo account supplied in App Store Connect.
-2. Tap Add Computer.
-3. Install Tailscale from the App Store and sign in with the supplied review
-   access first.
-4. Enter the supplied Name, Tailscale Host, and Port values, then tap Pair. If a
-   generated ticketed QR/link route is reachable after joining the supplied
-   Tailscale network, Scan QR Code can be used instead.
-5. Open the workspace list, then open the `App Review` workspace detail.
-6. Send `echo app-review-ok` from the message box.
-7. Enable phone notifications and verify the opt-in prompt, then disable them
+2. For email-code sign-in, open the Mailinator public inbox URL supplied in ASC
+   Review Information and enter the newest one-time code from the email subject.
+3. Wait for the prepared review Mac to appear. If the ASC notes include a manual
+   fallback, use Add Computer with the exact fallback values supplied there.
+4. Open the workspace list, then open the `App Review` workspace detail.
+5. Send `echo app-review-ok` from the message box.
+6. Enable phone notifications and verify the opt-in prompt, then disable them
    again from the same surface.
