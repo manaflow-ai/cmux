@@ -2037,15 +2037,40 @@ struct SimulatorPanelView: NSViewControllerRepresentable {
     }
 }
 
-struct HoverTrackingRepresentable: NSViewRepresentable {
-    let onChange: (Bool) -> Void
-
-    func makeNSView(context: Context) -> HoverTrackingNSView {
-        HoverTrackingNSView(onChange: onChange)
+struct NotificationPopoverRow: NSViewRepresentable, Equatable {
+    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
+        lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
     }
 
-    func updateNSView(_ view: HoverTrackingNSView, context: Context) {
-        view.onChange = onChange
+    let notification: TerminalNotification
+    let workspaceTitle: String?
+    let onOpen: () -> Void
+    let onClear: () -> Void
+    let onToggleRead: () -> Void
+
+    func makeNSView(context: Context) -> NotificationPopoverRowNativeView {
+        NotificationPopoverRowNativeView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NotificationPopoverRowNativeView, context: Context) {
+        view.update(
+            notification: notification,
+            workspaceTitle: workspaceTitle,
+            onOpen: onOpen,
+            onClear: onClear,
+            onToggleRead: onToggleRead
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: NotificationPopoverRowNativeView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? max(1, nsView.bounds.width),
+            height: nsView.intrinsicContentSize.height
+        )
     }
 }
 

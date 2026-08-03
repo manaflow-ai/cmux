@@ -1,161 +1,206 @@
+import AppKit
 import CmuxFoundation
-import SwiftUI
 
-struct NotificationPopoverRow: View, Equatable {
-    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
-    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
-        lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+@MainActor
+final class NotificationPopoverRowNativeView: NSView {
+    private let primaryButton = NSButton()
+    private let unreadStripe = NSView()
+    private let titleField = NSTextField(labelWithString: "")
+    private let notificationTitleField = NSTextField(labelWithString: "")
+    private let bodyField = NSTextField(labelWithString: "")
+    private let timeField = NSTextField(labelWithString: "")
+    private let clearButton = NSButton()
+    private let textStack = NSStackView()
+    private var tracking: NSTrackingArea?
+    private var notification: TerminalNotification?
+    private var onOpen: () -> Void = {}
+    private var onClear: () -> Void = {}
+    private var onToggleRead: () -> Void = {}
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureViews()
     }
 
-    let notification: TerminalNotification
-    let workspaceTitle: String?
-    let onOpen: () -> Void
-    let onClear: () -> Void
-    let onToggleRead: () -> Void
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-    @State private var isHovering: Bool = false
+    override var intrinsicContentSize: NSSize {
+        let hasWorkspaceTitle = !notificationTitleField.isHidden
+        let hasBody = !bodyField.isHidden
+        let lineHeight: CGFloat = 15
+        let estimated = 16 + lineHeight
+            + (hasWorkspaceTitle ? 15 : 0)
+            + (hasBody ? 28 : 0)
+        return NSSize(width: NSView.noIntrinsicMetric, height: max(56, estimated))
+    }
 
-    private static let rowHeight: CGFloat = 56
-
-    var body: some View {
-        // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
-        // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
-        // produce reliable independent hit targets on macOS — clicks on a nested button
-        // can be consumed by the outer button's tap area.
-        ZStack(alignment: .trailing) {
-            // Primary row action wrapped as a Button so the row participates in the
-            // key-view loop: keyboard users can tab to a row and activate it with
-            // space/return. Visual styling is owned by rowContent; the button background
-            // lets the NSTrackingArea-driven hover tint shine through.
-            Button(action: onOpen) {
-                rowContent
-                    .background(
-                        Color.primary.opacity(isHovering ? 0.11 : 0)
-                    )
-            }
-            .buttonStyle(.plain)
-            // Identifier/action live on the Button itself so XCUITest's
-            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
-            // pass put them on the combined outer ZStack, which exposed the row as a
-            // container rather than a button to accessibility clients.
-            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-            // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
-            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-            .accessibilityAction { onOpen() }
-            // The clear button is hover-only for pointer users; expose dismiss as a row-level
-            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
-            .accessibilityAction(
-                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
-            ) {
-                onClear()
-            }
-
-            clearButton
-                .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
-                // Dismissal is exposed through the row Button's accessibility action and the
-                // context menu, so hide this hover-only affordance from keyboard focus /
-                // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
-                // invisible button.
-                .accessibilityHidden(!isHovering)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
-        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
-        // primary action and miss enter/exit events right after the popover opens and when
-        // the pointer crosses between LazyVStack rows.
-        .background(
-            HoverTrackingRepresentable { hovering in
-                if isHovering != hovering { isHovering = hovering }
-            }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let next = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self
         )
-        .contextMenu {
-                Button(String(localized: "notifications.open", defaultValue: "Open")) {
-                    onOpen()
-                }
-                if notification.isRead {
-                    Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
-                        onToggleRead()
-                    }
-                } else {
-                    Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
-                        onToggleRead()
-                    }
-                }
-                Divider()
-                Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
-                    onClear()
-                }
-            }
+        addTrackingArea(next)
+        tracking = next
     }
 
-    private var rowContent: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                .frame(width: 2.5)
-                .padding(.vertical, 6)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    if let workspaceTitle, !workspaceTitle.isEmpty {
-                        Text(workspaceTitle)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                            .accessibilityIdentifier(
-                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
-                            )
-                    } else {
-                        Text(notification.title)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
-                        .padding(.trailing, 34)
-                        .layoutPriority(2)
-                }
-
-                if let workspaceTitle, !workspaceTitle.isEmpty {
-                    Text(notification.title)
-                        .cmuxFont(size: 10.5, weight: .medium)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.leading, 10)
-            .padding(.vertical, 8)
-
-            Spacer(minLength: 0)
-        }
-        .frame(minHeight: Self.rowHeight)
-        .padding(.leading, 4)
+    override func mouseEntered(with event: NSEvent) {
+        primaryButton.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.11).cgColor
+        clearButton.isHidden = false
+        clearButton.setAccessibilityElement(true)
     }
 
-    private var clearButton: some View {
-        Button(action: onClear) {
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.1))
-                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
-            }
-            .frame(width: 20, height: 20)
-        }
-        .buttonStyle(.plain)
+    override func mouseExited(with event: NSEvent) {
+        primaryButton.layer?.backgroundColor = NSColor.clear.cgColor
+        clearButton.isHidden = true
+        clearButton.setAccessibilityElement(false)
     }
+
+    func update(
+        notification: TerminalNotification,
+        workspaceTitle: String?,
+        onOpen: @escaping () -> Void,
+        onClear: @escaping () -> Void,
+        onToggleRead: @escaping () -> Void
+    ) {
+        self.notification = notification
+        self.onOpen = onOpen
+        self.onClear = onClear
+        self.onToggleRead = onToggleRead
+
+        let workspaceTitle = workspaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasWorkspaceTitle = workspaceTitle?.isEmpty == false
+        titleField.stringValue = hasWorkspaceTitle ? workspaceTitle! : notification.title
+        notificationTitleField.stringValue = notification.title
+        notificationTitleField.isHidden = !hasWorkspaceTitle
+        bodyField.stringValue = notification.body
+        bodyField.isHidden = notification.body.isEmpty
+        timeField.stringValue = notification.createdAt.formatted(date: .omitted, time: .shortened)
+        unreadStripe.layer?.backgroundColor = notification.isRead
+            ? NSColor.clear.cgColor
+            : cmuxAccentNSColor().cgColor
+
+        let identifier = "NotificationPopoverRow.\(notification.id.uuidString)"
+        primaryButton.setAccessibilityIdentifier(identifier)
+        primaryButton.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(
+                name: String(localized: "notifications.row.clear", defaultValue: "Clear notification"),
+                handler: { [weak self] in
+                    self?.onClear()
+                    return true
+                }
+            ),
+        ])
+        titleField.setAccessibilityIdentifier("\(identifier).workspaceTitle")
+        rebuildContextMenu(notification: notification)
+        invalidateIntrinsicContentSize()
+    }
+
+    private func configureViews() {
+        primaryButton.isBordered = false
+        primaryButton.title = ""
+        primaryButton.wantsLayer = true
+        primaryButton.target = self
+        primaryButton.action = #selector(openNotification(_:))
+        primaryButton.translatesAutoresizingMaskIntoConstraints = false
+        primaryButton.setAccessibilityRole(.button)
+        addSubview(primaryButton)
+
+        unreadStripe.wantsLayer = true
+        unreadStripe.translatesAutoresizingMaskIntoConstraints = false
+        primaryButton.addSubview(unreadStripe)
+
+        titleField.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        titleField.textColor = .labelColor
+        titleField.lineBreakMode = .byTruncatingTail
+        titleField.maximumNumberOfLines = 1
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        notificationTitleField.font = .systemFont(ofSize: 10.5, weight: .medium)
+        notificationTitleField.textColor = .secondaryLabelColor
+        notificationTitleField.lineBreakMode = .byTruncatingTail
+        notificationTitleField.maximumNumberOfLines = 1
+
+        bodyField.font = .systemFont(ofSize: 11.5)
+        bodyField.textColor = .secondaryLabelColor
+        bodyField.lineBreakMode = .byTruncatingTail
+        bodyField.maximumNumberOfLines = 2
+
+        timeField.font = .systemFont(ofSize: 10.5)
+        timeField.textColor = .secondaryLabelColor
+        timeField.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let topRow = NSStackView(views: [titleField, timeField])
+        topRow.orientation = .horizontal
+        topRow.alignment = .firstBaseline
+        topRow.spacing = 6
+
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+        textStack.addArrangedSubview(topRow)
+        textStack.addArrangedSubview(notificationTitleField)
+        textStack.addArrangedSubview(bodyField)
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        primaryButton.addSubview(textStack)
+
+        clearButton.bezelStyle = .circular
+        clearButton.image = NSImage(
+            systemSymbolName: "xmark",
+            accessibilityDescription: String(localized: "notifications.row.clear", defaultValue: "Clear notification")
+        )
+        clearButton.imageScaling = .scaleProportionallyDown
+        clearButton.controlSize = .small
+        clearButton.target = self
+        clearButton.action = #selector(clearNotification(_:))
+        clearButton.isHidden = true
+        clearButton.setAccessibilityElement(false)
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(clearButton)
+
+        NSLayoutConstraint.activate([
+            primaryButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            primaryButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            primaryButton.topAnchor.constraint(equalTo: topAnchor),
+            primaryButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            unreadStripe.leadingAnchor.constraint(equalTo: primaryButton.leadingAnchor, constant: 4),
+            unreadStripe.topAnchor.constraint(equalTo: primaryButton.topAnchor, constant: 6),
+            unreadStripe.bottomAnchor.constraint(equalTo: primaryButton.bottomAnchor, constant: -6),
+            unreadStripe.widthAnchor.constraint(equalToConstant: 2.5),
+            textStack.leadingAnchor.constraint(equalTo: unreadStripe.trailingAnchor, constant: 10),
+            textStack.trailingAnchor.constraint(equalTo: primaryButton.trailingAnchor, constant: -44),
+            textStack.topAnchor.constraint(equalTo: primaryButton.topAnchor, constant: 8),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: primaryButton.bottomAnchor, constant: -8),
+            topRow.widthAnchor.constraint(equalTo: textStack.widthAnchor),
+            notificationTitleField.widthAnchor.constraint(equalTo: textStack.widthAnchor),
+            bodyField.widthAnchor.constraint(equalTo: textStack.widthAnchor),
+            clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.widthAnchor.constraint(equalToConstant: 20),
+            clearButton.heightAnchor.constraint(equalToConstant: 20),
+        ])
+    }
+
+    private func rebuildContextMenu(notification: TerminalNotification) {
+        let menu = NSMenu()
+        menu.addItem(withTitle: String(localized: "notifications.open", defaultValue: "Open"), action: #selector(openNotification(_:)), keyEquivalent: "")
+        let toggleTitle = notification.isRead
+            ? String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")
+            : String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")
+        menu.addItem(withTitle: toggleTitle, action: #selector(toggleRead(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: String(localized: "notifications.dismiss", defaultValue: "Dismiss"), action: #selector(clearNotification(_:)), keyEquivalent: "")
+        for item in menu.items { item.target = self }
+        self.menu = menu
+        primaryButton.menu = menu
+    }
+
+    @objc private func openNotification(_ sender: Any?) { onOpen() }
+    @objc private func clearNotification(_ sender: Any?) { onClear() }
+    @objc private func toggleRead(_ sender: Any?) { onToggleRead() }
 }
