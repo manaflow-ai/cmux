@@ -51,9 +51,10 @@ struct SidebarAccountButtonPresentation: Equatable {
 
     static func resolve(
         isSignedIn: Bool,
-        prefersProfileIcon: Bool
+        prefersProfileIcon: Bool,
+        hasProfilePicture: Bool = false
     ) -> SidebarAccountButtonPresentation {
-        if isSignedIn, !prefersProfileIcon {
+        if isSignedIn, hasProfilePicture, !prefersProfileIcon {
             return SidebarAccountButtonPresentation(
                 visual: .profilePicture,
                 size: SidebarFooterButtonMetrics.profilePictureSize
@@ -257,10 +258,14 @@ struct SidebarAccountMenuButton: View {
 #endif
     }
 
-    private func presentation(isSignedIn: Bool) -> SidebarAccountButtonPresentation {
+    private func presentation(
+        isSignedIn: Bool,
+        hasProfilePicture: Bool
+    ) -> SidebarAccountButtonPresentation {
         let presentation = SidebarAccountButtonPresentation.resolve(
             isSignedIn: isSignedIn,
-            prefersProfileIcon: prefersProfileIcon
+            prefersProfileIcon: prefersProfileIcon,
+            hasProfilePicture: hasProfilePicture
         )
 #if DEBUG
         if !presentation.showsProfilePicture {
@@ -277,7 +282,10 @@ struct SidebarAccountMenuButton: View {
         let identity = accountFlow?.currentIdentity
         let isSignedIn = identity != nil
         let buttonTitle = isSignedIn ? title : signInTitle
-        let presentation = presentation(isSignedIn: isSignedIn)
+        let presentation = presentation(
+            isSignedIn: isSignedIn,
+            hasProfilePicture: identity?.avatarURL != nil
+        )
         Button {
             if isSignedIn {
                 isPopoverPresented.toggle()
@@ -422,7 +430,8 @@ struct SidebarAccountAvatar: View {
                 avatarURL: avatarURL,
                 displayName: displayName,
                 email: email,
-                size: size
+                size: size,
+                loadingSystemName: signedOutSystemName
             )
         } else {
             SidebarFooterCircularIcon(

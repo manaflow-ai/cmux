@@ -272,6 +272,7 @@ import os
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -288,7 +289,6 @@ import os
         #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
         #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
         #expect(DiagnosticSessionLifecycleKind.allPathsClosed.rawValue == 11)
-
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)
         #expect(DiagnosticPathKind(.privateNetwork) == .privateNetwork)
@@ -439,6 +439,59 @@ import os
             #expect(report.lastFailureKind == .protocolViolation)
             #expect(report.lastFailureDate != nil)
         }
+    }
+
+    @Test func cancelledDialOutcomesDoNotCountAsFailures() {
+        let realFailure = DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 2,
+            b: DiagnosticFailureKind.protocolViolation.rawValue
+        )
+        let abandonedDial = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 3,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.cancelled.rawValue,
+            c: 7
+        )
+
+        let onlyAbandoned = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [abandonedDial]
+        )
+        #expect(onlyAbandoned.lastFailureEvent == nil)
+        #expect(onlyAbandoned.lastFailureKind == nil)
+        #expect(onlyAbandoned.lastFailureDate == nil)
+
+        let abandonedAfterRealFailure = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [realFailure, abandonedDial]
+        )
+        #expect(abandonedAfterRealFailure.lastFailureEvent == realFailure)
+        #expect(abandonedAfterRealFailure.lastFailureKind == .protocolViolation)
+    }
+
+    @Test func gatedDialRefusalsReportRouteGatedNotTimedOut() {
+        // A connect-registry gate refusal is instantaneous and never touched
+        // the network. It used to be classified as `.timedOut`, fabricating
+        // sub-30ms timeout failures that poisoned `lastFailureEvent`.
+        let gatedRefusal = DiagnosticEvent(
+            code: .transportDialFailed,
+            tNanos: 2,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.routeGated.rawValue,
+            c: 7
+        )
+        let report = DiagnosticReport(
+            anchorWallNanos: 1_000_000_000,
+            anchorMonotonicNanos: 1,
+            events: [gatedRefusal]
+        )
+        #expect(report.lastFailureKind == .routeGated)
+        #expect(report.lastFailureKind != .timedOut)
+        #expect(report.lastFailureEvent == gatedRefusal)
     }
 
     @Test func clearStartsFreshBoundedSessionAndResetsAnchors() async {

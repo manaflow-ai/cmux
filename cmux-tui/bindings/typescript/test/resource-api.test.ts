@@ -133,6 +133,102 @@ class FakeTransport implements Transport {
   }
 }
 
+class DispatchHandleTransport implements Transport {
+  readonly supportsDispatchGuard = true;
+  readonly dispatched: string[] = [];
+  readonly registrations: string[] = [];
+  retained: string | undefined;
+  releases = 0;
+  private queued: { readonly json: string; readonly dispatch: () => void } | undefined;
+  private closed = false;
+  private readonly closes = new Set<() => void>();
+
+  constructor(private readonly synchronous: boolean) {}
+
+  send(json: string): void {
+    this.dispatched.push(json);
+  }
+
+  sendCancellable(
+    json: string,
+    onDispatched: () => void,
+    dispatchGuard?: () => boolean,
+  ): Unsubscribe {
+    this.registrations.push(json);
+    this.retained = json;
+    const dispatch = () => {
+      if (dispatchGuard?.() === false) return;
+      onDispatched();
+      this.dispatched.push(json);
+    };
+    if (this.synchronous) dispatch();
+    else this.queued = { json, dispatch };
+    return () => {
+      this.releases += 1;
+      this.retained = undefined;
+      if (this.queued?.json === json) this.queued = undefined;
+    };
+  }
+
+  dispatch(): void {
+    const queued = this.queued;
+    assert.ok(queued);
+    this.queued = undefined;
+    queued.dispatch();
+  }
+
+  onMessage(): Unsubscribe {
+    return () => undefined;
+  }
+
+  onClose(handler: () => void): Unsubscribe {
+    this.closes.add(handler);
+    return () => this.closes.delete(handler);
+  }
+
+  onError(): Unsubscribe {
+    return () => undefined;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const handler of this.closes) handler();
+  }
+}
+
+class LegacyDeferredTransport implements Transport {
+  readonly sent: string[] = [];
+  readonly deferred: string[] = [];
+  private readonly closes = new Set<() => void>();
+
+  send(json: string): void {
+    this.sent.push(json);
+  }
+
+  sendCancellable(json: string, _onDispatched: () => void): Unsubscribe {
+    this.deferred.push(json);
+    return () => undefined;
+  }
+
+  onMessage(): Unsubscribe {
+    return () => undefined;
+  }
+
+  onClose(handler: () => void): Unsubscribe {
+    this.closes.add(handler);
+    return () => this.closes.delete(handler);
+  }
+
+  onError(): Unsubscribe {
+    return () => undefined;
+  }
+
+  close(): void {
+    for (const handler of this.closes) handler();
+  }
+}
+
 async function waitForOperation(
   transport: FakeTransport,
   operation: string,
@@ -150,6 +246,118 @@ async function waitForOperation(
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
 }
+
+test("resource protocol releases cancellation handles at dispatch", async () => {
+  for (const synchronous of [true, false]) {
+    const transport = new DispatchHandleTransport(synchronous);
+    const client = new Client({ transport, timeoutMs: 0 });
+    const pending = client.session(SESSION).ping();
+    const rejected = assert.rejects(() => pending, CmuxConnectionError);
+
+    if (!synchronous) {
+      assert.equal(transport.releases, 0);
+      assert.ok(transport.retained?.includes("session.ping"));
+      transport.dispatch();
+    }
+    assert.equal(transport.releases, 1);
+    assert.equal(transport.retained, undefined);
+
+    client.close();
+    await rejected;
+    assert.equal(transport.releases, 1);
+  }
+});
+
+test("raw router releases the exact cancellation handle at dispatch", async () => {
+  for (const synchronous of [true, false]) {
+    const transport = new DispatchHandleTransport(synchronous);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw({
+      id: synchronous ? 1 : 2,
+      cmd: "rename-workspace",
+      workspace: 7,
+      name: "dispatch-once",
+    });
+
+    if (!synchronous) {
+      assert.equal(transport.releases, 0);
+      assert.ok(transport.retained?.includes("rename-workspace"));
+      transport.dispatch();
+    }
+    assert.equal(transport.releases, 1);
+    assert.equal(transport.retained, undefined);
+
+    await client.close();
+    await assert.rejects(() => pending, /transport closed/);
+    assert.equal(transport.releases, 1);
+  }
+});
+
+test("clients do not trust unadvertised cancellable dispatch guards", async () => {
+  {
+    const transport = new LegacyDeferredTransport();
+    const client = new Client({ transport, timeoutMs: 0 });
+    const pending = client.session(SESSION).ping();
+    const rejected = assert.rejects(() => pending, CmuxConnectionError);
+
+    assert.equal(transport.sent.length, 1);
+    assert.deepEqual(transport.deferred, []);
+
+    client.close();
+    await rejected;
+  }
+
+  {
+    const transport = new LegacyDeferredTransport();
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw({ id: 3, cmd: "ping" });
+    const rejected = assert.rejects(() => pending, /transport closed/);
+
+    assert.equal(transport.sent.length, 1);
+    assert.deepEqual(transport.deferred, []);
+
+    await client.close();
+    await rejected;
+  }
+});
+
+test("raw request timeout rejects invalid timer values before registration or dispatch", async () => {
+  for (const timeoutMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0x8000_0000]) {
+    const transport = new DispatchHandleTransport(true);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+
+    await assert.rejects(
+      () => client.sendRaw(
+        { id: `invalid-${String(timeoutMs)}`, cmd: "ping" },
+        { timeoutMs },
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof TypeError);
+        assert.equal(error.message, "timeoutMs must be between 0 and 2147483647");
+        return true;
+      },
+    );
+    assert.deepEqual(transport.registrations, []);
+    assert.deepEqual(transport.dispatched, []);
+    await client.close();
+  }
+});
+
+test("raw request timeout accepts the inclusive timer boundaries", async () => {
+  for (const timeoutMs of [0, 0x7fff_ffff]) {
+    const transport = new DispatchHandleTransport(true);
+    const client = new CmuxClient({ transport, timeoutMs: 1_000 });
+    const pending = client.sendRaw(
+      { id: `boundary-${timeoutMs}`, cmd: "ping" },
+      { timeoutMs },
+    );
+
+    assert.equal(transport.registrations.length, 1);
+    assert.equal(transport.dispatched.length, 1);
+    await client.close();
+    await assert.rejects(() => pending, /session transport closed/);
+  }
+});
 
 test("resource root, raw boundary, exact commands, and idempotency keys", async () => {
   const randomValues = [HEX_A, HEX_B, HEX_C];
@@ -869,6 +1077,44 @@ test("request and stream receive bounds are operation-scoped", async () => {
   client.close();
 });
 
+test("stream completion detaches its open AbortSignal listener", async () => {
+  let openedStream = "";
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  const signal = {
+    aborted: false,
+    addEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+    ): void {
+      if (type === "abort") listeners.add(listener);
+    },
+    removeEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+    ): void {
+      if (type === "abort") listeners.delete(listener);
+    },
+  } as unknown as AbortSignal;
+  const transport = new FakeTransport((request, current) => {
+    assert.equal(request.operation, "session.events");
+    openedStream = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: openedStream });
+  });
+  const client = new Client({ transport, randomHex128: () => HEX_B });
+  const stream = await client.session(SESSION).events({ signal });
+  assert.equal(listeners.size, 1);
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_end",
+    stream_id: openedStream,
+    reason: "closed",
+  });
+  assert.equal(listeners.size, 0);
+  assert.deepEqual(await stream.next(), { done: true, value: undefined });
+  client.close();
+});
+
 test("terminal waits propagate finite server bounds no longer than request deadlines", async () => {
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "terminal.wait") {
@@ -1062,6 +1308,85 @@ test("request.cancel false drains the raced terminal response before reuse", asy
     });
     assert.equal((await ping).alive, true);
     client.close();
+  }
+});
+
+test("request.cancel false rejects malformed target results in both orders", async () => {
+  for (const responseFirst of [false, true]) {
+    const transport = new FakeTransport(() => {});
+    const client = new Client({ transport, timeoutMs: 200 });
+    const abort = new AbortController();
+    const waiting = client.session(SESSION).terminal(TERMINAL).wait(
+      { pattern: "never" },
+      { signal: abort.signal },
+    );
+    const target = await waitForOperation(transport, "terminal.wait");
+    abort.abort();
+    const canceled = await waitForOperation(transport, "request.cancel");
+
+    if (responseFirst) {
+      transport.ok(target, { matched: true });
+      transport.ok(canceled, { canceled: false });
+    } else {
+      transport.ok(canceled, { canceled: false });
+      transport.ok(target, { matched: true });
+    }
+
+    await assert.rejects(() => waiting, CmuxAbortError);
+    assert.equal(client.closed, true);
+    await assert.rejects(() => client.session(SESSION).ping());
+  }
+});
+
+test("request.cancel false validates wait_exit identity before reuse", async () => {
+  const otherTerminal = terminalId(`term_${"d".repeat(32)}`);
+  for (const responseFirst of [false, true]) {
+    const transport = new FakeTransport(() => {});
+    const client = new Client({ transport, timeoutMs: 200 });
+    const session = client.session(SESSION);
+    const abort = new AbortController();
+    const waiting = session.terminal(TERMINAL).waitExit(undefined, {
+      signal: abort.signal,
+    });
+    const target = await waitForOperation(transport, "terminal.wait_exit");
+    abort.abort();
+    const canceled = await waitForOperation(transport, "request.cancel");
+    const ping = session.ping();
+    const pingRejected = assert.rejects(() => ping);
+
+    try {
+      const wrongTarget = {
+        state: "pending",
+        terminal_id: otherTerminal,
+        lifecycle: "running",
+        revision: "1",
+      };
+      if (responseFirst) {
+        transport.ok(target, wrongTarget);
+      } else {
+        transport.ok(canceled, { canceled: false });
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      assert.equal(
+        transport.requests.filter(
+          (request) => request.operation === "session.ping",
+        ).length,
+        0,
+      );
+
+      if (responseFirst) {
+        transport.ok(canceled, { canceled: false });
+      } else {
+        transport.ok(target, wrongTarget);
+      }
+
+      await assert.rejects(() => waiting, CmuxAbortError);
+      assert.equal(client.closed, true);
+      await pingRejected;
+    } finally {
+      client.close();
+      await Promise.allSettled([waiting, ping, pingRejected]);
+    }
   }
 });
 
