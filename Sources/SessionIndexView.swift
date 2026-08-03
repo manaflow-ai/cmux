@@ -921,17 +921,20 @@ private struct SessionTranscriptTurnView: View, Equatable {
             VStack(spacing: 3) {
                 Text(row.isContinuation ? "" : row.role.label)
                     .cmuxFont(size: 10, weight: .semibold)
-                    .foregroundColor(row.role.foregroundColor)
+                    .foregroundColor(Color(nsColor: row.role.foregroundColor))
                     .lineLimit(1)
                     .frame(width: 58, alignment: .trailing)
                 if row.isContinuation {
                     Circle()
-                        .fill(row.role.foregroundColor.opacity(0.38))
+                        .fill(Color(nsColor: row.role.foregroundColor).opacity(0.38))
                         .frame(width: 3, height: 3)
                 }
             }
             Text(row.text)
-                .cmuxFont(size: row.role.bodyFontSize, design: row.role.bodyFontDesign)
+                .cmuxFont(
+                    size: row.role.bodyFontSize,
+                    design: row.role.usesMonospacedBodyFont ? .monospaced : .default
+                )
                 .foregroundColor(.primary.opacity(0.92))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -942,10 +945,10 @@ private struct SessionTranscriptTurnView: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(row.role.foregroundColor.opacity(0.46))
+                .fill(Color(nsColor: row.role.foregroundColor).opacity(0.46))
                 .frame(width: 2)
         }
-        .background(row.role.backgroundColor)
+        .background(Color(nsColor: row.role.backgroundColor))
     }
 }
 

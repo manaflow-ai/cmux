@@ -62,7 +62,7 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
     }
 
     /// Native attachment-menu configuration shared by the AppKit sidebar and
-    /// the todo pane while that pane is being moved off SwiftUI.
+    /// the todo pane while that pane is being moved to native AppKit.
     func configure(
         item: WorkspaceChecklistItem,
         iconPointSize: CGFloat,

@@ -1,4 +1,4 @@
-import SwiftUI
+import AppKit
 
 struct SessionTranscriptTurn: Identifiable, Equatable, Sendable {
     let id: Int
@@ -28,23 +28,23 @@ enum SessionTranscriptRole: Equatable, Sendable {
         }
     }
 
-    var foregroundColor: Color {
+    var foregroundColor: NSColor {
         switch self {
-        case .user: return .accentColor
-        case .assistant: return .green
-        case .system: return .secondary
-        case .tool: return .orange
-        case .event: return .secondary
+        case .user: return .controlAccentColor
+        case .assistant: return .systemGreen
+        case .system: return .secondaryLabelColor
+        case .tool: return .systemOrange
+        case .event: return .secondaryLabelColor
         }
     }
 
-    var backgroundColor: Color {
+    var backgroundColor: NSColor {
         switch self {
-        case .user: return Color.accentColor.opacity(0.035)
-        case .assistant: return Color.green.opacity(0.035)
-        case .system: return Color.primary.opacity(0.025)
-        case .tool: return Color.orange.opacity(0.035)
-        case .event: return Color.primary.opacity(0.02)
+        case .user: return .controlAccentColor.withAlphaComponent(0.035)
+        case .assistant: return .systemGreen.withAlphaComponent(0.035)
+        case .system: return .labelColor.withAlphaComponent(0.025)
+        case .tool: return .systemOrange.withAlphaComponent(0.035)
+        case .event: return .labelColor.withAlphaComponent(0.02)
         }
     }
 
@@ -57,12 +57,12 @@ enum SessionTranscriptRole: Equatable, Sendable {
         }
     }
 
-    var bodyFontDesign: Font.Design {
+    var usesMonospacedBodyFont: Bool {
         switch self {
         case .tool, .system:
-            return .monospaced
+            return true
         case .user, .assistant, .event:
-            return .default
+            return false
         }
     }
 }

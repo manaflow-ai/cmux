@@ -28,7 +28,7 @@ struct SidebarWorkspaceTodoMinimalVisibility: Equatable {
 // MARK: - Display policy
 
 /// Pure display ordering/clamping for the sidebar checklist. Kept free of
-/// SwiftUI so it is unit-testable.
+/// UI frameworks so it is unit-testable.
 enum SidebarWorkspaceChecklistDisplayPolicy {
     /// How many items the expanded list shows before collapsing the rest
     /// behind a "… N more" row.
