@@ -63,14 +63,15 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         )
 
     def test_missing_log_does_not_echo_its_path(self) -> None:
-        missing_log = "/tmp/private-selected-test-output.log"
-        result = subprocess.run(
-            ["bash", str(GUARD), missing_log, "cmuxUITests/testExample"],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_log = str(Path(temp_dir) / "missing.log")
+            result = subprocess.run(
+                ["bash", str(GUARD), missing_log, "cmuxUITests/testExample"],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
         self.assertEqual(result.returncode, 2)
         self.assertEqual(
             result.stderr,

@@ -18,18 +18,33 @@ if [[ ! -f "$log_path" ]]; then
   exit 2
 fi
 
-if grep -Eq \
-  "Executed [1-9][0-9]* tests?,|Test run with [1-9][0-9]* tests? (passed|failed)" \
-  "$log_path"; then
-  exit 0
-fi
+summary_kind="$(
+  awk '
+    /Executed [0-9]+ tests?,/ || /Test run with [0-9]+ tests? (passed|failed)/ {
+      if ($0 ~ /Executed 0 tests?,/ || $0 ~ /Test run with 0 tests? (passed|failed)/) {
+        zero = 1
+      } else {
+        positive = 1
+      }
+    }
+    END {
+      if (positive) print "positive"
+      else if (zero) print "zero"
+      else print "missing"
+    }
+  ' "$log_path"
+)"
 
-if grep -Eq \
-  "Executed 0 tests?,|Test run with 0 tests? (passed|failed)" \
-  "$log_path"; then
-  echo "selected iOS test filter matched zero tests; use target/class or target/class/method syntax" >&2
-  exit 1
-fi
-
-echo "selected iOS test execution summary was not found; verify the test log format" >&2
-exit 1
+case "$summary_kind" in
+  positive)
+    exit 0
+    ;;
+  zero)
+    echo "selected iOS test filter matched zero tests; use target/class or target/class/method syntax" >&2
+    exit 1
+    ;;
+  *)
+    echo "selected iOS test execution summary was not found; verify the test log format" >&2
+    exit 1
+    ;;
+esac
