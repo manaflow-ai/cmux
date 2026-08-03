@@ -1078,6 +1078,7 @@ pub enum ResourceChange {
     UpsertTab(RegistryTab),
     TombstoneTab {
         tab_id: TabPublicId,
+        close_content: bool,
     },
     SetTabOrder {
         pane_id: PanePublicId,
@@ -1298,7 +1299,7 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 }
                 format!("tab:{}", tab.public_id)
             }
-            ResourceChange::TombstoneTab { tab_id } => format!("tab:{tab_id}"),
+            ResourceChange::TombstoneTab { tab_id, .. } => format!("tab:{tab_id}"),
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {
                 validate_order_ids("tab", tab_ids.iter().map(|id| id.as_str()))?;
                 format!("tab-order:{pane_id}")
@@ -1499,8 +1500,8 @@ pub(super) fn apply_resource_patch(
     // pane can move out of the closing parent without losing its identity.
     for change in &patch.changes {
         match change {
-            ResourceChange::TombstoneTab { tab_id } => {
-                tombstone_resource_tab(transaction, tab_id.as_str(), revision, true)?;
+            ResourceChange::TombstoneTab { tab_id, close_content } => {
+                tombstone_resource_tab(transaction, tab_id.as_str(), revision, *close_content)?;
             }
             ResourceChange::TombstoneTerminal { public_id, expected_incarnation } => {
                 tombstone_resource_terminal(
@@ -1758,7 +1759,7 @@ fn validate_resource_order_coverage(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 if let Some(pane_id) =
                     resource_field_any(transaction, "resource_tabs", "pane_id", tab_id.as_str())?
                     && !pane_closes_in_patch(
@@ -2798,7 +2799,7 @@ fn validate_touched_resource_invariants(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 tabs.insert(tab_id.to_string());
                 collect_stored_tab_scope(
                     transaction,

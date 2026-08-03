@@ -42,7 +42,9 @@ use crate::browser::{
 #[cfg(all(unix, test))]
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(unix)]
-use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit};
+use crate::terminal_host_protocol::{
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
+};
 use cmux_tui_cdp::BrowserMode;
 
 /// Result of encoding terminal mouse input against a previously observed
@@ -302,6 +304,10 @@ enum HostedTransition {
         output: Vec<u8>,
         colors: TerminalColorOverrides,
     },
+    Resized {
+        cols: u16,
+        rows: u16,
+    },
     ResizedWithColors {
         cols: u16,
         rows: u16,
@@ -334,20 +340,26 @@ enum PendingHostedTransition {
 struct HostedFrameStager {
     protocol_version: u16,
     expected_sequence: u64,
+    smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
 }
 
 #[cfg(unix)]
 impl HostedFrameStager {
     #[cfg(test)]
-    fn new(sequence_boundary: u64) -> Self {
-        Self::new_for_version(sequence_boundary, PROTOCOL_VERSION)
+    fn new(sequence_boundary: u64, smart_renderer: bool) -> Self {
+        Self::new_for_version(sequence_boundary, PROTOCOL_VERSION, smart_renderer)
     }
 
-    fn new_for_version(sequence_boundary: u64, protocol_version: u16) -> Self {
+    fn new_for_version(
+        sequence_boundary: u64,
+        protocol_version: u16,
+        smart_renderer: bool,
+    ) -> Self {
         Self {
             protocol_version,
             expected_sequence: sequence_boundary.wrapping_add(1),
+            smart_renderer,
             pending: None,
         }
     }
@@ -401,7 +413,13 @@ impl HostedFrameStager {
                 _ => Err("unknown Output flags"),
             },
             MessageKind::Resized => {
-                if frame.flags != FLAG_COLORS_FOLLOW {
+                let valid_smart =
+                    self.smart_renderer && frame.flags == 0 && frame.payload.len() == 4;
+                let valid_legacy = !self.smart_renderer
+                    && frame.flags == FLAG_COLORS_FOLLOW
+                    && frame.payload.len() >= 4
+                    && frame.payload.len() - 4 <= VT_REPLAY_MAX_BYTES;
+                if !valid_smart && !valid_legacy {
                     return Err("invalid Resized frame");
                 }
                 let crate::terminal_host_runtime::DecodedHostResize {
@@ -415,7 +433,10 @@ impl HostedFrameStager {
                     &frame.payload,
                     self.protocol_version,
                 )
-                .map_err(|_| "invalid Resized payload")?;
+                .map_err(|_| "invalid Resized geometry")?;
+                if valid_smart {
+                    return Ok(Some(HostedTransition::Resized { cols, rows }));
+                }
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
@@ -2104,6 +2125,40 @@ impl Surface {
     }
 
     #[cfg(unix)]
+    fn apply_hosted_clear_history_replay(
+        surface: &Arc<Surface>,
+        pty: &PtySurface,
+        replay: &[u8],
+        mux: &Weak<Mux>,
+    ) {
+        let mut scroll_changed = None;
+        let generation = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            let normalized = term.vt_write_with_normalized(replay);
+            let output = match normalized {
+                Cow::Borrowed(_) => replay.to_vec(),
+                Cow::Owned(normalized) => normalized,
+            };
+            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.broadcast_attach_output(&output);
+            let after = terminal_scroll_position(&term);
+            if before != after {
+                scroll_changed = Some(after);
+                broadcast_render_scroll_locked(pty, after);
+            }
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.stream_progress.notify();
+        pty.request_frame(generation);
+        if let Some((offset, at_bottom)) = scroll_changed
+            && let Some(mux) = mux.upgrade()
+        {
+            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+        }
+    }
+
+    #[cfg(unix)]
     fn spawn_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2123,6 +2178,7 @@ impl Surface {
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
         let mut control_responses = attachment.control_responses();
+        let smart_renderer = attachment.is_smart_renderer();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -2237,9 +2293,13 @@ impl Surface {
                 let mut sequence_boundary = sequence_boundary;
                 let mut protocol_version = protocol_version;
                 'connection: loop {
-                    let mut stager =
-                        HostedFrameStager::new_for_version(sequence_boundary, protocol_version);
+                    let mut stager = HostedFrameStager::new_for_version(
+                        sequence_boundary,
+                        protocol_version,
+                        smart_renderer,
+                    );
                     let mut received_exit = None;
+                    let mut resync_requested = false;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
                             &mut reader,
@@ -2258,8 +2318,28 @@ impl Surface {
                             if frame.version != protocol_version
                                 || frame.flags != 0
                                 || frame.sequence != 0
-                                || !control_responses.resolve(&frame)
                             {
+                                break;
+                            }
+                            let clear_replay = if frame.kind == MessageKind::ClearHistoryAck
+                                && frame.payload.len() > 1
+                            {
+                                if !smart_renderer
+                                    || frame.payload.first() != Some(&CLEAR_HISTORY_ACK_OK)
+                                {
+                                    break;
+                                }
+                                Some(&frame.payload[1..])
+                            } else {
+                                None
+                            };
+                            if !control_responses.resolve_after(&frame, || {
+                                if let Some(replay) = clear_replay {
+                                    Self::apply_hosted_clear_history_replay(
+                                        &surface, pty, replay, &mux,
+                                    );
+                                }
+                            }) {
                                 break;
                             }
                             continue;
@@ -2301,6 +2381,8 @@ impl Surface {
                                             term.vt_write(&delta);
                                         }
                                         applied_color_overrides = colors.clone();
+                                    } else if smart_renderer {
+                                        applied_color_overrides = term.color_overrides();
                                     } else if !terminal_color_overrides_match_applied(
                                         term.color_overrides(),
                                         &applied_color_overrides,
@@ -2355,6 +2437,29 @@ impl Surface {
                                         surface: surface.id,
                                         offset,
                                         at_bottom,
+                                    });
+                                }
+                            }
+                            HostedTransition::Resized { cols, rows } => {
+                                let mut geometry = pty.geometry.lock().unwrap();
+                                let next_geometry = PtyGeometry { cols, rows, ..*geometry };
+                                let changed = match pty.commit_geometry(
+                                    &mut geometry,
+                                    next_geometry,
+                                    false,
+                                ) {
+                                    Ok(changed) => changed,
+                                    Err(_) => break 'host_stream,
+                                };
+                                drop(geometry);
+                                if changed
+                                    && let Some(mux) = mux.upgrade()
+                                {
+                                    mux.emit(MuxEvent::SurfaceResized {
+                                        surface: surface.id,
+                                        cols,
+                                        rows,
+                                        reservation_id: None,
                                     });
                                 }
                             }
@@ -2485,7 +2590,10 @@ impl Surface {
                                 received_exit = Some(exit);
                                 break;
                             }
-                            HostedTransition::ResyncRequired => break,
+                            HostedTransition::ResyncRequired => {
+                                resync_requested = true;
+                                break;
+                            }
                         }
                     }
                     control_responses.fail_all();
@@ -2509,7 +2617,14 @@ impl Surface {
                         .host_connection_state
                         .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel)
                         != TerminalHostConnectionState::Reconnecting as u8;
+                    // ResyncRequired is an ordered renderer reset from a live
+                    // host, not evidence that its admin stream or PTY was
+                    // lost. Reconnect from a fresh snapshot without moving
+                    // the durable lifecycle through Adopting. This also keeps
+                    // initial topology binding valid if defaults legitimately
+                    // change while a new hosted surface is being installed.
                     if first_loss
+                        && !resync_requested
                         && let Some(mux) = mux.upgrade()
                         && !mux.terminal_host_connection_lost(surface.id, &identity)
                     {
@@ -2881,11 +2996,7 @@ impl Surface {
         )
     }
 
-    /// Materialize canonical Exited registry state without inventing a live
-    /// host connection. The stable identity stays queryable so later
-    /// placement mutations operate on the same terminal object rather than a
-    /// daemon-local surrogate.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(crate) fn exited_terminal_placeholder(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2901,7 +3012,17 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
+    pub(crate) fn exited_terminal_placeholder_for_test(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::exited_terminal_placeholder(id, opts, mux, identity)
+    }
+
+    #[cfg(all(test, unix))]
     pub(crate) fn exited_terminal_placeholder_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -4996,9 +5117,9 @@ impl PtySurface {
                 if *geometry == next && host.viewer_size() == Some((cols, rows)) {
                     return Ok(false);
                 }
-                // Do not speculatively reflow the mirror. The host returns a
-                // Resized+Colors pair containing the canonical post-resize
-                // replay, which the reader installs as one transition.
+                // Do not speculatively reflow the mirror. The host orders
+                // either a compact smart-renderer marker or a legacy
+                // Resized+Colors replay on its authoritative byte stream.
                 return Ok(host.send_viewer_size(cols, rows).is_ok());
             }
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
@@ -5095,11 +5216,22 @@ impl PtySurface {
             #[cfg(unix)]
             PtyRuntime::ExitedHosted => return Ok(false),
         };
-        let has_attach_taps = {
+        let mut has_attach_taps = {
             let mut taps = self.taps.lock().unwrap();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             !taps.is_empty()
         };
+        // A replacement replay cannot represent a parser that is between
+        // UTF-8 bytes or escape-sequence states. Smart mirrors resize in
+        // place, while compatibility mirrors reconnect from a fresh safe
+        // snapshot instead of consuming a corrupt replay.
+        if has_attach_taps && !term.vt_stream_is_ground() {
+            let mut taps = self.taps.lock().unwrap();
+            for tap in taps.drain(..) {
+                tap.lifecycle.cancel();
+            }
+            has_attach_taps = false;
+        }
         // The only replay state that cannot be bounded by dropping old text
         // and completed graphics is an oversized in-flight Kitty upload.
         // Reject it before resize mutates Ghostty's reflow and scrollback.
@@ -5219,6 +5351,17 @@ fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> 
     let mut output = if next.cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
     output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
     output
+}
+
+/// Apply one complete terminal-host Colors state to a local libghostty parser.
+/// Snapshot replay intentionally leaves embedder defaults local while this
+/// helper restores application-authored dynamic colors, palette entries, and
+/// cursor semantics at the advertised sequence boundary.
+pub fn apply_terminal_color_overrides(terminal: &mut Terminal, colors: &TerminalColorOverrides) {
+    let transition = terminal_color_override_full_state(colors);
+    if !transition.is_empty() {
+        terminal.vt_write(&transition);
+    }
 }
 
 fn terminal_color_overrides_match_applied(
@@ -6057,10 +6200,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+        let mux = Mux::new("legacy-resize-disconnect", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attachment = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        pty.term.lock().unwrap().vt_write(b"partial \xce");
+        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+
+        assert!(surface.resize(100, 30).unwrap());
+        assert!(matches!(
+            attachment.stream.recv_timeout(Duration::from_secs(1)),
+            Err(RecvTimeoutError::Disconnected)
+        ));
+        assert!(attachment.lifecycle.is_canceled());
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
-        let mut stager = HostedFrameStager::new(40);
+        let mut stager = HostedFrameStager::new(40, false);
         let mut resize = Frame::new(MessageKind::Resized, {
             let mut payload = Vec::from([101, 0, 37, 0]);
             payload.extend_from_slice(&(b"authoritative replay".len() as u32).to_le_bytes());
@@ -6136,7 +6297,7 @@ mod tests {
         payload.extend_from_slice(&18u16.to_le_bytes());
         append_disabled_kitty_replay_state(&mut payload);
 
-        let mut stager = HostedFrameStager::new(8);
+        let mut stager = HostedFrameStager::new(8, false);
         let mut resize = Frame::new(MessageKind::Resized, payload);
         resize.flags = FLAG_COLORS_FOLLOW;
         resize.sequence = 9;
@@ -6176,7 +6337,7 @@ mod tests {
         payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
         payload.extend_from_slice(replay);
 
-        let mut stager = HostedFrameStager::new_for_version(0, 1);
+        let mut stager = HostedFrameStager::new_for_version(0, 1, false);
         let mut resize = Frame::new(MessageKind::Resized, payload);
         resize.version = 1;
         resize.flags = FLAG_COLORS_FOLLOW;
@@ -6211,6 +6372,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
+        let mut stager = HostedFrameStager::new(7, true);
+        let mut prefix = Frame::new(MessageKind::Output, vec![0xce]);
+        prefix.sequence = 8;
+        assert!(matches!(
+            stager.push(prefix).unwrap(),
+            Some(HostedTransition::Output(bytes)) if bytes == vec![0xce]
+        ));
+
+        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0]);
+        resized.sequence = 9;
+        assert!(matches!(
+            stager.push(resized).unwrap(),
+            Some(HostedTransition::Resized { cols: 100, rows: 30 })
+        ));
+
+        let mut suffix = Frame::new(MessageKind::Output, vec![0xbb]);
+        suffix.sequence = 10;
+        assert!(matches!(
+            stager.push(suffix).unwrap(),
+            Some(HostedTransition::Output(bytes)) if bytes == vec![0xbb]
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn hosted_stager_decodes_authoritative_exit_payload() {
         let exit = TerminalExit {
             outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
@@ -6221,7 +6408,7 @@ mod tests {
             crate::terminal_host_protocol::encode_terminal_exit(&exit),
         );
         frame.sequence = 1;
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         match stager.push(frame).unwrap() {
             Some(HostedTransition::Exit(observed)) => assert_eq!(observed, exit),
             other => panic!("unexpected staged transition: {other:?}"),
@@ -6229,24 +6416,24 @@ mod tests {
 
         let mut malformed = Frame::new(MessageKind::Exit, vec![1, 0, 2]);
         malformed.sequence = 1;
-        assert!(HostedFrameStager::new(0).push(malformed).is_err());
+        assert!(HostedFrameStager::new(0, false).push(malformed).is_err());
     }
 
     #[cfg(unix)]
     #[test]
     fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
         resized.sequence = 1;
         assert!(stager.push(resized).is_err(), "Resized must declare Colors follow");
 
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut output = Frame::new(MessageKind::Output, vec![]);
         output.flags = FLAG_COLORS_FOLLOW | (1 << 7);
         output.sequence = 1;
         assert!(stager.push(output).is_err(), "unknown flags must fail closed");
 
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut output = Frame::new(MessageKind::Output, vec![]);
         output.flags = FLAG_COLORS_FOLLOW;
         output.sequence = 1;
@@ -6255,7 +6442,7 @@ mod tests {
         exit.sequence = 2;
         assert!(stager.push(exit).is_err(), "a coupled frame requires Colors exactly next");
 
-        let mut stager = HostedFrameStager::new(0);
+        let mut stager = HostedFrameStager::new(0, false);
         let mut malformed = Frame::new(MessageKind::Resized, {
             let mut payload = vec![80, 0, 24, 0, 0, 0, 0, 0];
             payload.extend_from_slice(&1u16.to_le_bytes());
@@ -6275,7 +6462,7 @@ mod tests {
             terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
             incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
         };
-        let surface = Surface::exited_terminal_placeholder(
+        let surface = Surface::exited_terminal_placeholder_for_test(
             91,
             SurfaceOptions::default(),
             Arc::downgrade(&mux),

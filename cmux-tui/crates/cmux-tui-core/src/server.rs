@@ -63,6 +63,7 @@ use crate::sidebar_resource::{
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
+use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
@@ -655,6 +656,14 @@ enum Command {
     /// daemon's durable owner capability.
     MintTerminalRenderer {
         surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Mint a renderer credential from the stable public terminal identity.
+    /// Remote clients must not depend on this daemon generation's local
+    /// numeric surface handle.
+    MintTerminalRendererByTerminal {
+        terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
@@ -4604,9 +4613,8 @@ fn run_terminal_resource_wait_exit(
     request: &crate::resource_router::ParsedResourceRequest,
     canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
-    let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
     let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+        crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
     let timeout = resource_wait_timeout(request);
     let deadline = timeout
         .map(|timeout| {
@@ -8520,7 +8528,7 @@ fn handle_command_with_cancellation(
             if key.is_some() && !new_workspace {
                 anyhow::bail!("key requires new_workspace");
             }
-            let placement = mux.run_command_surface_with_options(
+            let result = mux.run_command_result_with_options(
                 argv,
                 crate::mux::RunCommandOptions {
                     pane,
@@ -8531,17 +8539,19 @@ fn handle_command_with_cancellation(
                     size: optional_surface_size(cols, rows),
                 },
             )?;
-            let terminal_identity =
-                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
+            let placement = result.placement;
+            let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
             Ok(json!({
-                "surface": placement.surface,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-                "pane": placement.pane,
-                "screen": placement.screen,
-                "workspace": placement.workspace,
+                "surface": placement.as_ref().map(|placement| placement.surface),
+                "terminal_id": result.terminal.terminal_id,
+                "terminal_incarnation": result.terminal.incarnation,
+                "pane": placement.as_ref().map(|placement| placement.pane),
+                "screen": placement.as_ref().map(|placement| placement.screen),
+                "workspace": placement.as_ref().map(|placement| placement.workspace),
+                "lifecycle": result.terminal.lifecycle,
+                "exit": result.terminal.exit,
+                "terminal_revision": result.terminal_revision,
+                "already_exited": already_exited,
             }))
         }
         Command::SendKey { surface, keys } => {
@@ -8627,6 +8637,23 @@ fn handle_command_with_cancellation(
                 "token": grant.token,
                 "rights": grant.rights.bits(),
                 "protocol_version": grant.protocol_version,
+                "ttl_ms": ttl_ms,
+            }))
+        }
+        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let terminal = TerminalPublicId::parse(terminal)?;
+            let surface = mux
+                .resource_surface_for_terminal(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(json!({
+                "endpoint": grant.endpoint,
+                "terminal_id": grant.terminal_id,
+                "incarnation": grant.incarnation,
+                "token": grant.token,
+                "rights": grant.rights.bits(),
                 "ttl_ms": ttl_ms,
             }))
         }
@@ -8924,7 +8951,7 @@ fn handle_command_with_cancellation(
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
-                let result = mux.create_terminal_in_workspace_with_mutation(
+                let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
                     argv,
                     cwd,
@@ -8935,6 +8962,7 @@ fn handle_command_with_cancellation(
                     mutation.expected_revision,
                     &workspace_mutation,
                 )?;
+                mux.reap_created_terminal_surface(result.created_surface);
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
                     "workspace_key":key,
@@ -8948,38 +8976,42 @@ fn handle_command_with_cancellation(
                         "workspace_key":key,
                     }),
                 )?;
-                let placement = result.placement;
+                let created = mux.created_terminal_run_result(&result.terminal_id)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": result.terminal_id,
-                    "terminal_incarnation": result.terminal_incarnation,
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": "running",
-                    "terminal_revision": result.terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": result.replayed,
                     "registry_id": registry_id,
                     "generation": generation,
                 }))
             } else {
-                let placement =
-                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
-                let identity = mux
-                    .surface(placement.surface)
-                    .and_then(|surface| surface.terminal_host_identity());
-                let terminal_revision = mux.terminal_registry_snapshot()?.revision;
+                let created =
+                    mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
+                let placement = created.placement;
+                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
                 Ok(json!({
-                    "surface": placement.surface,
-                    "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-                    "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-                    "pane": placement.pane,
-                    "screen": placement.screen,
-                    "workspace": placement.workspace,
+                    "surface": placement.as_ref().map(|placement| placement.surface),
+                    "terminal_id": created.terminal.terminal_id,
+                    "terminal_incarnation": created.terminal.incarnation,
+                    "pane": placement.as_ref().map(|placement| placement.pane),
+                    "screen": placement.as_ref().map(|placement| placement.screen),
+                    "workspace": placement.as_ref().map(|placement| placement.workspace),
                     "key": key,
-                    "lifecycle": identity.as_ref().map(|_| "running"),
-                    "terminal_revision": terminal_revision,
+                    "lifecycle": created.terminal.lifecycle,
+                    "exit": created.terminal.exit,
+                    "already_exited": already_exited,
+                    "terminal_revision": created.terminal_revision,
                     "replayed": false,
                     "registry_id": registry_id,
                     "generation": generation,
@@ -11290,6 +11322,85 @@ mod tests {
             std::thread::yield_now();
         }
         assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn connection_wait_exit_resolves_durable_detached_terminal_after_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-connection-wait-exit-restart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let session = "connection-wait-exit-restart";
+        let first = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = first.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-restart-exit-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-restart-exit-wait"),
+        );
+        assert!(handle_connection_message(&first, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        assert_eq!(created["ok"], true, "{created}");
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
+        assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
+        assert!(disconnect_client(&first, client, false));
+        drop(scheduler);
+        drop(writer);
+        first.shutdown();
+        let shutdown_deadline = Instant::now() + Duration::from_secs(10);
+        while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
+        drop(first);
+
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
+        let wait = resource_request(
+            "wait-for-exit-after-restart",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&reopened, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["state"], "exited", "{response}");
+        assert_eq!(response["result"]["terminal_id"], terminal_id.as_str(), "{response}");
+        assert_eq!(response["result"]["outcome"], json!({"kind":"exit","code":0}));
+        assert_eq!(response["result"]["exited_at"], "4567890");
+
+        assert!(disconnect_client(&reopened, client, false));
+        reopened.shutdown();
+        drop(scheduler);
+        drop(writer);
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -28,10 +28,10 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -55,6 +55,11 @@ const MAX_HOST_CLIENT_STATE_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
     + 3 * crate::terminal_host_protocol::HEADER_LEN;
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
     MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES + MAX_HOST_CLIENT_STATE_QUEUED_BYTES;
+const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+const MAX_SMART_RETAINED_BYTES: usize = 8 * 1024 * 1024;
+const MAX_SMART_RETAINED_FRAMES: usize = 4096;
+const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
+const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
@@ -389,7 +394,7 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::ffi::CString;
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
@@ -748,7 +753,12 @@ mod unix {
             }
         }
 
+        #[cfg(test)]
         pub(crate) fn resolve(&self, frame: &Frame) -> bool {
+            self.resolve_after(frame, || {})
+        }
+
+        pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
             let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
             match waiter {
                 Some(ControlResponseWaiter::Blocking { kind, sender }) => {
@@ -758,6 +768,7 @@ mod unix {
                     if frame.kind == MessageKind::CellPixelSizeAck {
                         self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
                     }
+                    before_resolve();
                     let _ = sender.try_send(frame.clone());
                     true
                 }
@@ -766,6 +777,7 @@ mod unix {
                         return false;
                     }
                     self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
+                    before_resolve();
                     let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
                     if let Some(handler) = handler {
                         handler(
@@ -828,6 +840,7 @@ mod unix {
         pub record_path: PathBuf,
         pub snapshot: HostSnapshot,
         protocol_version: u16,
+        smart_renderer: bool,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
         control_responses: Arc<ControlResponses>,
@@ -909,6 +922,10 @@ mod unix {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
         }
 
+        pub(crate) fn is_smart_renderer(&self) -> bool {
+            self.smart_renderer
+        }
+
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
             let mut frame = Frame::new(kind, payload.to_vec());
@@ -950,6 +967,7 @@ mod unix {
             )?;
             match response.as_slice() {
                 [CLEAR_HISTORY_ACK_OK] => {}
+                [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => {}
                 [status] => {
                     let Some(failure) = clear_history_ack_failure(*status) else {
                         self.disconnect();
@@ -1985,16 +2003,27 @@ mod unix {
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
         let mut failures = Vec::new();
+        match connect_record_at_version(
+            record.clone(),
+            record_path.clone(),
+            handshake_timeout,
+            PROTOCOL_VERSION,
+            true,
+        ) {
+            Ok(attachment) => return Ok(attachment),
+            Err(error) => failures.push(format!("smart protocol {PROTOCOL_VERSION}: {error:#}")),
+        }
         for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
             match connect_record_at_version(
                 record.clone(),
                 record_path.clone(),
                 handshake_timeout,
                 protocol_version,
+                false,
             ) {
                 Ok(attachment) => return Ok(attachment),
                 Err(error) => {
-                    failures.push(format!("protocol {protocol_version}: {error:#}"));
+                    failures.push(format!("legacy protocol {protocol_version}: {error:#}"));
                 }
             }
         }
@@ -2006,6 +2035,7 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
         protocol_version: u16,
+        smart_renderer: bool,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2026,12 +2056,16 @@ mod unix {
         };
         let mut hello_frame = hello.into_frame(1);
         hello_frame.version = protocol_version;
+        if smart_renderer {
+            hello_frame.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        }
         write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
+            || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
         {
             anyhow::bail!("terminal host rejected owner handshake");
         }
@@ -2063,6 +2097,18 @@ mod unix {
         }
         snapshot.sequence_boundary = snapshot_frame.sequence;
         snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+        if smart_renderer {
+            let ready_frame = read_required_frame(&mut stream, "terminal ready boundary")?;
+            if ready_frame.kind != MessageKind::Ready
+                || ready_frame.version != protocol_version
+                || ready_frame.flags != 0
+                || ready_frame.sequence != snapshot_frame.sequence
+                || ready_frame.request_id != 0
+                || !ready_frame.payload.is_empty()
+            {
+                anyhow::bail!("terminal host did not send Ready at the snapshot sequence boundary");
+            }
+        }
         let snapshot_size = (snapshot.cols, snapshot.rows);
         stream.set_read_timeout(None)?;
         // Keep bounded writes for the lifetime of the disposable admin
@@ -2076,6 +2122,7 @@ mod unix {
             record_path,
             snapshot,
             protocol_version,
+            smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
             control_responses: Arc::new(ControlResponses::new()),
@@ -2370,6 +2417,239 @@ mod unix {
         }
     }
 
+    /// Source-ordered raw terminal stream used only by negotiated smart
+    /// renderers. Its cursor is deliberately independent of the legacy
+    /// parser-ordered CMTH stream: publishing raw PTY bytes must not wait for
+    /// the authoritative Ghostty parser, while legacy renderers keep their
+    /// normalized Output + coupled Colors contract unchanged.
+    struct SmartStreamState {
+        broadcast_lock: Mutex<()>,
+        taps: Mutex<HashMap<u64, HostTap>>,
+        source_cursor: AtomicU64,
+        applied_cursor: AtomicU64,
+        retained: Mutex<SmartRetention>,
+    }
+
+    impl SmartStreamState {
+        fn new() -> Self {
+            Self {
+                broadcast_lock: Mutex::new(()),
+                taps: Mutex::new(HashMap::new()),
+                source_cursor: AtomicU64::new(0),
+                applied_cursor: AtomicU64::new(0),
+                retained: Mutex::new(SmartRetention::default()),
+            }
+        }
+
+        /// Publish before parsing. The returned source cursor is marked
+        /// applied only after the authoritative parser has consumed the same
+        /// transition.
+        fn publish(&self, mut frame: Frame) -> u64 {
+            let _broadcast = self.broadcast_lock.lock().unwrap();
+            let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
+            frame.sequence = cursor;
+            self.retained.lock().unwrap().push(frame.clone());
+            self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+            cursor
+        }
+
+        fn publish_after_targeted(
+            &self,
+            targeted: &HostTap,
+            targeted_frame: Frame,
+            mut frame: Frame,
+        ) -> (u64, bool) {
+            let _broadcast = self.broadcast_lock.lock().unwrap();
+            let targeted_queued = targeted.try_send(targeted_frame);
+            let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
+            frame.sequence = cursor;
+            self.retained.lock().unwrap().push(frame.clone());
+            self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+            (cursor, targeted_queued)
+        }
+
+        fn mark_applied(&self, cursor: u64) {
+            let prior = self.applied_cursor.fetch_max(cursor, Ordering::AcqRel);
+            debug_assert!(prior <= cursor, "smart parser cursor moved backwards");
+        }
+
+        fn close_failed_transition(&self, source_cursor: Option<u64>) {
+            if source_cursor.is_none() {
+                return;
+            }
+            let cursor = self.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
+            // The failed marker is closed by an explicit applied boundary.
+            // New clients snapshot after it; connected clients restart the
+            // handshake instead of waiting forever for an unapplied cursor.
+            self.mark_applied(cursor);
+        }
+
+        /// Called while the terminal parser lock is held. It queues retained
+        /// frames before inserting the tap, all under the source publication
+        /// lock, so the caller may release its parser lock and perform socket
+        /// writes without opening an attach race.
+        fn subscribe(&self, client: u64, tap: HostTap) -> Result<u64, SmartReplayGap> {
+            let _broadcast = self.broadcast_lock.lock().unwrap();
+            let boundary = self.applied_cursor.load(Ordering::Acquire);
+            let backlog = self.retained.lock().unwrap().after(boundary)?;
+            for frame in backlog {
+                if !tap.try_send(frame) {
+                    return Err(SmartReplayGap {
+                        requested_after: boundary,
+                        retained_after: boundary,
+                    });
+                }
+            }
+            self.taps.lock().unwrap().insert(client, tap);
+            Ok(boundary)
+        }
+
+        fn remove(&self, client: u64) {
+            self.taps.lock().unwrap().remove(&client);
+        }
+
+        fn is_empty(&self) -> bool {
+            self.taps.lock().unwrap().is_empty()
+        }
+    }
+
+    #[derive(Default)]
+    struct SmartRetention {
+        frames: VecDeque<Frame>,
+        bytes: usize,
+        dropped_through: u64,
+    }
+
+    impl SmartRetention {
+        fn push(&mut self, frame: Frame) {
+            let retained = retained_frame_bytes(&frame);
+            self.bytes = self.bytes.saturating_add(retained);
+            self.frames.push_back(frame);
+            while self.bytes > MAX_SMART_RETAINED_BYTES
+                || self.frames.len() > MAX_SMART_RETAINED_FRAMES
+            {
+                let Some(frame) = self.frames.pop_front() else { break };
+                self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
+                self.dropped_through = frame.sequence;
+            }
+        }
+
+        fn after(&self, cursor: u64) -> Result<Vec<Frame>, SmartReplayGap> {
+            if cursor < self.dropped_through {
+                return Err(SmartReplayGap {
+                    requested_after: cursor,
+                    retained_after: self.dropped_through,
+                });
+            }
+            Ok(self.frames.iter().filter(|frame| frame.sequence > cursor).cloned().collect())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct SmartReplayGap {
+        requested_after: u64,
+        retained_after: u64,
+    }
+
+    fn retained_frame_bytes(frame: &Frame) -> usize {
+        crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len())
+    }
+
+    enum ParserCommand {
+        Output {
+            bytes: Vec<u8>,
+            source_cursor: u64,
+            accounted_bytes: usize,
+        },
+        Resize {
+            cols: u16,
+            rows: u16,
+            cell_pixels: (u16, u16),
+            source_cursor: Option<u64>,
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, HostTap)>,
+            response: SyncSender<Result<ParserResizeResult, String>>,
+        },
+        SetDefaults {
+            colors: Box<DefaultColors>,
+            source_cursor: u64,
+            response: SyncSender<()>,
+        },
+        ClearHistory {
+            fallback_key: Option<KeyInput>,
+            response: SyncSender<Result<ParserClearHistoryResult, String>>,
+        },
+        Drain,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ParserResizeResult {
+        acknowledgement_queued: bool,
+        changed: bool,
+    }
+
+    enum ParserClearHistoryResult {
+        Cleared(Vec<u8>),
+        Blocked,
+        EncodedFallback(Vec<u8>),
+        Noop,
+    }
+
+    enum ClearHistoryAckDisposition {
+        Pending,
+        Queued,
+        ConnectionClosed,
+    }
+
+    struct ParserBudget {
+        queued_bytes: Mutex<usize>,
+        available: Condvar,
+        max_bytes: usize,
+    }
+
+    impl ParserBudget {
+        fn new(max_bytes: usize) -> Self {
+            Self { queued_bytes: Mutex::new(0), available: Condvar::new(), max_bytes }
+        }
+
+        fn reserve(&self, bytes: usize) {
+            debug_assert!(bytes <= self.max_bytes);
+            let queued = self.queued_bytes.lock().unwrap();
+            let mut queued = self
+                .available
+                .wait_while(queued, |queued| queued.saturating_add(bytes) > self.max_bytes)
+                .unwrap();
+            *queued += bytes;
+        }
+
+        fn release(&self, bytes: usize) {
+            let mut queued = self.queued_bytes.lock().unwrap();
+            *queued =
+                queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+            self.available.notify_all();
+        }
+    }
+
+    fn enqueue_parser_output(
+        parser_commands: &SyncSender<ParserCommand>,
+        parser_budget: &ParserBudget,
+        smart: &SmartStreamState,
+        bytes: Vec<u8>,
+        source_cursor: u64,
+        accounted_bytes: usize,
+    ) -> bool {
+        if parser_commands
+            .send(ParserCommand::Output { bytes, source_cursor, accounted_bytes })
+            .is_ok()
+        {
+            return true;
+        }
+
+        parser_budget.release(accounted_bytes);
+        smart.close_failed_transition(Some(source_cursor));
+        false
+    }
+
     fn wait_for_pty_readable_or_forced_drain(
         pty_fd: RawFd,
         drain_waiter: &mut UnixStream,
@@ -2440,6 +2720,7 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        default_colors: Mutex<DefaultColors>,
         stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
         master: Mutex<Box<dyn MasterPty + Send>>,
@@ -2453,6 +2734,17 @@ mod unix {
         taps: Mutex<HashMap<u64, HostTap>>,
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
+        smart: SmartStreamState,
+        /// Orders source-cursor allocation and parser-command enqueueing. A
+        /// resize keeps this lock until all prior parser commands drain, which
+        /// gives both the host and smart clients the same output/resize order.
+        source_order_lock: Mutex<()>,
+        parser_commands: SyncSender<ParserCommand>,
+        parser_budget: ParserBudget,
+        /// Generation advanced after each parser write. Snapshot admission
+        /// waits here when a PTY read ends inside UTF-8 or a control sequence,
+        /// without blocking the reader from enqueueing the completing bytes.
+        parser_progress: (Mutex<u64>, Condvar),
         next_client: AtomicU64,
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
@@ -2579,6 +2871,52 @@ mod unix {
     }
 
     impl HostShared {
+        fn note_parser_progress(&self) {
+            let mut generation = self.parser_progress.0.lock().unwrap();
+            *generation = generation.wrapping_add(1);
+            self.parser_progress.1.notify_all();
+        }
+
+        fn terminal_at_snapshot_boundary(
+            &self,
+            timeout: Duration,
+        ) -> anyhow::Result<std::sync::MutexGuard<'_, Terminal>> {
+            let deadline = Instant::now() + timeout;
+            let mut generation = self.parser_progress.0.lock().unwrap();
+            loop {
+                let term = self.term.lock().unwrap();
+                if term.vt_stream_is_ground() {
+                    drop(generation);
+                    return Ok(term);
+                }
+                drop(term);
+                if self.dead.load(Ordering::Acquire) {
+                    anyhow::bail!("terminal host exited before a safe snapshot boundary");
+                }
+
+                let now = Instant::now();
+                if now >= deadline {
+                    anyhow::bail!(
+                        "terminal VT stream did not reach a safe snapshot boundary before timeout"
+                    );
+                }
+                let observed = *generation;
+                let (next, wait) = self
+                    .parser_progress
+                    .1
+                    .wait_timeout_while(generation, deadline - now, |current| {
+                        *current == observed && !self.dead.load(Ordering::Acquire)
+                    })
+                    .unwrap();
+                generation = next;
+                if wait.timed_out() && *generation == observed {
+                    anyhow::bail!(
+                        "terminal VT stream did not reach a safe snapshot boundary before timeout"
+                    );
+                }
+            }
+        }
+
         fn broadcast(&self, kind: MessageKind, payload: Vec<u8>) {
             self.broadcast_frames([Frame::new(kind, payload)]);
         }
@@ -2595,41 +2933,116 @@ mod unix {
         }
 
         fn set_default_colors(&self, colors: DefaultColors) {
-            let mut term = self.term.lock().unwrap();
-            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
-            term.set_default_palette(&colors.palette);
-            replace_ghostty_cursor_defaults(&mut term, colors);
-            let resolved = term.color_overrides();
-            // An empty coupled Output is an ordered state transition already
-            // understood by every v2 consumer; no standalone Colors frame can
-            // split or bypass the live-stream stager.
-            self.broadcast_with_colors(
-                MessageKind::Output,
-                Vec::new(),
-                encode_terminal_color_overrides(&resolved),
-            );
+            // Default changes have no raw VT representation. Order an
+            // explicit resync marker with PTY bytes, then apply the defaults
+            // on the FIFO parser worker before advancing its snapshot
+            // boundary. Legacy mirrors retain their coupled color update.
+            let _source_order = self.source_order_lock.lock().unwrap();
+            if *self.default_colors.lock().unwrap() == colors {
+                return;
+            }
+            let source_cursor =
+                self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
+            let (response, applied) = sync_channel(1);
+            if self
+                .parser_commands
+                .send(ParserCommand::SetDefaults {
+                    colors: Box::new(colors),
+                    source_cursor,
+                    response,
+                })
+                .is_err()
+            {
+                self.smart.mark_applied(source_cursor);
+                return;
+            }
+            if applied.recv().is_ok() {
+                *self.default_colors.lock().unwrap() = colors;
+            } else {
+                self.smart.mark_applied(source_cursor);
+            }
         }
 
         fn clear_history_or_encode_key(
             &self,
             fallback_key: Option<&KeyInput>,
-        ) -> Result<(), ClearHistoryFailure> {
+            smart_ack: Option<(u64, &HostTap)>,
+        ) -> Result<ClearHistoryAckDisposition, ClearHistoryFailure> {
             let mut observed_progress = self.stream_progress.revision();
             let mut stream_wait = None;
             loop {
-                let mut term = self.term.lock().unwrap();
-                match apply_clear_history_transition(&mut term, fallback_key)
-                    .map_err(ClearHistoryFailure::known_not_delivered)?
-                {
-                    ClearHistoryTransition::Cleared(clear) => {
-                        // Keep the authoritative parser lock through sequence
-                        // publication so child output cannot overtake the
-                        // emulator-only erase on any attached mirror.
-                        self.broadcast(MessageKind::Output, clear);
-                        return Ok(());
+                // Clear-history observes and mutates parser state. Keep its
+                // command in the same FIFO as PTY output while holding source
+                // order so neither already-read nor later bytes can cross the
+                // emulator-only transition.
+                let (result, acknowledgement) = {
+                    let _source_order = self.source_order_lock.lock().unwrap();
+                    let (response, applied) = sync_channel(1);
+                    if self
+                        .parser_commands
+                        .send(ParserCommand::ClearHistory {
+                            fallback_key: fallback_key.cloned(),
+                            response,
+                        })
+                        .is_err()
+                    {
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal parser worker stopped"
+                        )));
                     }
-                    ClearHistoryTransition::Blocked => {
-                        drop(term);
+                    let result = applied
+                        .recv()
+                        .map_err(|_| {
+                            ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                                "terminal parser worker stopped"
+                            ))
+                        })?
+                        .map_err(|error| {
+                            ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(error))
+                        })?;
+                    let acknowledgement = match &result {
+                        ParserClearHistoryResult::Cleared(clear) => {
+                            let marker = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                            let (source_cursor, acknowledgement) =
+                                if let Some((request_id, target)) = smart_ack {
+                                    let mut payload = Vec::with_capacity(1 + clear.len());
+                                    payload.push(CLEAR_HISTORY_ACK_OK);
+                                    payload.extend_from_slice(clear);
+                                    let mut response =
+                                        Frame::new(MessageKind::ClearHistoryAck, payload);
+                                    response.request_id = request_id;
+                                    let (source_cursor, queued) =
+                                        self.smart.publish_after_targeted(target, response, marker);
+                                    (
+                                        source_cursor,
+                                        if queued {
+                                            ClearHistoryAckDisposition::Queued
+                                        } else {
+                                            ClearHistoryAckDisposition::ConnectionClosed
+                                        },
+                                    )
+                                } else {
+                                    (
+                                        self.smart.publish(marker),
+                                        ClearHistoryAckDisposition::Pending,
+                                    )
+                                };
+                            self.smart.mark_applied(source_cursor);
+                            Some(acknowledgement)
+                        }
+                        _ => None,
+                    };
+                    (result, acknowledgement)
+                };
+                match result {
+                    ParserClearHistoryResult::Cleared(_) => {
+                        return Ok(acknowledgement
+                            .expect("a cleared parser transition has an acknowledgement"));
+                    }
+                    ParserClearHistoryResult::Noop => {
+                        return Ok(ClearHistoryAckDisposition::Pending);
+                    }
+                    ParserClearHistoryResult::Blocked => {
                         let deadline = stream_wait
                             .get_or_insert_with(|| {
                                 self.stream_progress
@@ -2646,23 +3059,44 @@ mod unix {
                         };
                         observed_progress = progress;
                     }
-                    ClearHistoryTransition::EncodedFallback(encoded) => {
-                        drop(term);
+                    ParserClearHistoryResult::EncodedFallback(encoded) => {
                         let mut writer = self.writer.lock().unwrap();
                         let master = self.master.lock().unwrap();
                         return write_clear_history_fallback(
                             master.as_ref(),
                             writer.as_mut(),
                             &encoded,
-                        );
+                        )
+                        .map(|()| ClearHistoryAckDisposition::Pending);
                     }
-                    ClearHistoryTransition::Noop => return Ok(()),
                 }
             }
         }
 
+        fn apply_parser_clear_history(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> anyhow::Result<ParserClearHistoryResult> {
+            let mut term = self.term.lock().unwrap();
+            Ok(match apply_clear_history_transition(&mut term, fallback_key)? {
+                ClearHistoryTransition::Cleared(clear) => {
+                    // Legacy mirrors consume this replay directly. The
+                    // command submitter publishes the smart resync marker
+                    // while it still owns source order.
+                    self.broadcast(MessageKind::Output, clear.clone());
+                    ParserClearHistoryResult::Cleared(clear)
+                }
+                ClearHistoryTransition::Blocked => ParserClearHistoryResult::Blocked,
+                ClearHistoryTransition::EncodedFallback(encoded) => {
+                    ParserClearHistoryResult::EncodedFallback(encoded)
+                }
+                ClearHistoryTransition::Noop => ParserClearHistoryResult::Noop,
+            })
+        }
+
         fn remove_client(&self, client: u64) {
             self.taps.lock().unwrap().remove(&client);
+            self.smart.remove(client);
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
@@ -2903,21 +3337,90 @@ mod unix {
                     targeted,
                 ));
             }
-            let previous = *size;
+            // Output and geometry share one source order. Publish a compact
+            // smart-renderer marker before the authoritative parser applies
+            // it, then wait for the FIFO parser worker before admitting a
+            // later source byte. Legacy clients keep their replay-bearing
+            // Resized transition on the parser side of the same barrier.
+            let _source_order = self.source_order_lock.lock().unwrap();
+            let source_cursor = changed.then(|| {
+                let mut payload = Vec::with_capacity(4);
+                payload.extend_from_slice(&cols.to_le_bytes());
+                payload.extend_from_slice(&rows.to_le_bytes());
+                self.smart.publish(Frame::new(MessageKind::Resized, payload))
+            });
+            let (response_sender, response_receiver) = sync_channel(1);
+            let command = ParserCommand::Resize {
+                cols,
+                rows,
+                cell_pixels: *cell_pixels,
+                source_cursor,
+                acknowledge_with_replay,
+                targeted_ack: targeted_ack.map(|(request_id, tap)| (request_id, tap.clone())),
+                response: response_sender,
+            };
+            if self.parser_commands.send(command).is_err() {
+                self.smart.close_failed_transition(source_cursor);
+                anyhow::bail!("terminal parser worker stopped");
+            }
+            let result = match response_receiver.recv() {
+                Ok(result) => result.map_err(anyhow::Error::msg),
+                Err(_) => {
+                    self.smart.close_failed_transition(source_cursor);
+                    anyhow::bail!("terminal parser worker stopped");
+                }
+            };
+            match result {
+                Ok(result) => {
+                    debug_assert_eq!(result.changed, changed);
+                    if changed {
+                        *size = (cols, rows);
+                    }
+                    Ok(result.acknowledgement_queued)
+                }
+                Err(error) => {
+                    self.smart.close_failed_transition(source_cursor);
+                    Err(error)
+                }
+            }
+        }
+
+        fn apply_parser_resize(
+            &self,
+            cols: u16,
+            rows: u16,
+            source_cursor: Option<u64>,
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, HostTap)>,
+            cell_pixels: (u16, u16),
+        ) -> anyhow::Result<ParserResizeResult> {
+            let mut term = self.term.lock().unwrap();
+            let previous = (term.cols(), term.rows());
+            let changed = previous != (cols, rows);
+            let master = self.master.lock().unwrap();
             let resize_sizes = if changed {
                 Some((
-                    pty_size(previous.0, previous.1, *cell_pixels)?,
-                    pty_size(cols, rows, *cell_pixels)?,
+                    pty_size(previous.0, previous.1, cell_pixels)?,
+                    pty_size(cols, rows, cell_pixels)?,
                 ))
             } else {
                 None
             };
-            let mut term = self.term.lock().unwrap();
-            let master = self.master.lock().unwrap();
+            let targeted = targeted_ack.as_ref().map(|(request_id, tap)| {
+                let mut frame =
+                    Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, changed));
+                frame.request_id = *request_id;
+                (tap, frame)
+            });
+            let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
+            let publish_legacy_resize = acknowledge_with_replay || (changed && has_legacy_clients);
+            let replay_is_safe = term.vt_stream_is_ground();
             if let Some((previous_size, next_size)) = resize_sizes {
-                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
-                    "could not preflight terminal-host resize replay; geometry unchanged",
-                )?;
+                if publish_legacy_resize && replay_is_safe {
+                    term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
+                        "could not preflight terminal-host resize replay; geometry unchanged",
+                    )?;
+                }
                 master.resize(next_size)?;
                 if let Err(error) =
                     term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
@@ -2926,59 +3429,88 @@ mod unix {
                     return Err(error.into());
                 }
             }
-            let replay = match term
-                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
-            {
-                Ok(replay) => replay,
-                Err(_) if changed => {
-                    // The bounded preflight ruled out the only persistent
-                    // budget failure. Preserve the committed terminal state
-                    // and force mirrors to reconnect instead of attempting an
-                    // inverse, destructive Ghostty resize.
-                    *size = (cols, rows);
-                    let mut taps = self.taps.lock().unwrap();
-                    for tap in taps.values() {
-                        tap.close();
+            let acknowledgement_queued = if publish_legacy_resize && !replay_is_safe {
+                // A replay cannot serialize an in-progress decoder or escape
+                // sequence. Force compatibility clients to take a new safe
+                // snapshot instead of orphaning the sequence's later bytes.
+                publish_host_frames_and_targeted(
+                    &self.broadcast_lock,
+                    &self.sequence,
+                    &self.taps,
+                    [Frame::new(MessageKind::ResyncRequired, Vec::new())],
+                    targeted,
+                )
+            } else if publish_legacy_resize {
+                let replay = match term.vt_replay_bounded_theme_portable_with_aliases(
+                    crate::surface::VT_REPLAY_MAX_BYTES,
+                ) {
+                    Ok(replay) => Some(replay),
+                    Err(_) if changed => {
+                        // Preflight ruled out persistent budget failure. Keep
+                        // the canonical resize and make compatibility clients
+                        // reconnect instead of attempting a destructive
+                        // inverse resize after Ghostty has reflowed state.
+                        let mut taps = self.taps.lock().unwrap();
+                        for tap in taps.values() {
+                            tap.close();
+                        }
+                        taps.clear();
+                        None
                     }
-                    taps.clear();
-                    return Ok(false);
+                    Err(error) => return Err(error.into()),
+                };
+                if let Some(replay) = replay {
+                    let colors = term.color_overrides();
+                    let mut resized = Frame::new(
+                        MessageKind::Resized,
+                        encode_resize(
+                            cols,
+                            rows,
+                            &replay.bytes,
+                            &replay.kitty_image_aliases,
+                            cell_pixels,
+                            replay.kitty_state,
+                        )?,
+                    );
+                    resized.flags = FLAG_COLORS_FOLLOW;
+                    publish_host_frames_and_targeted(
+                        &self.broadcast_lock,
+                        &self.sequence,
+                        &self.taps,
+                        [
+                            resized,
+                            Frame::new(
+                                MessageKind::Colors,
+                                encode_terminal_color_overrides(&colors),
+                            ),
+                        ],
+                        targeted,
+                    )
+                } else {
+                    publish_host_frames_and_targeted(
+                        &self.broadcast_lock,
+                        &self.sequence,
+                        &self.taps,
+                        std::iter::empty(),
+                        targeted,
+                    )
                 }
-                Err(error) => return Err(error.into()),
+            } else {
+                publish_host_frames_and_targeted(
+                    &self.broadcast_lock,
+                    &self.sequence,
+                    &self.taps,
+                    std::iter::empty(),
+                    targeted,
+                )
             };
-            let colors = term.color_overrides();
-            if changed {
-                *size = (cols, rows);
+            if let Some(cursor) = source_cursor {
+                // Snapshot registration takes `term` before subscribing to
+                // smart publication, so advancing while `term` remains held
+                // makes snapshot state and the applied cursor indivisible.
+                self.smart.mark_applied(cursor);
             }
-            // Keep the parser lock through sequence publication so output
-            // parsed at the new size cannot overtake the Resized marker.
-            let mut resized = Frame::new(
-                MessageKind::Resized,
-                encode_resize(
-                    cols,
-                    rows,
-                    &replay.bytes,
-                    &replay.kitty_image_aliases,
-                    *cell_pixels,
-                    replay.kitty_state,
-                )?,
-            );
-            resized.flags = FLAG_COLORS_FOLLOW;
-            let targeted = targeted_ack.map(|(request_id, tap)| {
-                let mut frame =
-                    Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, changed));
-                frame.request_id = request_id;
-                (tap, frame)
-            });
-            Ok(publish_host_frames_and_targeted(
-                &self.broadcast_lock,
-                &self.sequence,
-                &self.taps,
-                [
-                    resized,
-                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors)),
-                ],
-                targeted,
-            ))
+            Ok(ParserResizeResult { acknowledgement_queued, changed })
         }
 
         fn child_exited(&self) -> bool {
@@ -3201,8 +3733,19 @@ mod unix {
                 },
             )?;
             if let Some(exit) = exit {
-                self.dead.store(true, Ordering::Release);
-                self.broadcast(MessageKind::Exit, encode_terminal_exit(&exit));
+                let _source_order = self.source_order_lock.lock().unwrap();
+                // Snapshot capture keeps `term` held from the dead check
+                // through smart subscription. Publish Exit under that same
+                // lock so an attach either joins before Exit or observes dead.
+                {
+                    let _term = self.term.lock().unwrap();
+                    self.dead.store(true, Ordering::Release);
+                    let payload = encode_terminal_exit(&exit);
+                    let cursor = self.smart.publish(Frame::new(MessageKind::Exit, payload.clone()));
+                    self.smart.mark_applied(cursor);
+                    self.broadcast(MessageKind::Exit, payload);
+                }
+                self.note_parser_progress();
             }
             Ok(())
         }
@@ -3519,7 +4062,8 @@ mod unix {
             if shared.dead.load(Ordering::Acquire) {
                 let deadline =
                     *exit_drain_deadline.get_or_insert(now + HOST_EXIT_STREAM_DRAIN_TIMEOUT);
-                let clients_drained = shared.taps.lock().unwrap().is_empty();
+                let clients_drained =
+                    shared.taps.lock().unwrap().is_empty() && shared.smart.is_empty();
                 if (shared.launch_owner_completed.load(Ordering::Acquire) && clients_drained)
                     || now >= deadline
                 {
@@ -3604,12 +4148,14 @@ mod unix {
         replace_ghostty_cursor_defaults(&mut term, launch.default_colors);
         let initial_colors = term.color_overrides();
         let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
+        let (parser_commands, parser_command_receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
         let shared = Arc::new(HostShared {
             terminal_id: bootstrapped.terminal_id,
             incarnation: bootstrapped.incarnation,
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            default_colors: Mutex::new(launch.default_colors),
             stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
             master: Mutex::new(master),
@@ -3623,6 +4169,11 @@ mod unix {
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
             sequence: AtomicU64::new(0),
+            smart: SmartStreamState::new(),
+            source_order_lock: Mutex::new(()),
+            parser_commands,
+            parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
+            parser_progress: (Mutex::new(0), Condvar::new()),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
@@ -3643,11 +4194,131 @@ mod unix {
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
 
+        let parser_host = shared.clone();
+        thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+            let mut last_colors = initial_colors;
+            let mut last_pwd = None;
+            while let Ok(command) = parser_command_receiver.recv() {
+                match command {
+                    ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
+                        let title = {
+                            let mut term = parser_host.term.lock().unwrap();
+                            let cursor_activity = term
+                                .cursor_activity()
+                                .expect("valid host terminals expose cursor activity");
+                            let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                            let title = title_changed
+                                .swap(false, Ordering::AcqRel)
+                                .then(|| term.title().unwrap_or_default());
+                            let pwd = term.pwd();
+                            let colors = term.color_overrides();
+                            let cursor_changed = term
+                                .cursor_activity()
+                                .expect("valid host terminals expose cursor activity")
+                                != cursor_activity;
+                            let colors = if colors != last_colors || cursor_changed {
+                                let encoded = encode_terminal_color_overrides(&colors);
+                                last_colors = colors;
+                                Some(encoded)
+                            } else {
+                                None
+                            };
+                            let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                            parser_host.broadcast_frames(output_transition_frames(
+                                normalized, colors, pwd,
+                            ));
+                            // The parser lock is also the snapshot lock. Mark
+                            // this source cursor before releasing it so a
+                            // snapshot cannot include output that its boundary
+                            // still describes as unapplied.
+                            parser_host.smart.mark_applied(source_cursor);
+                            title
+                        };
+                        parser_host.note_parser_progress();
+                        parser_host.stream_progress.notify();
+                        parser_host.parser_budget.release(accounted_bytes);
+                        if let Some(title) = title {
+                            parser_host.broadcast(MessageKind::Title, title.into_bytes());
+                        }
+                        if bell.swap(false, Ordering::AcqRel) {
+                            parser_host.broadcast(MessageKind::Bell, Vec::new());
+                        }
+                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                        if !responses.is_empty() {
+                            let mut writer = parser_host.writer.lock().unwrap();
+                            let _ = writer.write_all(&responses);
+                            let _ = writer.flush();
+                        }
+                    }
+                    ParserCommand::Resize {
+                        cols,
+                        rows,
+                        cell_pixels,
+                        source_cursor,
+                        acknowledge_with_replay,
+                        targeted_ack,
+                        response,
+                    } => {
+                        let result = parser_host
+                            .apply_parser_resize(
+                                cols,
+                                rows,
+                                source_cursor,
+                                acknowledge_with_replay,
+                                targeted_ack,
+                                cell_pixels,
+                            )
+                            .map_err(|error| error.to_string());
+                        let _ = response.send(result);
+                    }
+                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
+                        let colors = *colors;
+                        {
+                            let mut term = parser_host.term.lock().unwrap();
+                            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
+                            term.set_default_palette(&colors.palette);
+                            replace_ghostty_cursor_defaults(&mut term, colors);
+                            let resolved = term.color_overrides();
+                            last_colors = resolved.clone();
+                            // An empty coupled Output is an ordered state
+                            // transition already understood by every legacy
+                            // v2 consumer. Smart clients reopen from the
+                            // ResyncRequired snapshot boundary published by
+                            // the command submitter.
+                            parser_host.broadcast_with_colors(
+                                MessageKind::Output,
+                                Vec::new(),
+                                encode_terminal_color_overrides(&resolved),
+                            );
+                            parser_host.smart.mark_applied(source_cursor);
+                        }
+                        parser_host.note_parser_progress();
+                        let _ = response.send(());
+                    }
+                    ParserCommand::ClearHistory { fallback_key, response } => {
+                        let result = parser_host
+                            .apply_parser_clear_history(fallback_key.as_ref())
+                            .map_err(|error| error.to_string());
+                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
+                            parser_host.note_parser_progress();
+                            parser_host.stream_progress.notify();
+                        }
+                        let _ = response.send(result);
+                    }
+                    ParserCommand::Drain => {
+                        // FIFO reception proves every source byte published by
+                        // the PTY reader has reached the authoritative parser.
+                        parser_host.mark_pty_drained();
+                        parser_host.publish_exit_if_drained();
+                        break;
+                    }
+                }
+            }
+        })?;
+
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
             let mut buffer = [0u8; 64 * 1024];
-            let mut last_colors = initial_colors;
-            let mut last_pwd = None;
             let mut forced_at = None;
             let mut pty_drain_waiter = pty_drain_waiter;
             while let Ok(true) = wait_for_pty_readable_or_forced_drain(
@@ -3669,55 +4340,29 @@ mod unix {
                     }
                     Err(_) => break,
                 };
-                let bytes = &buffer[..count];
-                let title = {
-                    let mut term = reader_host.term.lock().unwrap();
-                    let cursor_activity = term
-                        .cursor_activity()
-                        .expect("valid host terminals expose cursor activity");
-                    let bytes = term.vt_write_with_normalized(bytes).into_owned();
-                    let title = title_changed
-                        .swap(false, Ordering::AcqRel)
-                        .then(|| term.title().unwrap_or_default());
-                    let pwd = term.pwd();
-                    // Snapshot registration takes the same parser lock. By
-                    // publishing before releasing it, replay + live output is
-                    // an atomic handoff with neither gaps nor duplicates.
-                    let colors = term.color_overrides();
-                    let cursor_changed = term
-                        .cursor_activity()
-                        .expect("valid host terminals expose cursor activity")
-                        != cursor_activity;
-                    let colors = if colors != last_colors || cursor_changed {
-                        let encoded = encode_terminal_color_overrides(&colors);
-                        last_colors = colors;
-                        Some(encoded)
-                    } else {
-                        None
-                    };
-                    let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                    reader_host.broadcast_frames(output_transition_frames(bytes, colors, pwd));
-                    title
-                };
-                reader_host.stream_progress.notify();
-                if let Some(title) = title {
-                    reader_host.broadcast(MessageKind::Title, title.into_bytes());
-                }
-                if bell.swap(false, Ordering::AcqRel) {
-                    reader_host.broadcast(MessageKind::Bell, Vec::new());
-                }
-                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                if !responses.is_empty() {
-                    let mut writer = reader_host.writer.lock().unwrap();
-                    let _ = writer.write_all(&responses);
-                    let _ = writer.flush();
+                let bytes = buffer[..count].to_vec();
+                let _source_order = reader_host.source_order_lock.lock().unwrap();
+                reader_host.parser_budget.reserve(count);
+                // Publication deliberately precedes parser enqueue. The
+                // bounded queue limits memory while letting a fast renderer
+                // consume source bytes independently of parser throughput.
+                let source_cursor =
+                    reader_host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+                if !enqueue_parser_output(
+                    &reader_host.parser_commands,
+                    &reader_host.parser_budget,
+                    &reader_host.smart,
+                    bytes,
+                    source_cursor,
+                    count,
+                ) {
+                    break;
                 }
             }
-            // The reader publishes every final PTY byte before declaring the
-            // stream drained. Exit is emitted only after this flag and the
-            // child wait rendezvous, so clients can safely stop at Exit.
-            reader_host.mark_pty_drained();
-            reader_host.publish_exit_if_drained();
+            // Drain is ordered after the final source byte. The parser worker,
+            // rather than the reader, publishes the drained rendezvous.
+            let _source_order = reader_host.source_order_lock.lock().unwrap();
+            let _ = reader_host.parser_commands.send(ParserCommand::Drain);
         })?;
         let child_host = shared.clone();
         thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
@@ -3770,11 +4415,19 @@ mod unix {
         Ok(shared)
     }
 
-    fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+    fn serve_client(host: Arc<HostShared>, stream: UnixStream) -> anyhow::Result<()> {
+        serve_client_with_snapshot_timeout(host, stream, HOST_SNAPSHOT_BOUNDARY_TIMEOUT)
+    }
+
+    fn serve_client_with_snapshot_timeout(
+        host: Arc<HostShared>,
+        mut stream: UnixStream,
+        snapshot_timeout: Duration,
+    ) -> anyhow::Result<()> {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
-            || hello_frame.flags & !FLAG_VIEWER_SIZE_ACKS != 0
+            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER) != 0
         {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
@@ -3790,31 +4443,51 @@ mod unix {
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
+        let smart_renderer = hello_frame.flags & FLAG_SMART_RENDERER != 0
+            && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
-            hello_response.flags = FLAG_VIEWER_SIZE_ACKS;
+            hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
+        }
+        if smart_renderer {
+            hello_response.flags |= FLAG_SMART_RENDERER;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = sync_channel(256);
+        let (sender, receiver) =
+            sync_channel(if smart_renderer { MAX_SMART_RETAINED_FRAMES } else { 256 });
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
-        let (snapshot, colors, snapshot_sequence) = {
+        let (snapshot, colors, snapshot_sequence, replay_gap) = {
             // Match resize's viewer -> size -> cell metrics -> parser ->
             // broadcast lock order so a snapshot contains one atomic
             // logical and pixel geometry.
             let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
             let size = host.size.lock().unwrap();
             let cell_pixels = *host.cell_pixels.lock().unwrap();
-            let mut term = host.term.lock().unwrap();
+            let mut term = match host.terminal_at_snapshot_boundary(snapshot_timeout) {
+                Ok(term) => term,
+                Err(error) => {
+                    drop(size);
+                    drop(viewer_sizes);
+                    let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                    resync.sequence = if smart_renderer {
+                        host.smart.applied_cursor.load(Ordering::Acquire)
+                    } else {
+                        host.sequence.load(Ordering::Acquire)
+                    };
+                    let _ = write_frame(&mut stream, &resync);
+                    return Err(error);
+                }
+            };
             let replay = term.vt_replay_bounded_theme_portable_with_aliases(
                 crate::surface::VT_REPLAY_MAX_BYTES,
             )?;
             let colors = term.color_overrides();
             let (cols, rows) = *size;
-            let _broadcast = host.broadcast_lock.lock().unwrap();
+            debug_assert_eq!((term.cols(), term.rows()), (cols, rows));
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
             }
@@ -3827,7 +4500,16 @@ mod unix {
             {
                 viewer_sizes.insert(client, (cols, rows));
             }
-            host.taps.lock().unwrap().insert(client, tap.clone());
+            let (snapshot_sequence, replay_gap) = if smart_renderer {
+                match host.smart.subscribe(client, tap.clone()) {
+                    Ok(boundary) => (boundary, None),
+                    Err(gap) => (host.smart.applied_cursor.load(Ordering::Acquire), Some(gap)),
+                }
+            } else {
+                let _broadcast = host.broadcast_lock.lock().unwrap();
+                host.taps.lock().unwrap().insert(client, tap.clone());
+                (host.sequence.load(Ordering::Acquire), None)
+            };
             (
                 HostSnapshot {
                     cols,
@@ -3843,9 +4525,20 @@ mod unix {
                     cwd: snapshot_cwd(&term, host.cwd.as_deref()),
                 },
                 colors,
-                host.sequence.load(Ordering::Acquire),
+                snapshot_sequence,
+                replay_gap,
             )
         };
+        if let Some(gap) = replay_gap {
+            let mut payload = Vec::with_capacity(16);
+            payload.extend_from_slice(&gap.requested_after.to_le_bytes());
+            payload.extend_from_slice(&gap.retained_after.to_le_bytes());
+            let mut frame = Frame::new(MessageKind::ResyncRequired, payload);
+            frame.sequence = snapshot_sequence;
+            let _ = write_frame(&mut stream, &frame);
+            host.remove_client(client);
+            return Ok(());
+        }
         // The tap and snapshot boundary are now atomic members of the live
         // stream. Releasing a deferred fast-exit event here places Exit after
         // that boundary even if the PTY finished before this connection.
@@ -3862,6 +4555,14 @@ mod unix {
         if let Err(error) = write_frame(&mut stream, &colors_frame) {
             host.remove_client(client);
             return Err(error.into());
+        }
+        if smart_renderer {
+            let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+            ready.sequence = snapshot_sequence;
+            if let Err(error) = write_frame(&mut stream, &ready) {
+                host.remove_client(client);
+                return Err(error.into());
+            }
         }
 
         let mut command_stream = stream.try_clone()?;
@@ -3906,7 +4607,7 @@ mod unix {
                         let targeted_ack = viewer_size_acks
                             .then_some((frame.request_id, &command_sender))
                             .filter(|(request_id, _)| *request_id != 0);
-                        let acknowledge_with_replay = targeted_ack.is_none();
+                        let acknowledge_with_replay = !smart_renderer && targeted_ack.is_none();
                         if !matches!(
                             command_host.set_viewer_size(
                                 client,
@@ -4000,9 +4701,15 @@ mod unix {
                         else {
                             break;
                         };
-                        let status = clear_history_ack_status(
-                            command_host.clear_history_or_encode_key(fallback_key.as_ref()),
-                        );
+                        let status = match command_host.clear_history_or_encode_key(
+                            fallback_key.as_ref(),
+                            smart_renderer.then_some((frame.request_id, &command_sender)),
+                        ) {
+                            Ok(ClearHistoryAckDisposition::Queued) => continue,
+                            Ok(ClearHistoryAckDisposition::ConnectionClosed) => break,
+                            Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
+                            Err(failure) => clear_history_ack_status(Err(failure)),
+                        };
                         let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
                         response.request_id = frame.request_id;
                         let _broadcast = command_host.broadcast_lock.lock().unwrap();
@@ -4138,6 +4845,10 @@ mod unix {
 
     #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+    }
+
+    pub fn decode_host_snapshot_payload(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
         decode_snapshot_for_version(payload, PROTOCOL_VERSION)
     }
 
@@ -4634,18 +5345,20 @@ mod unix {
             }
         }
 
-        fn exited_host_fixture(exit_record_path: PathBuf) -> Arc<HostShared> {
+        fn exited_host_fixture_at(exit_record_path: PathBuf) -> Arc<HostShared> {
             let mut term = Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
+            let (parser_commands, _parser_receiver) = sync_channel(1);
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
                 incarnation: HostIncarnation::random().unwrap(),
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
                 master: Mutex::new(Box::new(TestHostMaster {
@@ -4661,6 +5374,11 @@ mod unix {
                 taps: Mutex::new(HashMap::new()),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
+                smart: SmartStreamState::new(),
+                source_order_lock: Mutex::new(()),
+                parser_commands,
+                parser_budget: ParserBudget::new(1),
+                parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
@@ -4691,18 +5409,28 @@ mod unix {
             host
         }
 
+        fn exited_host_fixture() -> Arc<HostShared> {
+            exited_host_fixture_at(std::env::temp_dir().join(format!(
+                "cmux-terminal-exit-tests-{}-{}.exit",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            )))
+        }
+
         fn test_host_shared() -> Arc<HostShared> {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
+            let (parser_commands, _parser_receiver) = sync_channel(1);
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
                 incarnation: HostIncarnation::random().unwrap(),
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
                 term: Mutex::new(term),
+                default_colors: Mutex::new(DefaultColors::default()),
                 stream_progress: TerminalStreamProgress::default(),
                 writer: Mutex::new(Box::new(std::io::sink())),
                 master: Mutex::new(Box::new(TestHostMaster {
@@ -4718,6 +5446,11 @@ mod unix {
                 taps: Mutex::new(HashMap::new()),
                 broadcast_lock: Mutex::new(()),
                 sequence: AtomicU64::new(0),
+                smart: SmartStreamState::new(),
+                source_order_lock: Mutex::new(()),
+                parser_commands,
+                parser_budget: ParserBudget::new(1),
+                parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
@@ -5119,6 +5852,7 @@ mod unix {
                     cwd: None,
                 },
                 protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
                 reader: None,
                 writer: Arc::new(Mutex::new(client)),
                 control_responses: control_responses.clone(),
@@ -5170,6 +5904,7 @@ mod unix {
                     cwd: None,
                 },
                 protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
                 reader: None,
                 writer: Arc::new(Mutex::new(client)),
                 control_responses: Arc::new(ControlResponses::new()),
@@ -5489,6 +6224,7 @@ mod unix {
                     cwd: None,
                 },
                 protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
                 reader: None,
                 writer: Arc::new(Mutex::new(client)),
                 control_responses: control_responses.clone(),
@@ -5662,6 +6398,7 @@ mod unix {
                     cwd: None,
                 },
                 protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
                 reader: Some(reader),
                 writer: Arc::new(Mutex::new(client)),
                 control_responses: Arc::new(ControlResponses::new()),
@@ -5729,6 +6466,13 @@ mod unix {
             let expected_replay = b"protocol-one-live-state".to_vec();
             let host_replay = expected_replay.clone();
             let fake_host = thread::spawn(move || {
+                let (mut smart, _) = listener.accept().unwrap();
+                let smart_hello = read_required_frame(&mut smart, "smart owner hello").unwrap();
+                assert_eq!(smart_hello.kind, MessageKind::ClientHello);
+                assert_eq!(smart_hello.version, PROTOCOL_VERSION);
+                assert_eq!(smart_hello.flags & FLAG_SMART_RENDERER, FLAG_SMART_RENDERER);
+                drop(smart);
+
                 for rejected_version in ((LEGACY_PROTOCOL_VERSION + 1)..=PROTOCOL_VERSION).rev() {
                     let (mut rejected, _) = listener.accept().unwrap();
                     let hello = read_required_frame(&mut rejected, "newer-version hello").unwrap();
@@ -5815,6 +6559,434 @@ mod unix {
         }
 
         #[test]
+        fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
+            let (record_path, record, lease) = record_fixture("legacy-fallback");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let server_record = record.clone();
+            let server = thread::spawn(move || -> anyhow::Result<bool> {
+                let accept_before = |deadline: Instant| -> anyhow::Result<Option<UnixStream>> {
+                    loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => {
+                                stream.set_nonblocking(false)?;
+                                return Ok(Some(stream));
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                if Instant::now() >= deadline {
+                                    return Ok(None);
+                                }
+                                thread::sleep(Duration::from_millis(2));
+                            }
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+                };
+
+                let Some(mut smart) = accept_before(Instant::now() + Duration::from_secs(1))?
+                else {
+                    return Ok(false);
+                };
+                smart.set_read_timeout(Some(Duration::from_secs(1)))?;
+                let smart_hello = read_required_frame(&mut smart, "smart owner hello")?;
+                if smart_hello.flags & FLAG_SMART_RENDERER == 0 {
+                    return Ok(false);
+                }
+                drop(smart);
+
+                let Some(mut legacy) = accept_before(Instant::now() + Duration::from_secs(1))?
+                else {
+                    return Ok(false);
+                };
+                legacy.set_read_timeout(Some(Duration::from_secs(1)))?;
+                let hello_frame = read_required_frame(&mut legacy, "legacy owner hello")?;
+                if hello_frame.flags != 0 || hello_frame.version != PROTOCOL_VERSION {
+                    return Ok(false);
+                }
+                let hello = ClientHello::decode(&hello_frame.payload)?;
+                let incarnation =
+                    HostIncarnation::from_bytes(decode_hex_array(&server_record.incarnation)?);
+                let response = HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id: hello.terminal_id,
+                    incarnation,
+                };
+                let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
+                host_hello.request_id = hello_frame.request_id;
+                write_frame(&mut legacy, &host_hello)?;
+
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: b"legacy host survived".to_vec(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: vec!["/bin/sh".into()],
+                    cwd: None,
+                };
+                let mut snapshot_frame =
+                    Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
+                snapshot_frame.sequence = 17;
+                write_frame(&mut legacy, &snapshot_frame)?;
+                let colors_state = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, false)),
+                    ..Default::default()
+                };
+                let mut colors =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors_state));
+                colors.sequence = snapshot_frame.sequence;
+                write_frame(&mut legacy, &colors)?;
+
+                let release = read_required_frame(&mut legacy, "legacy viewer release")?;
+                Ok(release.kind == MessageKind::ReleaseViewer)
+            });
+
+            let result = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_secs(1),
+            );
+            let saw_legacy = server.join().unwrap().unwrap();
+            let attachment = result.expect("legacy fallback did not adopt the live shell");
+            assert!(saw_legacy);
+            assert!(!attachment.is_smart_renderer());
+            assert_eq!(attachment.snapshot.replay, b"legacy host survived");
+            drop(attachment);
+
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
+            let host = exited_host_fixture();
+            let mut term = host.term.lock().unwrap();
+            term.vt_write(b"\xce");
+            assert!(!term.vt_stream_is_ground());
+
+            let waiter_host = host.clone();
+            let (result_sender, result_receiver) = std::sync::mpsc::channel();
+            let waiter = thread::spawn(move || {
+                let result = waiter_host
+                    .terminal_at_snapshot_boundary(Duration::from_secs(1))
+                    .and_then(|mut term| term.viewport_text().map_err(anyhow::Error::from));
+                result_sender.send(result).unwrap();
+            });
+
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                match host.parser_progress.0.try_lock() {
+                    Err(std::sync::TryLockError::WouldBlock) => break,
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                    Ok(guard) => drop(guard),
+                }
+                assert!(Instant::now() < deadline, "snapshot waiter never inspected the parser");
+                thread::yield_now();
+            }
+            drop(term);
+
+            loop {
+                match host.parser_progress.0.try_lock() {
+                    Ok(guard) => {
+                        drop(guard);
+                        break;
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                }
+                assert!(Instant::now() < deadline, "snapshot waiter never entered its wait");
+                thread::yield_now();
+            }
+            host.term.lock().unwrap().vt_write(b"\xbb");
+            host.note_parser_progress();
+
+            assert!(result_receiver.recv().unwrap().unwrap().contains('λ'));
+            waiter.join().unwrap();
+
+            let timed_out = exited_host_fixture();
+            timed_out.term.lock().unwrap().vt_write(b"\x1b");
+            let started = Instant::now();
+            let error = match timed_out.terminal_at_snapshot_boundary(Duration::from_millis(20)) {
+                Ok(_) => panic!("unterminated VT sequence was admitted for a snapshot"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("safe snapshot boundary"));
+            assert!(started.elapsed() < Duration::from_secs(1));
+        }
+
+        fn snapshot_boundary_client_hello(host: &HostShared, smart: bool) -> anyhow::Result<Frame> {
+            let (role, rights, token) = if smart {
+                (
+                    ClientRole::Renderer,
+                    CapabilityRights::RENDERER,
+                    host.capabilities.mint(
+                        host.terminal_id,
+                        CapabilityRights::RENDERER,
+                        Duration::from_secs(1),
+                    )?,
+                )
+            } else {
+                (ClientRole::Admin, CapabilityRights::ADMIN, host.owner_token)
+            };
+            let mut hello = ClientHello {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                role,
+                requested_rights: rights,
+                terminal_id: host.terminal_id,
+                token,
+            }
+            .into_frame(1);
+            if smart {
+                hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            }
+            Ok(hello)
+        }
+
+        #[test]
+        fn snapshot_boundary_protects_legacy_and_smart_bootstraps() {
+            for smart in [false, true] {
+                let host = exited_host_fixture();
+                host.term.lock().unwrap().vt_write(b"before \xce");
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(
+                        server_host,
+                        server_stream,
+                        Duration::from_secs(1),
+                    )
+                });
+
+                write_frame(
+                    &mut client_stream,
+                    &snapshot_boundary_client_hello(&host, smart).unwrap(),
+                )
+                .unwrap();
+                let hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+                assert_eq!(hello.kind, MessageKind::HostHello);
+                assert_eq!(hello.flags & FLAG_SMART_RENDERER != 0, smart);
+
+                host.term.lock().unwrap().vt_write(b"\xbb after");
+                host.note_parser_progress();
+
+                let snapshot = read_required_frame(&mut client_stream, "snapshot").unwrap();
+                assert_eq!(snapshot.kind, MessageKind::Snapshot);
+                let snapshot = decode_host_snapshot_payload(&snapshot.payload).unwrap();
+                let colors = read_required_frame(&mut client_stream, "colors").unwrap();
+                assert_eq!(colors.kind, MessageKind::Colors);
+                if smart {
+                    assert_eq!(
+                        read_required_frame(&mut client_stream, "ready").unwrap().kind,
+                        MessageKind::Ready
+                    );
+                }
+
+                let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+                mirror.vt_write(&snapshot.replay);
+                let text = mirror.viewport_text().unwrap();
+                assert!(text.contains("before λ after"), "smart={smart} snapshot={text:?}");
+                assert!(!text.contains('\u{fffd}'), "smart={smart} snapshot={text:?}");
+
+                if smart {
+                    let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+                    host.smart.mark_applied(cursor);
+                } else {
+                    host.broadcast(MessageKind::Exit, Vec::new());
+                }
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "exit").unwrap().kind,
+                    MessageKind::Exit
+                );
+                let _ = client_stream.shutdown(std::net::Shutdown::Both);
+                server.join().unwrap().unwrap();
+            }
+        }
+
+        #[test]
+        fn unterminated_snapshot_boundary_resyncs_legacy_and_smart_clients() {
+            for smart in [false, true] {
+                let host = exited_host_fixture();
+                host.term.lock().unwrap().vt_write(b"\x1b]0;unterminated");
+                let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+                client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let server_host = host.clone();
+                let server = thread::spawn(move || {
+                    serve_client_with_snapshot_timeout(
+                        server_host,
+                        server_stream,
+                        Duration::from_millis(20),
+                    )
+                });
+
+                write_frame(
+                    &mut client_stream,
+                    &snapshot_boundary_client_hello(&host, smart).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "host hello").unwrap().kind,
+                    MessageKind::HostHello
+                );
+                let resync = read_required_frame(&mut client_stream, "resync").unwrap();
+                assert_eq!(resync.kind, MessageKind::ResyncRequired);
+                assert!(resync.payload.is_empty());
+                assert!(
+                    server
+                        .join()
+                        .unwrap()
+                        .unwrap_err()
+                        .to_string()
+                        .contains("safe snapshot boundary")
+                );
+            }
+        }
+
+        #[test]
+        fn legacy_resize_resyncs_instead_of_replaying_partial_utf8() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.taps.lock().unwrap().insert(
+                1,
+                HostTap {
+                    sender,
+                    queued_bytes: Arc::new(AtomicUsize::new(0)),
+                    queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                    shutdown: Arc::new(host_socket),
+                    max_queued_bytes: usize::MAX,
+                },
+            );
+
+            // A replay cannot serialize the decoder's pending 0xce byte. If
+            // the later 0xbb is delivered after that replay, a fresh mirror
+            // decodes it as U+FFFD instead of completing U+03BB.
+            host.term.lock().unwrap().vt_write(b"before \xce");
+            assert!(!host.term.lock().unwrap().vt_stream_is_ground());
+
+            host.apply_parser_resize(100, 30, None, false, None, DEFAULT_CELL_PIXELS).unwrap();
+
+            let frame = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(frame.kind, MessageKind::ResyncRequired);
+            assert!(receiver.try_recv().is_err(), "unsafe resize emitted a replay or color pair");
+        }
+
+        #[test]
+        fn admin_owner_can_negotiate_the_smart_renderer_stream() {
+            let host = exited_host_fixture();
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server_host = host.clone();
+            let server = thread::spawn(move || serve_client(server_host, server_stream));
+
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            write_frame(&mut client_stream, &hello).unwrap();
+
+            let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
+            assert_eq!(host_hello.kind, MessageKind::HostHello);
+            assert_eq!(host_hello.flags & FLAG_SMART_RENDERER, FLAG_SMART_RENDERER);
+            assert_eq!(
+                read_required_frame(&mut client_stream, "snapshot").unwrap().kind,
+                MessageKind::Snapshot
+            );
+            assert_eq!(
+                read_required_frame(&mut client_stream, "colors").unwrap().kind,
+                MessageKind::Colors
+            );
+            assert_eq!(
+                read_required_frame(&mut client_stream, "ready").unwrap().kind,
+                MessageKind::Ready
+            );
+
+            for (kind, payload) in [
+                (MessageKind::Output, vec![0xce]),
+                (MessageKind::Resized, vec![100, 0, 30, 0]),
+                (MessageKind::Output, vec![0xbb]),
+            ] {
+                let cursor = host.smart.publish(Frame::new(kind, payload.clone()));
+                host.smart.mark_applied(cursor);
+                let received = read_required_frame(&mut client_stream, "smart transition").unwrap();
+                assert_eq!((received.kind, received.payload), (kind, payload));
+            }
+
+            let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+            host.smart.mark_applied(cursor);
+            assert_eq!(
+                read_required_frame(&mut client_stream, "exit").unwrap().kind,
+                MessageKind::Exit
+            );
+            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+            server.join().unwrap().unwrap();
+        }
+
+        #[test]
+        fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.smart
+                .subscribe(
+                    7,
+                    HostTap {
+                        sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                )
+                .unwrap();
+
+            host.set_default_colors(DefaultColors {
+                fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+                ..Default::default()
+            });
+
+            let resync = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resync.kind, MessageKind::ResyncRequired);
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), resync.sequence);
+        }
+
+        #[test]
+        fn repeating_defaults_does_not_resync_smart_renderers() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            host.smart
+                .subscribe(
+                    7,
+                    HostTap {
+                        sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                )
+                .unwrap();
+
+            host.set_default_colors(DefaultColors::default());
+
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_millis(50)),
+                Err(RecvTimeoutError::Timeout)
+            ));
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
@@ -5853,6 +7025,234 @@ mod unix {
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn smart_attach_replays_source_bytes_ahead_of_parser_boundary_exactly_once() {
+            let state = SmartStreamState::new();
+            let first = state.publish(Frame::new(MessageKind::Output, b"unparsed".to_vec()));
+            assert_eq!(first, 1);
+            assert_eq!(state.applied_cursor.load(Ordering::Acquire), 0);
+
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(8);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            let boundary = state.subscribe(7, tap).unwrap();
+            assert_eq!(boundary, 0);
+            let replayed = receiver.recv().unwrap();
+            assert_eq!((replayed.sequence, replayed.payload), (1, b"unparsed".to_vec()));
+
+            state.mark_applied(first);
+            state.publish(Frame::new(MessageKind::Output, b"live".to_vec()));
+            let live = receiver.recv().unwrap();
+            assert_eq!((live.sequence, live.payload), (2, b"live".to_vec()));
+            assert!(receiver.try_recv().is_err(), "attach duplicated a retained frame");
+        }
+
+        #[test]
+        fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
+            let host = exited_host_fixture();
+            let exit_record_path = host.exit_record_path.clone();
+            let exit_record_root = exit_record_path.parent().unwrap().to_path_buf();
+            let exit_host = host.clone();
+            let term = host.term.lock().unwrap();
+            let smart_publication = host.smart.broadcast_lock.lock().unwrap();
+            assert!(!host.dead.load(Ordering::Acquire));
+
+            let exit = thread::spawn(move || exit_host.publish_exit_if_drained());
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                match host.source_order_lock.try_lock() {
+                    Ok(source_order) => {
+                        drop(source_order);
+                        assert!(Instant::now() < deadline, "Exit did not reach publication");
+                        thread::yield_now();
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => break,
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                }
+            }
+            // Once Exit owns source ordering, the old implementation is
+            // runnable and only a few uncontended operations from `dead =
+            // true`. Give it a generous scheduling window so this regression
+            // cannot pass merely because that thread was preempted after the
+            // lock probe. The fixed implementation remains blocked on `term`.
+            let transition_deadline = Instant::now() + Duration::from_secs(1);
+            while !host.dead.load(Ordering::Acquire) && Instant::now() < transition_deadline {
+                thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                !host.dead.load(Ordering::Acquire),
+                "Exit bypassed the terminal snapshot lock after the attach dead check"
+            );
+
+            drop(smart_publication);
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            assert_eq!(host.smart.subscribe(7, tap).unwrap(), 0);
+            drop(term);
+            exit.join().unwrap();
+
+            assert!(host.dead.load(Ordering::Acquire));
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 1);
+            let exit = receiver.recv().unwrap();
+            assert_eq!((exit.kind, exit.sequence), (MessageKind::Exit, 1));
+            assert!(receiver.try_recv().is_err(), "attach received Exit more than once");
+            fs::remove_file(exit_record_path).unwrap();
+            let _ = fs::remove_dir(exit_record_root);
+        }
+
+        #[test]
+        fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
+            let state = SmartStreamState::new();
+            for byte in 0..=MAX_SMART_RETAINED_FRAMES {
+                state.publish(Frame::new(MessageKind::Output, vec![byte as u8]));
+            }
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, _receiver) = sync_channel(MAX_SMART_RETAINED_FRAMES);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            let gap = state.subscribe(9, tap).unwrap_err();
+            assert_eq!(gap.requested_after, 0);
+            assert_eq!(gap.retained_after, 1);
+            assert!(state.is_empty(), "a gapped renderer must not join the live tap set");
+        }
+
+        #[test]
+        fn smart_noisy_neighbor_is_evicted_without_stalling_other_renderers() {
+            let state = SmartStreamState::new();
+            let tap = |capacity| {
+                let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+                let (sender, receiver) = sync_channel(capacity);
+                (
+                    HostTap {
+                        sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                    receiver,
+                )
+            };
+            let (slow, _slow_receiver) = tap(1);
+            let (fast, fast_receiver) = tap(4);
+            state.subscribe(1, slow).unwrap();
+            state.subscribe(2, fast).unwrap();
+
+            state.publish(Frame::new(MessageKind::Output, vec![1]));
+            state.publish(Frame::new(MessageKind::Output, vec![2]));
+
+            assert_eq!(fast_receiver.recv().unwrap().payload, vec![1]);
+            assert_eq!(fast_receiver.recv().unwrap().payload, vec![2]);
+            assert_eq!(state.taps.lock().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn smart_failed_transition_is_closed_by_applied_resync_boundary() {
+            let state = SmartStreamState::new();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            state.subscribe(1, tap).unwrap();
+
+            let failed = state.publish(Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]));
+            state.close_failed_transition(Some(failed));
+
+            assert_eq!(receiver.recv().unwrap().kind, MessageKind::Resized);
+            let resync = receiver.recv().unwrap();
+            assert_eq!(resync.kind, MessageKind::ResyncRequired);
+            assert_eq!(resync.sequence, failed + 1);
+            assert_eq!(state.applied_cursor.load(Ordering::Acquire), resync.sequence);
+        }
+
+        #[test]
+        fn parser_output_send_failure_closes_published_transition() {
+            let state = SmartStreamState::new();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (tap_sender, tap_receiver) = sync_channel(4);
+            state
+                .subscribe(
+                    1,
+                    HostTap {
+                        sender: tap_sender,
+                        queued_bytes: Arc::new(AtomicUsize::new(0)),
+                        queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                        shutdown: Arc::new(host_socket),
+                        max_queued_bytes: usize::MAX,
+                    },
+                )
+                .unwrap();
+
+            let failed = state.publish(Frame::new(MessageKind::Output, vec![1, 2, 3]));
+            let budget = ParserBudget::new(3);
+            budget.reserve(3);
+            let (parser_sender, parser_receiver) = sync_channel(1);
+            drop(parser_receiver);
+
+            assert!(!enqueue_parser_output(
+                &parser_sender,
+                &budget,
+                &state,
+                vec![1, 2, 3],
+                failed,
+                3,
+            ));
+
+            assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
+            assert_eq!(tap_receiver.recv().unwrap().kind, MessageKind::Output);
+            let resync = tap_receiver.recv().unwrap();
+            assert_eq!(resync.kind, MessageKind::ResyncRequired);
+            assert_eq!(resync.sequence, failed + 1);
+            assert_eq!(state.applied_cursor.load(Ordering::Acquire), resync.sequence);
+        }
+
+        #[test]
+        fn parser_budget_blocks_at_saturation_and_unblocks_after_release() {
+            let budget = Arc::new(ParserBudget::new(4));
+            budget.reserve(4);
+            let (reserved, observed) = std::sync::mpsc::channel();
+            let waiter = {
+                let budget = budget.clone();
+                thread::spawn(move || {
+                    budget.reserve(1);
+                    reserved.send(()).unwrap();
+                    budget.release(1);
+                })
+            };
+
+            assert!(
+                observed.recv_timeout(Duration::from_millis(30)).is_err(),
+                "a saturated parser budget admitted another source chunk"
+            );
+            budget.release(4);
+            observed.recv_timeout(Duration::from_secs(1)).unwrap();
+            waiter.join().unwrap();
+            assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
         }
 
         #[test]
@@ -6097,7 +7497,7 @@ mod unix {
                 RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
             ));
             fs::write(&blocking_parent, b"not a directory").unwrap();
-            let host = exited_host_fixture(blocking_parent.join("terminal.exit"));
+            let host = exited_host_fixture_at(blocking_parent.join("terminal.exit"));
             let weak = Arc::downgrade(&host);
             let (returned_tx, returned_rx) = std::sync::mpsc::channel();
             let publisher = thread::spawn({
@@ -6325,10 +7725,11 @@ pub(crate) use unix::{
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
-    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_with_identity,
-    load_terminal_host_exit_records, load_terminal_host_records, remove_stale_terminal_host_record,
-    serve_terminal_host_stdio, terminal_host_exit_record, terminal_host_record_liveness,
-    terminal_host_root, validate_terminal_host_exit_record, validate_terminal_host_record,
+    decode_host_snapshot_payload, isolate_terminal_host_process_fds, launch_terminal_host,
+    launch_terminal_host_with_identity, load_terminal_host_exit_records,
+    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
+    terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
+    validate_terminal_host_exit_record, validate_terminal_host_record,
 };
 
 #[cfg(not(unix))]

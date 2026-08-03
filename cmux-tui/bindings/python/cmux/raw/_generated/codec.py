@@ -130,6 +130,7 @@ MODEL_BY_PATH = {
     'commands/list-workspaces/request': models.ListWorkspacesRequest,
     'commands/mark-workspaces-provider-managed/request': models.MarkWorkspacesProviderManagedRequest,
     'commands/mint-terminal-renderer/request': models.MintTerminalRendererRequest,
+    'commands/mint-terminal-renderer-by-terminal/request': models.MintTerminalRendererByTerminalRequest,
     'commands/move-tab/request': models.MoveTabRequest,
     'commands/move-terminal/request': models.MoveTerminalRequest,
     'commands/move-workspace/request': models.MoveWorkspaceRequest,

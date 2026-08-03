@@ -1274,6 +1274,13 @@ class MintTerminalRendererRequest:
 
 
 @dataclass(frozen=True)
+class MintTerminalRendererByTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
+    terminal: str
+    ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MoveTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-tab/request'
     surface: Id
@@ -2359,6 +2366,7 @@ __all__ = [
     'ListWorkspacesRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
+    'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',

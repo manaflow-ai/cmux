@@ -539,17 +539,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
-name = "cmux-sdk"
-version = "1.0.0"
-dependencies = [
- "base64",
- "getrandom 0.3.4",
- "libc",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
@@ -590,6 +579,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-tui-core",
  "cmux-tui-source-watch",
  "diffy",
  "fs4",
@@ -632,6 +622,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sdk"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
@@ -640,6 +641,25 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-terminal-client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "cmux-remote",
+ "cmux-remote-protocol",
+ "cmux-tui-core",
+ "getrandom 0.3.4",
+ "ghostty-vt",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

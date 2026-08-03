@@ -92,10 +92,11 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a local PTY or browser exits, the mux removes it from the tree before
-`surface-exited`. A durable terminal-host PTY instead remains as an addressable
-dead tab until an explicit close tombstones it. Consumers must inspect the tree
-or durable terminal registry rather than treating every exit as removal.
+When a local PTY, terminal-host PTY, or browser exits, the mux removes it from
+the tree before `surface-exited`. A terminal-host PTY keeps its durable terminal
+record and exact exit outcome after its tab, pane, or screen is removed.
+Consumers must inspect the tree for live placement and the terminal registry
+for process history.
 
 ## Subscribe Events
 
@@ -604,9 +605,10 @@ Payload:
 object{event:"surface-exited",surface:Id}
 ```
 
-Meaning: A PTY child exited or a browser surface was closed. Local PTYs and
-browsers are already reaped from the tree. A terminal-host-backed PTY remains
-as a dead, addressable tab until explicit close.
+Meaning: A PTY child exited or a browser surface was closed. The surface is
+already removed from the tree. A terminal-host-backed PTY remains addressable
+by its durable terminal id for exit inspection and explicit tombstoning, but
+its former numeric surface id and tab placement are invalid.
 
 Example:
 

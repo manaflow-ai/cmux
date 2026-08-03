@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 10, IR 7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -521,6 +521,17 @@ pub struct MintTerminalRendererRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ttl_ms: Option<u64>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MintTerminalRendererByTerminalRequest {
+    pub terminal: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<u64>,
+}
+
+#[rustfmt::skip]
+pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1358,6 +1369,10 @@ impl CmuxClient {
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
         self.execute(&MINT_TERMINAL_RENDERER_METADATA, &request)
+    }
+
+    pub fn mint_terminal_renderer_by_terminal(&mut self, request: MintTerminalRendererByTerminalRequest) -> Result<MintTerminalRendererByTerminalResult> {
+        self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
     }
 
     pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {

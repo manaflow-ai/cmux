@@ -107,6 +107,7 @@ pub(crate) struct TerminalMessages {
     pub pty_input_too_large: &'static str,
     pub pty_input_queue_full: &'static str,
     pub pty_input_unavailable: &'static str,
+    pub pty_input_exited: &'static str,
     pub attach_outcome_unknown: &'static str,
     pub operation_failed: &'static str,
 }
@@ -920,6 +921,7 @@ static ENGLISH: Catalog = Catalog {
         pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
         pty_input_queue_full: "PTY input queue is full; input was not sent",
         pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        pty_input_exited: "Terminal exited; input was not sent",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
     },
@@ -1400,6 +1402,7 @@ static JAPANESE: Catalog = Catalog {
         pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
         pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
         pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        pty_input_exited: "ターミナルが終了したため、入力は送信されませんでした",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
     },
@@ -1895,6 +1898,11 @@ mod tests {
         assert_eq!(
             JAPANESE.terminal.deferred_input_queue_full,
             "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+        assert_eq!(ENGLISH.terminal.pty_input_exited, "Terminal exited; input was not sent");
+        assert_eq!(
+            JAPANESE.terminal.pty_input_exited,
+            "ターミナルが終了したため、入力は送信されませんでした"
         );
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,

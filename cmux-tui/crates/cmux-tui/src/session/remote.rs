@@ -2995,6 +2995,10 @@ impl RemoteSession {
         self.exited_surfaces.lock().unwrap().insert(id);
     }
 
+    pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        self.exited_surfaces.lock().unwrap().contains(&id)
+    }
+
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
         self.tree.lock().unwrap().view.surface_kind(id)
     }

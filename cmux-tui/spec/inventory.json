@@ -197,6 +197,7 @@
       "sidebar-plugin",
       "mint-terminal-renderer",
       "get-cell-pixels",
+      "mint-terminal-renderer-by-terminal",
       "set-cell-pixels",
       "browser-frame-presented",
       "browser-mouse",

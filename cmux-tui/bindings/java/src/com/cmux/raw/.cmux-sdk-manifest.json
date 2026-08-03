@@ -272,8 +272,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "de0a2a553db5edba17b4b28c472059e9403dd407b4ea0d93ca3e2d59114f5ce2",
-      "size": 21994
+      "sha256": "6d73b7cbb5b96f8320c29625f7947d451e76bbf6b639bf077e93ff93622df5a3",
+      "size": 22291
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -422,8 +422,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "7fca834f19533a0fb525d2bbac09930f5aad1a018035d60035b8ce170a1d9664",
-      "size": 21326
+      "sha256": "3ce842967a577fb142a3a9c479f7e085cf2f21547217a9f584ac83b0b5047c67",
+      "size": 21634
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -574,6 +574,11 @@
       "path": "MarkWorkspacesProviderManagedRequest.java",
       "sha256": "dbc87645f2737dc605c2781747cb7b9b80dd464fc502f4f8d7fb7b04d4b7b473",
       "size": 2275
+    },
+    {
+      "path": "MintTerminalRendererByTerminalRequest.java",
+      "sha256": "f96b4cb7f3917fd603e92aeb1e66405b29ca0927c4f49de1402fb05952e00ca9",
+      "size": 2852
     },
     {
       "path": "MintTerminalRendererRequest.java",
@@ -737,7 +742,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fa738484567eb60411b02de02f126c89473a8a9ab7d1bce1a10b9b8d4a1b7423",
+      "sha256": "da8b0b4f72b373552efc86f0bf98e523d4bdb6fe3776905fc8c58ac27e6aa657",
       "size": 3967
     },
     {
@@ -1312,7 +1317,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350",
+  "ir_sha256": "7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

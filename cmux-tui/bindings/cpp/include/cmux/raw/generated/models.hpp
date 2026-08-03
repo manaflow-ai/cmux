@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
+inline constexpr std::string_view kProtocolIrSha256 = "7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -147,6 +147,7 @@ struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
+struct MintTerminalRendererByTerminalRequest;
 struct MoveTabRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
@@ -1259,6 +1260,12 @@ struct LivePane {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MintTerminalRendererByTerminalRequest {
+    std::string terminal{};
+    std::optional<std::uint64_t> ttl_ms{};
+    friend bool operator==(const MintTerminalRendererByTerminalRequest&, const MintTerminalRendererByTerminalRequest&) = default;
 };
 
 struct MintTerminalRendererRequest {
@@ -3049,6 +3056,12 @@ template <>
 struct Codec<MintTerminalRendererRequest> {
     static Result<Json> encode(const MintTerminalRendererRequest& value);
     static Result<MintTerminalRendererRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MintTerminalRendererByTerminalRequest> {
+    static Result<Json> encode(const MintTerminalRendererByTerminalRequest& value);
+    static Result<MintTerminalRendererByTerminalRequest> decode(const Json& value);
 };
 
 template <>

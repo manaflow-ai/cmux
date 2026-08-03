@@ -7133,6 +7133,53 @@
       "stream": null,
       "constraints": []
     },
+    "mint-terminal-renderer-by-terminal": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {
+          "terminal": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false,
+            "constraints": [
+              {
+                "pattern": "^term_[0-9a-f]{32}$"
+              }
+            ]
+          },
+          "ttl_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": 30000,
+            "constraints": [
+              {
+                "minimum": 1,
+                "maximum": 60000
+              }
+            ]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "MintTerminalRendererResult"
+      },
+      "stream": null,
+      "constraints": [
+        "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
+      ]
+    },
     "set-cell-pixels": {
       "authority": "frontend",
       "since": 6,
