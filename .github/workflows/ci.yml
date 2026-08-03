@@ -1295,6 +1295,7 @@ jobs:
             CmuxBrowser
             CmuxCanvasUI
             CmuxCore
+            CmuxCopyReflow
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession

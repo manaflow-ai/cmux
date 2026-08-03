@@ -260762,6 +260762,682 @@
           }
         }
       }
+    },
+    "featureFlags.override.remote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.copy-reflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy نسخ إعادة تدفق إعادة التفاف إلغاء التفاف ملتف التفاف صلب فواصل أسطر أسطر جديدة لصق فقرات نسخ نظيف نسخ خام حرفي cmd c"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopiraj prelom omotaj odmotaj omotano tvrdi prelom prijelomi redova novi redovi zalijepi paragrafi čisto kopiranje sirovo doslovno cmd c"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopi ombryd genombryd afbryd ombrudt hårdt ombrud linjeskift nye linjer indsæt afsnit ren kopi rå ordret cmd c"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopieren reflow neu umbrechen entpacken umbrochen harter umbruch zeilenumbrüche neue zeilen einfügen absätze saubere kopie roh unverändert cmd c"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy copy reflow rewrap unwrap wrapped hard wrap line breaks newlines paste paragraphs clean copy raw verbatim cmd c"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy copiar reajustar volver a ajustar desajustar ajustado ajuste duro saltos de línea nuevas líneas pegar párrafos copia limpia sin procesar literal cmd c"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy copier réajuster renvoyer dérouler renvoyé retour forcé sauts de ligne nouvelles lignes coller paragraphes copie propre brut tel quel cmd c"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy copia ricomponi riavvolgi svolgi mandato a capo a capo rigido interruzioni di riga nuove righe incolla paragrafi copia pulita grezza letterale cmd c"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy コピー 折り返し 再折り返し 改行 ハードラップ 貼り付け 段落 整形 そのまま 生 cmd c"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy ចម្លង រៀបឡើងវិញ បត់ជួរ ដោះបត់ បត់រួច បត់រឹង ចុះបន្ទាត់ បន្ទាត់ថ្មី បិទភ្ជាប់ កថាខណ្ឌ ចម្លងស្អាត ដើម តាមដើម cmd c"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy 복사 재흐름 다시감싸기 풀기 감싼 하드랩 줄바꿈 새줄 붙여넣기 문단 깨끗한복사 원본 그대로 cmd c"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopier flyt om bryt pakk ut brutt hard linjebryting linjeskift nye linjer lim inn avsnitt ren kopi rå ordrett cmd c"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopiuj przepływ zawijanie odwijanie zawinięty twarde zawijanie końce wierszy nowe wiersze wklej akapity czysta kopia surowe dosłownie cmd c"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy copiar refluir requebrar desquebrar quebrado quebra rígida quebras de linha novas linhas colar parágrafos cópia limpa bruto literal cmd c"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy копировать переформатировать перенос развернуть перенесенный жесткий перенос разрывы строк новые строки вставить абзацы чистая копия сырой дословно cmd c"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy คัดลอก จัดเรียงใหม่ ตัดบรรทัด คลายตัดบรรทัด ตัดแล้ว ตัดแข็ง แบ่งบรรทัด บรรทัดใหม่ วาง ย่อหน้า คัดลอกสะอาด ดิบ ตามตัวอักษร cmd c"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy kopyala yeniden akıt yeniden sar aç sarılmış sert sarma satır sonları yeni satırlar yapıştır paragraflar temiz kopya ham birebir cmd c"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy копіювати переформатувати перенос розгорнути перенесений жорсткий перенос розриви рядків нові рядки вставити абзаци чиста копія сирий дослівно cmd c"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy 复制 重排 重新换行 取消换行 已换行 硬换行 换行符 新行 粘贴 段落 干净复制 原样 逐字 cmd c"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowCopy 複製 重排 重新換行 取消換行 已換行 硬換行 換行符 新行 貼上 段落 乾淨複製 原樣 逐字 cmd c"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowCopy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تدفق النص الملتف عند النسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelomi omotani tekst pri kopiranju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombryd ombrudt tekst ved kopiering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umgebrochenen Text beim Kopieren neu umbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reflow Wrapped Text on Copy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reajustar texto ajustado al copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réajuster le texte renvoyé à la ligne à la copie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricomponi il testo mandato a capo durante la copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー時に折り返しテキストを整形"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបអត្ថបទបត់ជួរឡើងវិញពេលចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사할 때 줄바꿈된 텍스트 재흐름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt om brutt tekst ved kopiering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponownie składaj zawijany tekst przy kopiowaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refluir texto quebrado ao copiar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переформатировать перенесенный текст при копировании"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดเรียงข้อความที่ตัดบรรทัดใหม่เมื่อคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalarken sarılmış metni yeniden akıt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переформатовувати перенесений текст під час копіювання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制时重排换行文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製時重排換行文字"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowCopy.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينسخ Cmd+C التحديد حرفيًا مع الحفاظ على كل فاصل أسطر كما يظهر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C kopira izbor doslovno, čuvajući svaki prijelom reda tačno kako je prikazan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C kopierer markeringen ordret og bevarer hvert linjeskift præcis som vist."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C kopiert die Auswahl unverändert und erhält jeden Zeilenumbruch genau wie angezeigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C copies the selection verbatim, preserving every line break exactly as shown."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C copia la selección literalmente y conserva cada salto de línea exactamente como se muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C copie la sélection telle quelle, en conservant chaque saut de ligne exactement comme affiché."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C copia la selezione alla lettera, conservando ogni interruzione di riga esattamente come mostrata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C は選択範囲をそのままコピーし、表示どおりの改行をすべて保持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C ចម្លងជម្រើសតាមដើម ដោយរក្សាការចុះបន្ទាត់ទាំងអស់ដូចដែលបានបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C는 선택 영역을 보이는 그대로 복사하여 모든 줄바꿈을 정확히 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C kopierer markeringen ordrett og bevarer hvert linjeskift nøyaktig slik det vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C kopiuje zaznaczenie dosłownie, zachowując każdy koniec wiersza dokładnie tak, jak jest pokazany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C copia a seleção literalmente, preservando cada quebra de linha exatamente como exibida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C копирует выделение дословно, сохраняя каждый перенос строки ровно так, как он показан."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C คัดลอกส่วนที่เลือกตามตัวอักษร โดยรักษาการขึ้นบรรทัดทุกจุดให้ตรงกับที่แสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C seçimi birebir kopyalar ve her satır sonunu göründüğü gibi korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C копіює виділення дослівно, зберігаючи кожен розрив рядка саме так, як показано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C 会逐字复制所选内容，完全保留显示中的每一个换行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C 會逐字複製所選內容，完全保留顯示中的每一個換行。"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowCopy.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد Cmd+C ضم الأسطر التي لفّها التطبيق لتناسب مساحة العرض ويزيل إزاحة أسطر المتابعة، مع إبقاء الشيفرة والجداول والقوائم وعناوين URL كما هي. يظل النسخ الخام ينسخ النص حرفيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C spaja redove koje je aplikacija omotala da stanu u prikaz i uklanja uvlačenje nastavka, a kôd, tabele, liste i URL-ove ostavlja netaknutim. Sirovo kopiranje i dalje kopira doslovno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C samler linjer, som en app har ombrudt for at passe i visningen, og fjerner fortsættelsesindryk, mens kode, tabeller, lister og URL’er bevares. Kopiér råt kopierer stadig ordret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C verbindet Zeilen, die eine App für die Ansichtsbreite hart umbrochen hat, und entfernt Fortsetzungs-Einrückung, während Code, Tabellen, Listen und URLs unverändert bleiben. Roh kopieren kopiert weiterhin unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C rejoins lines an app wrapped to fit the viewport and removes continuation indentation, while keeping code, tables, lists, and URLs intact. Copy Raw still copies verbatim."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C vuelve a unir las líneas que una app ajustó para caber en la vista y elimina la sangría de continuación, manteniendo intactos el código, las tablas, las listas y las URL. Copiar sin procesar sigue copiando literalmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C rejoint les lignes qu’une app a renvoyées à la ligne pour tenir dans la vue et supprime l’indentation de continuation, tout en conservant le code, les tableaux, les listes et les URL. Copier brut copie toujours tel quel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C riunisce le righe che un’app ha mandato a capo per adattarle alla vista e rimuove il rientro di continuazione, mantenendo intatti codice, tabelle, elenchi e URL. Copia grezza continua a copiare alla lettera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C は、ビューポート幅に合わせてアプリが折り返した行を結合し、継続行のインデントを削除します。コード、表、リスト、URL はそのまま保持されます。「そのままコピー」は元のとおりコピーします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C ភ្ជាប់ជួរដែលកម្មវិធីបានបត់ឱ្យសមនឹងផ្ទៃមើល និងដកការចូលបន្ទាត់បន្តចេញ ខណៈរក្សាកូដ តារាង បញ្ជី និង URL ឱ្យនៅដដែល។ ចម្លងដើមនៅតែចម្លងតាមដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C는 앱이 뷰포트에 맞추려고 감싼 줄을 다시 이어 붙이고 이어지는 줄의 들여쓰기를 제거하며, 코드, 표, 목록, URL은 그대로 둡니다. 원본 복사는 계속 그대로 복사합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C samler linjer som en app har brutt for å passe i visningen og fjerner innrykk på fortsettelseslinjer, samtidig som kode, tabeller, lister og URL-er bevares. Kopier rått kopierer fortsatt ordrett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C łączy wiersze zawinięte przez aplikację do szerokości widoku i usuwa wcięcie kontynuacji, zachowując kod, tabele, listy i adresy URL. Kopiuj surowe nadal kopiuje dosłownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C junta novamente as linhas que um app quebrou para caber na visualização e remove o recuo de continuação, mantendo código, tabelas, listas e URLs intactos. Copiar bruto ainda copia literalmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C соединяет строки, которые приложение перенесло по ширине области просмотра, и удаляет отступы продолжения, сохраняя код, таблицы, списки и URL без изменений. Копировать как есть по-прежнему копирует дословно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C รวมบรรทัดที่แอปตัดให้พอดีกับพื้นที่แสดงผลกลับเข้าด้วยกัน และลบการเยื้องของบรรทัดต่อเนื่อง โดยยังคงโค้ด ตาราง รายการ และ URL ไว้เหมือนเดิม คัดลอกดิบยังคงคัดลอกตามตัวอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C, bir uygulamanın görünüm alanına sığdırmak için sardığı satırları yeniden birleştirir ve devam girintisini kaldırır; kod, tablolar, listeler ve URL’ler korunur. Ham Kopyala yine birebir kopyalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C з’єднує рядки, які програма перенесла за шириною області перегляду, і прибирає відступ продовження, зберігаючи код, таблиці, списки й URL без змін. Копіювати як є й далі копіює дослівно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C 会重新连接应用为适配视口而硬换行的行，并移除续行缩进，同时保持代码、表格、列表和 URL 不变。原样复制仍会逐字复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+C 會重新連接應用程式為符合檢視區而硬換行的行，並移除續行縮排，同時保持程式碼、表格、清單和 URL 不變。原樣複製仍會逐字複製。"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.copyRaw": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ خام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj sirovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér råt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roh kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Raw"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar sin procesar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier brut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia grezza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのままコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier rått"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj surowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar bruto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать как есть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกดิบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ham Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати як є"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原样复制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原樣複製"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace's status is now done."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのステータスが完了になりました。"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace marked done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にしました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

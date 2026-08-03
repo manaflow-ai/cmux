@@ -48,6 +48,7 @@ extension AppDelegate {
     func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows
             && action != .globalSearch
+            && action != .copyRaw
             && action != .clearScreenKeepScrollback
             && action != .increaseWorkspaceTerminalFontSize
             && action != .decreaseWorkspaceTerminalFontSize

@@ -183,11 +183,11 @@ extension CmxIrohEndpointServerTests {
             connection,
             generation,
             markAdmitted in
+            #expect(await markAdmitted())
             await recorder.record(
                 identity: await connection.remoteIdentity(),
                 generation: generation
             )
-            #expect(await markAdmitted())
             await blocker.wait()
         }
 

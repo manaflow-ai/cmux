@@ -92,6 +92,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    /// Copies the focused terminal selection verbatim, bypassing copy reflow.
+    case copyRaw
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.
     case cycleTextBoxSubmitAction
@@ -277,7 +279,7 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .commandPaletteNext, .commandPalettePrevious:
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
-        case .renameTab, .renameWorkspace:
+        case .renameTab, .renameWorkspace, .copyRaw:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))

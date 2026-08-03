@@ -278,6 +278,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" },
       },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "copyRaw", combos: [["⌘", "⇧", "C"]], description: { en: "Copy raw terminal selection", ja: "ターミナル選択範囲をそのままコピー" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
       { id: "simulatorHome", combos: [["⌘", "⇧", "H"]], description: { en: "Simulator: Home", ja: "Simulator: ホーム" }, note: { en: "focused Simulator", ja: "フォーカス中のSimulator" } },
       { id: "simulatorRotateLeft", combos: [["⌘", "←"]], description: { en: "Simulator: rotate left", ja: "Simulator: 左に回転" }, note: { en: "focused Simulator", ja: "フォーカス中のSimulator" } },
