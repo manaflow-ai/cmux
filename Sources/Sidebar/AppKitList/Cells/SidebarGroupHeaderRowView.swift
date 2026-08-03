@@ -180,11 +180,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .semibold
         )
-        // Dim via alphaValue, never withAlphaComponent: resolving a dynamic
-        // color at configure time snapshots the ambient drawing appearance,
-        // and the synchronous selection commit can configure this cell inside
-        // the dark terminal's display pass — the title then rendered
-        // white-on-white in a light sidebar and vanished.
+        // Dim via alphaValue, not withAlphaComponent: resolving a dynamic
+        // NSColor mid-click can snapshot the wrong appearance and flash white-on-white.
         nameField.textColor = .labelColor
         nameField.alphaValue = model.isAnchorActive ? 1 : 0.9
 
@@ -318,11 +315,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
-    /// Resolves a dynamic color against this cell's own effective appearance.
-    /// Layer colors are CGColors and resolve at conversion time; converting
-    /// under the ambient drawing appearance (which can belong to another
-    /// view mid-click — see the title comment in `applyModel`) snapshots the
-    /// wrong variant.
+    /// Resolves against this cell's own effective appearance, not whatever
+    /// ambient appearance happens to be current (see `applyModel`).
     private func resolvedCGColor(_ make: () -> NSColor) -> CGColor {
         var resolved = CGColor(gray: 0, alpha: 0)
         effectiveAppearance.performAsCurrentDrawingAppearance {
