@@ -1787,6 +1787,7 @@ final class SocketClient {
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
+    private var streamLineSearchOffset = 0
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1952,6 +1953,7 @@ final class SocketClient {
             socketFD = -1
         }
         streamReadBuffer.removeAll(keepingCapacity: true)
+        streamLineSearchOffset = 0
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2972,7 +2974,11 @@ final class SocketClient {
             try configureReceiveTimeout(45)
         }
         while true {
-            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+            let searchStart = streamReadBuffer.index(
+                streamReadBuffer.startIndex,
+                offsetBy: min(streamLineSearchOffset, streamReadBuffer.count)
+            )
+            if let newlineIndex = streamReadBuffer[searchStart...].firstIndex(of: 0x0A) {
                 let lineByteCount = streamReadBuffer.distance(
                     from: streamReadBuffer.startIndex,
                     to: newlineIndex
@@ -2985,8 +2991,10 @@ final class SocketClient {
                     throw CLIError(message: "Invalid UTF-8 event stream frame")
                 }
                 streamReadBuffer.removeSubrange(...newlineIndex)
+                streamLineSearchOffset = 0
                 return line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            streamLineSearchOffset = streamReadBuffer.count
             guard streamReadBuffer.count < maxBytes else {
                 throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
             }

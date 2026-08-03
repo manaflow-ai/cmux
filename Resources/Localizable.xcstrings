@@ -36579,10 +36579,52 @@
     "cli.events.error.invalidTimeout": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة --timeout أكبر من 0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout mora biti veći od 0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout skal være større end 0"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout muss größer als 0 sein"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "--timeout must be greater than 0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout debe ser mayor que 0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout doit être supérieur à 0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve essere maggiore di 0"
           }
         },
         "ja": {
@@ -36590,16 +36632,124 @@
             "state": "translated",
             "value": "--timeout は0より大きい値である必要があります"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ត្រូវតែធំជាង 0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 값은 0보다 커야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout må være større enn 0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout musi być większy niż 0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve ser maior que 0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout должен быть больше 0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ต้องมากกว่า 0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 0'dan büyük olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout має бути більше за 0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必须大于 0"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必須大於 0"
+          }
         }
       }
     },
     "cli.events.error.timeout": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت المهلة أثناء انتظار حدث مطابق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je vrijeme čekanja na podudarni događaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsgrænsen udløb under ventetiden på en matchende hændelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf ein passendes Ereignis"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Timed out waiting for a matching event"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera de un evento coincidente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai dépassé en attendant un événement correspondant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo scaduto in attesa di un evento corrispondente"
           }
         },
         "ja": {
@@ -36607,16 +36757,124 @@
             "state": "translated",
             "value": "一致するイベントを待機中にタイムアウトしました"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់ពេលរង់ចាំព្រឹត្តិការណ៍ដែលត្រូវគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 이벤트를 기다리는 동안 시간이 초과되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd mens det ble ventet på en samsvarende hendelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekroczono limit czasu oczekiwania na pasujące zdarzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo esgotado ao aguardar um evento correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время ожидания соответствующего события истекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลารอเหตุการณ์ที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen bir olay beklenirken zaman aşımına uğradı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час очікування відповідної події вичерпано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待匹配事件超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待相符事件逾時"
+          }
         }
       }
     },
     "cli.events.help.snapshot": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اطبع لقطة الاشتراك ثم اخرج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispiši snimak pretplate i izađi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udskriv abonnementsøjebliksbilledet, og afslut"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonnement-Snapshot ausgeben und beenden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Print the subscription snapshot and exit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imprimir la instantánea de la suscripción y salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’instantané de l’abonnement et quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stampa l'istantanea dell'iscrizione ed esci"
           }
         },
         "ja": {
@@ -36625,10 +36883,52 @@
             "value": "購読スナップショットを表示して終了"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះពុម្ពរូបថតសង្ខេបនៃការជាវ រួចចាកចេញ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "구독 스냅샷을 출력하고 종료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv ut abonnementsøyeblikksbildet og avslutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl migawkę subskrypcji i zakończ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exibir o instantâneo da assinatura e sair"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вывести снимок подписки и завершить работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์สแนปช็อตการสมัครรับข้อมูลแล้วออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonelik anlık görüntüsünü yazdır ve çık"
           }
         },
         "uk": {
@@ -36636,16 +36936,70 @@
             "state": "translated",
             "value": "Вивести знімок підписки та завершити роботу"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输出订阅快照并退出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸出訂閱快照並結束"
+          }
         }
       }
     },
     "cli.events.help.timeout": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اخرج بحالة فشل إذا لم يصل حدث مطابق قبل الموعد النهائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završi neuspješno ako podudarni događaj ne stigne prije roka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut med fejl, hvis ingen matchende hændelse ankommer inden fristen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Fehler beenden, wenn vor Ablauf der Frist kein passendes Ereignis eintrifft"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Exit unsuccessfully if no matching event arrives before the deadline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salir con error si no llega un evento coincidente antes de la fecha límite"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter avec une erreur si aucun événement correspondant n’arrive avant l’échéance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esci con errore se non arriva un evento corrispondente entro la scadenza"
           }
         },
         "ja": {
@@ -36654,16 +37008,70 @@
             "value": "期限までに一致するイベントが届かない場合はエラーで終了"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាកចេញដោយបរាជ័យ ប្រសិនបើគ្មានព្រឹត្តិការណ៍ដែលត្រូវគ្នាមកដល់មុនកាលកំណត់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "제한 시간 전에 일치하는 이벤트가 도착하지 않으면 오류로 종료"
           }
         },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutt med feil hvis ingen samsvarende hendelse kommer før fristen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ z błędem, jeśli przed terminem nie nadejdzie pasujące zdarzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair com erro se nenhum evento correspondente chegar antes do prazo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершить с ошибкой, если до истечения срока не поступит соответствующее событие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออกพร้อมข้อผิดพลาดหากไม่มีเหตุการณ์ที่ตรงกันมาถึงก่อนกำหนด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son tarihten önce eşleşen bir olay gelmezse hatayla çık"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Завершити з помилкою, якщо відповідна подія не надійде до кінцевого терміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果截止时间前没有匹配事件到达，则以失败状态退出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果截止時間前沒有相符事件到達，則以失敗狀態結束"
           }
         }
       }

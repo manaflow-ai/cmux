@@ -38,9 +38,12 @@ public struct SocketListenerPolicy: Sendable {
     ///   - acceptFailureMaxBackoffMs: Backoff cap (default 5s).
     ///   - acceptFailureMinimumRearmDelayMs: Rearm-delay floor (default 100ms).
     ///   - acceptFailureRearmThreshold: Failure streak that forces a rearm (default 50).
-    ///   - startupFailureBaseBackoffMs: First startup retry delay (default 100ms).
-    ///   - startupFailureMaxBackoffMs: Startup retry-delay cap (default 2s).
-    ///   - startupFailureRetryLimit: Transient failures retried before reporting (default 6).
+    ///   - startupFailureBaseBackoffMs: First startup retry delay (default 100ms);
+    ///     negative values normalize to zero.
+    ///   - startupFailureMaxBackoffMs: Startup retry-delay cap (default 2s);
+    ///     values below the normalized base are raised to the base.
+    ///   - startupFailureRetryLimit: Transient failures retried before reporting
+    ///     (default 6); negative values normalize to zero.
     public init(
         acceptFailureBaseBackoffMs: Int = 10,
         acceptFailureMaxBackoffMs: Int = 5_000,
@@ -54,9 +57,13 @@ public struct SocketListenerPolicy: Sendable {
         self.acceptFailureMaxBackoffMs = acceptFailureMaxBackoffMs
         self.acceptFailureMinimumRearmDelayMs = acceptFailureMinimumRearmDelayMs
         self.acceptFailureRearmThreshold = acceptFailureRearmThreshold
-        self.startupFailureBaseBackoffMs = startupFailureBaseBackoffMs
-        self.startupFailureMaxBackoffMs = startupFailureMaxBackoffMs
-        self.startupFailureRetryLimit = startupFailureRetryLimit
+        let normalizedStartupBaseBackoffMs = max(startupFailureBaseBackoffMs, 0)
+        self.startupFailureBaseBackoffMs = normalizedStartupBaseBackoffMs
+        self.startupFailureMaxBackoffMs = max(
+            startupFailureMaxBackoffMs,
+            normalizedStartupBaseBackoffMs
+        )
+        self.startupFailureRetryLimit = max(startupFailureRetryLimit, 0)
     }
 
     /// Classifies an `accept(2)` `errno` into a recovery class.
@@ -223,13 +230,18 @@ public struct SocketListenerPolicy: Sendable {
     /// - Returns: Retry delay in milliseconds, or zero for no failures.
     public func startupFailureRetryDelayMilliseconds(consecutiveFailures: Int) -> Int {
         guard consecutiveFailures > 0 else { return 0 }
+        guard startupFailureBaseBackoffMs > 0 else { return 0 }
         var delay = startupFailureBaseBackoffMs
         var remaining = consecutiveFailures - 1
         while remaining > 0 {
             if delay >= startupFailureMaxBackoffMs {
                 return startupFailureMaxBackoffMs
             }
-            delay = min(delay * 2, startupFailureMaxBackoffMs)
+            let (doubled, overflow) = delay.multipliedReportingOverflow(by: 2)
+            if overflow || doubled >= startupFailureMaxBackoffMs {
+                return startupFailureMaxBackoffMs
+            }
+            delay = doubled
             remaining -= 1
         }
         return delay

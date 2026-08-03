@@ -1433,28 +1433,10 @@ class TerminalController {
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
         case "debug.mobile.transport.disconnect":
-            let selectedConnectionID: UUID?
-            if let rawConnectionID = request.params["connection_id"] {
-                guard let value = rawConnectionID as? String,
-                      let parsed = UUID(uuidString: value) else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "connection_id must be a UUID"
-                    )
-                }
-                selectedConnectionID = parsed
-            } else {
-                selectedConnectionID = nil
-            }
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
-                let closed = await MobileHostConnectionRegistry.shared
-                    .debugCloseConnections(connectionID: selectedConnectionID)
-                return .ok([
-                    "closed_connection_ids": closed.map(\.uuidString),
-                    "closed_count": closed.count,
-                ])
-            }
+            return v2DebugMobileTransportDisconnect(
+                id: request.id,
+                params: request.params
+            )
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
