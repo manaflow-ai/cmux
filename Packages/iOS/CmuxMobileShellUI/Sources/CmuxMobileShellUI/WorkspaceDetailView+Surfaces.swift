@@ -64,7 +64,7 @@ extension WorkspaceDetailView {
     #if os(iOS)
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
-        MobileBrowserPane(
+        MobileBrowserPaneHost(
             state: browser,
             onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
         )
@@ -105,3 +105,18 @@ extension WorkspaceDetailView {
     }
     #endif
 }
+
+#if os(iOS)
+private struct MobileBrowserPaneHost: UIViewControllerRepresentable {
+    let state: BrowserSurfaceState
+    let onClose: () -> Void
+
+    func makeUIViewController(context: Context) -> MobileBrowserPane {
+        MobileBrowserPane(state: state, onClose: onClose)
+    }
+
+    func updateUIViewController(_ controller: MobileBrowserPane, context: Context) {
+        controller.update(onClose: onClose)
+    }
+}
+#endif

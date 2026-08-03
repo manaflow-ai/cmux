@@ -1,136 +1,156 @@
 #if canImport(UIKit)
-public import SwiftUI
 import CmuxMobileSupport
+import Observation
+public import UIKit
 
-/// A complete phone browser pane: a navigation chrome bar (back / forward /
-/// reload / address field) over a hosted `WKWebView`, plus a determinate
-/// loading line.
-///
-/// This is the browser sibling of the terminal surface view. It is driven
-/// entirely by an `@Observable` ``BrowserSurfaceState``: the chrome reads the
-/// state's flags and writes navigation commands back into it, and
-/// ``MobileBrowserView`` carries those into the web view. A close action
-/// returns the workspace to its terminal.
-public struct MobileBrowserPane: View {
-    /// The browser surface state this pane drives and reflects.
-    @State private var state: BrowserSurfaceState
+/// Complete UIKit browser pane with native navigation chrome and a WebKit
+/// content owner.
+@MainActor
+public final class MobileBrowserPane: UIViewController, UITextFieldDelegate {
+    private let state: BrowserSurfaceState
+    private var onClose: () -> Void
+    private let backButton = UIButton(type: .system)
+    private let forwardButton = UIButton(type: .system)
+    private let addressField = UITextField()
+    private let reloadOrStopButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
+    private let progressView = UIProgressView(progressViewStyle: .bar)
+    private let browserView: MobileBrowserView
 
-    /// Whether the address field currently has editing focus. While editing,
-    /// the field shows the user's in-progress text rather than the live URL.
-    @FocusState private var isAddressFocused: Bool
-
-    /// Invoked when the user closes the browser pane.
-    private let onClose: () -> Void
-
-    /// Creates a browser pane.
-    /// - Parameters:
-    ///   - state: The browser surface state to host.
-    ///   - onClose: Invoked when the user dismisses the pane.
     public init(state: BrowserSurfaceState, onClose: @escaping () -> Void) {
-        _state = State(initialValue: state)
+        self.state = state
         self.onClose = onClose
+        browserView = MobileBrowserView(state: state)
+        super.init(nibName: nil, bundle: nil)
     }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            chromeBar
-            progressLine
-            MobileBrowserView(state: state)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(Color(.systemBackground))
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var chromeBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                state.request(.goBack)
-            } label: {
-                Image(systemName: "chevron.backward")
-            }
-            .disabled(!state.canGoBack)
-            .accessibilityLabel(L10n.string("mobile.browser.back", defaultValue: "Back"))
-            .accessibilityIdentifier("MobileBrowserBackButton")
-
-            Button {
-                state.request(.goForward)
-            } label: {
-                Image(systemName: "chevron.forward")
-            }
-            .disabled(!state.canGoForward)
-            .accessibilityLabel(L10n.string("mobile.browser.forward", defaultValue: "Forward"))
-            .accessibilityIdentifier("MobileBrowserForwardButton")
-
-            addressField
-
-            reloadOrStopButton
-
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-            }
-            .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
-            .accessibilityIdentifier("MobileBrowserCloseButton")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
+    public func update(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        refreshChrome()
     }
 
-    private var addressField: some View {
-        TextField(
-            L10n.string("mobile.browser.addressPlaceholder", defaultValue: "Search or enter address"),
-            text: $state.addressText
-        )
-        .textFieldStyle(.roundedBorder)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled(true)
-        .keyboardType(.webSearch)
-        .submitLabel(.go)
-        .focused($isAddressFocused)
-        .onChange(of: isAddressFocused) { _, focused in
-            // Mirror editing focus into the state so the web view's URL observer
-            // does not overwrite in-progress typing (see `isAddressEditing`).
-            state.isAddressEditing = focused
-        }
-        .onSubmit {
-            if state.submitAddress() {
-                isAddressFocused = false
-            }
-        }
-        .accessibilityIdentifier("MobileBrowserAddressField")
+    public override func loadView() {
+        let root = UIView()
+        root.backgroundColor = .systemBackground
+
+        configureButton(backButton, symbol: "chevron.backward", accessibilityLabel: L10n.string("mobile.browser.back", defaultValue: "Back"), identifier: "MobileBrowserBackButton", action: #selector(goBack))
+        configureButton(forwardButton, symbol: "chevron.forward", accessibilityLabel: L10n.string("mobile.browser.forward", defaultValue: "Forward"), identifier: "MobileBrowserForwardButton", action: #selector(goForward))
+        configureButton(closeButton, symbol: "xmark", accessibilityLabel: L10n.string("mobile.browser.close", defaultValue: "Close Browser"), identifier: "MobileBrowserCloseButton", action: #selector(closeBrowser))
+
+        addressField.borderStyle = .roundedRect
+        addressField.placeholder = L10n.string("mobile.browser.addressPlaceholder", defaultValue: "Search or enter address")
+        addressField.autocapitalizationType = .none
+        addressField.autocorrectionType = .no
+        addressField.keyboardType = .webSearch
+        addressField.returnKeyType = .go
+        addressField.clearButtonMode = .whileEditing
+        addressField.delegate = self
+        addressField.accessibilityIdentifier = "MobileBrowserAddressField"
+
+        reloadOrStopButton.addTarget(self, action: #selector(reloadOrStop), for: .touchUpInside)
+
+        let chrome = UIStackView(arrangedSubviews: [backButton, forwardButton, addressField, reloadOrStopButton, closeButton])
+        chrome.axis = .horizontal
+        chrome.alignment = .center
+        chrome.spacing = 12
+        chrome.isLayoutMarginsRelativeArrangement = true
+        chrome.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+        chrome.backgroundColor = .secondarySystemBackground
+
+        progressView.accessibilityIdentifier = "MobileBrowserProgress"
+        progressView.trackTintColor = .clear
+
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        browserView.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(chrome)
+        root.addSubview(progressView)
+        root.addSubview(browserView)
+        NSLayoutConstraint.activate([
+            chrome.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            progressView.topAnchor.constraint(equalTo: chrome.bottomAnchor),
+            progressView.heightAnchor.constraint(equalToConstant: 2),
+            browserView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            browserView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            browserView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
+            browserView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+        refreshChrome()
+        observeState()
     }
 
-    @ViewBuilder
-    private var reloadOrStopButton: some View {
-        if state.isLoading {
-            Button {
-                state.request(.stopLoading)
-            } label: {
-                Image(systemName: "xmark.circle")
+    private func configureButton(_ button: UIButton, symbol: String, accessibilityLabel: String, identifier: String, action: Selector) {
+        button.setImage(UIImage(systemName: symbol), for: .normal)
+        button.accessibilityLabel = accessibilityLabel
+        button.accessibilityIdentifier = identifier
+        button.addTarget(self, action: action, for: .touchUpInside)
+    }
+
+    private func observeState() {
+        withObservationTracking {
+            _ = state.addressText
+            _ = state.canGoBack
+            _ = state.canGoForward
+            _ = state.isLoading
+            _ = state.estimatedProgress
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshChrome()
+                self.observeState()
             }
-            .accessibilityLabel(L10n.string("mobile.browser.stop", defaultValue: "Stop"))
-            .accessibilityIdentifier("MobileBrowserStopButton")
-        } else {
-            Button {
-                state.request(.reload)
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .accessibilityLabel(L10n.string("mobile.browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("MobileBrowserReloadButton")
         }
     }
 
-    @ViewBuilder
-    private var progressLine: some View {
-        if state.isLoading {
-            ProgressView(value: state.estimatedProgress)
-                .progressViewStyle(.linear)
-                .frame(height: 2)
-                .accessibilityIdentifier("MobileBrowserProgress")
-        } else {
-            Color.clear.frame(height: 2)
+    private func refreshChrome() {
+        guard isViewLoaded else { return }
+        backButton.isEnabled = state.canGoBack
+        forwardButton.isEnabled = state.canGoForward
+        if !addressField.isFirstResponder {
+            addressField.text = state.addressText
         }
+        let isLoading = state.isLoading
+        reloadOrStopButton.setImage(UIImage(systemName: isLoading ? "xmark.circle" : "arrow.clockwise"), for: .normal)
+        reloadOrStopButton.accessibilityLabel = isLoading
+            ? L10n.string("mobile.browser.stop", defaultValue: "Stop")
+            : L10n.string("mobile.browser.reload", defaultValue: "Reload")
+        reloadOrStopButton.accessibilityIdentifier = isLoading ? "MobileBrowserStopButton" : "MobileBrowserReloadButton"
+        progressView.isHidden = !isLoading
+        progressView.progress = Float(state.estimatedProgress)
+    }
+
+    @objc private func goBack() { state.request(.goBack) }
+    @objc private func goForward() { state.request(.goForward) }
+    @objc private func closeBrowser() { onClose() }
+
+    @objc private func reloadOrStop() {
+        state.request(state.isLoading ? .stopLoading : .reload)
+    }
+
+    public func textFieldDidBeginEditing(_ textField: UITextField) {
+        state.isAddressEditing = true
+    }
+
+    public func textFieldDidEndEditing(_ textField: UITextField) {
+        state.isAddressEditing = false
+        state.addressText = textField.text ?? ""
+    }
+
+    public func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        state.addressText = textField.text ?? ""
+        guard state.submitAddress() else { return false }
+        textField.resignFirstResponder()
+        return true
     }
 }
 #endif

@@ -1,108 +1,84 @@
 #if canImport(UIKit)
-public import SwiftUI
+import Observation
 public import UIKit
 public import WebKit
 
-/// SwiftUI wrapper that hosts a single `WKWebView` for a ``BrowserSurfaceState``.
-///
-/// This is the browser sibling of the terminal's `GhosttySurfaceRepresentable`:
-/// a `UIViewRepresentable` whose coordinator owns the web view, observes its
-/// navigation key paths, and mirrors them into the `@Observable` surface state
-/// so the SwiftUI chrome (address bar, progress, back/forward) stays in sync.
-///
-/// Loading progress and navigation flags come from `NSKeyValueObservation` on
-/// the web view plus `WKNavigationDelegate` callbacks rather than Combine, to
-/// fit the `@Observable` model and avoid `ObservableObject`.
-public struct MobileBrowserView: UIViewRepresentable {
-    /// The state this view drives and reflects.
-    public let state: BrowserSurfaceState
+/// UIKit owner for a single `WKWebView` bound to a ``BrowserSurfaceState``.
+/// Observation drives pending navigation work directly, so mounting does not
+/// depend on a declarative rendering pass.
+@MainActor
+public final class MobileBrowserView: UIView {
+    public let webView: WKWebView
+    private let state: BrowserSurfaceState
+    private let coordinator: Coordinator
 
-    /// Creates a browser view bound to a surface state.
-    /// - Parameter state: The browser surface state to host.
     public init(state: BrowserSurfaceState) {
         self.state = state
+        webView = Self.makeConfiguredWebView()
+        coordinator = Coordinator(state: state)
+        super.init(frame: .zero)
+        backgroundColor = .systemBackground
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        coordinator.attach(webView: webView)
+        observePendingWork()
     }
 
-    /// Builds the coordinator that owns the web view and its observations.
-    /// - Returns: A new ``Coordinator``.
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(state: state)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    /// Creates and configures the hosted `WKWebView`.
-    /// - Parameter context: The representable context carrying the coordinator.
-    /// - Returns: The configured web view.
-    public func makeUIView(context: Context) -> WKWebView {
-        let webView = Self.makeConfiguredWebView()
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        context.coordinator.attach(webView: webView)
-        return webView
-    }
-
-    /// Builds the hosted web view with the surface's fixed configuration,
-    /// independent of the SwiftUI `Context` so the gesture policy can be
-    /// unit-tested.
-    static func makeConfiguredWebView() -> WKWebView {
+    /// Builds a browser web view with cmux's fixed mobile navigation policy.
+    public static func makeConfiguredWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        // Default persistent data store: cookies/localStorage persist on the
-        // phone across launches. Cross-device sync with the Mac is P2.
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        // Off, by design: the browser pane is pushed onto the workspace
-        // `NavigationStack`, and the web view's own left-edge back-swipe would
-        // otherwise eat the standard iOS edge swipe that returns to the workspace
-        // list (issue #6634). Web history stays reachable through the chrome
-        // bar's back/forward buttons.
+        // The enclosing workspace navigation controller owns the edge swipe.
         webView.allowsBackForwardNavigationGestures = false
         return webView
     }
 
-    /// Pushes any pending load request and navigation command from the state
-    /// into the web view.
-    /// - Parameters:
-    ///   - uiView: The hosted web view.
-    ///   - context: The representable context carrying the coordinator.
-    public func updateUIView(_ uiView: WKWebView, context: Context) {
-        context.coordinator.applyPendingWork()
+    private func observePendingWork() {
+        withObservationTracking {
+            _ = state.loadRequest
+            _ = state.pendingCommand
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.coordinator.applyPendingWork()
+                self.observePendingWork()
+            }
+        }
+        coordinator.applyPendingWork()
     }
 
-    /// Tears down the coordinator's observations and web-view delegate.
-    /// - Parameters:
-    ///   - uiView: The hosted web view.
-    ///   - coordinator: The coordinator to detach.
-    public static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
-        coordinator.detach()
-    }
-
-    /// Owns the `WKWebView`, observes its navigation key paths, and bridges
-    /// navigation callbacks into the `@Observable` ``BrowserSurfaceState``.
+    /// Owns navigation delegates and mirrors WebKit state into the observable
+    /// browser model.
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let state: BrowserSurfaceState
         private weak var webView: WKWebView?
         private var observations: [NSKeyValueObservation] = []
 
-        /// Creates a coordinator for a surface state.
-        /// - Parameter state: The surface state to mirror web-view changes into.
         public init(state: BrowserSurfaceState) {
             self.state = state
             super.init()
         }
 
-        /// Binds the coordinator to a web view: registers key-value observations
-        /// and kicks off the first pending load.
-        /// - Parameter webView: The web view to observe and drive.
         func attach(webView: WKWebView) {
+            detach()
             self.webView = webView
+            webView.navigationDelegate = self
+            webView.uiDelegate = self
             observe(webView)
-            // A surface can be re-attached to a fresh WKWebView when SwiftUI
-            // remounts the representable (switching workspaces, hiding/showing
-            // the browser). The surface state survives, but the web view does
-            // not, so restore the last committed URL on re-attach to honor the
-            // "current page is restored on return" promise. First mount already
-            // has a pending initial-URL load, so guard against a double-load.
             let hadPendingLoad = state.loadRequest != nil
             applyPendingWork()
             if !hadPendingLoad, webView.url == nil, let restore = state.currentURL {
@@ -110,8 +86,6 @@ public struct MobileBrowserView: UIViewRepresentable {
             }
         }
 
-        /// Runs any pending load request and navigation command from the state
-        /// against the web view.
         func applyPendingWork() {
             guard let webView else { return }
             if let url = state.consumeLoadRequest() {
@@ -135,8 +109,6 @@ public struct MobileBrowserView: UIViewRepresentable {
             }
         }
 
-        /// Cancels all observations and releases the web view. Called on
-        /// dismantle so the surface leaves no dangling KVO registrations.
         func detach() {
             observations.forEach { $0.invalidate() }
             observations.removeAll()
@@ -146,28 +118,18 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func observe(_ webView: WKWebView) {
-            // Each observer mirrors one web-view property into the @Observable
-            // state on the main actor. `options: [.initial]` is intentionally
-            // omitted so the seeded state is not overwritten before first load.
             observations = [
                 webView.observe(\.estimatedProgress) { [state] webView, _ in
-                    MainActor.assumeIsolated {
-                        state.estimatedProgress = webView.estimatedProgress
-                    }
+                    MainActor.assumeIsolated { state.estimatedProgress = webView.estimatedProgress }
                 },
                 webView.observe(\.title) { [state] webView, _ in
                     MainActor.assumeIsolated {
-                        if let title = webView.title, !title.isEmpty {
-                            state.title = title
-                        }
+                        if let title = webView.title, !title.isEmpty { state.title = title }
                     }
                 },
                 webView.observe(\.url) { [state] webView, _ in
                     MainActor.assumeIsolated {
                         state.currentURL = webView.url
-                        // Do not clobber the user's in-progress typing: only
-                        // mirror the live URL into the address bar when the user
-                        // is not editing it.
                         if let url = webView.url, !state.isAddressEditing {
                             state.addressText = url.absoluteString
                         }
@@ -182,17 +144,13 @@ public struct MobileBrowserView: UIViewRepresentable {
             ]
         }
 
-        // MARK: - WKNavigationDelegate
-
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             state.navigationDidStart()
         }
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             state.navigationDidFinish()
-            if let title = webView.title, !title.isEmpty {
-                state.title = title
-            }
+            if let title = webView.title, !title.isEmpty { state.title = title }
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
@@ -204,11 +162,6 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func failNavigation(with error: any Error) {
-            // A cancelled load reports `NSURLErrorCancelled`. This is not a
-            // failure to surface; it happens on a user stop AND when a new
-            // navigation replaces an in-flight one. Mirror the web view's real
-            // `isLoading` rather than forcing `false`, so the chrome stays in the
-            // loading state when a replacement navigation is still in flight.
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
                 state.isLoading = webView?.isLoading ?? false
@@ -218,19 +171,12 @@ public struct MobileBrowserView: UIViewRepresentable {
             state.navigationDidFail(message: error.localizedDescription)
         }
 
-        // MARK: - WKUIDelegate
-
         public func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            // P1 is a single-pane browser with no tabs, so `target="_blank"` /
-            // `window.open` links (which arrive with a nil `targetFrame`) would
-            // otherwise be silently dropped. Load them in the current web view
-            // instead so external/doc/auth links still navigate. Returning nil
-            // tells WebKit not to create a new web view.
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
             }

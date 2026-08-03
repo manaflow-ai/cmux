@@ -22,7 +22,7 @@ let package = Package(
     targets: [
         // A self-contained, phone-local browser surface. P1 browser state never
         // touches the Mac, so this package sits low in the DAG: it depends only
-        // on the leaf `CmuxMobileSupport` and links Foundation/WebKit/SwiftUI.
+        // on the leaf `CmuxMobileSupport` and links Foundation, UIKit, and WebKit.
         .target(
             name: "CmuxMobileBrowser",
             dependencies: [

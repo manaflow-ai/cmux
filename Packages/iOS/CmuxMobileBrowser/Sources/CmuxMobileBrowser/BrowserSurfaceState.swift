@@ -11,13 +11,13 @@ import Observation
 /// representable what URL to load next.
 ///
 /// It is `@MainActor @Observable` (not `ObservableObject`/`@Published`), so
-/// SwiftUI tracks individual property reads and the `WKWebView` coordinator can
-/// mutate it directly on the main actor.
+/// Native UIKit owners track individual property reads and the `WKWebView`
+/// coordinator mutates it directly on the main actor.
 @MainActor
 @Observable
 public final class BrowserSurfaceState: Identifiable {
-    /// A stable identifier for a browser surface, so SwiftUI can key the hosting
-    /// representable and tear down the `WKWebView` when the surface changes.
+    /// A stable identifier for a browser surface, so the UIKit composition root
+    /// can preserve or replace the `WKWebView` when the surface changes.
     public struct ID: RawRepresentable, Hashable, Sendable {
         /// The backing identifier string.
         public var rawValue: String
