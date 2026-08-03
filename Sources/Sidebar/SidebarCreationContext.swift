@@ -168,7 +168,7 @@ extension TabManager {
         for key in Array(remotes.keys) {
             guard var aggregate = remotes[key] else { continue }
             aggregate.workspaceCount = tabs.lazy.filter {
-                resolvedSidebarCreationContextID(for: $0) == key.id
+                self.resolvedSidebarCreationContextID(for: $0) == key.id
             }.count
             remotes[key] = aggregate
         }
