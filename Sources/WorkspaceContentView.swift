@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
