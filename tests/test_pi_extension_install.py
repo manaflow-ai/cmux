@@ -157,8 +157,11 @@ class _AutoNamingSocketHandler(socketserver.StreamRequestHandler):
             else:
                 result = {}
             response = {"ok": True, "result": result, "id": request.get("id")}
-            self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
-            self.wfile.flush()
+            try:
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                self.wfile.flush()
+            except BrokenPipeError:
+                return
 
 
 class _AutoNamingSocketServer(socketserver.ThreadingUnixStreamServer):
@@ -603,24 +606,22 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
 printf '%s\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-{
-  printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
-  printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
-  printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
-  if [ -n "${OPENAI_API_KEY-}" ]; then printf 'OPENAI_API_KEY=present\n'; fi
-  if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ]; then printf 'ANTHROPIC_AUTH_TOKEN=present\n'; fi
-  if [ -n "${CUSTOM_PASSWORD-}" ]; then printf 'CUSTOM_PASSWORD=present\n'; fi
-  if [ -n "${AMP_API_KEY-}" ]; then printf 'AMP_API_KEY=present\n'; fi
-  if [ -n "${CMUX_LEAK_TOKEN-}" ]; then printf 'CMUX_LEAK_TOKEN=present\n'; fi
-  if [ -n "${DATABASE_URL-}" ]; then printf 'DATABASE_URL=present\n'; fi
-  if [ -n "${DB_PASS-}" ]; then printf 'DB_PASS=present\n'; fi
-  if [ -n "${SENTRY_DSN-}" ]; then printf 'SENTRY_DSN=present\n'; fi
-  if [ -n "${GH_PAT-}" ]; then printf 'GH_PAT=present\n'; fi
-  if [ -n "${CLOUDFLARE_AUTH_KEY-}" ]; then printf 'CLOUDFLARE_AUTH_KEY=present\n'; fi
-  if [ -n "${STRIPE_SK-}" ]; then printf 'STRIPE_SK=present\n'; fi
-  if [ -n "${SLACK_WEBHOOK_URL-}" ]; then printf 'SLACK_WEBHOOK_URL=present\n'; fi
-  if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
-} >> "$CMUX_TEST_PI_ENV_LOG"
+record="command=$*|kind=${CMUX_AGENT_LAUNCH_KIND-}|cwd=${CMUX_AGENT_LAUNCH_CWD-}|argv=${CMUX_AGENT_LAUNCH_ARGV_B64-}"
+if [ -n "${ANTHROPIC_API_KEY-}" ]; then record="$record|ANTHROPIC_API_KEY=present"; fi
+if [ -n "${OPENAI_API_KEY-}" ]; then record="$record|OPENAI_API_KEY=present"; fi
+if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ]; then record="$record|ANTHROPIC_AUTH_TOKEN=present"; fi
+if [ -n "${CUSTOM_PASSWORD-}" ]; then record="$record|CUSTOM_PASSWORD=present"; fi
+if [ -n "${AMP_API_KEY-}" ]; then record="$record|AMP_API_KEY=present"; fi
+if [ -n "${CMUX_LEAK_TOKEN-}" ]; then record="$record|CMUX_LEAK_TOKEN=present"; fi
+if [ -n "${DATABASE_URL-}" ]; then record="$record|DATABASE_URL=present"; fi
+if [ -n "${DB_PASS-}" ]; then record="$record|DB_PASS=present"; fi
+if [ -n "${SENTRY_DSN-}" ]; then record="$record|SENTRY_DSN=present"; fi
+if [ -n "${GH_PAT-}" ]; then record="$record|GH_PAT=present"; fi
+if [ -n "${CLOUDFLARE_AUTH_KEY-}" ]; then record="$record|CLOUDFLARE_AUTH_KEY=present"; fi
+if [ -n "${STRIPE_SK-}" ]; then record="$record|STRIPE_SK=present"; fi
+if [ -n "${SLACK_WEBHOOK_URL-}" ]; then record="$record|SLACK_WEBHOOK_URL=present"; fi
+if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then record="$record|CMUX_TEST_PI_TOKEN=present"; fi
+printf '%s\n' "$record" >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
   *"hooks pi notification"*)
     if printf '%s' "$payload" | grep -q 'pi-session-notification-fails'; then
@@ -681,7 +682,8 @@ esac
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
         check_env["CMUX_TEST_PI_MALFORMED_SCRIPT_PATH"] = str(malformed_cli)
-        check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
+        check_env["ANTHROPIC_API_KEY"] = "anthropic-autoname-provider-key"
+        check_env["OPENAI_API_KEY"] = "openai-autoname-provider-key"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
         check_env["AMP_API_KEY"] = "amp-secret-should-not-leak"
@@ -1006,7 +1008,7 @@ await waitForCompletionHookCount(completionCount);
             timeout=20.0,
             expected_substrings=('"hook_event_name":"PostToolUse"',),
         )
-        env_log = wait_for_text(fake_env_log, 38 * 3, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 38, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -1252,10 +1254,33 @@ await waitForCompletionHookCount(completionCount);
         if "kind=pi" not in env_log or "cwd=/tmp/pi-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: extension did not pass launch metadata environment, got {env_log!r}")
             return 1
+        env_records = []
+        for raw_record in env_log.splitlines():
+            fields = [field for field in raw_record.split("|") if field]
+            if not fields:
+                continue
+            command = next((field.removeprefix("command=") for field in fields if field.startswith("command=")), "")
+            present = {field.removesuffix("=present") for field in fields if field.endswith("=present")}
+            env_records.append((command, present))
+        stop_env_records = [record for record in env_records if "hooks pi stop" in record[0]]
+        if not stop_env_records or any(
+            not {"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}.issubset(present)
+            for _, present in stop_env_records
+        ):
+            print(f"FAIL: Pi Stop hooks did not receive auto-naming provider credentials: {stop_env_records!r}")
+            return 1
+        provider_leaks = [
+            (command, present & {"ANTHROPIC_API_KEY", "OPENAI_API_KEY"})
+            for command, present in env_records
+            if "hooks pi stop" not in command
+            and present & {"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}
+        ]
+        if provider_leaks:
+            print(f"FAIL: extension passed auto-naming provider credentials outside Pi Stop: {provider_leaks!r}")
+            return 1
         leaked = [
             name
             for name in [
-                "OPENAI_API_KEY",
                 "ANTHROPIC_AUTH_TOKEN",
                 "CUSTOM_PASSWORD",
                 "AMP_API_KEY",
@@ -1274,7 +1299,15 @@ await waitForCompletionHookCount(completionCount);
         if leaked:
             print(f"FAIL: extension leaked secret environment keys to hook subprocesses: {leaked}; env={env_log!r}")
             return 1
-        argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
+        argv_line = next(
+            (
+                field
+                for line in env_log.splitlines()
+                for field in line.split("|")
+                if field.startswith("argv=")
+            ),
+            "",
+        )
         try:
             decoded_argv = [
                 value

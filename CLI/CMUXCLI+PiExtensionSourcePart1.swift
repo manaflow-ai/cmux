@@ -282,6 +282,67 @@ function secretLikeEnvKey(key: string): boolean {
   return /(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|AUTHORIZATION|COOKIE)/i.test(key);
 }
 
+// Pi's built-in providers read these values when --no-extensions removes a
+// custom provider and the auto-namer falls back to a built-in model. Keep this
+// exact allowlist aligned with Pi's provider environment contract; it is only
+// enabled for the Stop command that can launch the tool-disabled auto-namer.
+const piAutoNamingProviderEnvKeys = new Set([
+  "AI_GATEWAY_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_OAUTH_TOKEN",
+  "ANT_LING_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_DEFAULT_REGION",
+  "AWS_PROFILE",
+  "AWS_REGION",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AZURE_OPENAI_API_KEY",
+  "AZURE_OPENAI_API_VERSION",
+  "AZURE_OPENAI_BASE_URL",
+  "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+  "AZURE_OPENAI_RESOURCE_NAME",
+  "CEREBRAS_API_KEY",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_API_KEY",
+  "CLOUDFLARE_GATEWAY_ID",
+  "COPILOT_GITHUB_TOKEN",
+  "DEEPSEEK_API_KEY",
+  "FIREWORKS_API_KEY",
+  "GCLOUD_PROJECT",
+  "GEMINI_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_CLOUD_API_KEY",
+  "GOOGLE_CLOUD_LOCATION",
+  "GOOGLE_CLOUD_PROJECT",
+  "GROQ_API_KEY",
+  "HF_TOKEN",
+  "KIMI_API_KEY",
+  "MINIMAX_API_KEY",
+  "MINIMAX_CN_API_KEY",
+  "MISTRAL_API_KEY",
+  "MOONSHOT_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENCODE_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "QWEN_TOKEN_PLAN_API_KEY",
+  "QWEN_TOKEN_PLAN_CN_API_KEY",
+  "RADIUS_API_KEY",
+  "TOGETHER_API_KEY",
+  "XAI_API_KEY",
+  "XIAOMI_API_KEY",
+  "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+  "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+  "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+  "ZAI_API_KEY",
+  "ZAI_CODING_CN_API_KEY",
+]);
+
 function safePiEnvKey(key: string): boolean {
   return (
     key === "PI_CODING_AGENT_DIR" ||
@@ -314,7 +375,8 @@ function safeCmuxEnvKey(key: string): boolean {
   return false;
 }
 
-function shouldPreserveEnvKey(key: string): boolean {
+function shouldPreserveEnvKey(key: string, includeAutoNamingProviderEnv = false): boolean {
+  if (includeAutoNamingProviderEnv && piAutoNamingProviderEnvKeys.has(key)) return true;
   if (safeCmuxEnvKey(key)) return true;
   if (safePiEnvKey(key)) return true;
   if (safeNodeEnvKey(key)) return true;
@@ -327,11 +389,15 @@ function shouldPreserveEnvKey(key: string): boolean {
   return false;
 }
 
-function hookEnvironment(cwd: string, includeSocketPassword = false): NodeJS.ProcessEnv {
+function hookEnvironment(
+  cwd: string,
+  includeSocketPassword = false,
+  includeAutoNamingProviderEnv = false,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (shouldPreserveEnvKey(key)) env[key] = value;
+    if (shouldPreserveEnvKey(key, includeAutoNamingProviderEnv)) env[key] = value;
   }
   // Only cmux CLI children need the socket credential; keep it out of the generic allowlist.
   if (includeSocketPassword) {
