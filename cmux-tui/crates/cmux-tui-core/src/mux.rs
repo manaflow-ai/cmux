@@ -18280,6 +18280,76 @@ mod tests {
         assert!(matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+        let terminal_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("hosted terminal has a public content identity");
+        let host = mux
+            .resource_terminal_host_identity(&source)
+            .expect("hosted terminal has a durable process identity");
+        let placements = HashSet::from([source.id, projected.id]);
+        let tab_ids = mux.with_state(|state| {
+            placements
+                .iter()
+                .map(|surface| state.resource_indexes.tab_ids[surface].clone())
+                .collect::<Vec<_>>()
+        });
+        let before_revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+        let events = mux.subscribe();
+
+        mux.surface_exited(source.id);
+
+        mux.with_state(|state| {
+            assert!(
+                state
+                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                    .is_empty(),
+                "an exited runtime retained a projected view"
+            );
+            assert!(
+                !state.terminal_catalog.contains_key(&terminal_id),
+                "an exited runtime remained catalog-owned"
+            );
+        });
+        let resolved = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap();
+        assert_eq!(resolved.surface, None);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        let waited = mux.wait_for_terminal_exit(&terminal_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(waited["state"], "exited");
+
+        let batches = mux.resource_events_after(before_revision).unwrap().batches;
+        assert_eq!(batches.len(), 1, "exit lifecycle and topology split across revisions");
+        let changes = batches[0].changes.as_array().unwrap();
+        for tab_id in tab_ids {
+            assert!(
+                changes.iter().any(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "tab"
+                        && change["id"] == tab_id.as_str()
+                }),
+                "atomic exit omitted projected tab {tab_id}"
+            );
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut exited = HashSet::new();
+        while exited != placements {
+            assert!(Instant::now() < deadline, "not every projected view observed terminal exit");
+            if let Ok(MuxEvent::SurfaceExited(surface)) =
+                events.recv_timeout(Duration::from_millis(20))
+            {
+                exited.insert(surface);
+            }
+        }
+        mux.shutdown();
+    }
+
     #[test]
     fn releasing_geometry_authority_freezes_the_terminal() {
         let mux = test_mux();

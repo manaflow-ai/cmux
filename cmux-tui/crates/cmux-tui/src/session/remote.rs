@@ -5903,7 +5903,7 @@ mod tests {
         ));
 
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));
-        assert!(!session.tree_is_stale());
+        assert!(session.tree_is_stale());
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::SurfaceExited(7))

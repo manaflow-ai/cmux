@@ -26509,9 +26509,10 @@ mod tests {
     }
 
     #[test]
-    fn surface_exit_preserves_view_state_without_a_topology_refresh() {
-        let (mux, terminal) = test_mux("surface-exit-preserves-view-test", None);
+    fn surface_exit_retires_stale_view_until_authoritative_topology_refresh() {
+        let (mux, terminal) = test_mux("surface-exit-retires-view-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
         app.replace_tree(app.session.tree());
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
@@ -26529,11 +26530,17 @@ mod tests {
             app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
             RenderAction::Draw
         );
-        assert!(app.tab_locations.contains_key(&surface));
-        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs.len(), 1);
-        assert_eq!(app.rendered_terminal_sizes.get(&surface), Some(&(12, 5)));
-        assert!(app.rendered_terminal_bounds.contains_key(&surface));
-        assert!(!app.session.remote_tree_is_stale());
+        assert!(!app.tab_locations.contains_key(&surface));
+        assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
+        assert!(!app.rendered_terminal_sizes.contains_key(&surface));
+        assert!(!app.rendered_terminal_bounds.contains_key(&surface));
+
+        // A cached snapshot can predate the authoritative topology refresh.
+        // The retired-view guard must not let it reattach the exited surface.
+        app.replace_tree(app.session.tree());
+        app.session.attach_surface(surface, Some((80, 24)));
+
+        assert!(!app.session.can_attach_surface(surface));
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());

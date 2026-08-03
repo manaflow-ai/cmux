@@ -2654,7 +2654,50 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
 }
 
 #[test]
-fn running_host_sigkill_retains_read_only_exited_binding() {
+fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
+    let harness = RecoveryHarness::start("ctrl-d-exit");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh","-i"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let workspace_id = created["workspace"].as_u64().unwrap();
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"send-key","surface":surface,"keys":["ctrl+d"]}),
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            break;
+        }
+        assert!(Instant::now() < deadline, "Ctrl-D never exited the shell");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let tree = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
+    let workspace = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
+        .expect("Ctrl-D removed the workspace identity");
+    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+}
+
+#[test]
+fn running_host_sigkill_detaches_exited_terminal_topology() {
     let harness = RecoveryHarness::start("running-host-sigkill");
     let created = request(
         &harness.socket,
@@ -2677,7 +2720,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
             serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
         if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"].as_u64(), Some(surface));
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
             break;
         }
         assert!(Instant::now() < deadline, "running host never transitioned to Exited");
@@ -2690,7 +2733,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
         }),
     );
     assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("exited"));
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
@@ -2707,7 +2750,7 @@ fn running_host_sigkill_retains_read_only_exited_binding() {
 }
 
 #[test]
-fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_binding() {
+fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -2716,6 +2759,7 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
             "cols":80,"rows":24,
         }),
     );
+    let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     let workspace_id = created["workspace"].as_u64().unwrap();
@@ -2741,20 +2785,19 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
     harness.restart();
 
     let deadline = Instant::now() + Duration::from_secs(15);
-    let exited_surface = loop {
+    loop {
         let resolved = request(
             &harness.socket,
             serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
         );
-        if resolved["lifecycle"] == "exited"
-            && let Some(surface) = resolved["surface"].as_u64()
-        {
+        if resolved["lifecycle"] == "exited" {
             assert_eq!(resolved["terminal_incarnation"], incarnation);
-            break surface;
+            assert_eq!(resolved["surface"], serde_json::Value::Null);
+            break;
         }
         assert!(Instant::now() < deadline, "dead startup host was not projected as Exited");
         std::thread::sleep(Duration::from_millis(25));
-    };
+    }
     wait_for_no_host_records(&harness.host_root());
     let recovered = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = recovered["workspaces"]
@@ -2763,17 +2806,16 @@ fn daemon_restart_safe_prunes_dead_host_and_materializes_exited_workspace_bindin
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    let tab = first_tab(workspace).expect("Exited terminal placeholder was not materialized");
-    assert_eq!(tab["surface"].as_u64(), Some(exited_surface));
-    assert_eq!(tab["terminal_id"].as_str(), Some(terminal_id.as_str()));
+    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
 
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":exited_surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
         }),
     );
     assert_eq!(write["ok"], false);
+    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
     request(
         &harness.socket,
         serde_json::json!({
