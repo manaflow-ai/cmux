@@ -1,420 +1,442 @@
-import CmuxFoundation
-import CmuxNotifications
-import SwiftUI
-import Foundation
-import Bonsplit
 import AppKit
+import Bonsplit
 import CmuxAppKitSupportUI
-import CmuxFeedback
+import CmuxNotifications
+import CmuxSettings
+import CmuxSimulatorUI
 
-/// View that renders the appropriate panel view based on panel type
-struct PanelContentView: View {
+@MainActor
+struct PanelContentConfiguration {
     let panel: any Panel
-    let workspaceId: UUID
-    let paneId: PaneID
+    let workspaceID: UUID
+    let paneID: PaneID
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
     let allowsPointerInput: Bool
-    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil
+    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
-    let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
+    let customSidebarUnread: SidebarUnreadModel
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
-    /// Explicit browser pane-ownership signal for hosts whose panels live outside
-    /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
-    var paneOwnershipOverride: Bool? = nil
-    /// Live terminal pane ownership. Portal callbacks invoke this again instead
-    /// of trusting the SwiftUI snapshot captured before a cross-container move.
-    var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
+    let paneOwnershipOverride: Bool?
+    let terminalPaneOwnershipResolver: (@MainActor () -> Bool)?
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
+}
 
-    var body: some View {
-        renderedPanel
-            .overlay {
-                paneDropTargetOverlay
-            }
+@MainActor
+protocol PanelContentControllerUpdating: AnyObject {
+    func update(configuration: PanelContentConfiguration)
+    func teardownPanelContent()
+}
+
+extension PanelContentControllerUpdating {
+    func teardownPanelContent() {}
+}
+
+@MainActor
+final class PanelContentViewController: NSViewController {
+    private enum ContentKind: Equatable {
+        case agentSession
+        case simulator
+        case simulatorDisabled
+        case extensionBrowser
+        case mobilePairing
+        case accountSignIn
+        case transitional(String)
     }
 
-    @ViewBuilder
-    private var renderedPanel: some View {
-        switch panel.panelType {
-        case .terminal:
-            if let terminalPanel = panel as? TerminalPanel {
-                TerminalPanelView(
-                    panel: terminalPanel,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPaneOwnershipResolver: terminalPaneOwnershipResolver,
-                    portalPriority: portalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: hasUnreadNotification,
-                    terminalAgentContext: terminalAgentContext,
-                    onFocus: onFocus,
-                    onResumeAgentHibernation: onResumeAgentHibernation,
-                    onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
-                    onTriggerFlash: onTriggerFlash
-                )
-            }
-        case .browser:
-            if let browserPanel = panel as? BrowserPanel {
-                BrowserPanelView(
-                    panel: browserPanel,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    paneOwnershipOverride: paneOwnershipOverride,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-                // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
-                // structural slot when a pane selects another browser, so bind its lifetime
-                // to the panel instead of carrying the prior panel's omnibar draft forward.
-                .id(browserPanel.id)
-            }
-        case .markdown:
-            if let markdownPanel = panel as? MarkdownPanel {
-                MarkdownPanelView(
-                    panel: markdownPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
-        case .filePreview:
-            if let filePreviewPanel = panel as? FilePreviewPanel {
-                FilePreviewPanelView(
-                    panel: filePreviewPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
-        case .rightSidebarTool:
-            if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
-                RightSidebarToolPanelView(
-                    panel: rightSidebarToolPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
-        case .customSidebar:
-            if let customSidebarPanel = panel as? CustomSidebarPanel {
-                if let customSidebarTabManager {
-                    CustomSidebarPanelView(
-                        panel: customSidebarPanel,
-                        tabManager: customSidebarTabManager,
-                        sidebarUnread: customSidebarUnread,
-                        isFocused: isFocused,
-                        isVisibleInUI: isVisibleInUI,
-                        appearance: appearance,
-                        windowAppearance: windowAppearance,
-                        onRequestPanelFocus: onRequestPanelFocus
-                    )
-                }
-            }
-        case .simulator:
-            if let simulatorPanel = panel as? SimulatorPanel {
-                if CmuxFeatureFlags.shared.isSimulatorEnabled,
-                   simulatorPanel.isFeatureReady {
-                    SimulatorPanelView(
-                        panel: simulatorPanel,
-                        isFocused: isFocused,
-                        isVisibleInUI: isVisibleInUI,
-                        allowsPointerInput: allowsPointerInput,
-                        pointerEntryEventFilter: pointerEntryEventFilter,
-                        appearance: appearance,
-                        onRequestPanelFocus: onRequestPanelFocus
-                    )
-                } else {
-                    SimulatorFeatureDisabledView(
-                        panel: simulatorPanel,
-                        appearance: appearance
-                    )
-                }
-            }
+    private let contentContainer = NSView()
+    private let dropTargetView = PaneDropTargetView(frame: .zero)
+    private var installedController: NSViewController?
+    private var installedPanelID: UUID?
+    private var installedKind: ContentKind?
+
+    init(configuration: PanelContentConfiguration) {
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        dropTargetView.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(contentContainer)
+        root.addSubview(dropTargetView)
+        NSLayoutConstraint.activate([
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: root.topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            dropTargetView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            dropTargetView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            dropTargetView.topAnchor.constraint(equalTo: root.topAnchor),
+            dropTargetView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        loadViewIfNeeded()
+        updateDropTarget(configuration)
+        let kind = contentKind(for: configuration)
+        if installedPanelID == configuration.panel.id,
+           installedKind == kind,
+           let updating = installedController as? PanelContentControllerUpdating {
+            updating.update(configuration: configuration)
+            return
+        }
+
+        let controller = makeController(configuration: configuration, kind: kind)
+        install(controller)
+        installedPanelID = configuration.panel.id
+        installedKind = kind
+    }
+
+    func teardown() {
+        (installedController as? PanelContentControllerUpdating)?.teardownPanelContent()
+        dropTargetView.dropContext = nil
+        dropTargetView.hostedView = nil
+        dropTargetView.draggingExited(nil)
+    }
+
+    private func contentKind(for configuration: PanelContentConfiguration) -> ContentKind {
+        switch configuration.panel.panelType {
         case .agentSession:
-            if let agentSessionPanel = panel as? AgentSessionPanel {
-                AgentSessionPanelView(
-                    panel: agentSessionPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
-        case .project:
-            if let projectPanel = panel as? ProjectPanel {
-                ProjectPanelView(
-                    panel: projectPanel,
-                    isFocused: isFocused,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
+            return .agentSession
+        case .simulator:
+            guard let panel = configuration.panel as? SimulatorPanel,
+                  CmuxFeatureFlags.shared.isSimulatorEnabled,
+                  panel.isFeatureReady
+            else { return .simulatorDisabled }
+            return .simulator
         case .extensionBrowser:
-            if let extensionBrowserPanel = panel as? CMUXSidebarExtensionBrowserPanel {
-                CMUXSidebarExtensionBrowserPanelView(
-                    panel: extensionBrowserPanel,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        case .workspaceTodo:
-            if let workspaceTodoPanel = panel as? WorkspaceTodoPanel {
-                WorkspaceTodoPanelView(
-                    panel: workspaceTodoPanel,
-                    isFocused: isFocused,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
-        case .cloudVMLoading:
-            if let loadingPanel = panel as? CloudVMLoadingPanel {
-                CloudVMLoadingPanelView(panel: loadingPanel)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            return .extensionBrowser
         case .mobilePairing:
-            if panel is MobilePairingPanel {
-                MobilePairingPanelView(
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
+            return .mobilePairing
         case .accountSignIn:
-            if let accountSignInPanel = panel as? AccountSignInPanel {
-                AccountSignInPanelView(
-                    panel: accountSignInPanel,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
+            return .accountSignIn
+        default:
+            return .transitional(configuration.panel.panelType.rawValue)
         }
     }
 
-    @ViewBuilder
-    private var paneDropTargetOverlay: some View {
-        if shouldInstallPaneDropTarget {
-            PaneDropTargetRepresentable(dropContext: PaneDropContext(
-                workspaceId: workspaceId,
-                panelId: panel.id,
-                paneId: paneId
-            ))
+    private func makeController(
+        configuration: PanelContentConfiguration,
+        kind: ContentKind
+    ) -> NSViewController {
+        switch kind {
+        case .agentSession:
+            return AgentSessionPanelNativeViewController(configuration: configuration)
+        case .simulator:
+            return SimulatorPanelNativeViewController(configuration: configuration)
+        case .simulatorDisabled:
+            return SimulatorDisabledPanelNativeViewController(configuration: configuration)
+        case .extensionBrowser:
+            return ExtensionBrowserPanelNativeViewController(configuration: configuration)
+        case .mobilePairing:
+            return MobilePairingPanelNativeViewController(configuration: configuration)
+        case .accountSignIn:
+            return AccountSignInPanelNativeViewController(configuration: configuration)
+        case .transitional:
+            return TransitionalPanelLeafHostingController(configuration: configuration)
         }
     }
 
-    private var shouldInstallPaneDropTarget: Bool {
-        guard isVisibleInUI else { return false }
-        switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
-            return true
+    private func install(_ controller: NSViewController) {
+        if let installedController {
+            (installedController as? PanelContentControllerUpdating)?.teardownPanelContent()
+            installedController.view.removeFromSuperview()
+            installedController.removeFromParent()
+        }
+        addChild(controller)
+        let child = controller.view
+        child.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.addSubview(child)
+        NSLayoutConstraint.activate([
+            child.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            child.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            child.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            child.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+        installedController = controller
+    }
+
+    private func updateDropTarget(_ configuration: PanelContentConfiguration) {
+        guard configuration.isVisibleInUI, shouldInstallPaneDropTarget(configuration.panel.panelType) else {
+            dropTargetView.dropContext = nil
+            dropTargetView.hostedView = nil
+            dropTargetView.draggingExited(nil)
+            dropTargetView.isHidden = true
+            return
+        }
+        dropTargetView.isHidden = false
+        dropTargetView.hostedView = nil
+        dropTargetView.dropContext = PaneDropContext(
+            workspaceId: configuration.workspaceID,
+            panelId: configuration.panel.id,
+            paneId: configuration.paneID
+        )
+    }
+
+    private func shouldInstallPaneDropTarget(_ panelType: PanelType) -> Bool {
+        switch panelType {
         case .terminal, .browser:
             return false
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar,
+             .simulator, .agentSession, .project, .extensionBrowser,
+             .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
+            return true
         }
     }
 }
 
-private struct CloudVMLoadingPanelView: View {
-    @ObservedObject var panel: CloudVMLoadingPanel
+@MainActor
+private final class AgentSessionPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let nativeView = AgentSessionPanelNativeView(frame: .zero)
 
-    var body: some View {
-        let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        TimelineView(schedule) { context in
-            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
-            VStack(spacing: 14) {
-                switch panel.phase {
-                case .loading:
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
-                        .cmuxFont(size: 14, weight: .semibold)
-                        .foregroundStyle(.primary)
-                    CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
-                case .failed(let message, let failedElapsedSeconds):
-                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18)
-                        .foregroundStyle(.orange)
-                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
-                        .cmuxFont(size: 14, weight: .semibold)
-                        .foregroundStyle(.primary)
-                    Text(message)
-                        .cmuxFont(size: 12)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 460)
-                    HStack(spacing: 8) {
-                        Button {
-                            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                        } label: {
-                            Label(
-                                String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
-                                systemImage: "arrow.clockwise"
-                            )
-                            .cmuxFont(size: 12, weight: .semibold)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+    init(configuration: PanelContentConfiguration) {
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
+    }
 
-                        Button {
-                            FeedbackComposerBridge().openComposer()
-                        } label: {
-                            Label(
-                                String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
-                                systemImage: "bubble.left.and.text.bubble.right"
-                            )
-                            .cmuxFont(size: 12, weight: .semibold)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    Text(String(format: String(
-                        localized: "panel.cloudVM.loading.failed.elapsed",
-                        defaultValue: "Waited %ds before stopping."
-                    ), failedElapsedSeconds))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(32)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
-        }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        view = nativeView
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? AgentSessionPanel else { return }
+        let defaults = UserDefaults.standard
+        let maximumWidth = (defaults.object(forKey: SessionContentWidthSettings.maxWidthKey) as? Double)
+            ?? SessionContentWidthSettings.noMaximumWidth
+        let alignment = defaults.string(forKey: SessionContentWidthSettings.alignmentKey)
+            ?? SessionContentAlignment.center.rawValue
+        nativeView.update(
+            panel: panel,
+            isFocused: configuration.isFocused,
+            isVisibleInUI: configuration.isVisibleInUI,
+            backgroundColor: configuration.appearance.contentBackgroundColor,
+            theme: AgentSessionWebTheme.resolve(appearance: configuration.appearance),
+            sessionContentWidthPresentation: SessionContentWidthPresentation(
+                storedMaximumWidth: maximumWidth,
+                storedAlignment: alignment
+            ),
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
+    }
+
+    func teardownPanelContent() {
+        nativeView.teardown()
     }
 }
 
-private struct CloudVMLoadingStatusView: View {
-    let elapsedSeconds: Int
+@MainActor
+private final class SimulatorPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let lifecycle = SimulatorPanelLifecycleHost()
+    private var simulatorController: SimulatorPaneView?
 
-    var body: some View {
-        VStack(spacing: 10) {
-            Text(String(format: String(
-                localized: "panel.cloudVM.loading.elapsed",
-                defaultValue: "%ds elapsed"
-            ), elapsedSeconds))
-            .cmuxFont(size: 12, weight: .medium)
-            .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                CloudVMLoadingStatusRow(
-                    icon: "checkmark.circle.fill",
-                    text: String(localized: "panel.cloudVM.loading.step.workspace", defaultValue: "Pinned workspace created"),
-                    isActive: false
-                )
-                CloudVMLoadingStatusRow(
-                    icon: statusIcon(for: 0..<6),
-                    text: statusText,
-                    isActive: true
-                )
-                CloudVMLoadingStatusRow(
-                    icon: elapsedSeconds >= 6 ? "arrow.triangle.2.circlepath" : "circle",
-                    text: String(localized: "panel.cloudVM.loading.step.terminal", defaultValue: "Terminal will open automatically when ready"),
-                    isActive: elapsedSeconds >= 6
-                )
-            }
-            .frame(maxWidth: 420, alignment: .leading)
-        }
+    init(configuration: PanelContentConfiguration) {
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
     }
 
-    private var statusText: String {
-        switch elapsedSeconds {
-        case 0..<3:
-            return String(localized: "panel.cloudVM.loading.step.request", defaultValue: "Requesting your persistent VM")
-        case 3..<8:
-            return String(localized: "panel.cloudVM.loading.step.resume", defaultValue: "Starting or resuming the VM")
-        case 8..<18:
-            return String(localized: "panel.cloudVM.loading.step.endpoint", defaultValue: "Waiting for a secure terminal endpoint")
-        default:
-            return String(localized: "panel.cloudVM.loading.step.retrying", defaultValue: "Still waiting; retrying in the background")
-        }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private func statusIcon(for range: Range<Int>) -> String {
-        range.contains(elapsedSeconds) ? "arrow.triangle.2.circlepath" : "checkmark.circle.fill"
+    func update(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? SimulatorPanel else { return }
+        let controller: SimulatorPaneView
+        if let simulatorController {
+            controller = simulatorController
+        } else {
+            controller = SimulatorPaneView(
+                coordinator: panel.coordinator,
+                backgroundColor: configuration.appearance.contentBackgroundColor,
+                allowsPointerInput: configuration.allowsPointerInput,
+                pointerEntryEventFilter: configuration.pointerEntryEventFilter,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            )
+            simulatorController = controller
+            addChild(controller)
+            lifecycle.installFocusOwnershipView(in: controller)
+            view = controller.view
+        }
+        lifecycle.update(
+            controller: controller,
+            panel: panel,
+            isFocused: configuration.isFocused,
+            isVisibleInUI: configuration.isVisibleInUI,
+            allowsPointerInput: configuration.allowsPointerInput,
+            pointerEntryEventFilter: configuration.pointerEntryEventFilter,
+            backgroundColor: configuration.appearance.contentBackgroundColor,
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
+    }
+
+    func teardownPanelContent() {
+        guard let simulatorController else { return }
+        lifecycle.teardown(controller: simulatorController)
+        simulatorController.removeFromParent()
+        self.simulatorController = nil
     }
 }
 
-private struct CloudVMLoadingStatusRow: View {
-    let icon: String
-    let text: String
-    let isActive: Bool
+@MainActor
+private final class SimulatorDisabledPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let nativeView: SimulatorFeatureDisabledNativeView
 
-    var body: some View {
-        HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: icon, pointSize: 12)
-                .foregroundStyle(isActive ? .secondary : .tertiary)
-                .frame(width: 14)
-            Text(text)
-                .cmuxFont(size: 12)
-                .foregroundStyle(isActive ? .secondary : .tertiary)
-                .lineLimit(2)
-        }
+    init(configuration: PanelContentConfiguration) {
+        nativeView = SimulatorFeatureDisabledNativeView(
+            backgroundColor: configuration.appearance.contentBackgroundColor
+        )
+        super.init(nibName: nil, bundle: nil)
+        view = nativeView
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        nativeView.update(backgroundColor: configuration.appearance.contentBackgroundColor)
     }
 }
 
-struct PanelFilePathHeader<TrailingContent: View>: View {
-    let iconSystemName: String
-    let filePath: String
-    let foregroundColor: NSColor
-    @ViewBuilder let trailingContent: () -> TrailingContent
+@MainActor
+private final class ExtensionBrowserPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let container: CMUXSidebarExtensionBrowserContainerViewController
 
-    var body: some View {
-        HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(filePath)
-                .cmuxFont(size: 11, design: .monospaced)
-                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
-            trailingContent()
+    init(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? CMUXSidebarExtensionBrowserPanel else {
+            fatalError("extensionBrowser panel type mismatch")
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Color.clear)
+        container = CMUXSidebarExtensionBrowserContainerViewController(
+            browserViewController: panel.browserViewController,
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
+        super.init(nibName: nil, bundle: nil)
+        addChild(container)
+        view = container.view
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? CMUXSidebarExtensionBrowserPanel else { return }
+        container.browserViewController.title = panel.displayTitle
+        container.onRequestPanelFocus = configuration.onRequestPanelFocus
+        container.attachBrowserIfNeeded()
+        container.updateLayoutForCurrentBounds()
+    }
+
+    func teardownPanelContent() {
+        container.detachBrowserForTransientReparent()
     }
 }
 
-struct PanelHeaderIconButton: View {
-    let systemName: String
-    let label: String
-    var isDisabled: Bool = false
-    let action: () -> Void
+@MainActor
+private final class MobilePairingPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let nativeView: MobilePairingView
 
-    var body: some View {
-        Button(action: action) {
-            PanelHeaderIconGlyph(systemName: systemName)
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .disabled(isDisabled)
-        .help(label)
-        .accessibilityLabel(label)
+    init(configuration: PanelContentConfiguration) {
+        nativeView = MobilePairingView(
+            backgroundColor: configuration.appearance.contentBackgroundColor,
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
+        super.init(nibName: nil, bundle: nil)
+        view = nativeView
+        nativeView.setAccessibilityIdentifier("MobilePairingPanel")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        nativeView.updatePresentation(
+            backgroundColor: configuration.appearance.contentBackgroundColor,
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
     }
 }
 
-struct PanelHeaderIconGlyph: View {
-    let systemName: String
+@MainActor
+private final class AccountSignInPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private let scrollView = AccountSignInPanelScrollView()
+    private let signInView: AccountSignInView
 
-    var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
-            .frame(width: 20, height: 20, alignment: .center)
-            .contentShape(Rectangle())
+    init(configuration: PanelContentConfiguration) {
+        guard let panel = configuration.panel as? AccountSignInPanel else {
+            fatalError("accountSignIn panel type mismatch")
+        }
+        signInView = AccountSignInView(model: panel.model, automaticallyStartsSignIn: true)
+        super.init(nibName: nil, bundle: nil)
+        scrollView.drawsBackground = true
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = signInView
+        scrollView.onMouseDown = configuration.onRequestPanelFocus
+        scrollView.setAccessibilityIdentifier("AccountSignInPanel")
+        view = scrollView
+        update(configuration: configuration)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        scrollView.backgroundColor = configuration.appearance.contentBackgroundColor
+        scrollView.onMouseDown = configuration.onRequestPanelFocus
+        signInView.frame = NSRect(
+            x: 24,
+            y: 24,
+            width: max(0, scrollView.contentSize.width - 48),
+            height: max(240, scrollView.contentSize.height - 48)
+        )
+    }
+}
+
+@MainActor
+private final class AccountSignInPanelScrollView: NSScrollView {
+    var onMouseDown: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown()
+        super.mouseDown(with: event)
+    }
+
+    override func layout() {
+        super.layout()
+        guard let documentView else { return }
+        documentView.frame.size.width = max(0, contentSize.width - 48)
+        documentView.frame.size.height = max(240, contentSize.height - 48)
     }
 }

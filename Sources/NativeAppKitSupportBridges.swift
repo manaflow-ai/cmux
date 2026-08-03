@@ -296,6 +296,424 @@ struct NotificationsPage: NSViewControllerRepresentable {
     }
 }
 
+struct PanelContentView: NSViewControllerRepresentable {
+    let panel: any Panel
+    let workspaceId: UUID
+    let paneId: PaneID
+    let isFocused: Bool
+    let isSelectedInPane: Bool
+    let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
+    let portalPriority: Int
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
+    let customSidebarUnread: SidebarUnreadModel
+    let hasUnreadNotification: Bool
+    let terminalAgentContext: String
+    var paneOwnershipOverride: Bool?
+    var terminalPaneOwnershipResolver: (@MainActor () -> Bool)?
+    let onFocus: () -> Void
+    let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
+    let onTriggerFlash: () -> Void
+
+    init(
+        panel: any Panel,
+        workspaceId: UUID,
+        paneId: PaneID,
+        isFocused: Bool,
+        isSelectedInPane: Bool,
+        isVisibleInUI: Bool,
+        allowsPointerInput: Bool,
+        pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil,
+        portalPriority: Int,
+        isSplit: Bool,
+        appearance: PanelAppearance,
+        windowAppearance: WindowAppearanceSnapshot,
+        customSidebarTabManager: TabManager?,
+        customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread,
+        hasUnreadNotification: Bool,
+        terminalAgentContext: String,
+        paneOwnershipOverride: Bool? = nil,
+        terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil,
+        onFocus: @escaping () -> Void,
+        onRequestPanelFocus: @escaping () -> Void,
+        onResumeAgentHibernation: @escaping () -> Void,
+        onAutoResumeAgentHibernation: @escaping () -> Void,
+        onTriggerFlash: @escaping () -> Void
+    ) {
+        self.panel = panel
+        self.workspaceId = workspaceId
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isSelectedInPane = isSelectedInPane
+        self.isVisibleInUI = isVisibleInUI
+        self.allowsPointerInput = allowsPointerInput
+        self.pointerEntryEventFilter = pointerEntryEventFilter
+        self.portalPriority = portalPriority
+        self.isSplit = isSplit
+        self.appearance = appearance
+        self.windowAppearance = windowAppearance
+        self.customSidebarTabManager = customSidebarTabManager
+        self.customSidebarUnread = customSidebarUnread
+        self.hasUnreadNotification = hasUnreadNotification
+        self.terminalAgentContext = terminalAgentContext
+        self.paneOwnershipOverride = paneOwnershipOverride
+        self.terminalPaneOwnershipResolver = terminalPaneOwnershipResolver
+        self.onFocus = onFocus
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self.onResumeAgentHibernation = onResumeAgentHibernation
+        self.onAutoResumeAgentHibernation = onAutoResumeAgentHibernation
+        self.onTriggerFlash = onTriggerFlash
+    }
+
+    func makeNSViewController(context: Context) -> PanelContentViewController {
+        PanelContentViewController(configuration: configuration)
+    }
+
+    func updateNSViewController(_ controller: PanelContentViewController, context: Context) {
+        controller.update(configuration: configuration)
+    }
+
+    static func dismantleNSViewController(_ controller: PanelContentViewController, coordinator: ()) {
+        controller.teardown()
+    }
+
+    private var configuration: PanelContentConfiguration {
+        PanelContentConfiguration(
+            panel: panel,
+            workspaceID: workspaceId,
+            paneID: paneId,
+            isFocused: isFocused,
+            isSelectedInPane: isSelectedInPane,
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: pointerEntryEventFilter,
+            portalPriority: portalPriority,
+            isSplit: isSplit,
+            appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
+            customSidebarUnread: customSidebarUnread,
+            hasUnreadNotification: hasUnreadNotification,
+            terminalAgentContext: terminalAgentContext,
+            paneOwnershipOverride: paneOwnershipOverride,
+            terminalPaneOwnershipResolver: terminalPaneOwnershipResolver,
+            onFocus: onFocus,
+            onRequestPanelFocus: onRequestPanelFocus,
+            onResumeAgentHibernation: onResumeAgentHibernation,
+            onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
+            onTriggerFlash: onTriggerFlash
+        )
+    }
+}
+
+@MainActor
+final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
+    PanelContentControllerUpdating
+{
+    private var configuration: PanelContentConfiguration
+
+    init(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        super.init(rootView: AnyView(EmptyView()))
+        sizingOptions = []
+        render()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        render()
+    }
+
+    private func render() {
+        let configuration = configuration
+        let panel = configuration.panel
+        switch panel.panelType {
+        case .terminal:
+            guard let terminalPanel = panel as? TerminalPanel else { return setEmpty() }
+            rootView = AnyView(TerminalPanelView(
+                panel: terminalPanel,
+                paneId: configuration.paneID,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                portalPaneOwnershipResolver: configuration.terminalPaneOwnershipResolver,
+                portalPriority: configuration.portalPriority,
+                isSplit: configuration.isSplit,
+                appearance: configuration.appearance,
+                hasUnreadNotification: configuration.hasUnreadNotification,
+                terminalAgentContext: configuration.terminalAgentContext,
+                onFocus: configuration.onFocus,
+                onResumeAgentHibernation: configuration.onResumeAgentHibernation,
+                onAutoResumeAgentHibernation: configuration.onAutoResumeAgentHibernation,
+                onTriggerFlash: configuration.onTriggerFlash
+            ))
+        case .browser:
+            guard let browserPanel = panel as? BrowserPanel else { return setEmpty() }
+            rootView = AnyView(BrowserPanelView(
+                panel: browserPanel,
+                paneId: configuration.paneID,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                portalPriority: configuration.portalPriority,
+                paneOwnershipOverride: configuration.paneOwnershipOverride,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ).id(browserPanel.id))
+        case .markdown:
+            guard let markdownPanel = panel as? MarkdownPanel else { return setEmpty() }
+            rootView = AnyView(MarkdownPanelView(
+                panel: markdownPanel,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                portalPriority: configuration.portalPriority,
+                appearance: configuration.appearance,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .filePreview:
+            guard let filePreviewPanel = panel as? FilePreviewPanel else { return setEmpty() }
+            rootView = AnyView(FilePreviewPanelView(
+                panel: filePreviewPanel,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                portalPriority: configuration.portalPriority,
+                appearance: configuration.appearance,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .rightSidebarTool:
+            guard let toolPanel = panel as? RightSidebarToolPanel else { return setEmpty() }
+            rootView = AnyView(RightSidebarToolPanelView(
+                panel: toolPanel,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                appearance: configuration.appearance,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .customSidebar:
+            guard let sidebarPanel = panel as? CustomSidebarPanel,
+                  let tabManager = configuration.customSidebarTabManager
+            else { return setEmpty() }
+            rootView = AnyView(CustomSidebarPanelView(
+                panel: sidebarPanel,
+                tabManager: tabManager,
+                sidebarUnread: configuration.customSidebarUnread,
+                isFocused: configuration.isFocused,
+                isVisibleInUI: configuration.isVisibleInUI,
+                appearance: configuration.appearance,
+                windowAppearance: configuration.windowAppearance,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .project:
+            guard let projectPanel = panel as? ProjectPanel else { return setEmpty() }
+            rootView = AnyView(ProjectPanelView(
+                panel: projectPanel,
+                isFocused: configuration.isFocused,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .workspaceTodo:
+            guard let todoPanel = panel as? WorkspaceTodoPanel else { return setEmpty() }
+            rootView = AnyView(WorkspaceTodoPanelView(
+                panel: todoPanel,
+                isFocused: configuration.isFocused,
+                onRequestPanelFocus: configuration.onRequestPanelFocus
+            ))
+        case .cloudVMLoading:
+            guard let loadingPanel = panel as? CloudVMLoadingPanel else { return setEmpty() }
+            rootView = AnyView(CloudVMLoadingPanelView(panel: loadingPanel))
+        case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn:
+            setEmpty()
+        }
+    }
+
+    private func setEmpty() {
+        rootView = AnyView(EmptyView())
+    }
+}
+
+private struct CloudVMLoadingPanelView: View {
+    @ObservedObject var panel: CloudVMLoadingPanel
+
+    var body: some View {
+        TimelineView(.periodic(from: panel.startedAt, by: 1)) { context in
+            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
+            VStack(spacing: 14) {
+                switch panel.phase {
+                case .loading:
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
+                        .cmuxFont(size: 14, weight: .semibold)
+                    CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
+                case .failed(let message, let failedElapsedSeconds):
+                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18)
+                        .foregroundStyle(.orange)
+                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
+                        .cmuxFont(size: 14, weight: .semibold)
+                    Text(message)
+                        .cmuxFont(size: 12)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 460)
+                    HStack(spacing: 8) {
+                        Button {
+                            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+                        } label: {
+                            Label(
+                                String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+                                systemImage: "arrow.clockwise"
+                            )
+                            .cmuxFont(size: 12, weight: .semibold)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        Button {
+                            FeedbackComposerBridge().openComposer()
+                        } label: {
+                            Label(
+                                String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
+                                systemImage: "bubble.left.and.text.bubble.right"
+                            )
+                            .cmuxFont(size: 12, weight: .semibold)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Text(String(format: String(
+                        localized: "panel.cloudVM.loading.failed.elapsed",
+                        defaultValue: "Waited %ds before stopping."
+                    ), failedElapsedSeconds))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        }
+    }
+}
+
+private struct CloudVMLoadingStatusView: View {
+    let elapsedSeconds: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(String(format: String(
+                localized: "panel.cloudVM.loading.elapsed",
+                defaultValue: "%ds elapsed"
+            ), elapsedSeconds))
+            .cmuxFont(size: 12, weight: .medium)
+            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                CloudVMLoadingStatusRow(
+                    icon: "checkmark.circle.fill",
+                    text: String(localized: "panel.cloudVM.loading.step.workspace", defaultValue: "Pinned workspace created"),
+                    isActive: false
+                )
+                CloudVMLoadingStatusRow(icon: statusIcon, text: statusText, isActive: true)
+                CloudVMLoadingStatusRow(
+                    icon: elapsedSeconds >= 6 ? "arrow.triangle.2.circlepath" : "circle",
+                    text: String(localized: "panel.cloudVM.loading.step.terminal", defaultValue: "Terminal will open automatically when ready"),
+                    isActive: elapsedSeconds >= 6
+                )
+            }
+            .frame(maxWidth: 420, alignment: .leading)
+        }
+    }
+
+    private var statusText: String {
+        switch elapsedSeconds {
+        case 0..<3: String(localized: "panel.cloudVM.loading.step.request", defaultValue: "Requesting your persistent VM")
+        case 3..<8: String(localized: "panel.cloudVM.loading.step.resume", defaultValue: "Starting or resuming the VM")
+        case 8..<18: String(localized: "panel.cloudVM.loading.step.endpoint", defaultValue: "Waiting for a secure terminal endpoint")
+        default: String(localized: "panel.cloudVM.loading.step.retrying", defaultValue: "Still waiting; retrying in the background")
+        }
+    }
+
+    private var statusIcon: String {
+        (0..<6).contains(elapsedSeconds) ? "arrow.triangle.2.circlepath" : "checkmark.circle.fill"
+    }
+}
+
+private struct CloudVMLoadingStatusRow: View {
+    let icon: String
+    let text: String
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CmuxSystemSymbolImage(systemName: icon, pointSize: 12)
+                .foregroundStyle(isActive ? .secondary : .tertiary)
+                .frame(width: 14)
+            Text(text)
+                .cmuxFont(size: 12)
+                .foregroundStyle(isActive ? .secondary : .tertiary)
+                .lineLimit(2)
+        }
+    }
+}
+
+struct PanelFilePathHeader<TrailingContent: View>: View {
+    let iconSystemName: String
+    let filePath: String
+    let foregroundColor: NSColor
+    @ViewBuilder let trailingContent: () -> TrailingContent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(filePath)
+                .cmuxFont(size: 11, design: .monospaced)
+                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            trailingContent()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Color.clear)
+    }
+}
+
+struct PanelHeaderIconButton: View {
+    let systemName: String
+    let label: String
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            PanelHeaderIconGlyph(systemName: systemName)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+struct PanelHeaderIconGlyph: View {
+    let systemName: String
+
+    var body: some View {
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+    }
+}
+
 struct ShortcutDiscoveryButton: NSViewRepresentable {
     @Binding var isPopoverPresented: Bool
 
