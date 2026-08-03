@@ -88,7 +88,9 @@ final class KeyboardShortcutSettingsObserver {
     init(
         notificationCenter: NotificationCenter = .default,
         initialSnapshot: KeyboardShortcutSnapshot = .defaults,
-        shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
+        shortcutProvider: @escaping ShortcutProvider = { action in
+            KeyboardShortcutSettings.shortcut(for: action)
+        }
     ) {
         self.notificationCenter = notificationCenter
         self.shortcutProvider = shortcutProvider

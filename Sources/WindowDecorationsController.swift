@@ -50,7 +50,9 @@ final class WindowDecorationsController {
         }
         let enumerator = minimalModeSidebarTitlebarClickTargets.objectEnumerator()
         while let view = enumerator?.nextObject() as? NSView {
-            view.removeFromSuperview()
+            MainActor.assumeIsolated {
+                view.removeFromSuperview()
+            }
         }
         WindowMouseMovedEventsCoordinator.disableOwner(self)
     }
@@ -78,9 +80,11 @@ final class WindowDecorationsController {
 
     private func installObservers() {
         let center = NotificationCenter.default
-        let handler: (Notification) -> Void = { [weak self] notification in
-            guard let self, let window = notification.object as? NSWindow else { return }
-            self.apply(to: window)
+        let handler: @Sendable (Notification) -> Void = { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self, let window = notification.object as? NSWindow else { return }
+                self.apply(to: window)
+            }
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
