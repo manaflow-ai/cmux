@@ -128,9 +128,16 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
     }
 
     /// The latest event that marks a failed connection/lifecycle milestone.
+    ///
+    /// A ``DiagnosticFailureKind/cancelled`` outcome records that an in-flight
+    /// attempt was abandoned by recovery supersession or a caller timeout. It
+    /// completes the started/outcome pairing an export needs, but it is
+    /// lifecycle churn rather than something that failed, so it never becomes
+    /// the reported last failure.
     public var lastFailureEvent: DiagnosticEvent? {
         events.last(where: { event in
-            event.code.isDiagnosticFailure
+            guard event.diagnosticFailureKind != .cancelled else { return false }
+            return event.code.isDiagnosticFailure
                 || event.diagnosticFailureKind.map { $0 != .none } == true
         })
     }

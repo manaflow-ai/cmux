@@ -502,6 +502,26 @@ actor MobileCoreRPCSession {
             let diagnosticTransport = diagnosticTransport
             let transportConnectObserver = transportConnectObserver
             let initialSessionPurpose = transportSessionPurpose
+            // Every `transportDialStarted` must get exactly one outcome, so a
+            // diagnostic export can say what happened to a dial instead of
+            // ending the timeline at the attempt. Abandoned dials report
+            // `cancelled`, which report readers treat as lifecycle churn rather
+            // than a failure.
+            let emitDialOutcome: @Sendable (DiagnosticFailureKind) -> Void = {
+                failure in
+                guard let diagnosticTransport, let transportConnectObserver
+                else { return }
+                transportConnectObserver(
+                    .failed(
+                        attemptID: connectAttemptID,
+                        transport: diagnosticTransport,
+                        failure: failure,
+                        elapsedMilliseconds: Self.elapsedMilliseconds(
+                            since: connectStartedAt
+                        )
+                    )
+                )
+            }
             if let diagnosticTransport, let transportConnectObserver {
                 transportConnectObserver(
                     .attempt(
@@ -520,40 +540,19 @@ actor MobileCoreRPCSession {
                     await rejected.task.value
                 }
                 if Task.isCancelled {
+                    emitDialOutcome(.cancelled)
                     throw CancellationError()
                 }
                 let error = MobileShellConnectionError.connectionClosed
-                if let diagnosticTransport,
-                   let transportConnectObserver {
-                    transportConnectObserver(
-                        .failed(
-                            attemptID: connectAttemptID,
-                            transport: diagnosticTransport,
-                            failure: DiagnosticFailureKind.classify(error),
-                            elapsedMilliseconds: Self.elapsedMilliseconds(
-                                since: connectStartedAt
-                            )
-                        )
-                    )
-                }
+                emitDialOutcome(DiagnosticFailureKind.classify(error))
                 throw error
             } catch {
                 await connectAttemptRegistry.finishConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
+                    emitDialOutcome(.cancelled)
                     throw CancellationError()
                 }
-                if let diagnosticTransport, let transportConnectObserver {
-                    transportConnectObserver(
-                        .failed(
-                            attemptID: connectAttemptID,
-                            transport: diagnosticTransport,
-                            failure: DiagnosticFailureKind.classify(error),
-                            elapsedMilliseconds: Self.elapsedMilliseconds(
-                                since: connectStartedAt
-                            )
-                        )
-                    )
-                }
+                emitDialOutcome(DiagnosticFailureKind.classify(error))
                 throw error
             }
             connectionID = UUID()
@@ -583,11 +582,12 @@ actor MobileCoreRPCSession {
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
                     // path so that path can close it again after completion.
-                    // Suppress the success event without replacing that result
-                    // with `CancellationError`.
-                    if !Task.isCancelled,
-                       let diagnosticTransport,
-                       let transportConnectObserver {
+                    // Report the abandonment instead of the success without
+                    // replacing that result with `CancellationError`.
+                    if Task.isCancelled {
+                        emitDialOutcome(.cancelled)
+                    } else if let diagnosticTransport,
+                              let transportConnectObserver {
                         transportConnectObserver(
                             .connected(
                                 attemptID: connectAttemptID,
@@ -605,29 +605,21 @@ actor MobileCoreRPCSession {
                     } else {
                         await cancellationClose.finishWithoutClose()
                     }
+                    emitDialOutcome(.cancelled)
                     throw CancellationError()
                 } catch {
                     // Some transports surface their close error instead of
                     // `CancellationError` after the cancellation handler closes
                     // them. Treat the task's cancellation bit as authoritative
-                    // so an abandoned dial never becomes a false failure event.
+                    // so an abandoned dial is reported as `cancelled` rather
+                    // than as a false failure of whatever the close raised.
                     if Task.isCancelled {
                         _ = await cancellationClose.task()
+                        emitDialOutcome(.cancelled)
                         throw CancellationError()
                     }
                     await cancellationClose.finishWithoutClose()
-                    if let diagnosticTransport, let transportConnectObserver {
-                        transportConnectObserver(
-                            .failed(
-                                attemptID: connectAttemptID,
-                                transport: diagnosticTransport,
-                                failure: DiagnosticFailureKind.classify(error),
-                                elapsedMilliseconds: Self.elapsedMilliseconds(
-                                    since: connectStartedAt
-                                )
-                            )
-                        )
-                    }
+                    emitDialOutcome(DiagnosticFailureKind.classify(error))
                     throw error
                 }
             }
