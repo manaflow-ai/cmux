@@ -1156,11 +1156,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of(
-                "--state",
-                &state,
-                &["working", "blocked", "idle", "done", "unknown"],
-            )?;
+            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = json!({
