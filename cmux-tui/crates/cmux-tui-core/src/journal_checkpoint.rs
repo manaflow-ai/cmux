@@ -6,6 +6,7 @@ use flate2::{Compression, GzBuilder};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::resource::TerminalPublicId;
 use crate::workspace_registry::JournalContentBlob;
 use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, SessionJournalRecord};
 
@@ -34,8 +35,13 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         .as_array()
         .context("session snapshot terminals is not an array")?
         .iter()
-        .filter_map(|terminal| terminal["id"].as_str().map(str::to_string))
-        .collect::<Vec<_>>();
+        .map(|terminal| {
+            terminal["id"]
+                .as_str()
+                .context("session snapshot terminal id is not a string")
+                .and_then(|terminal_id| TerminalPublicId::parse(terminal_id).map_err(Into::into))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     anyhow::ensure!(
         terminal_ids.len() <= MAX_CHECKPOINT_TERMINALS,
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
@@ -44,9 +50,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut total_bytes = 0_u64;
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
-        let Some(resolution) = mux.resolve_terminal(&terminal_id)? else { continue };
-        let Some(surface_id) = resolution.surface else { continue };
-        let Some(surface) = mux.surface(surface_id) else { continue };
+        let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
         let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
             terminal
                 .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
@@ -94,7 +98,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         blobs.push(JournalContentBlob {
             reference: JournalContentRef {
                 content_id: format!("jcontent_{digest_hex}"),
-                terminal_id,
+                terminal_id: terminal_id.as_str().into(),
                 format: "cmux.vt-replay.v1".into(),
                 codec: "gzip".into(),
                 sha256: digest_hex,

@@ -6417,6 +6417,20 @@ impl Mux {
         self.state.lock().unwrap().surfaces.get(&id).cloned()
     }
 
+    pub(crate) fn terminal_resource_surface(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<Arc<Surface>> {
+        let content_id = ContentPublicId::Terminal(terminal_id.clone());
+        let state = self.state.lock().unwrap();
+        state
+            .resource_indexes
+            .content
+            .get(&content_id)
+            .and_then(|surface| state.surfaces.get(surface))
+            .cloned()
+    }
+
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
