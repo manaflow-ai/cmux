@@ -3622,10 +3622,11 @@ class TerminalController {
         controlCommandCoordinator.resolveRef(handle)
     }
 
-    /// Resolves a handle ref that arrived under a specific param key, restricted
-    /// to the handle kinds that key accepts.
-    func v2ResolveHandleRef(_ handle: String, forParamKey key: String) -> UUID? {
-        controlCommandCoordinator.resolveRef(handle, forParamKey: key)
+    /// Resolves either wire representation of an identifier (raw UUID or
+    /// `kind:N` ref) that arrived under a specific param key, restricted to the
+    /// handle kinds that key accepts.
+    func v2ResolveIdentifier(_ raw: String, forParamKey key: String) -> UUID? {
+        controlCommandCoordinator.resolveIdentifier(raw, forParamKey: key)
     }
 
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {

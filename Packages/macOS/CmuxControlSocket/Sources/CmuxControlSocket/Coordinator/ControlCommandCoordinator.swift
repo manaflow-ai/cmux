@@ -243,17 +243,44 @@ public final class ControlCommandCoordinator {
     /// A UUID param, accepting either a UUID string or a `kind:N` ref resolved
     /// through the handle registry (matches legacy `v2UUID`).
     ///
-    /// A `kind:N` ref only resolves when it was minted for one of the kinds the
-    /// param key expects, so `group_id: "surface:1"` no longer resolves to a
-    /// surface, misses its group lookup, and degrades to the active window
-    /// (https://github.com/manaflow-ai/cmux/issues/9424). Keys with no declared
-    /// expectation (`id`, notification/todo ids) keep the unrestricted search.
+    /// An identifier only resolves when its kind is one the param key expects,
+    /// so `group_id: "surface:1"` no longer resolves to a surface, misses its
+    /// group lookup, and degrades to the active window
+    /// (https://github.com/manaflow-ai/cmux/issues/9424).
+    ///
+    /// This holds for both wire representations. A `kind:N` ref names its kind
+    /// outright. A raw UUID does not, but the registry knows the kinds it has
+    /// already minted refs for, so a surface UUID supplied as `group_id` is
+    /// rejected too. A UUID the registry has never seen has no known kind and
+    /// still passes through — that is gap 1 of the issue, which needs a product
+    /// call on distinguishing caller-injected context from user-specified
+    /// targets on the wire.
+    ///
+    /// Keys with no declared expectation (`id`, notification/todo ids) keep the
+    /// unrestricted lookup.
     func uuid(_ params: [String: JSONValue], _ key: String) -> UUID? {
         guard let raw = string(params, key) else { return nil }
-        if let parsed = UUID(uuidString: raw) {
-            return parsed
+        return resolveIdentifier(raw, forParamKey: key)
+    }
+
+    /// Resolves either wire representation of an identifier — a raw UUID string
+    /// or a `kind:N` ref — for a named param key, rejecting kinds that key does
+    /// not accept. The single entrypoint both the typed params and the legacy
+    /// `[String: Any]` `v2UUID` path go through.
+    ///
+    /// - Parameters:
+    ///   - raw: The trimmed, non-empty param value.
+    ///   - key: The param key the value arrived under.
+    /// - Returns: The identifier, or `nil` if unknown or of the wrong kind.
+    public func resolveIdentifier(_ raw: String, forParamKey key: String) -> UUID? {
+        guard let parsed = UUID(uuidString: raw) else {
+            return resolveRef(raw, forParamKey: key)
         }
-        return resolveRef(raw, forParamKey: key)
+        guard let expected = Self.expectedHandleKinds[key] else { return parsed }
+        let minted = handles.mintedKinds(for: parsed)
+        // Never minted → kind unknown, so it still passes through (issue gap 1).
+        guard minted.isEmpty || !minted.isDisjoint(with: expected) else { return nil }
+        return parsed
     }
 
     /// Resolves a `kind:N` ref for a named param key, restricted to the handle

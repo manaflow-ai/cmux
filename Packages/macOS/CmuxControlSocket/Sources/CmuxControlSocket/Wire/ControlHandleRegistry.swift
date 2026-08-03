@@ -61,6 +61,24 @@ public struct ControlHandleRegistry: Sendable {
         refByUUID[kind]?.removeValue(forKey: uuid)
     }
 
+    /// The kinds an identity has been minted a ref for.
+    ///
+    /// A raw UUID carries no kind on the wire, but once the registry has handed
+    /// out a ref for it, its kind is known: a UUID minted only as `.surface` and
+    /// then supplied as `group_id` is provably the wrong kind, not merely an
+    /// unrecognized one. Empty means the registry has never seen this identity,
+    /// so its kind is genuinely unknown.
+    ///
+    /// - Parameter uuid: The object identity.
+    /// - Returns: Every kind this identity has a minted ref for.
+    public func mintedKinds(for uuid: UUID) -> Set<ControlHandleKind> {
+        var kinds: Set<ControlHandleKind> = []
+        for kind in ControlHandleKind.allCases where refByUUID[kind]?[uuid] != nil {
+            kinds.insert(kind)
+        }
+        return kinds
+    }
+
     /// Resolves a ref back to the object identity it was minted for.
     ///
     /// `tab:N` refs are accepted as aliases for `surface:N` in tab-facing
