@@ -1076,7 +1076,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE8652000000000000010D /* FilePreviewQLItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8652000000000000010E /* FilePreviewQLItem.swift */; };
 		C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */; };
 		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
-		C0DE8652000000000000010F /* FilePreviewQuickLookViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */; };
 		C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */; };
 		C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000002 /* FilePreviewReloadTests.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
@@ -3645,7 +3644,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE8652000000000000010E /* FilePreviewQLItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQLItem.swift; sourceTree = "<group>"; };
 		C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookContainerView.swift; sourceTree = "<group>"; };
 		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
-		C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookViewCoordinator.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadCompletionTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000002 /* FilePreviewReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
@@ -6671,7 +6669,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001428 /* FilePreviewPDFViewportSnapshot.swift */,
 				C0DE8652000000000000010C /* FilePreviewPDFVisiblePageResolver.swift */,
 				C0DE8652000000000000010E /* FilePreviewQLItem.swift */,
-				C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */,
 				C0DE86520000000000000112 /* FilePreviewRevision.swift */,
 				C0DE86520000000000000114 /* FilePreviewViewport.swift */,
 				C0DE86520000000000000116 /* QuickLookPreviewView.swift */,
@@ -8912,7 +8909,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE8652000000000000010D /* FilePreviewQLItem.swift in Sources */,
 				C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
-				C0DE8652000000000000010F /* FilePreviewQuickLookViewCoordinator.swift in Sources */,
 				C0DE86520000000000000111 /* FilePreviewRevision.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 				C0DE86520000000000000113 /* FilePreviewViewport.swift in Sources */,
