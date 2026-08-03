@@ -145,6 +145,26 @@ done
 cp "${SOURCE_DIR}/cmux-code.css" "${client_dir}/cmux-code.css"
 
 /usr/bin/perl -0pi -e 's{href="/favicon\.ico"}{href="/apple-touch-icon.png"}; s{<title>(?:T3 )?Code \(Alpha\)</title>}{<title>Code</title>}; s{</head>}{  <link rel="stylesheet" href="/cmux-code.css" />\n</head>}' "${client_dir}/index.html"
+sidebar_default_open='className:`h-dvh! min-h-0!`,defaultOpen:!0,style:'
+sidebar_default_closed='className:`h-dvh! min-h-0!`,defaultOpen:!1,style:'
+sidebar_asset=""
+sidebar_asset_count=0
+for candidate in "$client_dir"/assets/index-*.js; do
+  [[ -f "$candidate" ]] || continue
+  if grep -Fq "$sidebar_default_open" "$candidate"; then
+    sidebar_asset="$candidate"
+    ((sidebar_asset_count += 1))
+  fi
+done
+if [[ "$sidebar_asset_count" -ne 1 ]]; then
+  echo "error: expected one pinned Code client sidebar default, found ${sidebar_asset_count}" >&2
+  exit 1
+fi
+/usr/bin/perl -0pi -e 's{className:`h-dvh! min-h-0!`,defaultOpen:!0,style:}{className:`h-dvh! min-h-0!`,defaultOpen:!1,style:}g' "$sidebar_asset"
+if grep -Fq "$sidebar_default_open" "$sidebar_asset" || ! grep -Fq "$sidebar_default_closed" "$sidebar_asset"; then
+  echo "error: failed to make the Code client sidebar hidden by default" >&2
+  exit 1
+fi
 find "$client_dir" -type f \( -name '*.html' -o -name '*.js' \) -print0 \
   | xargs -0 /usr/bin/perl -0pi -e 's/T3 Code/Code/g; s/T3 Connect/Connect/g; s/\bT3\b/Code/g; s/T3CODE/CMUX_CODE/g'
 if find "$client_dir" -type f \( -name '*.html' -o -name '*.js' \) -print0 \

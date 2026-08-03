@@ -42,7 +42,7 @@ describe("code surface mount", () => {
       mountCodeSurface(root);
 
       expect(shellWasPresentAtMount).toBe(true);
-      expect(root.querySelector(".code-launcher__sidebar")).not.toBeNull();
+      expect(root.querySelector(".code-launcher__sidebar")).toBeNull();
       expect(root.querySelector(".code-launcher__spinner")).toBeNull();
       expect(root.querySelector('[role="status"]')).toBeNull();
     } finally {
@@ -89,6 +89,7 @@ describe("code surface mount", () => {
 
       expect(mountWasRequested).toBe(true);
       expect(dom.window.document.querySelector(".code-launcher__main")).not.toBeNull();
+      expect(dom.window.document.querySelector(".code-launcher__sidebar")).toBeNull();
       expect(dom.window.document.querySelector('[role="status"]')).toBeNull();
     } finally {
       Object.assign(globalThis, {
