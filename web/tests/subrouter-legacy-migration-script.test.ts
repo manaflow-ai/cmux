@@ -103,6 +103,58 @@ describe("legacy Subrouter migration operator", () => {
     expect(readyTeamIds).toEqual([]);
   });
 
+  test("persists a resumable finalization before touching the legacy source", async () => {
+    const operations: string[] = [];
+    let readinessAttempts = 0;
+    const migrationOptions = {
+      mappings: [mappings[0]!],
+      apply: true,
+      finalizeSource: true,
+      destinationUrl: "https://sr.cmux.com",
+      openStackSession: async () => ({
+        accessToken: "access-secret",
+        close: async () => {},
+      }),
+      exchangeHostedTenant: async () => ({
+        tenantId: "team-b",
+        tenantKey: "srt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+      markFinalizationStarted: async () => {
+        operations.push("finalization-started");
+      },
+      migrateLegacyTenant: async () => {
+        operations.push("source-finalized");
+        return { migrated: 4, sourceFinalized: true };
+      },
+      markHostedReady: async () => {
+        operations.push("hosted-ready");
+        readinessAttempts += 1;
+        if (readinessAttempts === 1) throw new Error("readiness write failed");
+      },
+      log: () => {},
+    };
+
+    await expect(runLegacyTenantMigration(migrationOptions)).rejects.toThrow(
+      "readiness write failed",
+    );
+    expect(operations).toEqual([
+      "finalization-started",
+      "source-finalized",
+      "hosted-ready",
+    ]);
+
+    await expect(runLegacyTenantMigration(migrationOptions)).resolves.toEqual({
+      planned: 1,
+      migrated: 4,
+      sourceFinalized: true,
+    });
+    expect(operations.slice(3)).toEqual([
+      "finalization-started",
+      "source-finalized",
+      "hosted-ready",
+    ]);
+  });
+
   test("applies mappings by immutable ids and always closes impersonation sessions", async () => {
     const openedTeamIds: string[] = [];
     const closedTeamIds: string[] = [];
