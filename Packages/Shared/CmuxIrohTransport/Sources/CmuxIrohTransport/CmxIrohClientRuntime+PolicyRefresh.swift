@@ -70,7 +70,8 @@ extension CmxIrohClientRuntime {
             let endpointID = try await connectivityEngine.localEndpointIdentity()
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                allowReadOnlyRegistrationRefresh: true
             )
             guard policy.binding.bindingID == previousBinding.bindingID else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
@@ -82,8 +83,7 @@ extension CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if policy.registration != nil,
-               let discovery = policy.discovery {
+            if let discovery = policy.discovery {
                 let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }

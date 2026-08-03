@@ -6,7 +6,8 @@ extension CmxIrohClientRuntime {
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
         prefetchedDiscovery: CmxIrohDiscoveryResponse? = nil,
-        brokerPreparationComplete: Bool = false
+        brokerPreparationComplete: Bool = false,
+        allowReadOnlyRegistrationRefresh: Bool = false
     ) async throws -> ResolvedPolicy {
         if !brokerPreparationComplete {
             try await preparePolicyResolution(revision: revision)
@@ -99,6 +100,23 @@ extension CmxIrohClientRuntime {
             endpointID: expectedEndpointID.endpointID
         )
         let prepared = try signer.prepare(payload: payload)
+        let refreshState = Self.registrationRefreshState(
+            payload: payload,
+            now: now()
+        )
+        if allowReadOnlyRegistrationRefresh,
+           shouldUseReadOnlyRegistrationRefresh(refreshState, at: now()) {
+            do {
+                return try await readOnlyResolvedPolicy(
+                    expectation: expectation,
+                    offlineExpectation: offlineExpectation
+                )
+            } catch CmxIrohClientRuntimeError.localBindingMissingFromDiscovery {
+                // The server no longer has this binding. Fall through to a
+                // signed mutation so the client self-heals instead of staying
+                // read-only forever.
+            }
+        }
         let registration: CmxIrohRegistrationResponse?
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
@@ -128,6 +146,9 @@ extension CmxIrohClientRuntime {
         try requireCurrent(revision)
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
+        }
+        if registration != nil {
+            lastRegistrationRefreshState = refreshState
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
@@ -185,6 +206,56 @@ extension CmxIrohClientRuntime {
             offlineExpectation: offlineExpectation,
             cachedTargetBindings: [],
             cachedLANRendezvous: nil
+        )
+    }
+
+    func readOnlyResolvedPolicy(
+        expectation: CmxIrohLocalBindingExpectation,
+        offlineExpectation: CmxIrohClientOfflinePolicyExpectation?
+    ) async throws -> ResolvedPolicy {
+        let discovery = try await discoverAuthoritatively()
+        guard discovery.routeContractVersion
+                == CmxIrohRegistrationPayload.currentRouteContractVersion else {
+            throw CmxIrohClientRuntimeError.routeContractMismatch
+        }
+        try validateRelayFleet(discovery.relayFleet)
+        let localMatches = discovery.bindings.filter(expectation.matches)
+        guard localMatches.count == 1,
+              let discovered = localMatches.first else {
+            throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
+        }
+        return ResolvedPolicy(
+            registration: nil,
+            discovery: discovery,
+            binding: discovered,
+            expectation: expectation,
+            offlineExpectation: offlineExpectation,
+            cachedTargetBindings: [],
+            cachedLANRendezvous: nil
+        )
+    }
+
+    func shouldUseReadOnlyRegistrationRefresh(
+        _ state: RegistrationRefreshState,
+        at now: Date
+    ) -> Bool {
+        guard let lastRegistrationRefreshState,
+              lastRegistrationRefreshState.fingerprint == state.fingerprint else {
+            return false
+        }
+        return now < lastRegistrationRefreshState.refreshAfter
+    }
+
+    static func registrationRefreshState(
+        payload: CmxIrohRegistrationPayload,
+        now: Date
+    ) -> RegistrationRefreshState {
+        let hintRefreshAfter = payload.pathHints.compactMap(\.expiresAt).min()
+            .map { $0.addingTimeInterval(-registrationRefreshLeadTime) }
+        let intervalRefreshAfter = now.addingTimeInterval(registrationRefreshInterval)
+        return RegistrationRefreshState(
+            fingerprint: RegistrationRefreshFingerprint(payload: payload),
+            refreshAfter: min(hintRefreshAfter ?? intervalRefreshAfter, intervalRefreshAfter)
         )
     }
 

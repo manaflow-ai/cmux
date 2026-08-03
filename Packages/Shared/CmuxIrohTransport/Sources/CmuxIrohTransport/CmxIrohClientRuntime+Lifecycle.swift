@@ -37,6 +37,7 @@ extension CmxIrohClientRuntime {
             return preparation
         }
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .inactive,
@@ -72,7 +73,10 @@ extension CmxIrohClientRuntime {
         relayCoordinator = nil
         await contextRouter.clear()
         authoritativeDiscovery = nil
-        if !preserveBinding { localBinding = nil }
+        if !preserveBinding {
+            localBinding = nil
+            lastRegistrationRefreshState = nil
+        }
         await connectivityEngine.stop()
     }
 
