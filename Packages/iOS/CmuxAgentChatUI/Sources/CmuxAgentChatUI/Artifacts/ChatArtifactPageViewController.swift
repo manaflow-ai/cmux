@@ -2,9 +2,9 @@
 import SwiftUI
 import UIKit
 
-/// Bridges path-stable artifact hosts into UIKit's transactional page controller.
+/// Bridges path-stable native artifact pages into UIKit's transactional page controller.
 struct ChatArtifactPageViewController: UIViewControllerRepresentable {
-    let pages: [ChatArtifactViewerHostedPage]
+    let pages: [ChatArtifactViewerPageDescriptor]
     @Binding var selectedPath: String
     let isPagingEnabled: Bool
 
@@ -26,7 +26,7 @@ struct ChatArtifactPageViewController: UIViewControllerRepresentable {
         context.coordinator.update(
             pages: pages,
             selectedPath: selectedPath,
-            selection: $selectedPath,
+            onSelectionChanged: { $selectedPath.wrappedValue = $0 },
             isPagingEnabled: isPagingEnabled
         )
         return controller
@@ -39,7 +39,7 @@ struct ChatArtifactPageViewController: UIViewControllerRepresentable {
         context.coordinator.update(
             pages: pages,
             selectedPath: selectedPath,
-            selection: $selectedPath,
+            onSelectionChanged: { $selectedPath.wrappedValue = $0 },
             isPagingEnabled: isPagingEnabled
         )
     }

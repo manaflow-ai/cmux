@@ -99,7 +99,7 @@ struct ChatArtifactViewerPager: View {
         #if os(iOS)
         if model.usesPaging {
             ChatArtifactPageViewController(
-                pages: model.pageModels.map(hostedPage),
+                pages: model.pageModels.map(pageDescriptor),
                 selectedPath: selectionBinding,
                 isPagingEnabled: zoomedPath == nil
             )
@@ -114,8 +114,8 @@ struct ChatArtifactViewerPager: View {
     }
 
     #if os(iOS)
-    private func hostedPage(model: ChatArtifactViewerPageModel) -> ChatArtifactViewerHostedPage {
-        ChatArtifactViewerHostedPage(
+    private func pageDescriptor(model: ChatArtifactViewerPageModel) -> ChatArtifactViewerPageDescriptor {
+        ChatArtifactViewerPageDescriptor(
             model: model,
             scope: scope,
             loader: loader,

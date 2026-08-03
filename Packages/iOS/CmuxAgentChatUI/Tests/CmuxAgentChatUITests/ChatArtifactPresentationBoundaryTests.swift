@@ -102,6 +102,54 @@ struct ChatArtifactPresentationBoundaryTests {
         #expect(!container.textView.isAccessibilityElement)
         #expect(container.textView.accessibilityElementsHidden)
     }
+
+    @Test("native page renders the initial loading route")
+    @MainActor
+    func nativePageInitialRoute() throws {
+        let suiteName = "cmux.native-artifact-page.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let path = "/logs/build.log"
+        let model = ChatArtifactViewerPageModel(
+            path: path,
+            textPreferences: ChatArtifactTextPreferences(defaults: defaults)
+        )
+        let controller = ChatArtifactViewerPageController(
+            descriptor: ChatArtifactViewerPageDescriptor(
+                model: model,
+                scope: .chat,
+                loader: .unsupported(),
+                onImageMinimumZoomChanged: { _, _ in },
+                onImageAction: { _, _ in },
+                onDone: {}
+            )
+        )
+
+        controller.loadViewIfNeeded()
+
+        #expect(controller.path == path)
+        let labels = controller.view.allDescendants.compactMap { ($0 as? UILabel)?.text }
+        let expectedTitle = String(
+            localized: "chat.artifact.loading",
+            defaultValue: "Loading preview",
+            bundle: .module
+        )
+        let didRenderLoadingTitle = labels.contains(expectedTitle)
+        #expect(didRenderLoadingTitle)
+    }
+
+    @Test("native markdown keeps selectable document text")
+    @MainActor
+    func nativeMarkdownText() {
+        let view = ChatArtifactMarkdownNativeView(
+            markdown: "# Build\n\nResult **passed**.\n\n```swift\nprint(1)\n```"
+        )
+        let textViews = view.allDescendants.compactMap { $0 as? UITextView }
+
+        #expect(textViews.contains { $0.text.contains("Build") })
+        #expect(textViews.contains { $0.text.contains("Result") && $0.isSelectable })
+        #expect(view.allDescendants.contains { $0 is UIScrollView })
+    }
     #endif
 
     @Test("child routes retain the live loader and exact descendant path")
@@ -128,3 +176,11 @@ struct ChatArtifactPresentationBoundaryTests {
         #expect(try await route.loader.list(path: route.path) == expected)
     }
 }
+
+#if canImport(UIKit)
+private extension UIView {
+    var allDescendants: [UIView] {
+        subviews + subviews.flatMap(\.allDescendants)
+    }
+}
+#endif

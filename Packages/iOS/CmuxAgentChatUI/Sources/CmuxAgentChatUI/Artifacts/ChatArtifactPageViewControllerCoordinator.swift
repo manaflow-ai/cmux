@@ -1,8 +1,7 @@
 #if os(iOS)
-import SwiftUI
 import UIKit
 
-/// Owns one clipped hosting controller per path and commits only completed page transitions.
+/// Owns one native controller per path and commits only completed page transitions.
 @MainActor
 final class ChatArtifactPageViewControllerCoordinator: NSObject,
     UIPageViewControllerDataSource,
@@ -10,9 +9,9 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
 {
     private weak var pageController: UIPageViewController?
     private var state = ChatArtifactPageControllerState(paths: [], selectedPath: "")
-    private var pagesByPath: [String: ChatArtifactViewerHostedPage] = [:]
-    private var hostsByPath: [String: UIHostingController<ChatArtifactViewerHostedPage>] = [:]
-    private var selection: Binding<String>?
+    private var pagesByPath: [String: ChatArtifactViewerPageDescriptor] = [:]
+    private var controllersByPath: [String: ChatArtifactViewerPageController] = [:]
+    private var onSelectionChanged: (@MainActor (String) -> Void)?
     private var isTransitioning = false
     private var needsDataSourceReload = false
 
@@ -21,15 +20,15 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
     }
 
     func update(
-        pages: [ChatArtifactViewerHostedPage],
+        pages: [ChatArtifactViewerPageDescriptor],
         selectedPath: String,
-        selection: Binding<String>,
+        onSelectionChanged: @escaping @MainActor (String) -> Void,
         isPagingEnabled: Bool
     ) {
-        self.selection = selection
+        self.onSelectionChanged = onSelectionChanged
         pagesByPath = Dictionary(uniqueKeysWithValues: pages.map { ($0.path, $0) })
         for page in pages {
-            hostsByPath[page.path]?.rootView = page
+            controllersByPath[page.path]?.update(descriptor: page)
         }
         needsDataSourceReload = state.update(
             paths: pages.map(\.path),
@@ -37,7 +36,7 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
         ) || needsDataSourceReload
         configurePaging(isEnabled: isPagingEnabled)
         guard !isTransitioning else { return }
-        removeUnusedHosts()
+        removeUnusedControllers()
         reloadDataSourceIfNeeded()
         synchronizeDisplayedPage()
     }
@@ -50,7 +49,7 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
               let previousPath = state.path(before: path) else {
             return nil
         }
-        return host(for: previousPath)
+        return controller(for: previousPath)
     }
 
     func pageViewController(
@@ -61,7 +60,7 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
               let nextPath = state.path(after: path) else {
             return nil
         }
-        return host(for: nextPath)
+        return controller(for: nextPath)
     }
 
     func pageViewController(
@@ -82,16 +81,16 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
            let displayed = pageViewController.viewControllers?.first,
            let path = path(for: displayed),
            state.completeTransition(to: path) {
-            selection?.wrappedValue = path
+            onSelectionChanged?(path)
         }
-        removeUnusedHosts()
+        removeUnusedControllers()
         reloadDataSourceIfNeeded()
         synchronizeDisplayedPage()
     }
 
     private func synchronizeDisplayedPage() {
         guard let pageController,
-              let destination = host(for: state.selectedPath) else {
+              let destination = controller(for: state.selectedPath) else {
             return
         }
         let current = pageController.viewControllers?.first
@@ -107,26 +106,23 @@ final class ChatArtifactPageViewControllerCoordinator: NSObject,
         )
     }
 
-    private func host(for path: String) -> UIHostingController<ChatArtifactViewerHostedPage>? {
-        if let host = hostsByPath[path] {
-            return host
+    private func controller(for path: String) -> ChatArtifactViewerPageController? {
+        if let controller = controllersByPath[path] {
+            return controller
         }
         guard let page = pagesByPath[path] else { return nil }
-        let host = UIHostingController(rootView: page)
-        host.view.backgroundColor = .systemBackground
-        host.view.isOpaque = true
-        host.view.clipsToBounds = true
-        hostsByPath[path] = host
-        return host
+        let controller = ChatArtifactViewerPageController(descriptor: page)
+        controllersByPath[path] = controller
+        return controller
     }
 
     private func path(for viewController: UIViewController) -> String? {
-        hostsByPath.first { $0.value === viewController }?.key
+        (viewController as? ChatArtifactViewerPageController)?.path
     }
 
-    private func removeUnusedHosts() {
+    private func removeUnusedControllers() {
         let retainedPaths = Set(state.paths)
-        hostsByPath = hostsByPath.filter { retainedPaths.contains($0.key) }
+        controllersByPath = controllersByPath.filter { retainedPaths.contains($0.key) }
     }
 
     private func reloadDataSourceIfNeeded() {
