@@ -33076,6 +33076,8 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
         app.handle_left_down(area.x + 1, area.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
 
         mux.close_surface(surface.id).unwrap();
     }
