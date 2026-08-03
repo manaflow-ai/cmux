@@ -5,6 +5,8 @@ import CmuxAppKitSupportUI
 import CmuxControlSocket
 import CmuxExtensionKit
 import CmuxSettings
+import CmuxSimulator
+import Darwin
 import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
@@ -1248,6 +1250,92 @@ struct ApplicationSurfaceTests {
         )
     }
 
+    @Test func applicationEditingCommandForwardsBalancedKeyPress() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "balanced-command",
+            frameTransport: frameRing.descriptor
+        )
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setInputOwnership(true)
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+
+        #expect(view.performKeyEquivalent(with: event))
+        let deliveryDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 2,
+              ContinuousClock.now < deliveryDeadline {
+            await Task.yield()
+        }
+        #expect(runtime.sentEvents == [
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16(kVK_ANSI_C),
+                keyDown: true,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16(kVK_ANSI_C),
+                keyDown: false,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+        ])
+    }
+
     @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {
         _ = NSApplication.shared
         let runtime = FakeApplicationSurfaceRuntime()
@@ -1310,9 +1398,18 @@ struct ApplicationSurfaceTests {
             sidebarSelectionState: SidebarSelectionState()
         )
         appDelegate.clearConfiguredShortcutChordState()
+#if DEBUG
+        var shortcutLookups: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            shortcutLookups.append(action)
+        }
+#endif
         defer {
             _ = appDelegate.dismissNotificationsPopoverIfShown()
             appDelegate.clearConfiguredShortcutChordState()
+#if DEBUG
+            KeyboardShortcutSettings.shortcutLookupObserver = nil
+#endif
             AppDelegate.shared = previousAppDelegate
             KeyboardShortcutSettings.settingsFileStore =
                 previousSettingsFileStore
@@ -1331,6 +1428,12 @@ struct ApplicationSurfaceTests {
         }
 
         #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+#if DEBUG
+        #expect(
+            !shortcutLookups.contains(.renameWorkspace),
+            "Application command routing must use the settings revision snapshot instead of rescanning unrelated actions."
+        )
+#endif
     }
 
     @Test func applicationSurfacePaneRestoresWithoutReusingOSWindowIDs() throws {
@@ -2065,6 +2168,8 @@ struct ApplicationSurfaceTests {
 @MainActor
 private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
     var windowListError: (any Error)?
+    var sessionToStart: ApplicationSurfaceSessionDescriptor?
+    var sentEvents: [ApplicationSurfaceInputEvent] = []
 
     func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
         nil
@@ -2085,6 +2190,9 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         processID: Int32,
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor {
+        if let sessionToStart {
+            return sessionToStart
+        }
         throw ApplicationSurfaceRuntimeError.helperUnavailable
     }
 
@@ -2102,8 +2210,99 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,
         event: ApplicationSurfaceInputEvent
-    ) async throws {}
+    ) async throws {
+        sentEvents.append(event)
+    }
 }
+
+private final class ApplicationSurfaceFrameRingFixture {
+    let descriptor: SimulatorFrameTransportDescriptor
+
+    private let sharedMemoryName: String
+    private let handle: Int32
+    private let mapping: UnsafeMutableRawPointer
+    private let byteCount: Int
+
+    init() throws {
+        let token = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+            .prefix(12)
+        sharedMemoryName = "/cmux-sim-frame-\(token)"
+        byteCount = Int(getpagesize())
+        let openedHandle = sharedMemoryName.withCString {
+            cmuxApplicationTestOpenSharedMemory(
+                $0,
+                O_CREAT | O_EXCL | O_RDWR,
+                UInt16(S_IRUSR | S_IWUSR)
+            )
+        }
+        guard openedHandle >= 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard ftruncate(openedHandle, off_t(byteCount)) == 0 else {
+            close(openedHandle)
+            shm_unlink(sharedMemoryName)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard
+            let mapped = mmap(
+                nil,
+                byteCount,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                openedHandle,
+                0
+            ),
+            mapped != MAP_FAILED
+        else {
+            close(openedHandle)
+            shm_unlink(sharedMemoryName)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        handle = openedHandle
+        mapping = mapped
+        descriptor = SimulatorFrameTransportDescriptor(
+            sharedMemoryName: sharedMemoryName,
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            slotCount: 3,
+            sharedMemoryByteCount: byteCount
+        )
+
+        memset(mapping, 0, byteCount)
+        mapping.storeBytes(of: UInt32(0x434D_5846), toByteOffset: 0, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(2), toByteOffset: 4, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(1), toByteOffset: 8, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(1), toByteOffset: 12, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(4), toByteOffset: 16, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(3), toByteOffset: 20, as: UInt32.self)
+        mapping.storeBytes(of: UInt64(byteCount), toByteOffset: 24, as: UInt64.self)
+        mapping.storeBytes(of: Int64(4), toByteOffset: 32, as: Int64.self)
+        mapping.storeBytes(of: Int64(2), toByteOffset: 40, as: Int64.self)
+        mapping.storeBytes(of: UInt32(0xFF_20_20_20), toByteOffset: 64, as: UInt32.self)
+    }
+
+    deinit {
+        munmap(mapping, byteCount)
+        close(handle)
+        shm_unlink(sharedMemoryName)
+    }
+}
+
+private final class ApplicationSurfaceVisibleTestWindow: NSWindow {
+    override var isVisible: Bool { true }
+
+    override var occlusionState: NSWindow.OcclusionState { [.visible] }
+}
+
+@_silgen_name("cmux_simulator_shm_open")
+private func cmuxApplicationTestOpenSharedMemory(
+    _ name: UnsafePointer<CChar>,
+    _ flags: Int32,
+    _ permissions: UInt16
+) -> Int32
 
 extension ControlCommandCoordinator {
     func handle(_ request: ControlRequest) -> ControlCallResult? {
