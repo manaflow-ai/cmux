@@ -103029,18 +103029,18 @@
         "ja": { "stringUnit": { "state": "translated", "value": "フローティングウインドウ名" } }
       }
     },
-    "floatingDock.parking.reorder": {
+    "floatingDock.parking.move": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reorder %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@を並べ替え" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Move %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@を移動" } }
       }
     },
-    "floatingDock.parking.reorder.help": {
+    "floatingDock.parking.move.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Drag vertically, or use the Up and Down Arrow keys." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "上下にドラッグするか、上下矢印キーを使います。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Drag to restore and move this floating window." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドラッグしてフローティングウインドウを復元し、移動します。" } }
       }
     },
     "floatingDock.parking.restore": {

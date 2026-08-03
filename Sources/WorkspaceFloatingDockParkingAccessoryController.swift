@@ -2,13 +2,13 @@ import AppKit
 import CmuxAppKitSupportUI
 import QuartzCore
 
-enum WorkspaceFloatingDockParkingReorderPhase {
+enum WorkspaceFloatingDockParkingDragPhase {
     case began
     case changed
     case ended
 }
 
-/// Owns the compact glass name and reorder accessory shown beside a parked
+/// Owns the compact glass name and drag accessory shown above a parked
 /// workspace floating window.
 @MainActor
 final class WorkspaceFloatingDockParkingAccessoryController {
@@ -25,24 +25,23 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     var window: NSWindow { panel }
     var isVisible: Bool { panel.isVisible }
+    var isDragging: Bool { accessoryView.isDragging }
 
     init(
         dockID: UUID,
         onRestore: @escaping () -> Void,
         onRename: @escaping (String) -> Bool,
-        onReorderDrag: @escaping (
-            WorkspaceFloatingDockParkingReorderPhase,
+        onDrag: @escaping (
+            WorkspaceFloatingDockParkingDragPhase,
             NSPoint
         ) -> Void,
-        onReorderStep: @escaping (Int) -> Void,
         onEditingEnded: @escaping () -> Void
     ) {
         accessoryView = WorkspaceFloatingDockParkingAccessoryView(
             dockID: dockID,
             onRestore: onRestore,
             onRename: onRename,
-            onReorderDrag: onReorderDrag,
-            onReorderStep: onReorderStep,
+            onDrag: onDrag,
             onEditingChange: { _ in },
             onEditingEnded: onEditingEnded
         )
@@ -262,15 +261,24 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         width: CGFloat,
         parkingEdge: WorkspaceFloatingDockParkingEdge
     ) -> CGRect {
-        let minX: CGFloat = switch parkingEdge {
+        var minX: CGFloat = switch parkingEdge {
         case .leading:
-            anchorFrame.maxX + Self.gap
+            anchorFrame.maxX - width
         case .trailing:
-            anchorFrame.minX - Self.gap - width
+            anchorFrame.minX
+        }
+        var minY = anchorFrame.maxY + Self.gap
+        if let visibleFrame = NSScreen.screens.first(where: {
+            !$0.frame.intersection(anchorFrame).isNull
+        })?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            minX = min(max(minX, visibleFrame.minX), visibleFrame.maxX - width)
+            if minY + Self.height > visibleFrame.maxY {
+                minY = max(visibleFrame.minY, anchorFrame.maxY - Self.height)
+            }
         }
         return CGRect(
             x: minX,
-            y: anchorFrame.midY - (Self.height / 2),
+            y: minY,
             width: width,
             height: Self.height
         )
@@ -323,9 +331,8 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
     private static let maximumWidth: CGFloat = 320
     private static let editingWidth: CGFloat = 320
 
-    private let titleLabel = NSTextField(labelWithString: "")
     fileprivate let renameField = NSTextField()
-    private let grip: WorkspaceFloatingDockParkingGrip
+    private let dragHandle: WorkspaceFloatingDockParkingDragHandle
     private let renameButton = WorkspaceFloatingDockParkingAccessoryButton()
     private let restoreButton = WorkspaceFloatingDockParkingAccessoryButton()
     private let onRename: (String) -> Bool
@@ -335,11 +342,12 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
     private var title = ""
     var onEditingChange: (Bool) -> Void
     var onBeginRename: (() -> Void)?
+    var isDragging: Bool { dragHandle.isDragging }
 
     var preferredWidth: CGFloat {
         if isRenaming { return Self.editingWidth }
         let measuredTitleWidth = ceil((title as NSString).size(
-            withAttributes: [.font: titleLabel.font ?? NSFont.systemFont(ofSize: 13)]
+            withAttributes: [.font: WorkspaceFloatingDockParkingDragHandle.titleFont]
         ).width)
         let chromeWidth = (Self.horizontalPadding * 2)
             + Self.gripWidth
@@ -355,21 +363,20 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         dockID: UUID,
         onRestore: @escaping () -> Void,
         onRename: @escaping (String) -> Bool,
-        onReorderDrag: @escaping (
-            WorkspaceFloatingDockParkingReorderPhase,
+        onDrag: @escaping (
+            WorkspaceFloatingDockParkingDragPhase,
             NSPoint
         ) -> Void,
-        onReorderStep: @escaping (Int) -> Void,
         onEditingChange: @escaping (Bool) -> Void,
         onEditingEnded: @escaping () -> Void
     ) {
         self.onRename = onRename
         self.onEditingChange = onEditingChange
         self.onEditingEnded = onEditingEnded
-        grip = WorkspaceFloatingDockParkingGrip(
+        dragHandle = WorkspaceFloatingDockParkingDragHandle(
             dockID: dockID,
-            onDrag: onReorderDrag,
-            onStep: onReorderStep
+            onDrag: onDrag,
+            onActivate: onRestore
         )
         super.init(frame: NSRect(
             x: 0,
@@ -379,14 +386,6 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         ))
 
         autoresizingMask = [.width, .height]
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.cell?.truncatesLastVisibleLine = true
-        titleLabel.setAccessibilityIdentifier(
-            "FloatingWindowParkingName.\(dockID.uuidString)"
-        )
-
         renameField.font = .systemFont(ofSize: 13, weight: .medium)
         renameField.isBezeled = false
         renameField.isBordered = false
@@ -421,8 +420,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         )
         restoreButton.onPress = onRestore
 
-        addSubview(grip)
-        addSubview(titleLabel)
+        addSubview(dragHandle)
         addSubview(renameField)
         addSubview(renameButton)
         addSubview(restoreButton)
@@ -436,12 +434,6 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         super.layout()
         let height = bounds.height
         let controlY = floor((height - Self.buttonWidth) / 2)
-        grip.frame = CGRect(
-            x: Self.horizontalPadding,
-            y: controlY,
-            width: Self.gripWidth,
-            height: Self.buttonWidth
-        )
         restoreButton.frame = CGRect(
             x: bounds.maxX - Self.horizontalPadding - Self.buttonWidth,
             y: controlY,
@@ -454,16 +446,23 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
             width: Self.buttonWidth,
             height: Self.buttonWidth
         )
-        let titleMinX = grip.frame.maxX + Self.interitemSpacing
-        let titleMaxX = (isRenaming ? restoreButton : renameButton).frame.minX
+        let handleMaxX = (isRenaming ? restoreButton : renameButton).frame.minX
             - Self.interitemSpacing
+        dragHandle.frame = CGRect(
+            x: Self.horizontalPadding,
+            y: controlY,
+            width: max(0, handleMaxX - Self.horizontalPadding),
+            height: Self.buttonWidth
+        )
         let titleFrame = CGRect(
-            x: titleMinX,
+            x: Self.horizontalPadding + Self.gripWidth + Self.interitemSpacing,
             y: floor((height - 22) / 2),
-            width: max(0, titleMaxX - titleMinX),
+            width: max(
+                0,
+                handleMaxX - Self.horizontalPadding - Self.gripWidth - Self.interitemSpacing
+            ),
             height: 22
         )
-        titleLabel.frame = titleFrame
         renameField.frame = titleFrame
     }
 
@@ -473,8 +472,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
 
     func updateTitle(_ title: String) {
         self.title = title
-        titleLabel.stringValue = title
-        grip.updateTitle(title)
+        dragHandle.updateTitle(title)
         needsLayout = true
     }
 
@@ -482,7 +480,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         guard !isRenaming else { return }
         isRenaming = true
         renameField.stringValue = title
-        titleLabel.isHidden = true
+        dragHandle.isHidden = true
         renameButton.isHidden = true
         renameField.isHidden = false
         let coordinator = SidebarInlineRenameCoordinator(
@@ -538,7 +536,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         renameCoordinator = nil
         renameField.delegate = nil
         renameField.isHidden = true
-        titleLabel.isHidden = false
+        dragHandle.isHidden = false
         renameButton.isHidden = false
         onEditingChange(false)
         needsLayout = true
@@ -587,30 +585,33 @@ private final class WorkspaceFloatingDockParkingAccessoryButton: NSButton {
 }
 
 @MainActor
-private final class WorkspaceFloatingDockParkingGrip: NSControl {
+private final class WorkspaceFloatingDockParkingDragHandle: NSControl {
+    static let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+
     private let onDrag: (
-        WorkspaceFloatingDockParkingReorderPhase,
+        WorkspaceFloatingDockParkingDragPhase,
         NSPoint
     ) -> Void
-    private let onStep: (Int) -> Void
-    private var isDragging = false
+    private let onActivate: () -> Void
+    private var title = ""
+    private(set) var isDragging = false
     private var isHovering = false
     private var trackingArea: NSTrackingArea?
 
     init(
         dockID: UUID,
         onDrag: @escaping (
-            WorkspaceFloatingDockParkingReorderPhase,
+            WorkspaceFloatingDockParkingDragPhase,
             NSPoint
         ) -> Void,
-        onStep: @escaping (Int) -> Void
+        onActivate: @escaping () -> Void
     ) {
         self.onDrag = onDrag
-        self.onStep = onStep
+        self.onActivate = onActivate
         super.init(frame: .zero)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier(
-            "FloatingWindowParkingReorderGrip.\(dockID.uuidString)"
+            "FloatingWindowParkingDragHandle.\(dockID.uuidString)"
         )
         focusRingType = .none
     }
@@ -626,18 +627,20 @@ private final class WorkspaceFloatingDockParkingGrip: NSControl {
     }
 
     func updateTitle(_ title: String) {
+        self.title = title
         setAccessibilityLabel(String(
             format: String(
-                localized: "floatingDock.parking.reorder",
-                defaultValue: "Reorder %@"
+                localized: "floatingDock.parking.move",
+                defaultValue: "Move %@"
             ),
             locale: .current,
             title
         ))
         setAccessibilityHelp(String(
-            localized: "floatingDock.parking.reorder.help",
-            defaultValue: "Drag vertically, or use the Up and Down Arrow keys."
+            localized: "floatingDock.parking.move.help",
+            defaultValue: "Drag to restore and move this floating window."
         ))
+        needsDisplay = true
     }
 
     override func updateTrackingAreas() {
@@ -669,8 +672,6 @@ private final class WorkspaceFloatingDockParkingGrip: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.makeKeyAndOrderFront(nil)
-        window?.makeFirstResponder(self)
         isDragging = true
         window?.invalidateCursorRects(for: self)
         onDrag(.began, screenPoint(for: event))
@@ -691,23 +692,29 @@ private final class WorkspaceFloatingDockParkingGrip: NSControl {
     }
 
     override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 126:
-            onStep(-1)
-        case 125:
-            onStep(1)
-        default:
-            super.keyDown(with: event)
+        if event.keyCode == 36 || event.charactersIgnoringModifiers == " " {
+            onActivate()
+            return
         }
+        super.keyDown(with: event)
     }
 
     override func accessibilityPerformPress() -> Bool {
-        window?.makeFirstResponder(self)
+        onActivate()
         return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if isHovering || isDragging {
+            let background = NSColor.labelColor.withAlphaComponent(isDragging ? 0.14 : 0.08)
+            background.setFill()
+            NSBezierPath(
+                roundedRect: bounds,
+                xRadius: 8,
+                yRadius: 8
+            ).fill()
+        }
         let color = isDragging
             ? NSColor.labelColor
             : NSColor.secondaryLabelColor.withAlphaComponent(isHovering ? 0.95 : 0.7)
@@ -718,7 +725,7 @@ private final class WorkspaceFloatingDockParkingGrip: NSControl {
         let totalWidth = (dotSize * 2) + horizontalGap
         let totalHeight = (dotSize * 3) + (verticalGap * 2)
         let origin = CGPoint(
-            x: floor(bounds.midX - (totalWidth / 2)),
+            x: 9,
             y: floor(bounds.midY - (totalHeight / 2))
         )
         for column in 0..<2 {
@@ -732,6 +739,23 @@ private final class WorkspaceFloatingDockParkingGrip: NSControl {
                 NSBezierPath(roundedRect: rect, xRadius: dotSize / 2, yRadius: dotSize / 2).fill()
             }
         }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        let textRect = CGRect(
+            x: origin.x + totalWidth + 9,
+            y: floor(bounds.midY - 9),
+            width: max(0, bounds.maxX - origin.x - totalWidth - 17),
+            height: 18
+        )
+        (title as NSString).draw(
+            in: textRect,
+            withAttributes: [
+                .font: Self.titleFont,
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraphStyle,
+            ]
+        )
     }
 
     private func screenPoint(for event: NSEvent) -> NSPoint {

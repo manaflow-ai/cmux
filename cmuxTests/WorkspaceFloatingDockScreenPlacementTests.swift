@@ -364,8 +364,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             dockID: UUID(),
             onRestore: {},
             onRename: { _ in true },
-            onReorderDrag: { _, _ in },
-            onReorderStep: { _ in },
+            onDrag: { _, _ in },
             onEditingEnded: {}
         )
         defer {
@@ -442,7 +441,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         accessoryWindow.contentView?.layoutSubtreeIfNeeded()
         let handle = try #require(Self.descendant(
             in: accessoryWindow.contentView,
-            accessibilityIdentifier: "FloatingWindowParkingReorderGrip.\(dock.id.uuidString)"
+            accessibilityIdentifier: "FloatingWindowParkingDragHandle.\(dock.id.uuidString)"
         ))
         let initialPanelFrame = try #require(controller.window?.frame)
         let downLocation = handle.convert(
@@ -483,8 +482,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             dockID: UUID(),
             onRestore: {},
             onRename: { _ in true },
-            onReorderDrag: { _, _ in },
-            onReorderStep: { _ in },
+            onDrag: { _, _ in },
             onEditingEnded: {}
         )
         defer { controller.teardown() }
@@ -507,8 +505,7 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
             dockID: UUID(),
             onRestore: {},
             onRename: { _ in true },
-            onReorderDrag: { _, _ in },
-            onReorderStep: { _ in },
+            onDrag: { _, _ in },
             onEditingEnded: {}
         )
         defer {
