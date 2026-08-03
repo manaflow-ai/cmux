@@ -24,6 +24,8 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Connect to the local cmux Iroh daemon.</string>
 </dict>

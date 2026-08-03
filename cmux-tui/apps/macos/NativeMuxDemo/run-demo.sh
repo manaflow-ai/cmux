@@ -38,7 +38,8 @@ STATIC_LIBRARY="$TUI_ROOT/target/debug/libcmux_terminal_client.a"
 TEMP_PARENT="${TMPDIR:-/tmp}"
 TEMP_PARENT="${TEMP_PARENT%/}"
 DEMO_ROOT="$(mktemp -d "$TEMP_PARENT/cmux-native-mux-demo.XXXXXX")"
-SWIFT_BUILD_ROOT="$DEMO_ROOT/swift-build"
+DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"
+SWIFT_BUILD_ROOT="$DEMO_BUILD_ROOT/swift-build"
 SESSION="native-mux-$$"
 MUX_SOCKET="$DEMO_ROOT/mux.sock"
 MUX_STATE="$DEMO_ROOT/mux-state"
@@ -76,7 +77,7 @@ trap 'exit 143' TERM
 echo "Building cmux-tui and the shared native frontend library..."
 (cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
 
-echo "Building NativeMuxDemo in an invocation-owned SwiftPM directory..."
+echo "Building NativeMuxDemo in its worktree-local SwiftPM directory..."
 swift build \
   --package-path "$SCRIPT_DIR" \
   --scratch-path "$SWIFT_BUILD_ROOT" \
@@ -96,7 +97,12 @@ for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; 
   fi
 done
 
-APP_BUNDLE="$DEMO_ROOT/NativeMuxDemo.app"
+APP_BUNDLE="$DEMO_BUILD_ROOT/NativeMuxDemo.app"
+if [[ "$APP_BUNDLE" != "$TUI_ROOT/target/native-mux-demo/NativeMuxDemo.app" ]]; then
+  echo "Refusing unsafe NativeMuxDemo app path: $APP_BUNDLE" >&2
+  exit 1
+fi
+rm -rf -- "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/en.lproj" \
   "$APP_BUNDLE/Contents/Resources/ja.lproj"
 cp "$SCRIPT_DIR/Support/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
@@ -109,7 +115,7 @@ cp -R "$RESOURCE_BUNDLE" \
   "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle"
 codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
-APP_PROCESS_TOKEN="$(basename "$DEMO_ROOT")/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
+APP_PROCESS_TOKEN="target/native-mux-demo/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
 
 echo "Starting an isolated ephemeral Iroh daemon..."
 "$CMUX_TUI" daemon \
