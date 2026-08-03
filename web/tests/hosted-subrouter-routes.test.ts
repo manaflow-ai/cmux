@@ -325,6 +325,7 @@ describe("hosted Subrouter account routes", () => {
       }),
     );
     expect(leaseResponse.status).toBe(200);
+    expect(leaseResponse.headers.get("cache-control")).toBe("no-store");
     expect(await leaseResponse.json()).toEqual({
       teamId: "team-a",
       lease: {
@@ -511,7 +512,7 @@ async function hostedFetch(
     headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "DELETE"
   ) {
-    return Response.json({ ok: true });
+    return new Response(null, { status: 204 });
   }
   return Response.json({ error: "not found" }, { status: 404 });
 }
