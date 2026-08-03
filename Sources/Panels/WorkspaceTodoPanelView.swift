@@ -656,15 +656,15 @@ private struct WorkspaceTodoPaneItemRow: View {
                     .contentShape(Rectangle())
             }
             Spacer(minLength: 0)
-            WorkspaceChecklistAttachmentMenu(
+            WorkspaceTodoAttachmentButton(
                 item: item,
                 iconPointSize: checkboxPointSize - 2,
-                foregroundColor: .secondary,
-                countFont: .system(size: itemFontSize - 1),
-                addAttachments: { _ in actions.addAttachments() },
-                removeAttachment: { _, attachmentId in actions.removeAttachment(attachmentId) },
-                openAttachments: { _, selectedAttachmentId in actions.openAttachments(selectedAttachmentId) }
+                countFontSize: itemFontSize - 1,
+                addAttachments: actions.addAttachments,
+                removeAttachment: actions.removeAttachment,
+                openAttachments: actions.openAttachments
             )
+            .fixedSize()
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .padding(.horizontal, 6)
@@ -714,5 +714,31 @@ private struct WorkspaceTodoPaneItemRow: View {
         case .inProgress: return "minus.square"
         case .completed: return "checkmark.square.fill"
         }
+    }
+}
+
+@MainActor
+private struct WorkspaceTodoAttachmentButton: NSViewRepresentable {
+    let item: WorkspaceChecklistItem
+    let iconPointSize: CGFloat
+    let countFontSize: CGFloat
+    let addAttachments: () -> Void
+    let removeAttachment: (UUID) -> Void
+    let openAttachments: (UUID?) -> Void
+
+    func makeNSView(context: Context) -> SidebarRowChecklistAttachmentButton {
+        SidebarRowChecklistAttachmentButton()
+    }
+
+    func updateNSView(_ button: SidebarRowChecklistAttachmentButton, context: Context) {
+        button.configure(
+            item: item,
+            iconPointSize: iconPointSize,
+            countFontSize: countFontSize,
+            color: .secondaryLabelColor,
+            addAttachments: { _ in addAttachments() },
+            removeAttachment: { _, attachmentID in removeAttachment(attachmentID) },
+            openAttachments: { _, attachmentID in openAttachments(attachmentID) }
+        )
     }
 }

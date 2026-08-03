@@ -14,7 +14,9 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
     /// `.menuStyle(.borderlessButton)` renders after the label.
     private let chevronView = NSImageView()
     private var item: WorkspaceChecklistItem?
-    private var actions: SidebarAppKitRowActions?
+    private var addAttachments: ((UUID) -> Void)?
+    private var removeAttachment: ((UUID, UUID) -> Void)?
+    private var openAttachments: ((UUID, UUID?) -> Void)?
     private var iconPointSize: CGFloat = 9
 
     override var isFlipped: Bool { true }
@@ -37,7 +39,9 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
 
     func resetForReuse() {
         item = nil
-        actions = nil
+        addAttachments = nil
+        removeAttachment = nil
+        openAttachments = nil
     }
 
     func configure(
@@ -46,10 +50,33 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         color: NSColor,
         actions: SidebarAppKitRowActions
     ) {
+        configure(
+            item: item,
+            iconPointSize: 9 * model.fontScale,
+            countFontSize: model.scaled(10),
+            color: color,
+            addAttachments: actions.checklistAddAttachments,
+            removeAttachment: actions.checklistRemoveAttachment,
+            openAttachments: actions.checklistOpenAttachments
+        )
+    }
+
+    /// Native attachment-menu configuration shared by the AppKit sidebar and
+    /// the todo pane while that pane is being moved off SwiftUI.
+    func configure(
+        item: WorkspaceChecklistItem,
+        iconPointSize: CGFloat,
+        countFontSize: CGFloat,
+        color: NSColor,
+        addAttachments: @escaping (UUID) -> Void,
+        removeAttachment: @escaping (UUID, UUID) -> Void,
+        openAttachments: @escaping (UUID, UUID?) -> Void
+    ) {
         self.item = item
-        self.actions = actions
-        // Legacy passes `iconPointSize: 9 * fontScale` (no magnification).
-        iconPointSize = 9 * model.fontScale
+        self.addAttachments = addAttachments
+        self.removeAttachment = removeAttachment
+        self.openAttachments = openAttachments
+        self.iconPointSize = iconPointSize
         iconView.image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: "paperclip", pointSize: iconPointSize, weight: nil
         )
@@ -61,13 +88,16 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         countLabel.isHidden = item.attachmentCount == 0
         if item.attachmentCount > 0 {
             countLabel.stringValue = "\(item.attachmentCount)"
-            countLabel.font = .monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .regular)
+            countLabel.font = .monospacedDigitSystemFont(ofSize: countFontSize, weight: .regular)
             countLabel.textColor = color
         }
         toolTip = String(localized: "sidebar.checklist.attachmentsTooltip", defaultValue: "Manage images")
         setAccessibilityLabel(accessibilityText(count: item.attachmentCount))
+        invalidateIntrinsicContentSize()
         needsLayout = true
     }
+
+    override var intrinsicContentSize: NSSize { measuredSize() }
 
     private func accessibilityText(count: Int) -> String {
         switch count {
@@ -143,19 +173,19 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
 
     /// VoiceOver and keyboard activation parity with the previous menu.
     override func accessibilityPerformPress() -> Bool {
-        guard item != nil, actions != nil else { return false }
+        guard item != nil, addAttachments != nil else { return false }
         presentAttachmentsMenu()
         return true
     }
 
     private func presentAttachmentsMenu() {
-        guard let item, let actions else { return }
+        guard let item, let addAttachments, let removeAttachment, let openAttachments else { return }
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(SidebarRowClosureMenuItem(
             title: String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")
-        ) { [actions] in
-            actions.checklistAddAttachments(item.id)
+        ) {
+            addAttachments(item.id)
         })
         if !item.attachments.isEmpty {
             menu.addItem(.separator())
@@ -164,16 +194,16 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
                 submenu.autoenablesItems = false
                 submenu.addItem(SidebarRowClosureMenuItem(
                     title: String(localized: "sidebar.checklist.openAttachment", defaultValue: "Open")
-                ) { [actions] in
-                    actions.checklistOpenAttachments(item.id, attachment.id)
+                ) {
+                    openAttachments(item.id, attachment.id)
                 })
                 submenu.addItem(SidebarRowClosureMenuItem(
                     title: String(
                         localized: "sidebar.checklist.removeAttachment",
                         defaultValue: "Remove Attachment"
                     )
-                ) { [actions] in
-                    actions.checklistRemoveAttachment(item.id, attachment.id)
+                ) {
+                    removeAttachment(item.id, attachment.id)
                 })
                 let parent = NSMenuItem(title: attachment.displayName, action: nil, keyEquivalent: "")
                 parent.submenu = submenu

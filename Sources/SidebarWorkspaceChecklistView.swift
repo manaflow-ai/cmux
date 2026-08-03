@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWorkspaces
-import SwiftUI
 
 // MARK: - Minimal visibility policy
 
@@ -78,84 +77,3 @@ struct SidebarWorkspaceChecklistActions {
     /// Opens one item's attachments in Quick Look.
     let openAttachments: @MainActor (UUID, UUID?) -> Void
 }
-
-// MARK: - Attachment menu
-
-struct WorkspaceChecklistAttachmentMenu: View {
-    let item: WorkspaceChecklistItem
-    let iconPointSize: CGFloat
-    let foregroundColor: Color
-    let countFont: Font
-    let addAttachments: @MainActor (UUID) -> Void
-    let removeAttachment: @MainActor (UUID, UUID) -> Void
-    let openAttachments: @MainActor (UUID, UUID?) -> Void
-
-    var body: some View {
-        Menu {
-            Button(String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")) {
-                addAttachments(item.id)
-            }
-            if !item.attachments.isEmpty {
-                Divider()
-                ForEach(item.attachments) { attachment in
-                    Menu(attachment.displayName) {
-                        Button(String(localized: "sidebar.checklist.openAttachment", defaultValue: "Open")) {
-                            openAttachments(item.id, attachment.id)
-                        }
-                        Button(String(
-                            localized: "sidebar.checklist.removeAttachment",
-                            defaultValue: "Remove Attachment"
-                        )) {
-                            removeAttachment(item.id, attachment.id)
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 2) {
-                CmuxSystemSymbolImage(systemName: "paperclip", pointSize: iconPointSize)
-                if item.attachmentCount > 0 {
-                    Text(verbatim: "\(item.attachmentCount)")
-                        .font(countFont)
-                        .monospacedDigit()
-                }
-            }
-            .foregroundColor(foregroundColor)
-            .frame(minWidth: iconPointSize + 8, minHeight: iconPointSize + 8, alignment: .center)
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .safeHelp(String(localized: "sidebar.checklist.attachmentsTooltip", defaultValue: "Manage images"))
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier("WorkspaceChecklistAttachmentMenu")
-    }
-
-    private var accessibilityLabel: String {
-        switch item.attachmentCount {
-        case 0:
-            return String(
-                localized: "sidebar.checklist.attachments.noneAccessibility",
-                defaultValue: "No images attached. Attach images."
-            )
-        case 1:
-            return String(localized: "sidebar.checklist.attachments.one", defaultValue: "1 image attached")
-        default:
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "sidebar.checklist.attachments.other",
-                    defaultValue: "%lld images attached"
-                ),
-                Int64(item.attachmentCount)
-            )
-        }
-    }
-}
-
-// MARK: - Section (summary line + optional expansion)
-
-/// The checklist block under a workspace row's detail lines: a one-line
-/// progress summary that toggles an inline expansion listing the items, with
-/// a trailing ghost "Add item" row. All inputs are value snapshots; height
-/// changes apply in one discrete layout pass (no animation — lazy rows must
-/// stay height-stable, see #5764/#5845).
