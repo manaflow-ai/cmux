@@ -401,8 +401,11 @@ mod unix {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-    use std::sync::{Arc, Condvar, Mutex};
+    use std::sync::mpsc::{
+        Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel as mpsc_channel,
+        sync_channel,
+    };
+    use std::sync::{Arc, Condvar, Mutex, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -420,6 +423,9 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
     const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
+    const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
+    const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
     fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
         let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
@@ -2155,6 +2161,45 @@ mod unix {
         Ok(())
     }
 
+    fn exit_persistence_diagnostic_path(exit_record_path: &Path) -> PathBuf {
+        exit_record_path.with_extension("exit-error")
+    }
+
+    fn write_exit_persistence_diagnostic(
+        exit_record_path: &Path,
+        attempt: u64,
+        error: &anyhow::Error,
+    ) -> std_io::Result<()> {
+        let path = exit_persistence_diagnostic_path(exit_record_path);
+        if let Some(parent) = path.parent() {
+            prepare_private_dir(parent).map_err(std_io::Error::other)?;
+        }
+        let message = format!(
+            "terminal-host exit persistence failed on attempt {attempt}; retrying: {error:#}\n"
+        );
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        file.write_all(message.as_bytes())?;
+        file.sync_all()
+    }
+
+    fn clear_exit_persistence_diagnostic(exit_record_path: &Path) {
+        match fs::remove_file(exit_persistence_diagnostic_path(exit_record_path)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => {}
+            Err(_) => {}
+        }
+    }
+
+    fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
+        delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
+    }
+
     #[cfg(target_vendor = "apple")]
     fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
         let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
@@ -2182,8 +2227,11 @@ mod unix {
         })?;
         // SAFETY: both pointers reference live NUL-terminated path strings,
         // and RENAME_NOREPLACE asks the kernel to leave an existing target intact.
+        // Call the syscall directly because musl does not export a `renameat2`
+        // wrapper symbol.
         if unsafe {
-            libc::renameat2(
+            libc::syscall(
+                libc::SYS_renameat2,
                 libc::AT_FDCWD,
                 from.as_ptr(),
                 libc::AT_FDCWD,
@@ -2415,7 +2463,7 @@ mod unix {
         pty_drained: AtomicBool,
         exit_published: AtomicBool,
         exit_record_path: PathBuf,
-        exit_publish_lock: Mutex<()>,
+        exit_publish_requests: Sender<()>,
         force_pty_drain: AtomicBool,
         pty_drain_waker: Mutex<UnixStream>,
         termination_started: AtomicBool,
@@ -3069,55 +3117,94 @@ mod unix {
         }
 
         fn publish_exit_if_drained(&self) {
+            // Persistence can block or retry under filesystem pressure. A
+            // dedicated host-owned worker keeps snapshots, client input, and
+            // the listener accept loop independent of that durable write.
+            let _ = self.exit_publish_requests.send(());
+        }
+
+        fn start_exit_publisher(host: &Arc<Self>, requests: Receiver<()>) -> std::io::Result<()> {
+            let host = Arc::downgrade(host);
+            thread::Builder::new()
+                .name("terminal-host-exit".into())
+                .spawn(move || Self::run_exit_publisher(host, requests))
+                .map(|_| ())
+        }
+
+        fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
+            while requests.recv().is_ok() {
+                let mut attempt = 0_u64;
+                let mut retry_delay = HOST_EXIT_PERSIST_RETRY_MIN;
+                let mut next_report = Instant::now();
+                loop {
+                    let Some(host) = weak_host.upgrade() else {
+                        return;
+                    };
+                    let result = host.persist_and_publish_exit_if_drained();
+                    drop(host);
+                    match result {
+                        Ok(()) => {
+                            if let Some(host) = weak_host.upgrade() {
+                                clear_exit_persistence_diagnostic(&host.exit_record_path);
+                            }
+                            break;
+                        }
+                        Err(error) => {
+                            // The host stays live and sends no Exit until the
+                            // durable sidecar succeeds. Reconnecting muxes can
+                            // still inspect the retained snapshot, and a disk
+                            // failure cannot erase the authoritative status.
+                            attempt = attempt.saturating_add(1);
+                            let now = Instant::now();
+                            if now >= next_report {
+                                if let Some(host) = weak_host.upgrade() {
+                                    let _ = write_exit_persistence_diagnostic(
+                                        &host.exit_record_path,
+                                        attempt,
+                                        &error,
+                                    );
+                                }
+                                next_report = now + HOST_EXIT_PERSIST_REPORT_INTERVAL;
+                            }
+                            thread::sleep(retry_delay);
+                            while requests.try_recv().is_ok() {}
+                            retry_delay = next_exit_persistence_retry_delay(retry_delay);
+                        }
+                    }
+                }
+            }
+        }
+
+        fn persist_and_publish_exit_if_drained(&self) -> anyhow::Result<()> {
             // A command may exit before its launching daemon reaches the host
             // socket. Keep the final parser snapshot and canonical Exit
             // available until that first authenticated owner stream has been
             // inserted into the broadcast set.
             if !self.launch_owner_stream_ready.load(Ordering::Acquire) {
-                return;
+                return Ok(());
             }
-            let _publish = self.exit_publish_lock.lock().unwrap();
-            let mut reported = false;
-            loop {
-                let result = persist_and_claim_host_exit_after_drain(
-                    &self.child_exit.0,
-                    &self.pty_drained,
-                    &self.exit_published,
-                    |exit| {
-                        write_exit_record(
-                            &self.exit_record_path,
-                            &TerminalHostExitRecord::new(
-                                &TerminalHostIdentity {
-                                    terminal_id: self.terminal_id.to_hex(),
-                                    incarnation: self.incarnation.to_hex(),
-                                },
-                                exit.clone(),
-                            ),
-                        )
-                    },
-                );
-                match result {
-                    Ok(Some(exit)) => {
-                        self.dead.store(true, Ordering::Release);
-                        self.broadcast(MessageKind::Exit, encode_terminal_exit(&exit));
-                        return;
-                    }
-                    Ok(None) => return,
-                    Err(error) => {
-                        // The host stays live and sends no Exit until the
-                        // durable sidecar succeeds. Reconnecting muxes can
-                        // still inspect the retained snapshot, and a disk
-                        // failure cannot erase the only authoritative status.
-                        if !reported {
-                            eprintln!(
-                                "cmux-tui: terminal-host exit persistence failed; retrying: {error:#}"
-                            );
-                            reported = true;
-                        }
-                        thread::sleep(Duration::from_millis(100));
-                    }
-                }
+            let exit = persist_and_claim_host_exit_after_drain(
+                &self.child_exit.0,
+                &self.pty_drained,
+                &self.exit_published,
+                |exit| {
+                    write_exit_record(
+                        &self.exit_record_path,
+                        &TerminalHostExitRecord::new(
+                            &TerminalHostIdentity {
+                                terminal_id: self.terminal_id.to_hex(),
+                                incarnation: self.incarnation.to_hex(),
+                            },
+                            exit.clone(),
+                        ),
+                    )
+                },
+            )?;
+            if let Some(exit) = exit {
+                self.dead.store(true, Ordering::Release);
+                self.broadcast(MessageKind::Exit, encode_terminal_exit(&exit));
             }
+            Ok(())
         }
 
         fn terminate_and_wait(&self) {
@@ -3516,6 +3603,7 @@ mod unix {
         term.set_default_palette(&launch.default_colors.palette);
         replace_ghostty_cursor_defaults(&mut term, launch.default_colors);
         let initial_colors = term.color_overrides();
+        let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
         let shared = Arc::new(HostShared {
             terminal_id: bootstrapped.terminal_id,
             incarnation: bootstrapped.incarnation,
@@ -3545,7 +3633,7 @@ mod unix {
             pty_drained: AtomicBool::new(false),
             exit_published: AtomicBool::new(false),
             exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
-            exit_publish_lock: Mutex::new(()),
+            exit_publish_requests,
             force_pty_drain: AtomicBool::new(false),
             pty_drain_waker: Mutex::new(pty_drain_waker),
             termination_started: AtomicBool::new(false),
@@ -3553,6 +3641,7 @@ mod unix {
             child_reaped: AtomicBool::new(false),
             group_escalation_complete: AtomicBool::new(false),
         });
+        HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
@@ -4545,11 +4634,70 @@ mod unix {
             }
         }
 
-        fn test_host_shared() -> HostShared {
-            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            term.resize(80, 24, 8, 16).unwrap();
+        fn exited_host_fixture(exit_record_path: PathBuf) -> Arc<HostShared> {
+            let mut term = Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap();
+            term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
+                .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
-            HostShared {
+            let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
+            let host = Arc::new(HostShared {
+                terminal_id: TerminalId::random().unwrap(),
+                incarnation: HostIncarnation::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+                capabilities: CapabilityStore::new(64),
+                term: Mutex::new(term),
+                stream_progress: TerminalStreamProgress::default(),
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master: Mutex::new(Box::new(TestHostMaster {
+                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+                })),
+                killer: Mutex::new(Box::new(TestHostKiller)),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                size: Mutex::new((80, 24)),
+                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
+                viewer_sizes: Mutex::new(HashMap::new()),
+                taps: Mutex::new(HashMap::new()),
+                broadcast_lock: Mutex::new(()),
+                sequence: AtomicU64::new(0),
+                next_client: AtomicU64::new(1),
+                dead: AtomicBool::new(false),
+                launch_owner_claimed: AtomicBool::new(true),
+                launch_owner_stream_ready: AtomicBool::new(true),
+                launch_owner_completed: AtomicBool::new(false),
+                child_exit: (
+                    Mutex::new(Some(TerminalExit {
+                        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit {
+                            code: 17,
+                        },
+                        exited_at_ms: 1_234,
+                    })),
+                    Condvar::new(),
+                ),
+                child_waitable: AtomicBool::new(true),
+                pty_drained: AtomicBool::new(true),
+                exit_published: AtomicBool::new(false),
+                exit_record_path,
+                exit_publish_requests,
+                force_pty_drain: AtomicBool::new(false),
+                pty_drain_waker: Mutex::new(pty_drain_waker),
+                termination_started: AtomicBool::new(false),
+                child_signal_lock: Mutex::new(()),
+                child_reaped: AtomicBool::new(true),
+                group_escalation_complete: AtomicBool::new(false),
+            });
+            HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
+            host
+        }
+
+        fn test_host_shared() -> Arc<HostShared> {
+            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
+                .unwrap();
+            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
+            let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
                 incarnation: HostIncarnation::random().unwrap(),
                 owner_token: CapabilityToken::random().unwrap(),
@@ -4584,14 +4732,16 @@ mod unix {
                     std::process::id(),
                     RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
                 )),
-                exit_publish_lock: Mutex::new(()),
+                exit_publish_requests,
                 force_pty_drain: AtomicBool::new(false),
                 pty_drain_waker: Mutex::new(pty_drain_waker),
                 termination_started: AtomicBool::new(false),
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(false),
                 group_escalation_complete: AtomicBool::new(false),
-            }
+            });
+            HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
+            host
         }
 
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
@@ -5905,6 +6055,70 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn exit_persistence_failure_writes_a_private_bounded_retry_diagnostic() {
+            let directory = std::env::temp_dir().join(format!(
+                "cmux-host-exit-diagnostic-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&directory).unwrap();
+            let exit_path = directory.join("terminal.exit");
+            write_exit_persistence_diagnostic(
+                &exit_path,
+                3,
+                &anyhow::anyhow!("injected persistence failure"),
+            )
+            .unwrap();
+            let diagnostic = exit_persistence_diagnostic_path(&exit_path);
+            let message = fs::read_to_string(&diagnostic).unwrap();
+            assert!(message.contains("attempt 3"), "{message}");
+            assert!(message.contains("injected persistence failure"), "{message}");
+            assert_eq!(fs::metadata(&diagnostic).unwrap().permissions().mode() & 0o777, 0o600);
+
+            let mut delay = HOST_EXIT_PERSIST_RETRY_MIN;
+            for _ in 0..16 {
+                delay = next_exit_persistence_retry_delay(delay);
+            }
+            assert_eq!(delay, HOST_EXIT_PERSIST_RETRY_MAX);
+
+            clear_exit_persistence_diagnostic(&exit_path);
+            assert!(!diagnostic.exists());
+            fs::remove_dir(directory).unwrap();
+        }
+
+        #[test]
+        fn persistent_exit_record_failure_does_not_block_host_progress() {
+            let blocking_parent = std::env::temp_dir().join(format!(
+                "cmux-host-exit-failure-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::write(&blocking_parent, b"not a directory").unwrap();
+            let host = exited_host_fixture(blocking_parent.join("terminal.exit"));
+            let weak = Arc::downgrade(&host);
+            let (returned_tx, returned_rx) = std::sync::mpsc::channel();
+            let publisher = thread::spawn({
+                let host = host.clone();
+                move || {
+                    host.publish_exit_if_drained();
+                    returned_tx.send(()).unwrap();
+                }
+            });
+
+            returned_rx
+                .recv_timeout(Duration::from_millis(250))
+                .expect("exit persistence blocked the host snapshot path");
+            publisher.join().unwrap();
+            drop(host);
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while weak.upgrade().is_some() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(weak.upgrade().is_none(), "exit publisher retained the dropped host");
+            fs::remove_file(blocking_parent).unwrap();
         }
 
         #[test]

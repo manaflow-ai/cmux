@@ -201,6 +201,20 @@ import Testing
         #expect(store.workspaceGroups.first?.name == "Overnight")
     }
 
+    @Test func connectedEmptyAuthoritativeRefreshCanClearGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaces.isEmpty)
+        #expect(store.workspaceGroups.isEmpty)
+    }
+
     @Test func connectedUngroupedRefreshCanClearGroupHeaders() {
         let store = groupedForegroundStore()
 

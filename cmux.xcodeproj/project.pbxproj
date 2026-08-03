@@ -45,6 +45,7 @@
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
+		93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
@@ -132,6 +133,8 @@
 		89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
+		93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */; };
+		93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
 		D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */; };
 		E8DF7FD45DA2E55E4DA65B38 /* AgentResumeLaunchGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21EBB654187F880170B92ED9 /* AgentResumeLaunchGuardTests.swift */; };
@@ -1346,6 +1349,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C1A071000000000000000002 /* MobileHostConnectionEventLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */; };
 		3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */; };
 		C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */; };
+		C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */; };
 		B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D90000000000000002 /* MobileHostIdentity.swift */; };
 		B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D80000000000000002 /* MobileHostIdentityTests.swift */; };
 		C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */; };
@@ -1766,7 +1770,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
-		FE003108 /* SessionIndexSectionPopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003008 /* SessionIndexSectionPopoverHost.swift */; };
 		850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000017 /* SessionIndexSnapshotLoader.swift */; };
 		850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
@@ -1779,6 +1782,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		850000000000000000000023 /* SessionIndexTableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000013 /* SessionIndexTableController.swift */; };
 		85000000000000000000002B /* SessionIndexTableEnvironmentSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001B /* SessionIndexTableEnvironmentSnapshot.swift */; };
 		85000000000000000000002E /* SessionIndexTableMutationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001E /* SessionIndexTableMutationScheduler.swift */; };
+		FE003109 /* SessionIndexTablePopoverIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003009 /* SessionIndexTablePopoverIdentity.swift */; };
+		FE00310A /* SessionIndexTablePopoverPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300A /* SessionIndexTablePopoverPresentation.swift */; };
+		FE003108 /* SessionIndexTablePopoverPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003008 /* SessionIndexTablePopoverPresenter.swift */; };
 		850000000000000000000024 /* SessionIndexTableRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000014 /* SessionIndexTableRow.swift */; };
 		85000000000000000000002C /* SessionIndexTableRowHeightCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001C /* SessionIndexTableRowHeightCalculator.swift */; };
 		850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000015 /* SessionIndexTableRowID.swift */; };
@@ -1801,6 +1807,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
+		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
+		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
@@ -2715,6 +2723,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
+		93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTTYBindingTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
@@ -2799,6 +2808,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
 		89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessBindingResolution.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
+		93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYOwnershipTests.swift; sourceTree = "<group>"; };
+		93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYTargetResolution.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
 		5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuard.swift; sourceTree = "<group>"; };
 		21EBB654187F880170B92ED9 /* AgentResumeLaunchGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuardTests.swift; sourceTree = "<group>"; };
@@ -3935,6 +3946,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventLaneTests.swift; sourceTree = "<group>"; };
 		79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventQueue.swift; sourceTree = "<group>"; };
 		C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionLifecycleTests.swift; sourceTree = "<group>"; };
+		C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Debug/MobileHostConnectionRegistry+Debug.swift"; sourceTree = "<group>"; };
 		B8B056D90000000000000002 /* MobileHostIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentity.swift; sourceTree = "<group>"; };
 		B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentityTests.swift; sourceTree = "<group>"; };
 		C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAdmissionTests.swift; sourceTree = "<group>"; };
@@ -4348,7 +4360,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReadMetrics.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
-		FE003008 /* SessionIndexSectionPopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSectionPopoverHost.swift; sourceTree = "<group>"; };
 		850000000000000000000017 /* SessionIndexSnapshotLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoader.swift; sourceTree = "<group>"; };
 		850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoaderTests.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
@@ -4361,6 +4372,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		850000000000000000000013 /* SessionIndexTableController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableController.swift; sourceTree = "<group>"; };
 		85000000000000000000001B /* SessionIndexTableEnvironmentSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableEnvironmentSnapshot.swift; sourceTree = "<group>"; };
 		85000000000000000000001E /* SessionIndexTableMutationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableMutationScheduler.swift; sourceTree = "<group>"; };
+		FE003009 /* SessionIndexTablePopoverIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverIdentity.swift; sourceTree = "<group>"; };
+		FE00300A /* SessionIndexTablePopoverPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverPresentation.swift; sourceTree = "<group>"; };
+		FE003008 /* SessionIndexTablePopoverPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTablePopoverPresenter.swift; sourceTree = "<group>"; };
 		850000000000000000000014 /* SessionIndexTableRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRow.swift; sourceTree = "<group>"; };
 		85000000000000000000001C /* SessionIndexTableRowHeightCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRowHeightCalculator.swift; sourceTree = "<group>"; };
 		850000000000000000000015 /* SessionIndexTableRowID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableRowID.swift; sourceTree = "<group>"; };
@@ -4383,6 +4397,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerLayoutCodec.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
+		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
+		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -5478,6 +5494,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
 				C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */,
+				C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */,
 				C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */,
 				C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */,
 				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
@@ -6505,6 +6522,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
 				79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */,
+				93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */,
 				89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */,
 				8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */,
 				8362A0040000000000000004 /* TerminalCallerTTYBinding.swift */,
@@ -7009,8 +7027,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE003006 /* SessionAgentPresentation.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
-				FE003008 /* SessionIndexSectionPopoverHost.swift */,
+				FE003009 /* SessionIndexTablePopoverIdentity.swift */,
+				FE00300A /* SessionIndexTablePopoverPresentation.swift */,
+				FE003008 /* SessionIndexTablePopoverPresenter.swift */,
 				FE003002 /* SessionIndexView.swift */,
+				FE00300B /* SessionTranscriptPopoverLayout.swift */,
+				FE00300C /* SessionTranscriptPopoverSizeModel.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
@@ -7810,6 +7832,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */,
 				79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */,
 				79460002AA11BB22CC33EE02 /* AgentNotificationMutationBoundaryTests.swift */,
+				93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */,
+				93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */,
 				79390012AA11BB22CC33DD12 /* ClaudeHookPIDAuthenticationTests.swift */,
 				C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */,
 				A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */,
@@ -8476,6 +8500,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */,
 				89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */,
 				0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */,
+				93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */,
 				0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */,
 				D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */,
 				CC2D14DFE13EFF544A25BEAF /* AgentResumeLiveness.swift in Sources */,
@@ -9159,6 +9184,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */,
+				C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */,
 				B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */,
 				A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */,
 				C1A070000000000000000002 /* MobileHostIrohAuthObserver.swift in Sources */,
@@ -9430,7 +9456,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
-				FE003108 /* SessionIndexSectionPopoverHost.swift in Sources */,
 				850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
 				FE003101 /* SessionIndexStore.swift in Sources */,
@@ -9441,6 +9466,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				850000000000000000000023 /* SessionIndexTableController.swift in Sources */,
 				85000000000000000000002B /* SessionIndexTableEnvironmentSnapshot.swift in Sources */,
 				85000000000000000000002E /* SessionIndexTableMutationScheduler.swift in Sources */,
+				FE003109 /* SessionIndexTablePopoverIdentity.swift in Sources */,
+				FE00310A /* SessionIndexTablePopoverPresentation.swift in Sources */,
+				FE003108 /* SessionIndexTablePopoverPresenter.swift in Sources */,
 				850000000000000000000024 /* SessionIndexTableRow.swift in Sources */,
 				85000000000000000000002C /* SessionIndexTableRowHeightCalculator.swift in Sources */,
 				850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */,
@@ -9457,6 +9485,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
+				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
+				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
@@ -10260,6 +10290,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51E000000000000000002 /* AgentChatSessionRegistryLifecycleTests.swift in Sources */,
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
+				93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
 				9090E0039090E0039090E003 /* AgentHibernationPanelCloseCleanupTests.swift in Sources */,
@@ -10282,6 +10313,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
+				93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */,
 				E8DF7FD45DA2E55E4DA65B38 /* AgentResumeLaunchGuardTests.swift in Sources */,
 				B679CCBA4CF56982C8564009 /* AgentResumeLivenessTests.swift in Sources */,
 				8837A0010000000000000001 /* AgentResumeReturnShellStartupTests.swift in Sources */,
@@ -10941,10 +10973,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -11028,7 +11060,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -11037,7 +11069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -11078,7 +11110,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -11087,7 +11119,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -11154,10 +11186,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -11172,7 +11204,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -11181,7 +11213,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -11197,7 +11229,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -11206,7 +11238,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -11221,10 +11253,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -11240,10 +11272,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 100;
+				CURRENT_PROJECT_VERSION = 102;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.20;
+				MARKETING_VERSION = 0.64.22;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

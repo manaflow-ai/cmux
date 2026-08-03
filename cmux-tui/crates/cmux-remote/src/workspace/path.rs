@@ -23,15 +23,11 @@ const MAX_PROTOCOL_PATH_COMPONENTS: usize = 1_024;
 #[cfg(unix)]
 const MAX_SYMLINK_EXPANSIONS: usize = 40;
 
-#[cfg(unix)]
-enum SymlinkExpansion {
-    Relative(VecDeque<OsString>),
-    PinnedAbsolute { directory: File, resolved: Vec<OsString> },
-}
-
 /// One daemon-owned workspace root.
 ///
-/// Paths sent over the protocol are always interpreted relative to `canonical`.
+/// Paths sent over the protocol are always interpreted relative to the opened
+/// workspace. On Unix, its descriptor remains authoritative if `canonical` is
+/// moved or rebound to another directory.
 /// The mutation lock serializes cmux-originated writes and patch commits. It does
 /// not attempt to isolate an enrolled client from other processes owned by the
 /// same operating-system user.
@@ -95,6 +91,22 @@ impl WorkspaceRoot {
         &self.canonical
     }
 
+    pub(crate) fn same_opened_root(&self, other: &Self) -> bool {
+        if self.canonical != other.canonical {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            // A pathname can be rebound after the first workspace is opened.
+            // Reuse an ID only when both descriptors pin the same directory.
+            self.unix.same_identity(&other.unix)
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
+    }
+
     #[cfg(unix)]
     pub(crate) fn unix_root(&self) -> UnixWorkspaceRoot {
         self.unix.clone()
@@ -102,27 +114,57 @@ impl WorkspaceRoot {
 
     pub(crate) async fn resolve_existing(&self, input: &str) -> Result<PathBuf, RpcError> {
         let relative = validate_relative(input)?;
-        let candidate = self.canonical.join(relative);
-        let resolved = tokio::fs::canonicalize(&candidate)
-            .await
-            .map_err(|error| io_error("resolve", &candidate, error))?;
-        self.require_contained(&resolved)?;
-        Ok(resolved)
+        #[cfg(unix)]
+        {
+            let unix = self.unix.clone();
+            tokio::task::spawn_blocking(move || unix.resolve_existing(&relative)).await.map_err(
+                |error| {
+                    RpcError::new(
+                        "internal",
+                        format!("workspace path resolution task failed: {error}"),
+                    )
+                },
+            )?
+        }
+        #[cfg(not(unix))]
+        {
+            let candidate = self.canonical.join(relative);
+            let resolved = tokio::fs::canonicalize(&candidate)
+                .await
+                .map_err(|error| io_error("resolve", &candidate, error))?;
+            self.require_contained(&resolved)?;
+            Ok(resolved)
+        }
     }
 
     /// Resolve a path without following its final component.
     pub(crate) async fn resolve_entry(&self, input: &str) -> Result<PathBuf, RpcError> {
         let relative = validate_relative(input)?;
-        if relative.as_os_str().is_empty() {
-            return Ok(self.canonical.clone());
+        #[cfg(unix)]
+        {
+            let unix = self.unix.clone();
+            tokio::task::spawn_blocking(move || unix.resolve_entry(&relative)).await.map_err(
+                |error| {
+                    RpcError::new(
+                        "internal",
+                        format!("workspace entry resolution task failed: {error}"),
+                    )
+                },
+            )?
         }
-        let file_name = relative
-            .file_name()
-            .ok_or_else(|| invalid_path("path does not name an entry"))?
-            .to_owned();
-        let parent = relative.parent().unwrap_or_else(|| Path::new(""));
-        let parent = self.resolve_directory_components(parent, false).await?;
-        Ok(parent.join(file_name))
+        #[cfg(not(unix))]
+        {
+            if relative.as_os_str().is_empty() {
+                return Ok(self.canonical.clone());
+            }
+            let file_name = relative
+                .file_name()
+                .ok_or_else(|| invalid_path("path does not name an entry"))?
+                .to_owned();
+            let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+            let parent = self.resolve_directory_components(parent, false).await?;
+            Ok(parent.join(file_name))
+        }
     }
 
     /// Resolve the parent of a write target, optionally creating missing
@@ -146,6 +188,7 @@ impl WorkspaceRoot {
         Ok(resolved_parent.join(file_name))
     }
 
+    #[cfg(not(unix))]
     async fn resolve_directory_components(
         &self,
         relative: &Path,
@@ -190,6 +233,7 @@ impl WorkspaceRoot {
         Ok(current)
     }
 
+    #[cfg(not(unix))]
     pub(crate) fn require_contained(&self, path: &Path) -> Result<(), RpcError> {
         if path == self.canonical || path.starts_with(&self.canonical) {
             return Ok(());
@@ -208,6 +252,7 @@ impl WorkspaceRoot {
 pub(crate) struct UnixWorkspaceRoot {
     directory: Arc<File>,
     display: PathBuf,
+    identity: (u64, u64),
 }
 
 #[cfg(unix)]
@@ -235,7 +280,11 @@ impl UnixWorkspaceRoot {
                 format!("workspace root changed while it was being opened: {}", display.display()),
             ));
         }
-        Ok(Self { directory: Arc::new(directory), display })
+        Ok(Self { directory: Arc::new(directory), display, identity: expected })
+    }
+
+    fn same_identity(&self, other: &Self) -> bool {
+        self.identity == other.identity
     }
 
     pub(crate) fn resolve_target(
@@ -248,19 +297,102 @@ impl UnixWorkspaceRoot {
             return Err(invalid_path("workspace root cannot be replaced as a file"));
         }
         let name = relative.file_name().ok_or_else(|| invalid_path("path does not name a file"))?;
+        let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+        let parent = self.resolve_directory(parent_relative, create_parents)?;
+        let display = parent.display.join(name);
         let name = component_cstring(name)?;
-        let parent_relative = relative.parent().unwrap_or_else(|| Path::new("")).to_owned();
-        let parent = self.resolve_directory(&parent_relative, create_parents)?;
-        Ok(UnixWorkspaceTarget {
-            root: self.clone(),
-            parent,
-            parent_relative,
-            name,
-            display: self.display.join(relative),
-        })
+        Ok(UnixWorkspaceTarget { parent, name, display })
     }
 
-    fn resolve_directory(&self, relative: &Path, create_missing: bool) -> Result<File, RpcError> {
+    fn resolve_existing(&self, relative: &Path) -> Result<PathBuf, RpcError> {
+        match self.resolve_path(relative, false, true)? {
+            UnixResolvedPath::Directory { resolved, .. } | UnixResolvedPath::Entry { resolved } => {
+                Ok(self.display.join(resolved.iter().collect::<PathBuf>()))
+            }
+        }
+    }
+
+    fn resolve_entry(&self, relative: &Path) -> Result<PathBuf, RpcError> {
+        if relative.as_os_str().is_empty() {
+            return Ok(self.display.clone());
+        }
+        let name =
+            relative.file_name().ok_or_else(|| invalid_path("path does not name an entry"))?;
+        let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+        let parent = self.resolve_directory(parent_relative, false)?;
+        Ok(parent.display.join(name))
+    }
+
+    pub(crate) fn target_for_canonical_path(
+        &self,
+        canonical: &Path,
+    ) -> Result<UnixWorkspaceTarget, RpcError> {
+        let relative = canonical.strip_prefix(&self.display).map_err(|_| {
+            RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+        })?;
+        if relative.as_os_str().is_empty() {
+            return Err(invalid_path("workspace root does not name a file"));
+        }
+        let components = relative
+            .components()
+            .map(|component| match component {
+                Component::Normal(name) => Ok(name.to_owned()),
+                _ => Err(invalid_path("canonical workspace path has an invalid component")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if components.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+            return Err(invalid_path("resolved path has too many components"));
+        }
+        let name = components
+            .last()
+            .ok_or_else(|| invalid_path("path does not name a file"))
+            .and_then(|name| component_cstring(name))?;
+        let parent_components = &components[..components.len() - 1];
+        let parent = self.open_canonical_directory(parent_components)?;
+        Ok(UnixWorkspaceTarget { parent, name, display: canonical.to_owned() })
+    }
+
+    pub(crate) fn pinned_directory_for_canonical_path(
+        &self,
+        canonical: &Path,
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        let relative = canonical.strip_prefix(&self.display).map_err(|_| {
+            RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+        })?;
+        let components = relative
+            .components()
+            .map(|component| match component {
+                Component::Normal(name) => Ok(name.to_owned()),
+                _ => Err(invalid_path("canonical workspace path has an invalid component")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if components.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+            return Err(invalid_path("resolved path has too many components"));
+        }
+        self.open_canonical_directory(&components)
+    }
+
+    fn resolve_directory(
+        &self,
+        relative: &Path,
+        create_missing: bool,
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        let UnixResolvedPath::Directory { directory, resolved } =
+            self.resolve_path(relative, create_missing, false)?
+        else {
+            unreachable!("directory-only resolution returned a non-directory entry")
+        };
+        let relative = resolved.iter().collect::<PathBuf>();
+        let display = self.display.join(&relative);
+        Ok(UnixWorkspaceDirectory { root: self.clone(), directory, relative, display })
+    }
+
+    fn resolve_path(
+        &self,
+        relative: &Path,
+        create_missing: bool,
+        allow_final_entry: bool,
+    ) -> Result<UnixResolvedPath, RpcError> {
         let mut pending = relative
             .components()
             .filter_map(|component| match component {
@@ -310,6 +442,14 @@ impl UnixWorkspaceRoot {
                 {
                     let target = match read_link_at(current.as_raw_fd(), &name) {
                         Ok(target) => target,
+                        Err(link_error)
+                            if link_error.raw_os_error() == Some(libc::EINVAL)
+                                && allow_final_entry
+                                && pending.is_empty() =>
+                        {
+                            resolved.push(component);
+                            return Ok(UnixResolvedPath::Entry { resolved });
+                        }
                         Err(link_error) if link_error.raw_os_error() == Some(libc::EINVAL) => {
                             return Err(directory_component_error(&display, error));
                         }
@@ -325,93 +465,85 @@ impl UnixWorkspaceRoot {
                             ),
                         ));
                     }
-                    match self.expand_symlink(&resolved, &target)? {
-                        SymlinkExpansion::Relative(mut expanded) => {
-                            expanded.extend(pending);
-                            pending = expanded;
-                            resolved.clear();
-                            current = self.directory.try_clone().map_err(|error| {
-                                io_error("open-workspace", &self.display, error)
-                            })?;
-                        }
-                        SymlinkExpansion::PinnedAbsolute {
-                            directory,
-                            resolved: absolute_resolved,
-                        } => {
-                            current = directory;
-                            resolved = absolute_resolved;
-                        }
-                    }
+                    let mut expanded = self.expand_symlink(&resolved, &target)?;
+                    expanded.extend(pending);
+                    pending = expanded;
+                    resolved.clear();
+                    current = self
+                        .directory
+                        .try_clone()
+                        .map_err(|error| io_error("open-workspace", &self.display, error))?;
                 }
                 Err(error) => return Err(directory_component_error(&display, error)),
             }
         }
-        Ok(current)
+        Ok(UnixResolvedPath::Directory { directory: current, resolved })
     }
 
     fn expand_symlink(
         &self,
         base: &[OsString],
         target: &std::ffi::OsStr,
-    ) -> Result<SymlinkExpansion, RpcError> {
+    ) -> Result<VecDeque<OsString>, RpcError> {
         let target = Path::new(target);
         if target.is_absolute() {
-            let canonical = std::fs::canonicalize(target)
-                .map_err(|error| io_error("resolve-symlink", target, error))?;
-            let relative = canonical.strip_prefix(&self.display).map_err(|_| {
-                RpcError::new(
-                    "path-outside-workspace",
-                    format!(
-                        "workspace mutation symlink escapes the workspace: {}",
-                        target.display()
-                    ),
-                )
-            })?;
-            let resolved = relative
-                .components()
-                .filter_map(|component| match component {
-                    Component::Normal(name) => Some(name.to_owned()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            if resolved.len() > MAX_PROTOCOL_PATH_COMPONENTS {
-                return Err(invalid_path("resolved path has too many components"));
-            }
-            // Reopen the canonical route from the pinned workspace descriptor.
-            // This accepts alias spellings while preventing pathname races from
-            // redirecting the mutation outside the workspace.
-            let directory = self.open_canonical_directory(&resolved)?;
-            return Ok(SymlinkExpansion::PinnedAbsolute { directory, resolved });
-        }
-
-        let mut expanded = base.to_vec();
-        for component in target.components() {
-            match component {
-                Component::Normal(name) => expanded.push(name.to_owned()),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    if expanded.pop().is_none() {
-                        return Err(RpcError::new(
+            let relative = if let Ok(relative) = target.strip_prefix(&self.display) {
+                relative.to_owned()
+            } else {
+                self.require_registered_path_identity(target)?;
+                let canonical = std::fs::canonicalize(target)
+                    .map_err(|error| io_error("resolve-symlink", target, error))?;
+                canonical
+                    .strip_prefix(&self.display)
+                    .map_err(|_| {
+                        RpcError::new(
                             "path-outside-workspace",
-                            "workspace mutation symlink escapes the workspace",
-                        ));
-                    }
-                }
-                Component::RootDir | Component::Prefix(_) => {
-                    return Err(RpcError::new(
-                        "path-outside-workspace",
-                        "workspace mutation symlink escapes the workspace",
-                    ));
-                }
-            }
+                            format!(
+                                "workspace symlink escapes the opened root: {}",
+                                target.display()
+                            ),
+                        )
+                    })?
+                    .to_owned()
+            };
+            return normalize_symlink_components(Vec::new(), &relative);
         }
-        if expanded.len() > MAX_PROTOCOL_PATH_COMPONENTS {
-            return Err(invalid_path("resolved path has too many components"));
-        }
-        Ok(SymlinkExpansion::Relative(expanded.into()))
+        normalize_symlink_components(base.to_vec(), target)
     }
 
-    fn open_canonical_directory(&self, components: &[OsString]) -> Result<File, RpcError> {
+    fn require_registered_path_identity(&self, target: &Path) -> Result<(), RpcError> {
+        let metadata = std::fs::metadata(&self.display).map_err(|_| {
+            RpcError::new(
+                "path-outside-workspace",
+                format!(
+                    "absolute workspace symlink cannot be resolved after its root moved: {}",
+                    target.display()
+                ),
+            )
+        })?;
+        if (metadata.dev(), metadata.ino()) == self.identity {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            "path-outside-workspace",
+            format!(
+                "absolute workspace symlink no longer names the opened root: {}",
+                target.display()
+            ),
+        ))
+    }
+
+    fn open_canonical_directory(
+        &self,
+        components: &[OsString],
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        let directory = self.open_canonical_directory_file(components)?;
+        let relative = components.iter().collect::<PathBuf>();
+        let display = self.display.join(&relative);
+        Ok(UnixWorkspaceDirectory { root: self.clone(), directory, relative, display })
+    }
+
+    fn open_canonical_directory_file(&self, components: &[OsString]) -> Result<File, RpcError> {
         let mut current = self
             .directory
             .try_clone()
@@ -428,11 +560,122 @@ impl UnixWorkspaceRoot {
 }
 
 #[cfg(unix)]
+enum UnixResolvedPath {
+    Directory { directory: File, resolved: Vec<OsString> },
+    Entry { resolved: Vec<OsString> },
+}
+
+#[cfg(unix)]
+fn normalize_symlink_components(
+    mut expanded: Vec<OsString>,
+    target: &Path,
+) -> Result<VecDeque<OsString>, RpcError> {
+    for component in target.components() {
+        match component {
+            Component::Normal(name) => expanded.push(name.to_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if expanded.pop().is_none() {
+                    return Err(RpcError::new(
+                        "path-outside-workspace",
+                        "workspace symlink escapes the opened root",
+                    ));
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(RpcError::new(
+                    "path-outside-workspace",
+                    "workspace symlink escapes the opened root",
+                ));
+            }
+        }
+    }
+    if expanded.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+        return Err(invalid_path("resolved path has too many components"));
+    }
+    Ok(expanded.into())
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub(crate) struct UnixWorkspaceDirectory {
+    root: UnixWorkspaceRoot,
+    directory: File,
+    relative: PathBuf,
+    display: PathBuf,
+}
+
+#[cfg(unix)]
+impl UnixWorkspaceDirectory {
+    pub(crate) fn fd(&self) -> RawFd {
+        self.directory.as_raw_fd()
+    }
+
+    pub(crate) fn display(&self) -> &Path {
+        &self.display
+    }
+
+    pub(crate) fn try_clone_file(&self) -> Result<File, RpcError> {
+        self.directory
+            .try_clone()
+            .map_err(|error| io_error("clone-directory", &self.display, error))
+    }
+
+    pub(crate) fn open_independent_file(&self) -> Result<File, RpcError> {
+        let current = c".";
+        open_directory_at(self.fd(), current)
+            .map_err(|error| io_error("open-directory", &self.display, error))
+    }
+
+    pub(crate) fn try_clone(&self) -> Result<Self, RpcError> {
+        Ok(Self {
+            root: self.root.clone(),
+            directory: self.try_clone_file()?,
+            relative: self.relative.clone(),
+            display: self.display.clone(),
+        })
+    }
+
+    pub(crate) fn metadata(&self) -> Result<std::fs::Metadata, RpcError> {
+        self.directory.metadata().map_err(|error| io_error("stat-directory", &self.display, error))
+    }
+
+    pub(crate) fn verify_identity(&self, operation: &str) -> Result<(), RpcError> {
+        let components = self
+            .relative
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(name) => Some(name.to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let current = self.root.open_canonical_directory_file(&components).map_err(|error| {
+            RpcError::new(
+                "conflict",
+                format!(
+                    "{operation} directory changed: {} ({})",
+                    self.display.display(),
+                    error.message
+                ),
+            )
+        })?;
+        let expected = self.metadata()?;
+        let found =
+            current.metadata().map_err(|error| io_error("stat-directory", &self.display, error))?;
+        if expected.dev() == found.dev() && expected.ino() == found.ino() {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            "conflict",
+            format!("{operation} directory changed: {}", self.display.display()),
+        ))
+    }
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 pub(crate) struct UnixWorkspaceTarget {
-    root: UnixWorkspaceRoot,
-    parent: File,
-    parent_relative: PathBuf,
+    parent: UnixWorkspaceDirectory,
     name: CString,
     display: PathBuf,
 }
@@ -440,7 +683,7 @@ pub(crate) struct UnixWorkspaceTarget {
 #[cfg(unix)]
 impl UnixWorkspaceTarget {
     pub(crate) fn parent_fd(&self) -> RawFd {
-        self.parent.as_raw_fd()
+        self.parent.fd()
     }
 
     pub(crate) fn name(&self) -> &CStr {
@@ -457,36 +700,13 @@ impl UnixWorkspaceTarget {
 
     pub(crate) fn sync_parent(&self) -> Result<(), RpcError> {
         self.parent
+            .directory
             .sync_all()
             .map_err(|error| io_error("sync-directory", self.parent_display(), error))
     }
 
     pub(crate) fn verify_parent_identity(&self) -> Result<(), RpcError> {
-        let current =
-            self.root.resolve_directory(&self.parent_relative, false).map_err(|error| {
-                RpcError::new(
-                    "conflict",
-                    format!(
-                        "write parent changed before commit: {} ({})",
-                        self.parent_display().display(),
-                        error.message
-                    ),
-                )
-            })?;
-        let expected = self
-            .parent
-            .metadata()
-            .map_err(|error| io_error("stat-directory", self.parent_display(), error))?;
-        let found = current
-            .metadata()
-            .map_err(|error| io_error("stat-directory", self.parent_display(), error))?;
-        if expected.dev() == found.dev() && expected.ino() == found.ino() {
-            return Ok(());
-        }
-        Err(RpcError::new(
-            "conflict",
-            format!("write parent changed before commit: {}", self.parent_display().display()),
-        ))
+        self.parent.verify_identity("write parent")
     }
 }
 

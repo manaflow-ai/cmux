@@ -12,10 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `88357634c`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
-theme-picker render fix at `5068b3a37` with terminal-owned semantic-prompt row
-lifecycle enforcement through `2d6e944e3` from
+The submodule pinned by this branch is `f0f8273b7`, adding the iOS startup
+locale/crash-reporting order fix on top of `88357634c`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
+the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
+semantic-prompt row lifecycle enforcement through `2d6e944e3` from
 https://github.com/manaflow-ai/ghostty/pull/176.
 The earlier integration combines the hidden-renderer reclamation and
 retry-deadline line through `4d6f0014f` with the resolved font-binding action
@@ -42,6 +43,21 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### iOS startup locale before crash reporting
+
+- Commit: `f0f8273b7` (Initialize locale before crash reporting)
+- File: `src/global.zig`
+- Summary:
+  - Moves `ensureLocale()` and `syncEnviron()` before Ghostty's crash reporting
+    init so Darwin `setlocale` completes before Sentry starts its background
+    initialization thread.
+  - Fixes the cmux INTERNAL TestFlight crash from August 2, 2026, where build
+    `20260801151612` crashed in `ghostty_init + 1388` while the main thread was
+    in `setlocale` from `GhosttyRuntime.init`.
+- Conflict note:
+  - Preserve this ordering during future `global.init` merges: process-wide
+    locale mutation must stay before any Ghostty-owned background thread starts.
 
 ### Initial cmux theme-picker render
 

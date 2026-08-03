@@ -91,6 +91,10 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// Two cancellation-ignoring route cleanups are still alive. Retrying in
     /// this process cannot start another transport without exceeding the cap.
     case routeCleanupBlocked
+    /// Another connection attempt already owns this route. The Mac did not
+    /// fail to respond; the active attempt resolves the route on its own, so
+    /// the user should wait for it rather than treat this as a timeout.
+    case connectAttemptGated
     /// The attempt was cancelled (the user tapped Cancel, or a newer attempt
     /// superseded it). Not surfaced as an error.
     case cancelled
@@ -123,6 +127,7 @@ extension MobilePairingFailureCategory {
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .routeCleanupBlocked: return "route_cleanup_blocked"
+        case .connectAttemptGated: return "connect_attempt_gated"
         case .cancelled: return "cancelled"
         case .unknown: return "other"
         }
@@ -284,6 +289,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.routeCleanupBlocked",
                 defaultValue: "cmux paused new connections because earlier connection cleanups are still stuck."
             )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.pairing.connectAttemptGated",
+                defaultValue: "Already reconnecting to this computer."
+            )
         case .cancelled:
             return ""
         case let .unknown(host, port):
@@ -363,6 +373,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.routeCleanupBlocked",
                 defaultValue: "Force-quit and reopen cmux on this iPhone, then reconnect. If this returns, restart cmux on the Mac."
             )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.pairing.guidance.connectAttemptGated",
+                defaultValue: "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
+            )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
         }
@@ -415,6 +430,11 @@ extension MobilePairingFailureCategory {
             switch connectionError {
             case .requestTimedOut, .connectAttemptGated:
                 return .handshakeTimedOut(host: host, port: port)
+            case .connectAttemptGated:
+                // Another attempt owns this route: the Mac did not time out,
+                // so timeout guidance ("No response from …") would misdirect
+                // the user. Surface the wait-for-active-attempt state instead.
+                return .connectAttemptGated
             case .insecureManualRoute:
                 return .unsupportedRoute
             case .attachTicketExpired:
