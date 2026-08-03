@@ -235,7 +235,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert "cmux-sdk-bootstrap-crate" in bootstrap
     assert "cmux-sidebar-bootstrap-crate" in bootstrap
     assert "client_payload.package" not in bootstrap
-    assert bootstrap.count("max-parallel: 1") == 3
+    assert bootstrap.count("max-parallel: 1") == 2
     assert sdk_ci.count('".github/workflows/sdk-bootstrap-crates.yml"') == 2
     assert "sdk-bootstrap-crates.yml" in releasing
     assert "0.0.0-bootstrap.0" in releasing
@@ -273,7 +273,6 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
 
     for text, token, package_commands in (
         (npm, "NPM_BOOTSTRAP_TOKEN", ("npm ci", "npm test")),
-        (crates, "CARGO_BOOTSTRAP_TOKEN", ("cargo test",)),
     ):
         build = workflow_job(text, "build")
         preflight = workflow_job(text, "preflight")
@@ -303,17 +302,42 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
     assert npm_publish.count("--ignore-scripts") == 2
     assert "npm lifecycle scripts are disabled" in npm_publish
 
-    crates_publish = workflow_job(crates, "publish")
+    crates_decisions = workflow_job(crates, "decisions")
+    crates_publishes = {
+        "publish-sdk": workflow_job(crates, "publish-sdk"),
+        "publish-sidebar": workflow_job(crates, "publish-sidebar"),
+    }
     crates_verify = workflow_job(crates, "verify")
-    assert "name: crates-bootstrap" in crates_publish
-    assert crates_publish.count("actions/download-artifact@") == 2
-    assert "steps.prepare.outputs.decision == 'publish'" in crates_publish
-    assert '== "$PACKAGE-$BOOTSTRAP_VERSION.crate"' in crates_publish
-    assert "member.isfile()" in crates_publish
-    assert "archive.extractfile(member)" in crates_publish
-    assert "cmp \"$BOOTSTRAP_ARTIFACT\" \"$REPACKED_ARTIFACT\"" in crates_publish
-    assert "cargo package" in crates_publish
-    assert "cargo publish" in crates_publish
+    crates_build = workflow_job(crates, "build")
+    crates_preflight = workflow_job(crates, "preflight")
+
+    for block in (crates_build, crates_preflight, crates_decisions, crates_verify):
+        assert "CARGO_BOOTSTRAP_TOKEN" not in block
+    assert "name: crates-bootstrap" not in crates_decisions
+    assert "sdk_need_publish" in crates_decisions
+    assert "sidebar_need_publish" in crates_decisions
+
+    for name, crates_publish in crates_publishes.items():
+        assert "CARGO_BOOTSTRAP_TOKEN" in crates_publish
+        assert "name: crates-bootstrap" in crates_publish
+        assert crates_publish.count("actions/download-artifact@") == 1
+        assert "actions/checkout@" not in crates_publish
+        assert "continue-on-error: true" in crates_publish
+        assert '== "$PACKAGE-$BOOTSTRAP_VERSION.crate"' in crates_publish
+        assert "member.isfile()" in crates_publish
+        assert "archive.extractfile(member)" in crates_publish
+        assert "cmp \"$BOOTSTRAP_ARTIFACT\" \"$REPACKED_ARTIFACT\"" in crates_publish
+        assert "cargo package" in crates_publish
+        assert "cargo publish" in crates_publish
+        assert "cargo test" not in crates_publish
+        assert crates_publish.rstrip().endswith("--no-verify")
+        output = "sdk_need_publish" if name == "publish-sdk" else "sidebar_need_publish"
+        assert f"needs.decisions.outputs.{output} == 'true'" in crates_publish
+
+    assert "always()" in crates_verify
+    assert "needs.publish-sdk.result" not in crates_verify
+    assert "needs.publish-sidebar.result" not in crates_verify
+    assert "fail-fast: false" in crates_verify
     assert "--retry-missing-project" in crates_verify
 
 

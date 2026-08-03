@@ -128,9 +128,11 @@ authorization is valid for the same workflow run attempt and 15 minutes.
   paths, reconstruct the original manifest, and prove Cargo reproduces the
   exact bytes. Their final steps receive the temporary token and publish with
   package verification disabled, so crate code never runs beside the
-  credential. Separate credential-free jobs reconcile both uploads after an
-  ambiguous result. The bootstrap uses `0.0.0-bootstrap.0` for both crates and
-  preserves stable version `1.0.0`.
+  credential. Credential-free decisions keep reconciled crates out of the
+  protected publishing environment. A separate credential-free matrix
+  reconciles both uploads after every publish attempt, even when the other
+  crate's job fails. The bootstrap uses `0.0.0-bootstrap.0` for both crates
+  and preserves stable version `1.0.0`.
   **Re-run all jobs** after a failed or ambiguous bootstrap result so the
   credential-free registry preflight decides whether another publish is safe.
   Configure trusted publishers for `cmux-sdk` and `cmux-sidebar` with owner

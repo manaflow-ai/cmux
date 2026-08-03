@@ -226,39 +226,66 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  publish:
+  decisions:
+    needs:
+      - preflight
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      sdk_need_publish: ${{ steps.read.outputs.sdk_need_publish }}
+      sidebar_need_publish: ${{ steps.read.outputs.sidebar_need_publish }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sdk-bootstrap-decision
+          path: sdk-decision
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sidebar-bootstrap-decision
+          path: sidebar-decision
+
+      - name: Export protected-environment decisions
+        id: read
+        run: |
+          set -euo pipefail
+          read_decision() {
+            local path="$1"
+            local output_name="$2"
+            local decision
+            decision="$(cat "$path")"
+            case "$decision" in
+              publish) need_publish=true ;;
+              skip) need_publish=false ;;
+              *)
+                echo "invalid bootstrap publication decision: $decision" >&2
+                exit 1
+                ;;
+            esac
+            echo "$output_name=$need_publish" >> "$GITHUB_OUTPUT"
+          }
+          read_decision sdk-decision/decision.txt sdk_need_publish
+          read_decision sidebar-decision/decision.txt sidebar_need_publish
+
+  publish-sdk:
     needs:
       - build
       - preflight
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        include:
-          - package: cmux-sdk
-            artifact: cmux-sdk-bootstrap-crate
-            decision: cmux-sdk-bootstrap-decision
-            expected_sha256: ${{ needs.build.outputs.sdk_sha256 }}
-          - package: cmux-sidebar
-            artifact: cmux-sidebar-bootstrap-crate
-            decision: cmux-sidebar-bootstrap-decision
-            expected_sha256: ${{ needs.build.outputs.sidebar_sha256 }}
+      - decisions
+    if: needs.decisions.outputs.sdk_need_publish == 'true'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions: {}
     environment:
       name: crates-bootstrap
-      url: https://crates.io/crates/${{ matrix.package }}
+      url: https://crates.io/crates/cmux-sdk
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ${{ matrix.artifact }}
+          name: cmux-sdk-bootstrap-crate
           path: bootstrap-crate
-
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ matrix.decision }}
-          path: bootstrap-decision
 
       - name: Install pinned Rust toolchain
         run: |
@@ -270,8 +297,8 @@ jobs:
       - name: Verify protected source and reproduce the tested crate
         id: prepare
         env:
-          EXPECTED_SHA256: ${{ matrix.expected_sha256 }}
-          PACKAGE: ${{ matrix.package }}
+          EXPECTED_SHA256: ${{ needs.build.outputs.sdk_sha256 }}
+          PACKAGE: cmux-sdk
         run: |
           set -euo pipefail
           [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
@@ -293,11 +320,6 @@ jobs:
             exit 1
           }
 
-          decision="$(cat bootstrap-decision/decision.txt)"
-          [[ "$decision" == "publish" || "$decision" == "skip" ]] || {
-            echo "invalid bootstrap publication decision" >&2
-            exit 1
-          }
           [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo "validated crate digest is malformed" >&2
             exit 1
@@ -372,13 +394,158 @@ jobs:
             --no-verify
           REPACKED_ARTIFACT="$package_root/target/package/$package_prefix.crate"
           cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"
-          {
-            echo "decision=$decision"
-            echo "manifest=$package_root/Cargo.toml"
-          } >> "$GITHUB_OUTPUT"
+          echo "manifest=$package_root/Cargo.toml" >> "$GITHUB_OUTPUT"
 
       - name: Publish the exact tested ownership bootstrap
-        if: steps.prepare.outputs.decision == 'publish'
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
+          PUBLISH_MANIFEST: ${{ steps.prepare.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] || {
+            echo "crates-bootstrap environment secret CARGO_BOOTSTRAP_TOKEN is required." >&2
+            exit 1
+          }
+          cargo publish \
+            --manifest-path "$PUBLISH_MANIFEST" \
+            --locked \
+            --no-verify
+
+  publish-sidebar:
+    needs:
+      - build
+      - preflight
+      - decisions
+      - publish-sdk
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.preflight.result == 'success' &&
+      needs.decisions.result == 'success' &&
+      needs.decisions.outputs.sidebar_need_publish == 'true'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions: {}
+    environment:
+      name: crates-bootstrap
+      url: https://crates.io/crates/cmux-sidebar
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-sidebar-bootstrap-crate
+          path: bootstrap-crate
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+
+      - name: Verify protected source and reproduce the tested crate
+        id: prepare
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.sidebar_sha256 }}
+          PACKAGE: cmux-sidebar
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "bootstrap repository must be manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "bootstrap credential job must run from main" >&2
+            exit 1
+          }
+          main_sha="$(
+            git ls-remote \
+              https://github.com/manaflow-ai/cmux.git \
+              refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          [[ "$main_sha" == "$GITHUB_SHA" ]] || {
+            echo "workflow commit $GITHUB_SHA is not current main $main_sha" >&2
+            exit 1
+          }
+
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "validated crate digest is malformed" >&2
+            exit 1
+          }
+          shopt -s nullglob
+          artifacts=(bootstrap-crate/*.crate)
+          [[ "${#artifacts[@]}" == 1 ]] || {
+            echo "expected one tested crate, found ${#artifacts[@]}" >&2
+            exit 1
+          }
+          BOOTSTRAP_ARTIFACT="${artifacts[0]}"
+          [[ "$(basename "$BOOTSTRAP_ARTIFACT")" == "$PACKAGE-$BOOTSTRAP_VERSION.crate" ]] || {
+            echo "unexpected bootstrap crate filename" >&2
+            exit 1
+          }
+          actual_sha256="$(sha256sum "$BOOTSTRAP_ARTIFACT" | cut -d ' ' -f 1)"
+          [[ "$actual_sha256" == "$EXPECTED_SHA256" ]] || {
+            echo "downloaded crates.io bootstrap artifact digest mismatch" >&2
+            exit 1
+          }
+
+          package_prefix="$PACKAGE-$BOOTSTRAP_VERSION"
+          publish_root="$RUNNER_TEMP/$PACKAGE-publish"
+          mkdir -p "$publish_root"
+          python3 - \
+            "$BOOTSTRAP_ARTIFACT" \
+            "$publish_root" \
+            "$package_prefix" <<'PY'
+          import pathlib
+          import shutil
+          import sys
+          import tarfile
+
+          archive_path = pathlib.Path(sys.argv[1])
+          publish_root = pathlib.Path(sys.argv[2])
+          package_prefix = sys.argv[3]
+          expected = {
+              f"{package_prefix}/Cargo.lock",
+              f"{package_prefix}/Cargo.toml",
+              f"{package_prefix}/Cargo.toml.orig",
+              f"{package_prefix}/README.md",
+              f"{package_prefix}/src/lib.rs",
+          }
+          with tarfile.open(archive_path, "r:gz") as archive:
+              members = archive.getmembers()
+              names = [member.name for member in members]
+              if len(names) != len(expected) or set(names) != expected:
+                  raise SystemExit(
+                      f"bootstrap crate paths differ from the allowlist: {names!r}"
+                  )
+              for member in members:
+                  if not member.isfile():
+                      raise SystemExit(
+                          f"bootstrap crate member is not a regular file: {member.name}"
+                      )
+                  source = archive.extractfile(member)
+                  if source is None:
+                      raise SystemExit(
+                          f"bootstrap crate member cannot be read: {member.name}"
+                      )
+                  destination = publish_root / member.name
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  with source, destination.open("wb") as output:
+                      shutil.copyfileobj(source, output)
+                  destination.chmod(member.mode & 0o777)
+          PY
+          package_root="$publish_root/$package_prefix"
+          cp "$package_root/Cargo.toml.orig" "$package_root/Cargo.toml"
+          cargo package \
+            --manifest-path "$package_root/Cargo.toml" \
+            --locked \
+            --no-verify
+          REPACKED_ARTIFACT="$package_root/target/package/$package_prefix.crate"
+          cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"
+          echo "manifest=$package_root/Cargo.toml" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the exact tested ownership bootstrap
         continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_BOOTSTRAP_TOKEN }}
@@ -398,12 +565,14 @@ jobs:
     needs:
       - build
       - preflight
-      - publish
+      - decisions
+      - publish-sdk
+      - publish-sidebar
     if: >-
       always() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
-      needs.publish.result == 'success'
+      needs.decisions.result == 'success'
     strategy:
       fail-fast: false
       max-parallel: 1
