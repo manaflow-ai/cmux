@@ -1,25 +1,27 @@
 #if os(iOS)
 import PDFKit
-import SwiftUI
 
-/// Hosts PDFKit's zoomable, scrollable document viewer for a local artifact.
-struct ChatArtifactPDFView: UIViewRepresentable {
-    let fileURL: URL
-
-    func makeUIView(context: Context) -> PDFView {
-        let pdfView = PDFView()
-        pdfView.autoScales = true
-        pdfView.displayMode = .singlePageContinuous
-        pdfView.displayDirection = .vertical
-        pdfView.document = PDFDocument(url: fileURL)
-        return pdfView
+/// Native PDFKit surface for a local artifact.
+@MainActor
+final class ChatArtifactPDFNativeView: PDFView {
+    init(fileURL: URL) {
+        super.init(frame: .zero)
+        autoScales = true
+        displayMode = .singlePageContinuous
+        displayDirection = .vertical
+        document = PDFDocument(url: fileURL)
     }
 
-    func updateUIView(_ pdfView: PDFView, context: Context) {
-        if pdfView.document?.documentURL != fileURL {
-            pdfView.document = PDFDocument(url: fileURL)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(fileURL: URL) {
+        if document?.documentURL != fileURL {
+            document = PDFDocument(url: fileURL)
         }
-        pdfView.autoScales = true
+        autoScales = true
     }
 }
 #endif

@@ -3,6 +3,7 @@ import SwiftUI
 
 #if canImport(UIKit)
 import AVKit
+import PDFKit
 import QuickLook
 import UIKit
 #elseif canImport(AppKit)
@@ -402,6 +403,95 @@ private struct ChatArtifactMediaView: UIViewControllerRepresentable {
         coordinator: Void
     ) {
         ChatArtifactMediaController.dismantle(controller)
+    }
+}
+
+/// Transitional adapter while the route container is migrated to a native controller.
+private struct ChatArtifactPDFView: UIViewRepresentable {
+    let fileURL: URL
+
+    func makeUIView(context: Context) -> ChatArtifactPDFNativeView {
+        ChatArtifactPDFNativeView(fileURL: fileURL)
+    }
+
+    func updateUIView(_ view: ChatArtifactPDFNativeView, context: Context) {
+        view.update(fileURL: fileURL)
+    }
+}
+
+/// Transitional adapter while the route container is migrated to a native controller.
+private struct ChatArtifactZoomableImageView: UIViewRepresentable {
+    let image: UIImage
+    let onMinimumZoomChanged: (Bool) -> Void
+    let onAction: (@MainActor (ChatArtifactAction) -> Void)?
+
+    func makeUIView(context: Context) -> ChatArtifactZoomableImageNativeView {
+        ChatArtifactZoomableImageNativeView(
+            image: image,
+            onMinimumZoomChanged: onMinimumZoomChanged,
+            onAction: onAction
+        )
+    }
+
+    func updateUIView(_ view: ChatArtifactZoomableImageNativeView, context: Context) {
+        view.update(
+            image: image,
+            onMinimumZoomChanged: onMinimumZoomChanged,
+            onAction: onAction
+        )
+    }
+}
+
+/// Transitional adapter while the route container is migrated to a native controller.
+private struct ChatArtifactTextView: UIViewRepresentable {
+    let documentID: String
+    let chunks: [String]
+    let reachedEOF: Bool
+    let highlightDecision: ChatArtifactHighlightDecision
+    let highlightTheme: ChatArtifactHighlightTheme
+    let searchQuery: String
+    let previousSearchRequestID: Int
+    let nextSearchRequestID: Int
+    let onSearchSummaryChanged: (ChatArtifactSearchSummary) -> Void
+    let lineIndex: ChatArtifactLineIndex
+    let showsLineNumbers: Bool
+    let goToLineUTF16Offset: Int
+    let goToLineRequestID: Int
+    let wrapsLines: Bool
+    let fontPointSize: Double
+    let onFontSizeChanged: (Double) -> Void
+    let topRequestID: Int
+    let bottomRequestID: Int
+
+    func makeUIView(context: Context) -> ChatArtifactTextNativeView {
+        ChatArtifactTextNativeView(configuration: configuration)
+    }
+
+    func updateUIView(_ view: ChatArtifactTextNativeView, context: Context) {
+        view.update(configuration: configuration)
+    }
+
+    private var configuration: ChatArtifactTextViewConfiguration {
+        ChatArtifactTextViewConfiguration(
+            documentID: documentID,
+            chunks: chunks,
+            reachedEOF: reachedEOF,
+            highlightDecision: highlightDecision,
+            highlightTheme: highlightTheme,
+            searchQuery: searchQuery,
+            previousSearchRequestID: previousSearchRequestID,
+            nextSearchRequestID: nextSearchRequestID,
+            onSearchSummaryChanged: onSearchSummaryChanged,
+            lineIndex: lineIndex,
+            showsLineNumbers: showsLineNumbers,
+            goToLineUTF16Offset: goToLineUTF16Offset,
+            goToLineRequestID: goToLineRequestID,
+            wrapsLines: wrapsLines,
+            fontPointSize: fontPointSize,
+            onFontSizeChanged: onFontSizeChanged,
+            topRequestID: topRequestID,
+            bottomRequestID: bottomRequestID
+        )
     }
 }
 

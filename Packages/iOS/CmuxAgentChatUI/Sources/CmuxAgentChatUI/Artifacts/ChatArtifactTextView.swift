@@ -1,9 +1,8 @@
 #if canImport(UIKit)
-import SwiftUI
 import UIKit
 
-/// Displays large artifact text without asking SwiftUI to lay out one monolithic `Text` view.
-struct ChatArtifactTextView: UIViewRepresentable {
+@MainActor
+struct ChatArtifactTextViewConfiguration {
     let documentID: String
     let chunks: [String]
     let reachedEOF: Bool
@@ -22,48 +21,61 @@ struct ChatArtifactTextView: UIViewRepresentable {
     let onFontSizeChanged: (Double) -> Void
     let topRequestID: Int
     let bottomRequestID: Int
+}
 
-    func makeCoordinator() -> ChatArtifactTextViewCoordinator {
-        ChatArtifactTextViewCoordinator()
+/// Native TextKit artifact surface with streaming, search, highlighting, and line navigation.
+@MainActor
+final class ChatArtifactTextNativeView: UIView {
+    private let containerView = ChatArtifactTextContainerView()
+    private let coordinator = ChatArtifactTextViewCoordinator()
+
+    init(configuration: ChatArtifactTextViewConfiguration) {
+        super.init(frame: .zero)
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(containerView)
+        NSLayoutConstraint.activate([
+            containerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            containerView.topAnchor.constraint(equalTo: topAnchor),
+            containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        containerView.textView.delegate = coordinator
+        coordinator.attach(containerView)
+        update(configuration: configuration)
     }
 
-    func makeUIView(context: Context) -> ChatArtifactTextContainerView {
-        // The container constructs an explicit TextKit 1 storage/layout stack
-        // so non-contiguous layout remains genuinely viewport-lazy.
-        let containerView = ChatArtifactTextContainerView()
-        containerView.textView.delegate = context.coordinator
-        context.coordinator.attach(containerView)
-        context.coordinator.onFontSizeChanged = onFontSizeChanged
-        return containerView
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    func updateUIView(_ containerView: ChatArtifactTextContainerView, context: Context) {
+    func update(configuration: ChatArtifactTextViewConfiguration) {
         let textView = containerView.textView
-        context.coordinator.onFontSizeChanged = onFontSizeChanged
-        let isNewDocument = context.coordinator.documentID != documentID
+        coordinator.onFontSizeChanged = configuration.onFontSizeChanged
+        let isNewDocument = coordinator.documentID != configuration.documentID
         if isNewDocument {
-            context.coordinator.resetStreamingText()
-            context.coordinator.resetHighlighting()
-            context.coordinator.resetSearch()
-            context.coordinator.resetAccessibilityContent()
+            coordinator.resetStreamingText()
+            coordinator.resetHighlighting()
+            coordinator.resetSearch()
+            coordinator.resetAccessibilityContent()
             textView.textStorage.setAttributedString(NSAttributedString())
             textView.selectedRange = NSRange(location: 0, length: 0)
-            context.coordinator.documentID = documentID
-            context.coordinator.handledTopRequestID = topRequestID
-            context.coordinator.handledBottomRequestID = 0
-            context.coordinator.handledGoToLineRequestID = goToLineRequestID
+            coordinator.documentID = configuration.documentID
+            coordinator.handledTopRequestID = configuration.topRequestID
+            coordinator.handledBottomRequestID = 0
+            coordinator.handledGoToLineRequestID = configuration.goToLineRequestID
         }
 
-        if context.coordinator.appliedChunkCount > chunks.count {
-            context.coordinator.resetStreamingText()
-            context.coordinator.resetHighlighting()
-            context.coordinator.resetSearch()
-            context.coordinator.resetAccessibilityContent()
+        if coordinator.appliedChunkCount > configuration.chunks.count {
+            coordinator.resetStreamingText()
+            coordinator.resetHighlighting()
+            coordinator.resetSearch()
+            coordinator.resetAccessibilityContent()
             textView.textStorage.setAttributedString(NSAttributedString())
         }
 
-        containerView.updateWordWrap(wrapsLines)
-        context.coordinator.updateFontSize(in: textView, pointSize: fontPointSize)
+        containerView.updateWordWrap(configuration.wrapsLines)
+        coordinator.updateFontSize(in: textView, pointSize: configuration.fontPointSize)
 
         let font = textView.font ?? UIFont.monospacedSystemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
@@ -74,69 +86,71 @@ struct ChatArtifactTextView: UIViewRepresentable {
             .font: font,
             .foregroundColor: textColor,
         ]
-        if context.coordinator.appliedChunkCount < chunks.count {
-            context.coordinator.enqueueTextChunks(
-                chunks[context.coordinator.appliedChunkCount...],
+        if coordinator.appliedChunkCount < configuration.chunks.count {
+            coordinator.enqueueTextChunks(
+                configuration.chunks[coordinator.appliedChunkCount...],
                 attributes: attributes,
                 in: textView
             )
         }
 
-        let coordinator = context.coordinator
         coordinator.schedulePostAppendWork { [weak coordinator, weak textView] in
             guard let coordinator, let textView else { return }
             let updatePlan = ChatArtifactTextUpdatePlan(
-                reachedEOF: reachedEOF,
-                highlightDecision: highlightDecision,
-                searchQuery: searchQuery
+                reachedEOF: configuration.reachedEOF,
+                highlightDecision: configuration.highlightDecision,
+                searchQuery: configuration.searchQuery
             )
             let fullText = updatePlan.requiresFullTextSnapshot
                 ? textView.textStorage.string
                 : nil
             coordinator.updateHighlighting(
                 in: textView,
-                documentID: documentID,
+                documentID: configuration.documentID,
                 text: fullText,
-                reachedEOF: reachedEOF,
-                decision: highlightDecision,
-                theme: highlightTheme
+                reachedEOF: configuration.reachedEOF,
+                decision: configuration.highlightDecision,
+                theme: configuration.highlightTheme
             )
             coordinator.updateSearch(
                 in: textView,
-                documentID: documentID,
+                documentID: configuration.documentID,
                 text: fullText,
                 textLength: textView.textStorage.length,
-                query: searchQuery,
-                reachedEOF: reachedEOF,
-                previousRequestID: previousSearchRequestID,
-                nextRequestID: nextSearchRequestID,
-                onSummaryChanged: onSearchSummaryChanged
+                query: configuration.searchQuery,
+                reachedEOF: configuration.reachedEOF,
+                previousRequestID: configuration.previousSearchRequestID,
+                nextRequestID: configuration.nextSearchRequestID,
+                onSummaryChanged: configuration.onSearchSummaryChanged
             )
         }
-        coordinator.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
+        coordinator.updateLineNumbers(
+            index: configuration.lineIndex,
+            isVisible: configuration.showsLineNumbers
+        )
         containerView.updateAccessibility(
-            documentID: documentID,
-            content: context.coordinator.accessibilityContent
+            documentID: configuration.documentID,
+            content: coordinator.accessibilityContent
         )
 
         if isNewDocument {
             coordinator.scrollToTop(in: textView, animated: false)
-        } else if coordinator.handledTopRequestID != topRequestID {
-            coordinator.handledTopRequestID = topRequestID
+        } else if coordinator.handledTopRequestID != configuration.topRequestID {
+            coordinator.handledTopRequestID = configuration.topRequestID
             coordinator.scrollToTop(in: textView, animated: true)
         }
-        if coordinator.handledBottomRequestID != bottomRequestID {
-            coordinator.handledBottomRequestID = bottomRequestID
+        if coordinator.handledBottomRequestID != configuration.bottomRequestID {
+            coordinator.handledBottomRequestID = configuration.bottomRequestID
             coordinator.requestEndJump(
-                ChatArtifactTextEndJumpTarget(reachedEOF: reachedEOF),
+                ChatArtifactTextEndJumpTarget(reachedEOF: configuration.reachedEOF),
                 in: textView
             )
         }
-        if coordinator.handledGoToLineRequestID != goToLineRequestID {
-            coordinator.handledGoToLineRequestID = goToLineRequestID
-            coordinator.scrollToUTF16Offset(goToLineUTF16Offset, in: textView)
+        if coordinator.handledGoToLineRequestID != configuration.goToLineRequestID {
+            coordinator.handledGoToLineRequestID = configuration.goToLineRequestID
+            coordinator.scrollToUTF16Offset(configuration.goToLineUTF16Offset, in: textView)
         }
-        coordinator.reconcileEndJump(reachedEOF: reachedEOF, in: textView)
+        coordinator.reconcileEndJump(reachedEOF: configuration.reachedEOF, in: textView)
     }
 }
 #endif
