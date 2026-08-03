@@ -31665,6 +31665,16 @@ mod tests {
 
         app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Recoverable);
+        assert_eq!(app.focus, FocusTarget::Pane);
+        let header = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::RailHeader(RailKind::Workspace)).then_some(*rect)
+            })
+            .unwrap();
+        app.handle_left_down(header.x, header.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
