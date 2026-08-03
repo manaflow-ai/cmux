@@ -31,6 +31,23 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isStale: Bool
     }
 
+    struct RepositoryLinkDisplay: Equatable {
+        let remoteName: String
+        let displayName: String
+        let url: URL
+
+        var openTooltip: String {
+            String(
+                format: String(
+                    localized: "sidebar.repository.openTooltip",
+                    defaultValue: "Open repository %@"
+                ),
+                locale: .current,
+                displayName
+            )
+        }
+    }
+
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
@@ -53,6 +70,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let compactBranchDirectoryCandidates: [String]
         let branchDirectoryLines: [VerticalBranchDirectoryLine]
         let branchLinesContainBranch: Bool
+        var repositoryLink: RepositoryLinkDisplay? = nil
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
