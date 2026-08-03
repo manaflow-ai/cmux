@@ -375,7 +375,6 @@ final class NotificationsPageViewController: NSViewController {
                 onClear: { [weak self] in self?.notificationStore.remove(id: notification.id) }
             )
             rows.addArrangedSubview(row)
-            row.openButton.previousKeyView = previousButton
             previousButton?.nextKeyView = row.openButton
             previousButton = row.openButton
             if index == 0 {
