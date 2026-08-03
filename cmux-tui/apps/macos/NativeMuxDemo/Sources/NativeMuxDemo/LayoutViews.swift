@@ -50,7 +50,11 @@ struct ViewportColumnsView: View {
                                 Text(column.columnID.suffix(6))
                                     .font(.system(.caption2, design: .monospaced))
                                 Spacer()
-                                Text("\(Int(column.width * 100))%")
+                                Text(L10n.format(
+                                    "column.percent",
+                                    "%d%%",
+                                    Int(column.width * 100)
+                                ))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }

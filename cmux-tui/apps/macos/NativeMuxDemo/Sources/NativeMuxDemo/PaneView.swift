@@ -1,5 +1,11 @@
 import SwiftUI
 
+private func localizedContentKind(_ kind: String) -> String {
+    kind == "browser"
+        ? L10n.text("content.browser", "Browser")
+        : L10n.text("content.terminal", "Terminal")
+}
+
 struct PaneView: View {
     let model: FrontendModel
     let snapshot: ResourceSnapshot
@@ -142,7 +148,7 @@ struct PaneView: View {
         if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
             return browser.title
         }
-        return activeTab.contentKind.capitalized
+        return localizedContentKind(activeTab.contentKind)
     }
 }
 
@@ -200,11 +206,12 @@ struct VerticalTabsView: View {
             }
         }
         .buttonStyle(.plain)
-        .help(tab.name ?? tab.contentKind.capitalized)
+        .help(tab.name ?? localizedContentKind(tab.contentKind))
         .contextMenu {
             Button(L10n.text("tab.close", "Close tab"), role: .destructive) {
                 model.closeTab(tab)
             }
         }
     }
+
 }

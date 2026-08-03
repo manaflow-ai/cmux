@@ -41,3 +41,6 @@
 "error.terminal_resize_rejected" = "ターミナルのサイズ変更が拒否されました。";
 "workspace.close" = "ワークスペースを閉じる";
 "space.close" = "スペースを閉じる";
+"column.percent" = "%d%%";
+"content.browser" = "ブラウザ";
+"content.terminal" = "ターミナル";

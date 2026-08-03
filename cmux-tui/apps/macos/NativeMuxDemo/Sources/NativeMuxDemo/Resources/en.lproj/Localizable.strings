@@ -41,3 +41,6 @@
 "error.terminal_resize_rejected" = "Terminal resize was rejected.";
 "workspace.close" = "Close workspace";
 "space.close" = "Close space";
+"column.percent" = "%d%%";
+"content.browser" = "Browser";
+"content.terminal" = "Terminal";
