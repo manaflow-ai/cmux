@@ -175,16 +175,16 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
+      - name: Install zig
+        run: |
+          ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Install Rust
         run: |
