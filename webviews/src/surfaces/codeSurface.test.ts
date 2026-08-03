@@ -98,4 +98,18 @@ describe("code surface mount", () => {
       dom.window.close();
     }
   });
+
+  test("hides the upstream sidebar mark", async () => {
+    const cssURL = new URL("../../code-sidecar/cmux-code.css", import.meta.url);
+    const css = await Bun.file(cssURL).text();
+    const dom = new JSDOM(
+      `<!doctype html><html><head><style>${css}</style></head><body><a class="sidebar-brand"><svg></svg><span>Code</span></a></body></html>`,
+      { pretendToBeVisual: true },
+    );
+    const mark = dom.window.document.querySelector(".sidebar-brand > svg");
+    if (!(mark instanceof dom.window.SVGElement)) throw new Error("Missing test sidebar mark");
+
+    expect(dom.window.getComputedStyle(mark).display).toBe("none");
+    dom.window.close();
+  });
 });

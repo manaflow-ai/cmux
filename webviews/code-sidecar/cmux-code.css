@@ -156,6 +156,10 @@ pre {
   -webkit-backdrop-filter: blur(20px) saturate(1.08);
 }
 
+.sidebar-brand > svg {
+  display: none;
+}
+
 .composer-glass,
 .composer-glass-surface,
 .composer-glass-shell {
