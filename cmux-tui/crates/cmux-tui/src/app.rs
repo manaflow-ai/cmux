@@ -3067,9 +3067,8 @@ pub enum Hit {
         view: usize,
         branch: ProjectionBranch,
     },
-    ProjectionRail {
-        view: usize,
-    },
+    /// A rail header, the explicit pointer entrypoint for sidebar focus.
+    RailHeader(RailKind),
     SidebarAction {
         view: usize,
         action: SidebarActionTarget,
@@ -7772,6 +7771,17 @@ impl App {
         true
     }
 
+    fn focus_rightmost_sidebar_rail(&mut self) -> bool {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return false;
+        }
+        let Some(kind) = self.visible_rail_order().last().copied() else {
+            return false;
+        };
+        self.focus_rail(kind);
+        true
+    }
+
     fn leave_workspace_sidebar(&mut self) {
         if self.sidebar_rail_focused() {
             self.focus = FocusTarget::Pane;
@@ -8713,7 +8723,7 @@ impl App {
             Hit::Workspace { .. }
             | Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
-            | Hit::ProjectionRail { .. }
+            | Hit::RailHeader(_)
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::NewTab { .. }
@@ -13068,8 +13078,14 @@ impl App {
     }
 
     fn handle_machine_sidebar_key(&mut self, key: &KeyEvent) -> RenderAction {
+        if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
+            self.focus_adjacent_rail(RailKind::Machine, -1);
+            return RenderAction::Draw;
+        }
         if matches!(key.code, KeyCode::Right | KeyCode::Char('l')) {
-            self.focus_adjacent_rail(RailKind::Machine, 1);
+            if !self.focus_adjacent_rail(RailKind::Machine, 1) {
+                self.focus = FocusTarget::Pane;
+            }
             return RenderAction::Draw;
         }
         if key.code == KeyCode::Esc {
@@ -13218,7 +13234,8 @@ impl App {
             });
         let selected = rows.get(current).cloned();
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
-            if let Some(branch) = selected.as_ref().and_then(|row| row.branch)
+            if !key.modifiers.contains(KeyModifiers::ALT)
+                && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.insert(branch);
@@ -13228,7 +13245,8 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Right | KeyCode::Char('l')) {
-            if let Some(branch) = selected.as_ref().and_then(|row| row.branch)
+            if !key.modifiers.contains(KeyModifiers::ALT)
+                && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
@@ -13517,8 +13535,10 @@ impl App {
         }
         if self.sidebar_view == SidebarView::Workspaces
             && matches!(key.code, KeyCode::Right | KeyCode::Char('l'))
-            && self.focus_adjacent_rail(RailKind::Workspace, 1)
         {
+            if !self.focus_adjacent_rail(RailKind::Workspace, 1) {
+                self.focus = FocusTarget::Pane;
+            }
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Esc {
@@ -14782,9 +14802,15 @@ impl App {
 
     fn move_focus(&mut self, direction: Direction) {
         let Some(screen) = self.tree.active_screen() else {
+            if matches!(direction, Direction::Left) {
+                self.focus_rightmost_sidebar_rail();
+            }
             return;
         };
         if screen.zoomed_pane.is_some() {
+            if matches!(direction, Direction::Left) {
+                self.focus_rightmost_sidebar_rail();
+            }
             return;
         }
         let active = screen.active_pane;
@@ -14804,6 +14830,8 @@ impl App {
             layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
         {
             self.focus_pane_after_input(next);
+        } else if matches!(direction, Direction::Left) {
+            self.focus_rightmost_sidebar_rail();
         }
     }
 
@@ -16697,7 +16725,6 @@ impl App {
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
                 Hit::Machine { index, key } => {
-                    self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.selection = index;
@@ -16708,7 +16735,6 @@ impl App {
                         .map(|target| Drag::MachineArm { target, at: (x, y) });
                 }
                 Hit::NewVm => {
-                    self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::NewVm;
@@ -16716,7 +16742,6 @@ impl App {
                     self.open_machine_creation_menu(x, y);
                 }
                 Hit::ConnectMachine => {
-                    self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
@@ -16724,7 +16749,6 @@ impl App {
                     self.open_machine_connection_menu(x, y);
                 }
                 Hit::ProviderScope => {
-                    self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::Scope;
@@ -16732,7 +16756,6 @@ impl App {
                     self.open_provider_scope_menu(x, y);
                 }
                 Hit::ProviderActions => {
-                    self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::Actions;
@@ -16740,7 +16763,6 @@ impl App {
                     self.open_provider_actions_menu(x, y);
                 }
                 Hit::Workspace { index, id } => {
-                    self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
                     if self.sidebar_workspace_selection != index {
                         self.tabs_rail_selection = 0;
@@ -16755,33 +16777,31 @@ impl App {
                     if let Some((index, target)) =
                         targets.iter().enumerate().find(|(_, target)| target.surface == surface)
                     {
-                        self.focus = FocusTarget::TabsRail;
                         self.tabs_rail_follow_selection = true;
                         self.tabs_rail_selection = index;
                         self.activate_sidebar_tab(target)?;
+                        self.focus = FocusTarget::Pane;
                     }
                 }
                 Hit::ProjectionToggle { view, branch } => {
-                    self.focus = FocusTarget::ProjectionRail(view);
                     let state = self.projection_rail_state_mut(view);
                     if !state.collapsed.remove(&branch) {
                         state.collapsed.insert(branch);
                     }
                 }
                 Hit::ProjectionRow { view, row, target } => {
-                    self.focus = FocusTarget::ProjectionRail(view);
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
                     state.selected_action = None;
                     state.follow_selection = true;
                     self.activate_projection_target(target)?;
+                    self.focus = FocusTarget::Pane;
                 }
-                Hit::ProjectionRail { view } => {
-                    self.focus = FocusTarget::ProjectionRail(view);
+                Hit::RailHeader(kind) => {
+                    self.focus_rail(kind);
                 }
                 Hit::SidebarAction { view, action } => {
                     let kind = self.rail_kind_for_view(view);
-                    self.focus_rail(kind);
                     match kind {
                         RailKind::Workspace => {
                             self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
@@ -16802,13 +16822,11 @@ impl App {
                     return self.invoke_sidebar_action(action);
                 }
                 Hit::RecoverableWorkspace { index } => {
-                    self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
                     self.sidebar_recoverable_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
                 }
                 Hit::CreateWorkspace { mode } => {
-                    self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
                     self.workspace_rail_selection = workspace_creation_selection(mode);
                     self.create_workspace(mode)?;
@@ -16863,12 +16881,10 @@ impl App {
                     self.start_horizontal_scrollbar_drag(track, x);
                 }
                 Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
-                    self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = false;
                     self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
                 Hit::RailResize(kind) => {
-                    self.focus_rail(kind);
                     self.drag = Some(Drag::RailResize(kind));
                 }
                 Hit::PaneResize { horizontal, vertical } => {
@@ -17134,6 +17150,7 @@ impl App {
                 && self.machine_pointer_target(target.machine).as_ref() == Some(&target)
                 && let Some(ui) = self.machine_ui.as_mut()
             {
+                self.focus = FocusTarget::Pane;
                 if let Some(managed) = target.managed.as_ref().filter(|managed| {
                     managed.status == ManagedMachineStatus::Recoverable
                         && managed.capabilities.restore
@@ -17172,6 +17189,7 @@ impl App {
             if let Some(index) = self.workspace_index(workspace)
                 && self.prepare_pty_input_before_mutation()
             {
+                self.focus = FocusTarget::Pane;
                 self.select_workspace_for_client(Some(index), None);
             }
             return Ok(RenderAction::Draw);
@@ -32762,7 +32780,7 @@ mod tests {
         let jumped = app.workspace_rail_scroll;
         assert!(jumped > 0);
         assert!(!app.workspace_rail_follow_selection);
-        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.focus, FocusTarget::Pane);
 
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),

@@ -99,7 +99,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
-    rail::header(frame, area, messages.machines, palette);
+    let header = rail::header(frame, area, messages.machines, palette);
 
     let mut body_rows = 0;
     let scope_row = provider.as_ref().filter(|provider| !provider.scopes.is_empty()).map(|_| {
@@ -288,6 +288,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         );
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
+    hits.push((header, Hit::RailHeader(RailKind::Machine)));
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Machine)));
     app.hits.extend(hits);
 }
@@ -300,7 +301,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
     let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
-    rail::header(frame, area, messages.tabs, palette);
+    let header = rail::header(frame, area, messages.tabs, palette);
 
     let body_rows = if targets.is_empty() { 1 } else { targets.len() * rail::ENTRY_STRIDE };
     let selected =
@@ -355,6 +356,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
             app.hits.push((rail::row(area, y + 1), hit));
         }
     }
+    app.hits.push((header, Hit::RailHeader(RailKind::Tabs)));
     app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Tabs)));
 }
 
@@ -369,7 +371,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     rail::prepare(frame, area, palette);
     let header =
         spec.levels.iter().copied().map(projection_resource_label).collect::<Vec<_>>().join(" › ");
-    rail::header(frame, area, &header, palette);
+    let header = rail::header(frame, area, &header, palette);
 
     let selectable_rows = rows.len().saturating_add(actions.len());
     let (selected, viewport) = {
@@ -448,11 +450,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             Hit::SidebarAction { view: view_index, action: action.target },
         ));
     }
+    app.hits.push((header, Hit::RailHeader(RailKind::Projection(view_index))));
     app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
-    app.hits.push((
-        Rect { x: area.x, y: area.y, width: area.width.saturating_sub(1), height: area.height },
-        Hit::ProjectionRail { view: view_index },
-    ));
 }
 
 fn draw_plugin(app: &mut App, frame: &mut Frame) {
@@ -528,7 +527,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let workspace_drag = app.workspace_drag();
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
-    rail::header(frame, area, messages.workspaces, palette);
+    let header = rail::header(frame, area, messages.workspaces, palette);
 
     let actions = app.workspace_sidebar_action_rows();
     let view_index = app.view_index_for_rail(RailKind::Workspace);
@@ -724,6 +723,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             state,
         );
     }
+    hits.push((header, Hit::RailHeader(RailKind::Workspace)));
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
     app.hits.extend(hits);
 }

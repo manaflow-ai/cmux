@@ -151,16 +151,23 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
     }
 }
 
-pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) {
-    let width = area.width.saturating_sub(1) as usize;
-    if width == 0 || area.height == 0 {
-        return;
+pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) -> Rect {
+    let rect = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width.saturating_sub(1),
+        height: area.height.min(1),
+    };
+    let width = rect.width as usize;
+    if width == 0 || rect.height == 0 {
+        return rect;
     }
     let buf = frame.buffer_mut();
-    for x in area.x..area.x + area.width.saturating_sub(1) {
+    for x in rect.x..rect.x + rect.width {
         buf[(x, area.y)].set_symbol(" ").set_style(palette.header);
     }
     buf.set_stringn(area.x, area.y, format!(" {label}"), width, palette.header);
+    rect
 }
 
 pub struct Entry<'a> {
