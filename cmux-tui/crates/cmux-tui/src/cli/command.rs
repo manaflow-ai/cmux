@@ -3183,6 +3183,66 @@ mod tests {
                 ],
                 "session.journal.subscribe",
             ),
+            (
+                vec!["session", SESSION, "journal", "producer", "list"],
+                "session.journal.producer.list",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "producer",
+                    "put",
+                    "--manifest-json",
+                    r#"{"producer_id":"demo","namespace":"plugin.demo"}"#,
+                ],
+                "session.journal.producer.put",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "append",
+                    "--event-json",
+                    r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+                ],
+                "session.journal.append",
+            ),
+            (vec!["session", SESSION, "journal", "hook", "list"], "session.journal.hook.list"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "hook",
+                    "put",
+                    "--manifest-json",
+                    r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+                ],
+                "session.journal.hook.put",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "create"],
+                "session.journal.checkpoint.create",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "list"],
+                "session.journal.checkpoint.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
+                "session.journal.restore.preview",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "list"],
+                "session.journal.segment.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
+                "session.journal.segment.seal",
+            ),
             (vec!["session", SESSION, "ping"], "session.ping"),
             (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
             (vec!["session", SESSION, "config", "reload"], "session.reload_config"),
@@ -3699,9 +3759,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 106);
+        assert_eq!(cases.len(), 117);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 113);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
