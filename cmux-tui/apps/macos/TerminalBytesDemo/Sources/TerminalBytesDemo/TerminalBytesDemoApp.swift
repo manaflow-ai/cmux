@@ -13,7 +13,7 @@ final class TerminalBytesDemoAppDelegate: NSObject, NSApplicationDelegate {
 struct TerminalBytesDemoApp: App {
     @NSApplicationDelegateAdaptor(TerminalBytesDemoAppDelegate.self)
     private var appDelegate
-    @StateObject private var model = TerminalModel()
+    @State private var model = TerminalModel()
 
     var body: some Scene {
         Window(L10n.text("app.title", "TerminalBytes Demo"), id: "terminal-bytes-demo") {
@@ -27,7 +27,7 @@ struct TerminalBytesDemoApp: App {
 }
 
 struct ContentView: View {
-    @ObservedObject var model: TerminalModel
+    @Bindable var model: TerminalModel
 
     var body: some View {
         VStack(spacing: 0) {

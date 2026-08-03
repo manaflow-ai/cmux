@@ -5,6 +5,8 @@ import Testing
 @testable import TerminalBytesDemo
 
 private final class LockedFlag: @unchecked Sendable {
+    // NSLock protects every access to storage, including calls from injected
+    // C-operation closures that the compiler must treat as concurrent.
     private let lock = NSLock()
     private var storage = false
 
@@ -18,6 +20,69 @@ private final class LockedFlag: @unchecked Sendable {
         lock.lock()
         storage = true
         lock.unlock()
+    }
+}
+
+private final class LockedClientCalls: @unchecked Sendable {
+    // NSLock protects all mutable storage. Pointers are recorded as integer
+    // addresses so snapshots only contain Sendable values.
+    private let lock = NSLock()
+    private var attachedStorage: [UInt] = []
+    private var attachedTerminalStorage: [String] = []
+    private var detachedStorage: [UInt] = []
+    private var destroyedStorage: [UInt] = []
+    private var updateRegistrationStorage: [Bool] = []
+
+    var attached: [UInt] { snapshot(\.attached) }
+    var attachedTerminals: [String] { snapshot(\.attachedTerminals) }
+    var detached: [UInt] { snapshot(\.detached) }
+    var destroyed: [UInt] { snapshot(\.destroyed) }
+    var updateRegistrations: [Bool] { snapshot(\.updateRegistrations) }
+
+    func recordAttach(client: OpaquePointer, terminal: String) {
+        lock.lock()
+        attachedStorage.append(UInt(bitPattern: client))
+        attachedTerminalStorage.append(terminal)
+        lock.unlock()
+    }
+
+    func recordDetach(_ client: OpaquePointer) {
+        lock.lock()
+        detachedStorage.append(UInt(bitPattern: client))
+        lock.unlock()
+    }
+
+    func recordDestroy(_ client: OpaquePointer) {
+        lock.lock()
+        destroyedStorage.append(UInt(bitPattern: client))
+        lock.unlock()
+    }
+
+    func recordUpdateRegistration(_ isRegistered: Bool) {
+        lock.lock()
+        updateRegistrationStorage.append(isRegistered)
+        lock.unlock()
+    }
+
+    private func snapshot<Value: Sendable>(
+        _ keyPath: KeyPath<(
+            attached: [UInt],
+            attachedTerminals: [String],
+            detached: [UInt],
+            destroyed: [UInt],
+            updateRegistrations: [Bool]
+        ), Value>
+    ) -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        let values = (
+            attached: attachedStorage,
+            attachedTerminals: attachedTerminalStorage,
+            detached: detachedStorage,
+            destroyed: destroyedStorage,
+            updateRegistrations: updateRegistrationStorage
+        )
+        return values[keyPath: keyPath]
     }
 }
 
@@ -175,55 +240,62 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
-    func clientHandleRetainsEnrollmentAndPropagatesInputFailure() throws {
-        let raw = try #require(OpaquePointer(bitPattern: 1))
-        var attached: [OpaquePointer] = []
-        var attachedTerminals: [String] = []
-        var detached: [OpaquePointer] = []
-        var destroyed: [OpaquePointer] = []
+    func clientHandleRetainsEnrollmentAndPropagatesInputFailure() async throws {
+        let rawAddress: UInt = 1
+        let calls = LockedClientCalls()
         let handle = TerminalClientHandle(
-            raw: raw,
+            rawAddress: rawAddress,
             attachClient: { client, terminal, _, _ in
-                attached.append(client)
-                attachedTerminals.append(String(cString: terminal!))
+                calls.recordAttach(client: client, terminal: String(cString: terminal!))
                 return true
             },
-            destroyClient: { destroyed.append($0) },
-            detachClient: { detached.append($0) },
+            destroyClient: { calls.recordDestroy($0) },
+            detachClient: { calls.recordDetach($0) },
+            setUpdateCallback: { _, callback, _ in
+                calls.recordUpdateRegistration(callback != nil)
+            },
             sendClient: { _, _, _ in false },
             pasteClient: { _, _, _ in true },
             keyClient: { _, _, _ in true },
             resizeClient: { _, _, _ in true }
         )
 
-        #expect(handle.submit(.bytes(Data("x".utf8))) == false)
-        #expect(handle.submit(.paste("貼り付け")) == true)
-        #expect(handle.submit(.key(chord: "up", repeat: false)) == true)
+        #expect(await handle.submit(.bytes(Data("x".utf8))) == false)
+        #expect(await handle.submit(.paste("貼り付け")) == true)
+        #expect(await handle.submit(.key(chord: "up", repeat: false)) == true)
 
-        handle.disconnect()
-        handle.disconnect()
-        #expect(detached == [raw])
+        let firstUpdates = await handle.updates()
+        let secondUpdates = await handle.updates()
+        await handle.stopUpdates(generation: firstUpdates.generation)
+        #expect(calls.updateRegistrations == [true, false, true])
+        await handle.stopUpdates(generation: secondUpdates.generation)
+        #expect(calls.updateRegistrations == [true, false, true, false])
+
+        await handle.disconnect()
+        await handle.disconnect()
+        #expect(calls.detached == [rawAddress])
         #expect(
-            handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef") == nil
+            await handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef")
+                == nil
         )
         #expect(
-            handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef") == nil
+            await handle.reconnect(terminalID: "term_0123456789abcdef0123456789abcdef")
+                == nil
         )
-        #expect(attached == [raw])
-        #expect(attachedTerminals == ["term_0123456789abcdef0123456789abcdef"])
+        #expect(calls.attached == [rawAddress])
+        #expect(calls.attachedTerminals == ["term_0123456789abcdef0123456789abcdef"])
 
-        handle.shutdown()
-        handle.shutdown()
-        #expect(destroyed == [raw])
+        await handle.shutdown()
+        await handle.shutdown()
+        #expect(calls.destroyed == [rawAddress])
     }
 
     @Test @MainActor
     func reconnectDoesNotBlockTheMainActor() async throws {
-        let raw = try #require(OpaquePointer(bitPattern: 2))
         let attachStarted = LockedFlag()
         let releaseAttach = DispatchSemaphore(value: 0)
         let handle = TerminalClientHandle(
-            raw: raw,
+            rawAddress: 2,
             attachClient: { _, _, _, _ in
                 attachStarted.set()
                 releaseAttach.wait()
@@ -231,10 +303,11 @@ struct TerminalBytesLogicTests {
             },
             destroyClient: { _ in },
             detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
             copyFrameClient: { _, _, _ in 0 },
             copyDiagnosticsClient: { _, _, _ in 0 }
         )
-        handle.disconnect()
+        await handle.disconnect()
         let model = TerminalModel(
             configuration: DemoLaunchConfiguration(
                 invitation: "",
@@ -256,17 +329,17 @@ struct TerminalBytesLogicTests {
 
     @Test @MainActor
     func disconnectDoesNotBlockTheMainActor() async throws {
-        let raw = try #require(OpaquePointer(bitPattern: 3))
         let detachStarted = LockedFlag()
         let releaseDetach = DispatchSemaphore(value: 0)
         let handle = TerminalClientHandle(
-            raw: raw,
+            rawAddress: 3,
             attachClient: { _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in
                 detachStarted.set()
                 releaseDetach.wait()
             },
+            setUpdateCallback: { _, _, _ in },
             copyFrameClient: { _, _, _ in 0 },
             copyDiagnosticsClient: { _, _, _ in 0 }
         )
@@ -293,13 +366,15 @@ struct TerminalBytesLogicTests {
 
     @Test @MainActor
     func exitedDiagnosticsCloseTheAttachmentWithoutAnInputError() async throws {
-        let raw = try #require(OpaquePointer(bitPattern: 4))
         let exitedDiagnostics = #"{"status":"exited","ready":false}"#
         let handle = TerminalClientHandle(
-            raw: raw,
+            rawAddress: 4,
             attachClient: { _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in },
+            setUpdateCallback: { _, callback, context in
+                callback?(context)
+            },
             sendClient: { _, _, _ in false },
             copyFrameClient: { _, _, _ in 0 },
             copyDiagnosticsClient: { _, buffer, capacity in
@@ -326,7 +401,7 @@ struct TerminalBytesLogicTests {
         model.connect()
         #expect(await waitUntil { model.diagnostics == exitedDiagnostics })
         #expect(!model.isConnected)
-        #expect(model.submit(.bytes(Data("x".utf8))) == false)
+        model.submit(.bytes(Data("x".utf8)))
         #expect(model.errorMessage.isEmpty)
         model.shutdown()
     }

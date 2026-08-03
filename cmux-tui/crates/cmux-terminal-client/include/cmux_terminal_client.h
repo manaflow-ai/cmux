@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct CmuxTerminalClient CmuxTerminalClient;
+typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
 
 CmuxTerminalClient *cmux_terminal_client_connect(
     const char *invitation_uri,
@@ -22,6 +23,10 @@ bool cmux_terminal_client_attach(
     char *error_buffer,
     size_t error_capacity);
 void cmux_terminal_client_detach(CmuxTerminalClient *client);
+void cmux_terminal_client_set_update_callback(
+    const CmuxTerminalClient *client,
+    CmuxTerminalClientUpdateCallback callback,
+    void *context);
 void cmux_terminal_client_disconnect(CmuxTerminalClient *client);
 
 bool cmux_terminal_client_send(

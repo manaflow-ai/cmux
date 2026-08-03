@@ -49,7 +49,7 @@ func terminalKeyChord(
 }
 
 final class TerminalTextView: NSTextView {
-    var submit: ((TerminalInput) -> Bool)?
+    var submit: ((TerminalInput) -> Void)?
     var isInputReady = false
     var pasteboardText: () -> String? = {
         NSPasteboard.general.string(forType: .string)
@@ -66,12 +66,11 @@ final class TerminalTextView: NSTextView {
             modifiers: event.modifierFlags,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
         ) {
-            guard isInputReady,
-                submit?(.key(chord: chord, repeat: event.isARepeat)) == true
-            else {
+            guard isInputReady, let submit else {
                 super.keyDown(with: event)
                 return
             }
+            submit(.key(chord: chord, repeat: event.isARepeat))
             return
         }
         if event.modifierFlags.contains(.command) {
@@ -92,7 +91,7 @@ final class TerminalTextView: NSTextView {
             text = nil
         }
         guard let text, !text.isEmpty else { return }
-        _ = submit?(.bytes(Data(text.utf8)))
+        submit?(.bytes(Data(text.utf8)))
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -135,7 +134,8 @@ final class TerminalTextView: NSTextView {
             let value = pasteboardText(),
             !value.isEmpty
         else { return false }
-        return submit(.paste(value))
+        submit(.paste(value))
+        return true
     }
 }
 
@@ -158,7 +158,7 @@ private final class TerminalContainerView: NSScrollView {
 struct TerminalView: NSViewRepresentable {
     let text: String
     let inputReady: Bool
-    let submit: (TerminalInput) -> Bool
+    let submit: (TerminalInput) -> Void
     let resize: (TerminalGeometry) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -199,13 +199,27 @@ struct TerminalView: NSViewRepresentable {
         terminal.string = text
         terminal.textColor = .white
         terminal.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminal.selectedRanges = selection.filter {
-            NSMaxRange($0.rangeValue) <= terminal.string.utf16.count
-        }
+        terminal.selectedRanges = terminalSelections(
+            preserving: selection,
+            utf16Length: terminal.string.utf16.count
+        )
         if followedBottom {
             terminal.scrollToEndOfDocument(nil)
         } else {
             terminal.scroll(visible.origin)
         }
     }
+}
+
+func terminalSelections(preserving selections: [NSValue], utf16Length: Int) -> [NSValue] {
+    let valid = selections.filter {
+        let range = $0.rangeValue
+        return range.location != NSNotFound
+            && range.location <= utf16Length
+            && range.length <= utf16Length - range.location
+    }
+    if !valid.isEmpty {
+        return valid
+    }
+    return [NSValue(range: NSRange(location: max(0, utf16Length), length: 0))]
 }

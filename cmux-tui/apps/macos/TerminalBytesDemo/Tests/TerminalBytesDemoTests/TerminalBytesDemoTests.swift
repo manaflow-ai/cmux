@@ -26,7 +26,6 @@ final class TerminalBytesDemoTests: XCTestCase {
         var delivered: [TerminalInput] = []
         terminal.submit = {
             delivered.append($0)
-            return true
         }
         terminal.isInputReady = true
         terminal.pasteboardText = { "貼り付け" }
@@ -96,7 +95,6 @@ final class TerminalBytesDemoTests: XCTestCase {
         var delivered: [TerminalInput] = []
         terminal.submit = {
             delivered.append($0)
-            return true
         }
         terminal.isInputReady = true
         terminal.pasteboardText = { "must stay in the field" }

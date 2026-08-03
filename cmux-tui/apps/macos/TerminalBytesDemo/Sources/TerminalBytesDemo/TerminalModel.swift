@@ -1,6 +1,6 @@
 import CCmuxTerminal
-import Combine
 import Foundation
+import Observation
 
 struct TerminalGeometry: Equatable {
     let cols: UInt16
@@ -54,60 +54,95 @@ private func terminalDidExit(_ diagnostics: String) -> Bool {
         == "exited"
 }
 
-private struct ConnectedHandle: @unchecked Sendable {
-    let raw: OpaquePointer?
+private struct ConnectedHandle: Sendable {
+    let rawAddress: UInt?
     let error: String
 }
 
-final class TerminalClientHandle: @unchecked Sendable {
+struct TerminalClientSnapshot: Equatable, Sendable {
+    let frame: String
+    let diagnostics: String
+}
+
+struct TerminalClientUpdates: Sendable {
+    let generation: UInt64
+    let stream: AsyncStream<Void>
+}
+
+typealias TerminalUpdateCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
+
+// AsyncStream.Continuation is thread-safe. Rust holds its callback mutex across
+// invocation and synchronous removal, so this sink cannot be released in flight.
+private final class TerminalUpdateSink: @unchecked Sendable {
+    let continuation: AsyncStream<Void>.Continuation
+
+    init(continuation: AsyncStream<Void>.Continuation) {
+        self.continuation = continuation
+    }
+}
+
+private let terminalUpdateCallback: TerminalUpdateCallback = { context in
+    guard let context else { return }
+    let sink = Unmanaged<TerminalUpdateSink>.fromOpaque(context).takeUnretainedValue()
+    sink.continuation.yield()
+}
+
+actor TerminalClientHandle {
     private var raw: OpaquePointer?
     private var isAttached = true
-    private let lock = NSLock()
+    private var updateSink: TerminalUpdateSink?
+    private var updateGeneration: UInt64 = 0
     private let attachClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafePointer<CChar>?,
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Bool
-    private let destroyClient: (OpaquePointer) -> Void
-    private let detachClient: (OpaquePointer) -> Void
+    private let destroyClient: @Sendable (OpaquePointer) -> Void
+    private let detachClient: @Sendable (OpaquePointer) -> Void
+    private let setUpdateCallback:
+        @Sendable (
+            OpaquePointer,
+            TerminalUpdateCallback?,
+            UnsafeMutableRawPointer?
+        ) -> Void
     private let sendClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafePointer<UInt8>?,
             Int
         ) -> Bool
     private let pasteClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafePointer<UInt8>?,
             Int
         ) -> Bool
     private let keyClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafePointer<CChar>?,
             Bool
         ) -> Bool
-    private let resizeClient: (OpaquePointer, UInt16, UInt16) -> Bool
+    private let resizeClient: @Sendable (OpaquePointer, UInt16, UInt16) -> Bool
     private let copyFrameClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
     private let copyDiagnosticsClient:
-        (
+        @Sendable (
             OpaquePointer,
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
 
     init(
-        raw: OpaquePointer,
+        rawAddress: UInt,
         attachClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafePointer<CChar>?,
                 UnsafeMutablePointer<CChar>?,
@@ -115,14 +150,22 @@ final class TerminalClientHandle: @unchecked Sendable {
             ) -> Bool = {
                 cmux_terminal_client_attach($0, $1, $2, $3)
             },
-        destroyClient: @escaping (OpaquePointer) -> Void = {
+        destroyClient: @escaping @Sendable (OpaquePointer) -> Void = {
             cmux_terminal_client_disconnect($0)
         },
-        detachClient: @escaping (OpaquePointer) -> Void = {
+        detachClient: @escaping @Sendable (OpaquePointer) -> Void = {
             cmux_terminal_client_detach($0)
         },
+        setUpdateCallback:
+            @escaping @Sendable (
+                OpaquePointer,
+                TerminalUpdateCallback?,
+                UnsafeMutableRawPointer?
+            ) -> Void = {
+                cmux_terminal_client_set_update_callback($0, $1, $2)
+            },
         sendClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafePointer<UInt8>?,
                 Int
@@ -130,7 +173,7 @@ final class TerminalClientHandle: @unchecked Sendable {
                 cmux_terminal_client_send($0, $1, $2)
             },
         pasteClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafePointer<UInt8>?,
                 Int
@@ -138,18 +181,18 @@ final class TerminalClientHandle: @unchecked Sendable {
                 cmux_terminal_client_paste($0, $1, $2)
             },
         keyClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafePointer<CChar>?,
                 Bool
             ) -> Bool = {
                 cmux_terminal_client_send_key($0, $1, $2)
             },
-        resizeClient: @escaping (OpaquePointer, UInt16, UInt16) -> Bool = {
+        resizeClient: @escaping @Sendable (OpaquePointer, UInt16, UInt16) -> Bool = {
             cmux_terminal_client_resize($0, $1, $2)
         },
         copyFrameClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafeMutablePointer<CChar>?,
                 Int
@@ -157,7 +200,7 @@ final class TerminalClientHandle: @unchecked Sendable {
                 cmux_terminal_client_copy_frame($0, $1, $2)
             },
         copyDiagnosticsClient:
-            @escaping (
+            @escaping @Sendable (
                 OpaquePointer,
                 UnsafeMutablePointer<CChar>?,
                 Int
@@ -165,10 +208,11 @@ final class TerminalClientHandle: @unchecked Sendable {
                 cmux_terminal_client_copy_diagnostics($0, $1, $2)
             }
     ) {
-        self.raw = raw
+        self.raw = OpaquePointer(bitPattern: rawAddress)
         self.attachClient = attachClient
         self.destroyClient = destroyClient
         self.detachClient = detachClient
+        self.setUpdateCallback = setUpdateCallback
         self.sendClient = sendClient
         self.pasteClient = pasteClient
         self.keyClient = keyClient
@@ -178,16 +222,13 @@ final class TerminalClientHandle: @unchecked Sendable {
     }
 
     func disconnect() {
-        lock.lock()
-        defer { lock.unlock() }
+        stopUpdates()
         guard let raw, isAttached else { return }
         isAttached = false
         detachClient(raw)
     }
 
     func reconnect(terminalID: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
         guard let raw else {
             return L10n.text("error.client.closed", "The terminal client is closed.")
         }
@@ -207,8 +248,6 @@ final class TerminalClientHandle: @unchecked Sendable {
     }
 
     func submit(_ input: TerminalInput) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         guard let raw, isAttached else { return false }
         switch input {
         case .bytes(let bytes):
@@ -226,36 +265,65 @@ final class TerminalClientHandle: @unchecked Sendable {
     }
 
     func resize(to geometry: TerminalGeometry) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         guard let raw, isAttached else { return false }
         return resizeClient(raw, geometry.cols, geometry.rows)
     }
 
-    func copyFrame() -> String? {
-        copyString(using: copyFrameClient)
+    func updates() -> TerminalClientUpdates {
+        stopUpdates()
+        updateGeneration &+= 1
+        let generation = updateGeneration
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        guard let raw, isAttached else {
+            continuation.finish()
+            return TerminalClientUpdates(generation: generation, stream: stream)
+        }
+        let sink = TerminalUpdateSink(continuation: continuation)
+        updateSink = sink
+        setUpdateCallback(
+            raw,
+            terminalUpdateCallback,
+            Unmanaged.passUnretained(sink).toOpaque()
+        )
+        return TerminalClientUpdates(generation: generation, stream: stream)
     }
 
-    func copyDiagnostics() -> String? {
-        copyString(using: copyDiagnosticsClient)
+    func stopUpdates(generation: UInt64? = nil) {
+        if let generation, generation != updateGeneration {
+            return
+        }
+        guard let sink = updateSink else { return }
+        if let raw {
+            setUpdateCallback(raw, nil, nil)
+        }
+        sink.continuation.finish()
+        updateSink = nil
+        updateGeneration &+= 1
+    }
+
+    func snapshot() -> TerminalClientSnapshot? {
+        guard raw != nil, isAttached,
+            let frame = copyString(using: copyFrameClient),
+            let diagnostics = copyString(using: copyDiagnosticsClient)
+        else { return nil }
+        return TerminalClientSnapshot(frame: frame, diagnostics: diagnostics)
     }
 
     private func copyString(
-        using copy: (
+        using copy: @Sendable (
             OpaquePointer,
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
     ) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
         guard let raw, isAttached else { return nil }
         return copyGrowingCString { copy(raw, $0, $1) }
     }
 
     func shutdown() {
-        lock.lock()
-        defer { lock.unlock() }
+        stopUpdates()
         guard let raw else { return }
         self.raw = nil
         isAttached = false
@@ -313,22 +381,24 @@ func copyGrowingCString(
 }
 
 @MainActor
-final class TerminalModel: ObservableObject {
-    @Published var invitation: String
-    @Published var terminalID: String
-    @Published private(set) var frame = ""
-    @Published private(set) var diagnostics = ""
-    @Published private(set) var errorMessage = ""
-    @Published private(set) var isConnecting = false
-    @Published private(set) var isConnected = false
+@Observable
+final class TerminalModel {
+    var invitation: String
+    var terminalID: String
+    private(set) var frame = ""
+    private(set) var diagnostics = ""
+    private(set) var errorMessage = ""
+    private(set) var isConnecting = false
+    private(set) var isConnected = false
 
-    private var client: TerminalClientHandle?
-    private var pollingTask: Task<Void, Never>?
-    private var geometryDelivery = GeometryDeliveryState()
-    private let shouldAutoConnect: Bool
-    private var didAttemptAutoConnect = false
-    private var isShuttingDown = false
-    private var connectionOperation: UInt64 = 0
+    @ObservationIgnored private var client: TerminalClientHandle?
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
+    @ObservationIgnored private let shouldAutoConnect: Bool
+    @ObservationIgnored private var didAttemptAutoConnect = false
+    @ObservationIgnored private var isShuttingDown = false
+    @ObservationIgnored private var connectionOperation: UInt64 = 0
 
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
@@ -364,9 +434,7 @@ final class TerminalModel: ObservableObject {
             connectionOperation &+= 1
             let operation = connectionOperation
             Task {
-                let reconnectError = await Task.detached(priority: .userInitiated) {
-                    client.reconnect(terminalID: terminalID)
-                }.value
+                let reconnectError = await client.reconnect(terminalID: terminalID)
                 guard operation == connectionOperation, !isShuttingDown else { return }
                 isConnecting = false
                 if let reconnectError {
@@ -376,7 +444,7 @@ final class TerminalModel: ObservableObject {
                 isConnected = true
                 geometryDelivery.resetConnection()
                 sendPendingGeometry()
-                beginPolling()
+                beginUpdates(from: client, operation: operation)
             }
             return
         }
@@ -403,7 +471,7 @@ final class TerminalModel: ObservableObject {
                     }
                 }
                 return ConnectedHandle(
-                    raw: handle,
+                    rawAddress: handle.map { UInt(bitPattern: $0) },
                     error: String(
                         decoding: error.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
                         as: UTF8.self
@@ -411,13 +479,13 @@ final class TerminalModel: ObservableObject {
                 )
             }.value
             guard operation == connectionOperation, !isShuttingDown else {
-                if let handle = result.raw {
-                    TerminalClientHandle(raw: handle).shutdown()
+                if let address = result.rawAddress {
+                    await TerminalClientHandle(rawAddress: address).shutdown()
                 }
                 return
             }
             isConnecting = false
-            guard let handle = result.raw else {
+            guard let address = result.rawAddress else {
                 errorMessage = result.error
                 if let bytes = "TerminalBytes connection failed: \(result.error)\n"
                     .data(using: .utf8)
@@ -426,23 +494,25 @@ final class TerminalModel: ObservableObject {
                 }
                 return
             }
-            let client = TerminalClientHandle(raw: handle)
+            let client = TerminalClientHandle(rawAddress: address)
             guard !isShuttingDown else {
-                client.shutdown()
+                await client.shutdown()
                 return
             }
             self.client = client
             isConnected = true
             geometryDelivery.resetConnection()
             sendPendingGeometry()
-            beginPolling()
+            beginUpdates(from: client, operation: operation)
         }
     }
 
     func disconnect() {
         guard !isShuttingDown else { return }
-        pollingTask?.cancel()
-        pollingTask = nil
+        updateTask?.cancel()
+        updateTask = nil
+        resizeTask?.cancel()
+        resizeTask = nil
         isConnected = false
         diagnostics = ""
         geometryDelivery.resetConnection()
@@ -454,9 +524,7 @@ final class TerminalModel: ObservableObject {
         isConnecting = true
         let operation = connectionOperation
         Task {
-            await Task.detached(priority: .userInitiated) {
-                client.disconnect()
-            }.value
+            await client.disconnect()
             guard operation == connectionOperation, !isShuttingDown else { return }
             isConnecting = false
         }
@@ -466,33 +534,37 @@ final class TerminalModel: ObservableObject {
         guard !isShuttingDown else { return }
         isShuttingDown = true
         connectionOperation &+= 1
-        pollingTask?.cancel()
-        pollingTask = nil
+        updateTask?.cancel()
+        updateTask = nil
+        resizeTask?.cancel()
+        resizeTask = nil
         isConnected = false
         isConnecting = false
         let ownedClient = client
         client = nil
         if let ownedClient {
-            Task.detached(priority: .userInitiated) {
-                ownedClient.shutdown()
+            Task {
+                await ownedClient.shutdown()
             }
         }
     }
 
-    @discardableResult
-    func submit(_ input: TerminalInput) -> Bool {
-        guard isConnected, let client else { return false }
-        let accepted = client.submit(input)
+    func submit(_ input: TerminalInput) {
+        guard isConnected, let client else { return }
+        let operation = connectionOperation
         let failure = L10n.text(
             "error.input.rejected",
             "Terminal input was not queued. Reconnect and try again."
         )
-        if !accepted {
-            errorMessage = failure
-        } else if errorMessage == failure {
-            errorMessage = ""
+        Task {
+            let accepted = await client.submit(input)
+            guard operation == connectionOperation, isConnected, !isShuttingDown else { return }
+            if !accepted {
+                errorMessage = failure
+            } else if errorMessage == failure {
+                errorMessage = ""
+            }
         }
-        return accepted
     }
 
     func resize(to geometry: TerminalGeometry) {
@@ -501,50 +573,67 @@ final class TerminalModel: ObservableObject {
     }
 
     private func sendPendingGeometry() {
-        guard let client,
+        guard resizeTask == nil,
+            let client,
             let geometry = geometryDelivery.pending(isConnected: isConnected)
         else { return }
-        let accepted = client.resize(to: geometry)
-        geometryDelivery.complete(geometry, accepted: accepted)
+        let operation = connectionOperation
         let failure = L10n.text(
             "error.resize.rejected",
             "The terminal resize was not queued and will be retried."
         )
-        if !accepted {
-            errorMessage = failure
-        } else if errorMessage == failure {
-            errorMessage = ""
+        resizeTask = Task {
+            let accepted = await client.resize(to: geometry)
+            guard operation == connectionOperation, !isShuttingDown else {
+                resizeTask = nil
+                return
+            }
+            geometryDelivery.complete(geometry, accepted: accepted)
+            resizeTask = nil
+            if !accepted {
+                errorMessage = failure
+            } else if errorMessage == failure {
+                errorMessage = ""
+            }
+            sendPendingGeometry()
         }
     }
 
-    private func beginPolling() {
-        pollingTask?.cancel()
-        pollingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                self?.poll()
-                try? await Task.sleep(for: .milliseconds(33))
+    private func beginUpdates(from client: TerminalClientHandle, operation: UInt64) {
+        updateTask?.cancel()
+        updateTask = Task { [weak self] in
+            let updates = await client.updates()
+            for await _ in updates.stream {
+                guard !Task.isCancelled else { break }
+                guard let snapshot = await client.snapshot() else { continue }
+                guard let self,
+                    operation == self.connectionOperation,
+                    !self.isShuttingDown
+                else { break }
+                self.apply(snapshot, from: client)
             }
+            await client.stopUpdates(generation: updates.generation)
         }
     }
 
-    private func poll() {
-        guard let client else { return }
-        sendPendingGeometry()
-        if let nextFrame = client.copyFrame() {
-            frame = nextFrame
+    private func apply(_ snapshot: TerminalClientSnapshot, from client: TerminalClientHandle) {
+        if frame != snapshot.frame {
+            frame = snapshot.frame
         }
-        if let nextDiagnostics = client.copyDiagnostics() {
-            diagnostics = nextDiagnostics
-            if terminalDidExit(nextDiagnostics) {
-                closeExitedAttachment(client)
-            }
+        if diagnostics != snapshot.diagnostics {
+            diagnostics = snapshot.diagnostics
+        }
+        if terminalDidExit(snapshot.diagnostics) {
+            closeExitedAttachment(client)
         }
     }
 
     private func closeExitedAttachment(_ client: TerminalClientHandle) {
         guard isConnected else { return }
-        pollingTask?.cancel()
-        pollingTask = nil
+        updateTask?.cancel()
+        updateTask = nil
+        resizeTask?.cancel()
+        resizeTask = nil
         isConnected = false
         geometryDelivery.resetConnection()
         errorMessage = ""
@@ -552,9 +641,7 @@ final class TerminalModel: ObservableObject {
         connectionOperation &+= 1
         let operation = connectionOperation
         Task {
-            await Task.detached(priority: .userInitiated) {
-                client.disconnect()
-            }.value
+            await client.disconnect()
             guard operation == connectionOperation, !isShuttingDown else { return }
             isConnecting = false
         }

@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -35,8 +35,44 @@ pub struct CmuxTerminalClient {
     provider: Arc<IrohProvider>,
     multiplexer: Arc<ServiceMultiplexer>,
     state: Arc<Mutex<ClientState>>,
+    updates: Arc<ClientUpdates>,
     terminal: Mutex<Option<ActiveTerminal>>,
     next_request: AtomicU64,
+}
+
+type TerminalUpdateCallback = unsafe extern "C" fn(*mut c_void);
+
+#[derive(Clone, Copy)]
+struct UpdateCallbackRegistration {
+    callback: TerminalUpdateCallback,
+    context: usize,
+}
+
+#[derive(Default)]
+struct ClientUpdates {
+    callback: Mutex<Option<UpdateCallbackRegistration>>,
+}
+
+impl ClientUpdates {
+    fn set_callback(&self, callback: Option<TerminalUpdateCallback>, context: *mut c_void) {
+        let mut registered = self.callback.lock().unwrap();
+        *registered = callback
+            .map(|callback| UpdateCallbackRegistration { callback, context: context as usize });
+        if let Some(registered) = *registered {
+            // SAFETY: the FFI caller owns the callback context and the callback
+            // mutex makes replacement/removal wait for any invocation to finish.
+            unsafe { (registered.callback)(registered.context as *mut c_void) };
+        }
+    }
+
+    fn notify(&self) {
+        let registered = self.callback.lock().unwrap();
+        if let Some(registered) = *registered {
+            // SAFETY: set_callback documents the context lifetime contract and
+            // holds this same mutex across invocation and synchronous removal.
+            unsafe { (registered.callback)(registered.context as *mut c_void) };
+        }
+    }
 }
 
 struct ActiveTerminal {
@@ -485,11 +521,20 @@ enum StreamOutcome {
     Stop,
 }
 
-fn finish_decoder(decoder: &FrameDecoder, state: &Arc<Mutex<ClientState>>) -> bool {
+fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, status: String) {
+    state.lock().unwrap().status = status;
+    updates.notify();
+}
+
+fn finish_decoder(
+    decoder: &FrameDecoder,
+    state: &Arc<Mutex<ClientState>>,
+    updates: &ClientUpdates,
+) -> bool {
     match decoder.finish() {
         Ok(()) => true,
         Err(error) => {
-            state.lock().unwrap().status = format!("codec: {error}");
+            set_client_status(state, updates, format!("codec: {error}"));
             false
         }
     }
@@ -498,14 +543,15 @@ fn finish_decoder(decoder: &FrameDecoder, state: &Arc<Mutex<ClientState>>) -> bo
 async fn receive_frames(
     stream: Arc<ServiceStream>,
     state: Arc<Mutex<ClientState>>,
+    updates: Arc<ClientUpdates>,
 ) -> StreamOutcome {
     let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
     loop {
         match stream.receive().await {
             Ok(Some(chunk)) => {
                 if chunk.lane != Lane::Interactive {
-                    state.lock().unwrap().status = "wrong-lane".into();
-                    let _ = finish_decoder(&decoder, &state);
+                    set_client_status(&state, &updates, "wrong-lane".into());
+                    let _ = finish_decoder(&decoder, &state, &updates);
                     return StreamOutcome::Restart;
                 }
                 match decoder.push(&chunk.payload) {
@@ -513,6 +559,7 @@ async fn receive_frames(
                         let mut outcome = None;
                         for frame in frames {
                             let applied = state.lock().unwrap().apply(frame);
+                            updates.notify();
                             match applied {
                                 Ok(FrameEffect::Continue) => {}
                                 Ok(FrameEffect::Restart) => {
@@ -524,40 +571,43 @@ async fn receive_frames(
                                     break;
                                 }
                                 Err(error) => {
-                                    state.lock().unwrap().status = error;
-                                    let _ = finish_decoder(&decoder, &state);
+                                    set_client_status(&state, &updates, error);
+                                    let _ = finish_decoder(&decoder, &state, &updates);
                                     return StreamOutcome::Restart;
                                 }
                             }
                         }
                         if let Some(outcome) = outcome {
-                            let _ = finish_decoder(&decoder, &state);
+                            let _ = finish_decoder(&decoder, &state, &updates);
                             return outcome;
                         }
                     }
                     Err(error) => {
-                        state.lock().unwrap().status = format!("codec: {error}");
-                        let _ = finish_decoder(&decoder, &state);
+                        set_client_status(&state, &updates, format!("codec: {error}"));
+                        let _ = finish_decoder(&decoder, &state, &updates);
                         return StreamOutcome::Restart;
                     }
                 }
                 if chunk.finished || chunk.reset {
-                    if finish_decoder(&decoder, &state) {
-                        state.lock().unwrap().status =
-                            if chunk.reset { "stream-reset" } else { "stream-closed" }.into();
+                    if finish_decoder(&decoder, &state, &updates) {
+                        set_client_status(
+                            &state,
+                            &updates,
+                            if chunk.reset { "stream-reset" } else { "stream-closed" }.into(),
+                        );
                     }
                     return StreamOutcome::Restart;
                 }
             }
             Ok(None) => {
-                if finish_decoder(&decoder, &state) {
-                    state.lock().unwrap().status = "stream-closed".into();
+                if finish_decoder(&decoder, &state, &updates) {
+                    set_client_status(&state, &updates, "stream-closed".into());
                 }
                 return StreamOutcome::Restart;
             }
             Err(error) => {
-                if finish_decoder(&decoder, &state) {
-                    state.lock().unwrap().status = format!("stream: {error}");
+                if finish_decoder(&decoder, &state, &updates) {
+                    set_client_status(&state, &updates, format!("stream: {error}"));
                 }
                 return StreamOutcome::Restart;
             }
@@ -572,10 +622,11 @@ async fn supervise_terminal_stream(
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
     state: Arc<Mutex<ClientState>>,
+    updates: Arc<ClientUpdates>,
 ) {
     let mut stream = initial_stream;
     loop {
-        let outcome = receive_frames(stream.clone(), state.clone()).await;
+        let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
         let current = streams.send_replace(None);
         if let Some(current) = current {
             let _ = current.close().await;
@@ -588,9 +639,10 @@ async fn supervise_terminal_stream(
             return;
         }
         if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
-            state.lock().unwrap().status = format!("resync: {error}");
+            set_client_status(&state, &updates, format!("resync: {error}"));
             return;
         }
+        updates.notify();
         loop {
             if closed.load(Ordering::Acquire) {
                 return;
@@ -602,7 +654,7 @@ async fn supervise_terminal_stream(
                     break;
                 }
                 Err(error) => {
-                    state.lock().unwrap().status = format!("reconnect: {error}");
+                    set_client_status(&state, &updates, format!("reconnect: {error}"));
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
             }
@@ -616,6 +668,7 @@ fn start_terminal_tasks(
     multiplexer: Arc<ServiceMultiplexer>,
     terminal_id: TerminalPublicId,
     state: Arc<Mutex<ClientState>>,
+    updates: Arc<ClientUpdates>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
     let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
@@ -626,9 +679,11 @@ fn start_terminal_tasks(
         streams.clone(),
         closed.clone(),
         state.clone(),
+        updates.clone(),
     ));
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
     let command_state = state;
+    let command_updates = updates;
     let command_closed = closed.clone();
     let command_task = runtime.spawn(async move {
         while let Some(command) = commands.recv().await {
@@ -646,7 +701,11 @@ fn start_terminal_tasks(
                 match current.send(command.clone()).await {
                     Ok(()) => break,
                     Err(error) => {
-                        command_state.lock().unwrap().status = format!("write: {error}");
+                        set_client_status(
+                            &command_state,
+                            &command_updates,
+                            format!("write: {error}"),
+                        );
                         let failed = current.id();
                         loop {
                             if command_closed.load(Ordering::Acquire) {
@@ -692,12 +751,14 @@ impl CmuxTerminalClient {
             snapshot.generation,
             terminal_id.clone(),
         )?;
+        self.updates.notify();
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
             stream,
             self.multiplexer.clone(),
             terminal_id,
             self.state.clone(),
+            self.updates.clone(),
         ));
         Ok(())
     }
@@ -710,6 +771,8 @@ impl CmuxTerminalClient {
         let mut state = self.state.lock().unwrap();
         state.ready = false;
         state.status = "detached".into();
+        drop(state);
+        self.updates.notify();
     }
 }
 
@@ -797,8 +860,10 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
     };
     match runtime.block_on(connect_client(invitation, terminal_id.clone())) {
         Ok((stream, connection, provider, multiplexer, state)) => {
+            let updates = Arc::new(ClientUpdates::default());
             let diagnostics_connection = connection.clone();
             let diagnostics_state = state.clone();
+            let diagnostics_updates = updates.clone();
             let mut generation = connection.subscribe_generation();
             runtime.spawn(async move {
                 while generation.changed().await.is_ok() {
@@ -813,6 +878,8 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                     state.transport_provider = snapshot.transport.provider;
                     state.transport_path = path;
                     state.generation = snapshot.generation;
+                    drop(state);
+                    diagnostics_updates.notify();
                 }
             });
             let terminal = start_terminal_tasks(
@@ -821,6 +888,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                 multiplexer.clone(),
                 terminal_id,
                 state.clone(),
+                updates.clone(),
             );
             Box::into_raw(Box::new(CmuxTerminalClient {
                 runtime,
@@ -828,6 +896,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
                 provider,
                 multiplexer,
                 state,
+                updates,
                 terminal: Mutex::new(Some(terminal)),
                 next_request: AtomicU64::new(1),
             }))
@@ -885,6 +954,25 @@ pub unsafe extern "C" fn cmux_terminal_client_detach(client: *mut CmuxTerminalCl
     client.detach_terminal();
 }
 
+/// Registers a lightweight notification invoked whenever frame or diagnostic
+/// state changes. Passing null clears the callback synchronously.
+///
+/// # Safety
+///
+/// `client` must be null or a live handle returned by
+/// [`cmux_terminal_client_connect`]. While registered, `context` must remain
+/// valid for every callback invocation. Clearing the callback waits for any
+/// invocation already in progress before returning.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_set_update_callback(
+    client: *const CmuxTerminalClient,
+    callback: Option<TerminalUpdateCallback>,
+    context: *mut c_void,
+) {
+    let Some(client) = (unsafe { client.as_ref() }) else { return };
+    client.updates.set_callback(callback, context);
+}
+
 /// Disconnects and consumes an owning terminal client handle.
 ///
 /// # Safety
@@ -900,6 +988,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     }
     // SAFETY: ownership of a pointer returned by connect transfers exactly once.
     let client = unsafe { Box::from_raw(client) };
+    client.updates.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
     let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
@@ -974,6 +1063,7 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
         Ok(chord) => chord,
         Err(error) => {
             client.state.lock().unwrap().status = format!("key: {error}");
+            client.updates.notify();
             return false;
         }
     };
@@ -982,6 +1072,7 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
         Ok(encoded) => encoded,
         Err(error) => {
             client.state.lock().unwrap().status = format!("key: {error}");
+            client.updates.notify();
             return false;
         }
     };
@@ -1378,7 +1469,11 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
-            let receiver = tokio::spawn(receive_frames(stream, state.clone()));
+            let receiver = tokio::spawn(receive_frames(
+                stream,
+                state.clone(),
+                Arc::new(ClientUpdates::default()),
+            ));
 
             let encoded =
                 encode_frame(&Frame::new(MessageKind::Output, b"partial".to_vec())).unwrap();
@@ -1419,7 +1514,11 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
-            let receiver = tokio::spawn(receive_frames(stream, state.clone()));
+            let receiver = tokio::spawn(receive_frames(
+                stream,
+                state.clone(),
+                Arc::new(ClientUpdates::default()),
+            ));
 
             let boundary = 10;
             let frames = [
@@ -1532,6 +1631,7 @@ mod tests {
                 client.clone(),
                 terminal_id,
                 state.clone(),
+                Arc::new(ClientUpdates::default()),
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
@@ -1598,8 +1698,14 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
-            let active =
-                start_terminal_tasks(&runtime, stream, client.clone(), terminal_id, state.clone());
+            let active = start_terminal_tasks(
+                &runtime,
+                stream,
+                client.clone(),
+                terminal_id,
+                state.clone(),
+                Arc::new(ClientUpdates::default()),
+            );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
                 while !active.closed.load(Ordering::Acquire) {
