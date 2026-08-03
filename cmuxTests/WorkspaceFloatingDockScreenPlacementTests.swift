@@ -357,6 +357,67 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 
         #expect(controller.window?.frame == latest.parkedFrame)
     }
+
+    @Test
+    @MainActor
+    func internalRightBoundaryCompactsTheRealPanelWithoutChangingItsRestoreFrame() throws {
+        _ = NSApplication.shared
+        let visibleFrame = try #require(NSScreen.main?.visibleFrame)
+        let rightNeighbor = CGRect(
+            x: visibleFrame.maxX,
+            y: visibleFrame.minY,
+            width: 1_000,
+            height: visibleFrame.height
+        )
+        let restoreFrame = CGRect(
+            x: visibleFrame.midX - 260,
+            y: visibleFrame.midY - 190,
+            width: 520,
+            height: 380
+        )
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-parking-compact-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Compact",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in }
+        )
+        defer {
+            controller.teardown()
+            dock.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+        controller.show(focus: false)
+        let snapshot = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: restoreFrame,
+            visibleScreenFrame: visibleFrame,
+            availableScreenFrames: [visibleFrame, rightNeighbor]
+        )
+
+        dock.setStashed(true)
+        controller.showStashed(snapshot: snapshot, animated: false)
+
+        #expect(snapshot.parkedFrame.width == 80)
+        #expect(controller.window?.frame == snapshot.parkedFrame)
+        #expect(dock.screenFrame == restoreFrame)
+    }
 }
 
 @Suite(.serialized)
@@ -388,7 +449,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
         )
@@ -436,7 +496,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
         )
@@ -499,7 +558,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: true
         )
@@ -764,7 +822,6 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
         controller.show(
             attachedTo: owner,
             title: "Build Notes",
-            parkingEdge: .trailing,
             appearance: .raycast(backgroundColor: .windowBackgroundColor),
             animated: false
         )

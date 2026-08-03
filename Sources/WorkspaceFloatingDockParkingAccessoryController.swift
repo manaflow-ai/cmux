@@ -26,7 +26,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private var presentationGeneration = 0
     private var ownerWindowObserverTokens: [any NSObjectProtocol] = []
     private weak var observedOwnerWindow: NSWindow?
-    private var parkingEdge: WorkspaceFloatingDockParkingEdge = .trailing
     private var isOwnerTransitionInProgress = false
     private(set) var isEditing = false
 
@@ -92,20 +91,17 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func show(
         attachedTo ownerWindow: NSWindow,
         title: String,
-        parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         presentationGeneration &+= 1
         isOwnerTransitionInProgress = false
-        self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         let targetFrame = frame(
             relativeTo: ownerWindow,
-            width: accessoryView.preferredWidth,
-            parkingEdge: parkingEdge
+            width: accessoryView.preferredWidth
         )
 
         guard !panel.isVisible else {
@@ -138,20 +134,17 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func update(
         title: String,
         attachedTo ownerWindow: NSWindow,
-        parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance,
         animated: Bool
     ) {
         guard panel.isVisible else { return }
-        self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         setFrame(
             frame(
                 relativeTo: ownerWindow,
-                width: accessoryView.preferredWidth,
-                parkingEdge: parkingEdge
+                width: accessoryView.preferredWidth
             ),
             animated: animated
         )
@@ -166,14 +159,12 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         if isOwnerTransitionInProgress {
             targetFrame = framePreservingAttachment(
                 panel.frame,
-                width: accessoryView.preferredWidth,
-                parkingEdge: parkingEdge
+                width: accessoryView.preferredWidth
             )
         } else {
             targetFrame = frame(
                 relativeTo: ownerWindow,
-                width: accessoryView.preferredWidth,
-                parkingEdge: parkingEdge
+                width: accessoryView.preferredWidth
             )
         }
         setFrame(
@@ -199,8 +190,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         setFrame(
             frame(
                 relativeTo: ownerWindow,
-                width: accessoryView.preferredWidth,
-                parkingEdge: parkingEdge
+                width: accessoryView.preferredWidth
             ),
             animated: false
         )
@@ -251,7 +241,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     func prepareForOwnerTransitionShowing(
         attachedTo ownerWindow: NSWindow,
         title: String,
-        parkingEdge: WorkspaceFloatingDockParkingEdge,
         appearance: WorkspaceFloatingDockBackdropAppearance
     ) {
         let continuesExistingTransition = isOwnerTransitionInProgress
@@ -259,7 +248,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             && panel.parent === ownerWindow
         presentationGeneration &+= 1
         isOwnerTransitionInProgress = true
-        self.parkingEdge = parkingEdge
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
@@ -267,8 +255,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             panel.setFrame(
                 frame(
                     relativeTo: ownerWindow,
-                    width: accessoryView.preferredWidth,
-                    parkingEdge: parkingEdge
+                    width: accessoryView.preferredWidth
                 ),
                 display: false
             )
@@ -343,16 +330,10 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     private func frame(
         relativeTo ownerWindow: NSWindow,
-        width: CGFloat,
-        parkingEdge: WorkspaceFloatingDockParkingEdge
+        width: CGFloat
     ) -> CGRect {
         let anchorFrame = ownerWindow.frame
-        var minX: CGFloat = switch parkingEdge {
-        case .leading:
-            anchorFrame.maxX + Self.gap
-        case .trailing:
-            anchorFrame.minX - Self.gap - width
-        }
+        var minX = anchorFrame.minX - Self.gap - width
         var minY = anchorFrame.midY - (Self.height / 2)
         if let visibleFrame = ownerWindow.screen?.visibleFrame
             ?? NSScreen.screens.first(where: {
@@ -372,17 +353,11 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     private func framePreservingAttachment(
         _ currentFrame: CGRect,
-        width: CGFloat,
-        parkingEdge: WorkspaceFloatingDockParkingEdge
+        width: CGFloat
     ) -> CGRect {
         var targetFrame = currentFrame
         targetFrame.size.width = width
-        switch parkingEdge {
-        case .leading:
-            break
-        case .trailing:
-            targetFrame.origin.x = currentFrame.maxX - width
-        }
+        targetFrame.origin.x = currentFrame.maxX - width
         return targetFrame
     }
 

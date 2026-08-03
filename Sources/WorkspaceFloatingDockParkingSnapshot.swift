@@ -1,10 +1,5 @@
 import AppKit
 
-enum WorkspaceFloatingDockParkingEdge: Equatable {
-    case leading
-    case trailing
-}
-
 /// Immutable screen geometry for one parked workspace floating window.
 ///
 /// The interaction policy is informed by Loop's Stash feature at revision
@@ -20,7 +15,6 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
 
     let restoreFrame: CGRect
     let visibleScreenFrame: CGRect
-    let edge: WorkspaceFloatingDockParkingEdge
     let parkedFrame: CGRect
     let revealedFrame: CGRect
     let restingVisibleFrame: CGRect
@@ -31,7 +25,6 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         restoreFrame: CGRect,
         visibleScreenFrame: CGRect,
         availableScreenFrames: [CGRect] = [],
-        edge requestedEdge: WorkspaceFloatingDockParkingEdge? = nil,
         parkedMinY: CGFloat? = nil,
         restingTargetMinY: CGFloat? = nil,
         restingTargetHeight: CGFloat? = nil
@@ -46,8 +39,7 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
             windowHeight: restoreFrame.height,
             visibleScreenFrame: visibleScreenFrame
         )
-        let edge = requestedEdge ?? Self.preferredEdge(
-            windows: [(size: restoreFrame.size, minY: y)],
+        let neighboringScreenFrames = Self.neighboringScreenFrames(
             visibleScreenFrame: visibleScreenFrame,
             availableScreenFrames: availableScreenFrames
         )
@@ -56,18 +48,17 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
             minY: y,
             visibleWidth: parkedVisibleWidth,
             visibleScreenFrame: visibleScreenFrame,
-            edge: edge
+            neighboringScreenFrames: neighboringScreenFrames
         )
         let revealedFrame = Self.parkedFrame(
             windowSize: restoreFrame.size,
             minY: y,
             visibleWidth: revealedVisibleWidth,
             visibleScreenFrame: visibleScreenFrame,
-            edge: edge
+            neighboringScreenFrames: neighboringScreenFrames
         )
         self.restoreFrame = restoreFrame
         self.visibleScreenFrame = visibleScreenFrame
-        self.edge = edge
         self.parkedFrame = parkedFrame
         self.revealedFrame = revealedFrame
         let visibleSlice = parkedFrame.intersection(visibleScreenFrame)
@@ -177,20 +168,11 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
             max(arrangedOrigins[0], visibleScreenFrame.minY),
             visibleScreenFrame.maxY - targetStackHeight
         )
-        let edge = preferredEdge(
-            windows: restoreFrames.indices.map { index in
-                (size: restoreFrames[index].size, minY: arrangedOrigins[index])
-            },
-            visibleScreenFrame: visibleScreenFrame,
-            availableScreenFrames: availableScreenFrames
-        )
-
         return restoreFrames.indices.map { index in
             WorkspaceFloatingDockParkingSnapshot(
                 restoreFrame: restoreFrames[index],
                 visibleScreenFrame: visibleScreenFrame,
                 availableScreenFrames: availableScreenFrames,
-                edge: edge,
                 parkedMinY: arrangedOrigins[index],
                 restingTargetMinY: targetStackMinY + (CGFloat(index) * targetHeight),
                 restingTargetHeight: targetHeight
@@ -209,80 +191,40 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         )
     }
 
-    private static func preferredEdge(
-        windows: [(size: CGSize, minY: CGFloat)],
-        visibleScreenFrame: CGRect,
-        availableScreenFrames: [CGRect]
-    ) -> WorkspaceFloatingDockParkingEdge {
-        let neighboringScreenFrames = screenFramesExcludingOwner(
-            visibleScreenFrame: visibleScreenFrame,
-            availableScreenFrames: availableScreenFrames
-        )
-        guard !neighboringScreenFrames.isEmpty else { return .trailing }
-
-        let leadingOverlap = overlapArea(
-            for: .leading,
-            windows: windows,
-            visibleScreenFrame: visibleScreenFrame,
-            neighboringScreenFrames: neighboringScreenFrames
-        )
-        let trailingOverlap = overlapArea(
-            for: .trailing,
-            windows: windows,
-            visibleScreenFrame: visibleScreenFrame,
-            neighboringScreenFrames: neighboringScreenFrames
-        )
-        return leadingOverlap < trailingOverlap ? .leading : .trailing
-    }
-
-    private static func overlapArea(
-        for edge: WorkspaceFloatingDockParkingEdge,
-        windows: [(size: CGSize, minY: CGFloat)],
-        visibleScreenFrame: CGRect,
-        neighboringScreenFrames: [CGRect]
-    ) -> CGFloat {
-        windows.reduce(0) { overlap, window in
-            overlap + intersectionArea(
-                of: parkedFrame(
-                    windowSize: window.size,
-                    minY: window.minY,
-                    visibleWidth: parkedVisibleWidth(for: window.size.width),
-                    visibleScreenFrame: visibleScreenFrame,
-                    edge: edge
-                ),
-                with: neighboringScreenFrames
-            )
-        }
-    }
-
     private static func parkedFrame(
         windowSize: CGSize,
         minY: CGFloat,
         visibleWidth: CGFloat,
         visibleScreenFrame: CGRect,
-        edge: WorkspaceFloatingDockParkingEdge
+        neighboringScreenFrames: [CGRect]
     ) -> CGRect {
-        let minX: CGFloat = switch edge {
-        case .leading:
-            visibleScreenFrame.minX - windowSize.width + visibleWidth
-        case .trailing:
-            visibleScreenFrame.maxX - visibleWidth
+        let offscreenFrame = CGRect(
+            x: visibleScreenFrame.maxX - visibleWidth,
+            y: minY,
+            width: windowSize.width,
+            height: windowSize.height
+        )
+        guard intersectionArea(of: offscreenFrame, with: neighboringScreenFrames) > 0 else {
+            return offscreenFrame
         }
-        return CGRect(origin: CGPoint(x: minX, y: minY), size: windowSize)
+        // A full-size window cannot live beyond an internal display boundary
+        // without appearing on the neighboring monitor. Keep the actual window
+        // on the owner's right edge and compact only its parked presentation;
+        // `restoreFrame` remains the user's full-size geometry.
+        return CGRect(
+            x: visibleScreenFrame.maxX - visibleWidth,
+            y: minY,
+            width: visibleWidth,
+            height: windowSize.height
+        )
     }
 
-    private static func screenFramesExcludingOwner(
+    private static func neighboringScreenFrames(
         visibleScreenFrame: CGRect,
         availableScreenFrames: [CGRect]
     ) -> [CGRect] {
-        let overlaps = availableScreenFrames.enumerated().map { index, frame in
-            (index: index, area: intersectionArea(visibleScreenFrame, frame))
-        }
-        guard let owner = overlaps.max(by: { $0.area < $1.area }), owner.area > 0 else {
-            return availableScreenFrames
-        }
-        return availableScreenFrames.enumerated().compactMap { index, frame in
-            index == owner.index ? nil : frame
+        availableScreenFrames.filter { frame in
+            intersectionArea(visibleScreenFrame, frame) == 0
         }
     }
 

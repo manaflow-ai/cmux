@@ -250,7 +250,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.update(
                 title: dock.title,
                 attachedTo: panel,
-                parkingEdge: parkingSnapshot?.edge ?? .trailing,
                 appearance: appearance,
                 animated: false
             )
@@ -710,7 +709,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.prepareForOwnerTransitionShowing(
                 attachedTo: panel,
                 title: dock.title,
-                parkingEdge: snapshot.edge,
                 appearance: resolvedBackdropAppearance()
             )
         } else {
@@ -956,7 +954,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.prepareForOwnerTransitionShowing(
                 attachedTo: panel,
                 title: dock.title,
-                parkingEdge: parkingSnapshot.edge,
                 appearance: resolvedBackdropAppearance()
             )
             parkingAccessoryController.beginRenaming(animatedFrame: false)
@@ -973,7 +970,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parkingAccessoryController.show(
                 attachedTo: panel,
                 title: dock.title,
-                parkingEdge: .trailing,
                 appearance: resolvedBackdropAppearance(),
                 animated: true
             )
@@ -1132,7 +1128,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         parkingAccessoryController.show(
             attachedTo: panel,
             title: dock.title,
-            parkingEdge: snapshot.edge,
             appearance: resolvedBackdropAppearance(),
             animated: animated
         )

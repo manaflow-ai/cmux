@@ -371,7 +371,6 @@ final class WorkspaceFloatingDockPresenter {
                     "floating.parking.layout dock=\(entry.dock.id.uuidString.prefix(5)) " +
                     "restore=\(NSStringFromRect(entry.restoreFrame)) " +
                     "screen=\(NSStringFromRect(screenFrame)) " +
-                    "edge=\(snapshot.edge) " +
                     "parked=\(NSStringFromRect(snapshot.parkedFrame))"
                 )
 #endif
