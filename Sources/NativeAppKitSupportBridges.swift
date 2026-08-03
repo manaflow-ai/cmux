@@ -289,6 +289,43 @@ struct NativeBrowserSearchOverlayBridge: NSViewRepresentable {
     }
 }
 
+struct NativeOmnibarSuggestionsBridge: NSViewRepresentable {
+    let engineName: String
+    let items: [OmnibarSuggestion]
+    let selectedIndex: Int
+    let isLoadingRemoteSuggestions: Bool
+    let searchSuggestionsEnabled: Bool
+    let colorScheme: WindowChromeColorScheme
+    let onCommit: (OmnibarSuggestion) -> Void
+    let onHighlight: (Int) -> Void
+
+    func makeNSView(context: Context) -> OmnibarSuggestionsView {
+        OmnibarSuggestionsView(
+            engineName: engineName,
+            items: items,
+            selectedIndex: selectedIndex,
+            isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+            searchSuggestionsEnabled: searchSuggestionsEnabled,
+            colorScheme: colorScheme,
+            onCommit: onCommit,
+            onHighlight: onHighlight
+        )
+    }
+
+    func updateNSView(_ view: OmnibarSuggestionsView, context: Context) {
+        view.update(
+            engineName: engineName,
+            items: items,
+            selectedIndex: selectedIndex,
+            isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+            searchSuggestionsEnabled: searchSuggestionsEnabled,
+            colorScheme: colorScheme,
+            onCommit: onCommit,
+            onHighlight: onHighlight
+        )
+    }
+}
+
 @available(macOS 14.0, *)
 struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
     let identity: AppExtensionIdentity

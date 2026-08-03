@@ -1,19 +1,59 @@
 import AppKit
-import SwiftUI
 
-final class BrowserPortalOmnibarSuggestionsHostingView: NSHostingView<BrowserPortalOmnibarSuggestionsOverlay> {
-    var popupFrameInTopLeftCoordinates: CGRect = .zero
+/// Full-slot event-routing host for the native address-bar suggestions popup.
+@MainActor
+final class BrowserPortalOmnibarSuggestionsHostingView: NSView {
+    private let popupView: OmnibarSuggestionsView
+    private(set) var popupFrameInTopLeftCoordinates: CGRect = .zero
+
+    override var isFlipped: Bool { true }
+
+    init(configuration: BrowserPortalOmnibarSuggestionsConfiguration) {
+        popupView = OmnibarSuggestionsView(
+            engineName: configuration.engineName,
+            items: configuration.items,
+            selectedIndex: configuration.selectedIndex,
+            isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
+            searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
+            colorScheme: configuration.colorScheme,
+            onCommit: configuration.onCommit,
+            onHighlight: configuration.onHighlight
+        )
+        popupFrameInTopLeftCoordinates = configuration.popupFrame
+        super.init(frame: .zero)
+        addSubview(popupView)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(configuration: BrowserPortalOmnibarSuggestionsConfiguration) {
+        popupFrameInTopLeftCoordinates = configuration.popupFrame
+        popupView.update(
+            engineName: configuration.engineName,
+            items: configuration.items,
+            selectedIndex: configuration.selectedIndex,
+            isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
+            searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
+            colorScheme: configuration.colorScheme,
+            onCommit: configuration.onCommit,
+            onHighlight: configuration.onHighlight
+        )
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        popupView.frame = popupFrameInTopLeftCoordinates
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // AppKit passes hit-test points in the superview's coordinate space.
-        // Compare the popup frame in this hosting view's own top-left local
-        // space so offset overlays and flipped hosting views route consistently.
         guard let superview else { return nil }
         let localPoint = convert(point, from: superview)
-        let topLeftPoint = isFlipped
-            ? localPoint
-            : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
-        guard popupFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
+        guard popupFrameInTopLeftCoordinates.contains(localPoint) else { return nil }
         return super.hitTest(point)
     }
 }

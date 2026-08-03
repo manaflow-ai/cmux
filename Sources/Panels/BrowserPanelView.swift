@@ -968,12 +968,13 @@ struct BrowserPanelView: View {
     @ViewBuilder
     private var omnibarSuggestionsOverlayView: some View {
         if shouldRenderOmnibarSuggestionsInSwiftUI {
-            OmnibarSuggestionsView(
+            NativeOmnibarSuggestionsBridge(
                 engineName: searchConfiguration.displayName,
                 items: omnibarState.suggestions,
                 selectedIndex: omnibarState.selectedSuggestionIndex,
                 isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
                 searchSuggestionsEnabled: remoteSuggestionsEnabled,
+                colorScheme: browserChromeColorScheme == .dark ? .dark : .light,
                 onCommit: { item in
                     commitSuggestion(item)
                 },
@@ -982,10 +983,12 @@ struct BrowserPanelView: View {
                     applyOmnibarEffects(effects)
                 }
             )
-            .frame(width: omnibarPillFrame.width)
+            .frame(
+                width: omnibarPillFrame.width,
+                height: OmnibarSuggestionsView.popupHeight(for: omnibarState.suggestions)
+            )
             .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
             .zIndex(1000)
-            .environment(\.colorScheme, browserChromeColorScheme)
         }
     }
 
@@ -4988,7 +4991,7 @@ private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTe
     return nil
 }
 
-struct OmnibarSuggestionsView: View {
+private struct LegacyOmnibarSuggestionsView: View {
     let engineName: String
     let items: [OmnibarSuggestion]
     let selectedIndex: Int

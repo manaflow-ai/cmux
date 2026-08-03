@@ -3688,7 +3688,7 @@ final class FilePreviewImageContainerView: NSView {
     private let viewport = FilePreviewViewport()
     private let scrollView = FilePreviewImageScrollView()
     private let documentView = FilePreviewImageDocumentView()
-    private let chromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
+    private let chromeHost = FilePreviewPDFChromeHostingView()
     private weak var panel: FilePreviewPanel?
     private var currentURL: URL?
     private var currentRevision: Int?
@@ -3870,13 +3870,16 @@ final class FilePreviewImageContainerView: NSView {
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
 
-        chromeHost.rootView = AnyView(FilePreviewImageChromeView(
+        chromeHost.setContentView(FilePreviewPDFZoomChromeView(
+            chromeStyleVariant: .liquidGlass,
+            fileURL: nil,
             zoomOut: { [weak self] in self?.zoomOut() },
+            actualSize: { [weak self] in self?.actualSize() },
             zoomIn: { [weak self] in self?.zoomIn() },
             zoomToFit: { [weak self] in self?.zoomToFit() },
-            actualSize: { [weak self] in self?.actualSize() },
             rotateLeft: { [weak self] in self?.rotateLeft() },
-            rotateRight: { [weak self] in self?.rotateRight() }
+            rotateRight: { [weak self] in self?.rotateRight() },
+            refresh: {}
         ))
         chromeHost.translatesAutoresizingMaskIntoConstraints = false
         chromeHost.setContentHuggingPriority(.required, for: .horizontal)

@@ -1501,12 +1501,9 @@ final class WindowBrowserSlotView: NSView {
         }
 
         logOmnibarSuggestionsEvent("set", configuration: configuration)
-        let rootView = BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
-
         if let overlay = omnibarSuggestionsHostingView {
             logOmnibarSuggestionsEvent("updateExisting", configuration: configuration)
-            overlay.rootView = rootView
-            overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
+            overlay.update(configuration: configuration)
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
                 addSubview(overlay)
@@ -1521,9 +1518,8 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let overlay = BrowserPortalOmnibarSuggestionsHostingView(rootView: rootView)
+        let overlay = BrowserPortalOmnibarSuggestionsHostingView(configuration: configuration)
         overlay.translatesAutoresizingMaskIntoConstraints = false
-        overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
         addSubview(overlay)
         NSLayoutConstraint.activate([
             overlay.topAnchor.constraint(equalTo: topAnchor),
