@@ -24,6 +24,7 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
+    private(set) var focusCount = 0
 
     init(title: String) {
         displayTitle = title
@@ -32,7 +33,9 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     func close() {
         closeCount += 1
     }
-    func focus() {}
+    func focus() {
+        focusCount += 1
+    }
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -295,6 +298,7 @@ struct DockRuntimeParityTests {
             ) == "1")
 
             #expect(dock.focusFirstControl())
+            #expect(panel.focusCount == 1)
 
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: dock.workspaceId,
