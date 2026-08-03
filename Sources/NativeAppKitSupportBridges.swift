@@ -543,6 +543,59 @@ struct WorkspaceCanvasHostView: NSViewControllerRepresentable {
     }
 }
 
+struct WorkspaceContentHostView: NSViewControllerRepresentable {
+    @ObservedObject var workspace: Workspace
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let rightSidebarOwnsInputFocus: Bool
+    let workspacePortalPriority: Int
+    let windowAppearance: WindowAppearanceSnapshot
+    let onThemeRefreshRequest: ((String, UInt64?, String?, String?) -> Void)?
+
+    @EnvironmentObject private var notificationStore: TerminalNotificationStore
+    @Environment(\.settingsRuntime) private var settingsRuntime
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
+
+    func makeNSViewController(context: Context) -> WorkspaceContentNativeViewController {
+        WorkspaceContentNativeViewController(configuration: configuration)
+    }
+
+    func updateNSViewController(
+        _ controller: WorkspaceContentNativeViewController,
+        context: Context
+    ) {
+        controller.update(configuration: configuration)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: WorkspaceContentNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+
+    private var configuration: WorkspaceContentNativeConfiguration {
+        WorkspaceContentNativeConfiguration(
+            workspace: workspace,
+            notificationStore: notificationStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+            workspacePortalPriority: workspacePortalPriority,
+            windowAppearance: windowAppearance,
+            settingsRuntime: settingsRuntime,
+            sessionContentWidthPresentation: SessionContentWidthPresentation(
+                storedMaximumWidth: storedSessionContentMaximumWidth,
+                storedAlignment: storedSessionContentAlignment
+            ),
+            onThemeRefreshRequest: onThemeRefreshRequest
+        )
+    }
+}
+
 struct CommandPaletteCommandListRenderView: NSViewRepresentable {
     let renderModel: CommandPaletteOverlayRenderModel
     let onRunResult: (String) -> Void

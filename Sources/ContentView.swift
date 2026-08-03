@@ -1821,12 +1821,11 @@ struct ContentView: View {
                     // delay handoff completion and make browser returns feel laggy.
                     let isInputActive = isSelectedWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
-                    WorkspaceContentView(
+                    WorkspaceContentHostView(
                         workspace: tab,
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
-                        isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
@@ -1839,6 +1838,7 @@ struct ContentView: View {
                             )
                         }
                     )
+                    .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
                     .opacity(presentation.renderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
