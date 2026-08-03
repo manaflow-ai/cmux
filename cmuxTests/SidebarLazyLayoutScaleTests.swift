@@ -96,6 +96,7 @@ final class SidebarLazyLayoutScaleTests {
         let defaultsSuiteName: String
 
         func tearDown() {
+            window.orderOut(nil)
             window.contentView = nil
             window.close()
             UserDefaults(suiteName: defaultsSuiteName)?
@@ -236,6 +237,7 @@ final class SidebarLazyLayoutScaleTests {
         // the host before the pass was recorded, and CI masked it (#5641).
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: root)
+        window.orderFrontRegardless()
 
         return Harness(
             tabManager: tabManager,
@@ -611,10 +613,12 @@ final class SidebarLazyLayoutScaleTests {
         )
         window.isReleasedWhenClosed = false
         defer {
+            window.orderOut(nil)
             window.contentView = nil
             window.close()
         }
         window.contentView = NSHostingView(rootView: root)
+        window.orderFrontRegardless()
 
         await Self.drainMainRunLoop(for: window, iterations: 40)
 
@@ -630,14 +634,15 @@ final class SidebarLazyLayoutScaleTests {
     }
 }
 
-/// Reproduces the #6556 anti-pattern in deliberately divergent form: a
-/// GeometryReader writes measured height back into `@State` that feeds the
-/// row's own frame, so every layout pass invalidates the next. Test fixture
-/// only — this shape is banned in real sidebar rows by
+/// Reproduces the #6556 anti-pattern for four bounded layout passes. Newer
+/// AppKit releases terminate an unbounded constraint cycle before the test can
+/// inspect its counter, so the fixture converges after exceeding the canary's
+/// detection threshold. This shape remains banned in real sidebar rows by
 /// `scripts/check-sidebar-lazy-layout.py`.
 private struct DivergentGeometryFeedbackRowFixture: View {
     let onBody: () -> Void
     @State private var rowHeight: CGFloat = 20
+    private let terminalHeight: CGFloat = 24
 
     var body: some View {
         let _ = { onBody() }()
@@ -646,11 +651,16 @@ private struct DivergentGeometryFeedbackRowFixture: View {
             .background {
                 GeometryReader { proxy in
                     Color.clear
-                        .onAppear { rowHeight = proxy.size.height + 1 }
-                        .onChange(of: proxy.size.height) { _, newHeight in
-                            rowHeight = newHeight + 1
-                        }
+                        .onAppear { scheduleNextHeight() }
+                        .onChange(of: proxy.size.height) { _, _ in scheduleNextHeight() }
                 }
             }
+    }
+
+    private func scheduleNextHeight() {
+        Task { @MainActor in
+            guard rowHeight < terminalHeight else { return }
+            rowHeight += 1
+        }
     }
 }
