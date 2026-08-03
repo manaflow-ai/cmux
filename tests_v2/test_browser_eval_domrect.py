@@ -11,6 +11,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+SECRET_SENTINEL = "CMUX_BROWSER_FAILURE_MUST_NOT_ESCAPE_9D73B2"
 
 
 def _must(condition: bool, message: str) -> None:
@@ -45,6 +46,29 @@ def _expect_circular_reference_error(
         )
         return
     raise cmuxError("Expected browser.eval to reject a circular result")
+
+
+def _expect_sanitized_script_error(client: cmux, surface_id: str) -> None:
+    try:
+        client._call(
+            "browser.eval",
+            {
+                "surface_id": surface_id,
+                "script": f"throw new Error('{SECRET_SENTINEL}')",
+            },
+        )
+    except cmuxError as exc:
+        message = str(exc)
+        _must(
+            message.startswith("js_error: Browser operation failed"),
+            f"Expected a stable browser failure, got: {message}",
+        )
+        _must(
+            SECRET_SENTINEL not in message,
+            f"Page JavaScript failure details escaped the browser boundary: {message}",
+        )
+        return
+    raise cmuxError("Expected browser.eval to reject a thrown page error")
 
 
 def main() -> int:
@@ -194,12 +218,16 @@ def main() -> int:
                 })()
                 """,
             )
+            _expect_sanitized_script_error(client, surface_id)
         finally:
             if surface_id:
                 with contextlib.suppress(cmuxError, OSError):
                     client._call("surface.close", {"surface_id": surface_id})
 
-    print("PASS: browser.eval returns bridge-safe objects and explicit cycle errors")
+    print(
+        "PASS: browser.eval returns bridge-safe objects, explicit cycle errors, "
+        "and sanitized script failures"
+    )
     return 0
 
 
