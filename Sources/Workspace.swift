@@ -157,7 +157,7 @@ extension Workspace {
             workspaceId: id,
             stableId: stableId,
             taskCreateOperationID: taskCreateOperationID,
-            processTitle: processTitle,
+            processTitle: processTitleForSessionSnapshot(),
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
@@ -2801,6 +2801,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     var processTitle: String
+    var processTitleSource: (panelId: UUID, panelType: PanelType)?
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,
