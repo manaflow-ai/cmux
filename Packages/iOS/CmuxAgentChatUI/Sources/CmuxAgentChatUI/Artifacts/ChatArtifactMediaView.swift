@@ -1,19 +1,17 @@
 #if os(iOS)
 import AVKit
-import SwiftUI
 
-/// Hosts AVKit's system playback controls for a local movie or audio artifact.
-struct ChatArtifactMediaView: UIViewControllerRepresentable {
-    let fileURL: URL
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
+/// Native AVKit controller lifecycle for a local movie or audio artifact.
+@MainActor
+enum ChatArtifactMediaController {
+    static func make(fileURL: URL) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = AVPlayer(url: fileURL)
         controller.videoGravity = .resizeAspect
         return controller
     }
 
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+    static func update(_ controller: AVPlayerViewController, fileURL: URL) {
         let currentURL = (controller.player?.currentItem?.asset as? AVURLAsset)?.url
         if currentURL != fileURL {
             controller.player?.pause()
@@ -21,10 +19,7 @@ struct ChatArtifactMediaView: UIViewControllerRepresentable {
         }
     }
 
-    static func dismantleUIViewController(
-        _ controller: AVPlayerViewController,
-        coordinator: Void
-    ) {
+    static func dismantle(_ controller: AVPlayerViewController) {
         controller.player?.pause()
         controller.player = nil
     }

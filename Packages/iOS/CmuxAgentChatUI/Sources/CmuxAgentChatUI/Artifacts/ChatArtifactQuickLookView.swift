@@ -1,26 +1,22 @@
 #if os(iOS)
 import QuickLook
-import SwiftUI
 
-/// Hosts the system Quick Look document preview for one local artifact file.
-struct ChatArtifactQuickLookView: UIViewControllerRepresentable {
-    let fileURL: URL
-    let title: String
-
-    func makeCoordinator() -> ChatArtifactQuickLookCoordinator {
-        ChatArtifactQuickLookCoordinator(
-            item: ChatArtifactQuickLookItem(fileURL: fileURL, title: title)
-        )
-    }
-
-    func makeUIViewController(context: Context) -> QLPreviewController {
+/// Native Quick Look controller lifecycle for one local artifact file.
+@MainActor
+enum ChatArtifactQuickLookController {
+    static func make(dataSource: ChatArtifactQuickLookCoordinator) -> QLPreviewController {
         let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
+        controller.dataSource = dataSource
         return controller
     }
 
-    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
-        context.coordinator.update(
+    static func update(
+        _ controller: QLPreviewController,
+        coordinator: ChatArtifactQuickLookCoordinator,
+        fileURL: URL,
+        title: String
+    ) {
+        coordinator.update(
             item: ChatArtifactQuickLookItem(fileURL: fileURL, title: title)
         )
         controller.reloadData()

@@ -2,6 +2,8 @@ import CmuxAgentChat
 import SwiftUI
 
 #if canImport(UIKit)
+import AVKit
+import QuickLook
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
@@ -381,3 +383,50 @@ struct ChatArtifactViewerRouteView: View {
     }
 
 }
+
+#if os(iOS)
+/// Transitional adapter while the route container is migrated to a native controller.
+private struct ChatArtifactMediaView: UIViewControllerRepresentable {
+    let fileURL: URL
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        ChatArtifactMediaController.make(fileURL: fileURL)
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        ChatArtifactMediaController.update(controller, fileURL: fileURL)
+    }
+
+    static func dismantleUIViewController(
+        _ controller: AVPlayerViewController,
+        coordinator: Void
+    ) {
+        ChatArtifactMediaController.dismantle(controller)
+    }
+}
+
+/// Transitional adapter while the route container is migrated to a native controller.
+private struct ChatArtifactQuickLookView: UIViewControllerRepresentable {
+    let fileURL: URL
+    let title: String
+
+    func makeCoordinator() -> ChatArtifactQuickLookCoordinator {
+        ChatArtifactQuickLookCoordinator(
+            item: ChatArtifactQuickLookItem(fileURL: fileURL, title: title)
+        )
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        ChatArtifactQuickLookController.make(dataSource: context.coordinator)
+    }
+
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        ChatArtifactQuickLookController.update(
+            controller,
+            coordinator: context.coordinator,
+            fileURL: fileURL,
+            title: title
+        )
+    }
+}
+#endif
