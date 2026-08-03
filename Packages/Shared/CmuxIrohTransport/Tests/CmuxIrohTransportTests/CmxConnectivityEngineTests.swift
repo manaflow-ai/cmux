@@ -125,6 +125,47 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func endpointConsumerWaitsForUnexpectedClosureRecovery() async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "f", count: 64)
+        )
+        let firstEndpoint = TestIrohEndpoint(identity: identity)
+        let replacementEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = GatedReplacementEndpointFactory(
+            first: firstEndpoint,
+            replacement: replacementEndpoint
+        )
+        let engine = CmxConnectivityEngine(
+            factory: factory,
+            endpointConfiguration: try Self.endpointConfiguration(),
+            contextProvider: FailingConnectivityContextProvider()
+        )
+        try await engine.start()
+
+        await firstEndpoint.emit(.closedUnexpectedly)
+        try await Self.waitUntil {
+            let bindCallCount = await factory.bindCallCount()
+            let snapshot = await engine.snapshot()
+            return bindCallCount == 2 && snapshot.phase == .starting
+        }
+
+        let lookupStarted = ConnectivityObservationFlag()
+        let lookup = Task {
+            await lookupStarted.markFinished()
+            return try await engine.localEndpointIdentity()
+        }
+        try await Self.waitUntil { await lookupStarted.value() }
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        await factory.releaseReplacement()
+
+        #expect(try await lookup.value == identity)
+        #expect(await engine.snapshot().phase == .active)
+        #expect(await engine.snapshot().endpointGeneration == 2)
+        await engine.stop()
+    }
+
+    @Test
     func equivalentRouteRevisionBumpKeepsTheLivePeerSession() async throws {
         let rig = try await Self.admittedPeerRig(responses: [
             Self.peerRouteResponse(
@@ -555,6 +596,38 @@ private actor ConnectivityObservationFlag {
     }
 
     func value() -> Bool { finished }
+}
+
+private actor GatedReplacementEndpointFactory: CmxIrohEndpointFactory {
+    private let first: any CmxIrohEndpoint
+    private let replacement: any CmxIrohEndpoint
+    private var calls = 0
+    private var replacementWaiter: CheckedContinuation<any CmxIrohEndpoint, Never>?
+
+    init(
+        first: any CmxIrohEndpoint,
+        replacement: any CmxIrohEndpoint
+    ) {
+        self.first = first
+        self.replacement = replacement
+    }
+
+    func bind(
+        configuration _: CmxIrohEndpointConfiguration
+    ) async -> any CmxIrohEndpoint {
+        calls += 1
+        if calls == 1 { return first }
+        return await withCheckedContinuation { continuation in
+            replacementWaiter = continuation
+        }
+    }
+
+    func bindCallCount() -> Int { calls }
+
+    func releaseReplacement() {
+        replacementWaiter?.resume(returning: replacement)
+        replacementWaiter = nil
+    }
 }
 
 private actor GatedConnectivityAuthority: CmxConnectivityAuthorityServing {
