@@ -105,6 +105,7 @@ def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
 
 def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     bootstrap = workflow("sdk-bootstrap-npm.yml")
+    publish = workflow_job(bootstrap, "publish")
     sdk_ci = workflow("cmux-tui-sdks.yml")
     releasing = (
         ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
@@ -113,7 +114,16 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-npm"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    for job in ("build", "preflight", "verify"):
+        block = workflow_job(bootstrap, job)
+        assert (
+            "runs-on: ${{ vars.LINUX_RUNNER || "
+            "'blacksmith-4vcpu-ubuntu-2404' }}" in block
+        )
+    assert (
+        "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
+        in publish
+    )
     assert "id-token: write" in bootstrap
     assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
