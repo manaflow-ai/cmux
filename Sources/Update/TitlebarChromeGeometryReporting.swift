@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 enum TitlebarChromeUITestRecorder {
     static func record(keyPrefix: String, frame: CGRect) {
@@ -68,22 +67,8 @@ enum TitlebarChromeUITestRecorder {
 #endif
 }
 
-struct TitlebarChromeGeometryReporter: NSViewRepresentable {
-    let keyPrefix: String
-
-    func makeNSView(context: Context) -> TitlebarChromeGeometryReportingView {
-        let view = TitlebarChromeGeometryReportingView()
-        view.keyPrefix = keyPrefix
-        return view
-    }
-
-    func updateNSView(_ nsView: TitlebarChromeGeometryReportingView, context: Context) {
-        nsView.keyPrefix = keyPrefix
-        nsView.reportSoon()
-    }
-}
-
 final class TitlebarChromeGeometryReportingView: NSView {
+    private var reportTask: Task<Void, Never>?
     var keyPrefix = "" {
         didSet { reportSoon() }
     }
@@ -100,10 +85,17 @@ final class TitlebarChromeGeometryReportingView: NSView {
 
     func reportSoon() {
 #if DEBUG
-        DispatchQueue.main.async { [weak self] in
+        reportTask?.cancel()
+        reportTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
             self?.reportIfNeeded()
         }
 #endif
+    }
+
+    deinit {
+        reportTask?.cancel()
     }
 
     private func reportIfNeeded() {

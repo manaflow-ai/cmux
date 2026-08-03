@@ -1,49 +1,53 @@
-import SwiftUI
+import AppKit
+import QuartzCore
 
-struct SidebarWorkspaceScrollEdgeFadeMask: View {
-    let topHeight: CGFloat
-    let bottomHeight: CGFloat
+@MainActor
+final class SidebarWorkspaceScrollEdgeFadeMaskView: NSView {
+    var topHeight: CGFloat = 0 { didSet { needsLayout = true } }
+    var bottomHeight: CGFloat = 0 { didSet { needsLayout = true } }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            SidebarEdgeFadeGradient(edge: .top)
-                .frame(height: topHeight)
-            Rectangle()
-                .fill(Color.black)
-            SidebarEdgeFadeGradient(edge: .bottom)
-                .frame(height: bottomHeight)
+    private let topGradient = CAGradientLayer()
+    private let bottomGradient = CAGradientLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        let colors = [0.05, 0.25, 0.65, 1.0].map {
+            NSColor.black.withAlphaComponent($0).cgColor
         }
+        topGradient.colors = colors
+        topGradient.locations = [0, 0.33, 0.66, 1]
+        topGradient.startPoint = CGPoint(x: 0.5, y: 1)
+        topGradient.endPoint = CGPoint(x: 0.5, y: 0)
+        bottomGradient.colors = Array(colors.reversed())
+        bottomGradient.locations = [0, 0.33, 0.66, 1]
+        bottomGradient.startPoint = CGPoint(x: 0.5, y: 1)
+        bottomGradient.endPoint = CGPoint(x: 0.5, y: 0)
+        layer?.addSublayer(topGradient)
+        layer?.addSublayer(bottomGradient)
     }
-}
 
-private struct SidebarEdgeFadeGradient: View {
-    enum Edge {
-        case top
-        case bottom
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    let edge: Edge
-
-    var body: some View {
-        LinearGradient(
-            colors: maskColors,
-            startPoint: .top,
-            endPoint: .bottom
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topGradient.frame = CGRect(
+            x: 0,
+            y: max(0, bounds.height - topHeight),
+            width: bounds.width,
+            height: min(topHeight, bounds.height)
         )
-    }
-
-    private var maskColors: [Color] {
-        let colors = [
-            Color.black.opacity(0.05),
-            Color.black.opacity(0.25),
-            Color.black.opacity(0.65),
-            Color.black,
-        ]
-        switch edge {
-        case .top:
-            return colors
-        case .bottom:
-            return Array(colors.reversed())
-        }
+        bottomGradient.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: min(bottomHeight, bounds.height)
+        )
+        CATransaction.commit()
     }
 }

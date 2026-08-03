@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import SwiftUI
 
 struct RightSidebarChromeGeometry: Equatable {
     var frame: CGRect
@@ -82,27 +81,6 @@ enum RightSidebarChromeUITestRecorder {
 #endif
 }
 
-struct RightSidebarChromeGeometryReporter: NSViewRepresentable {
-    var role: RightSidebarChromeGeometryRole
-    var isVisible: Bool
-    var titlebarHeight: CGFloat
-
-    func makeNSView(context: Context) -> RightSidebarChromeGeometryReportingView {
-        let view = RightSidebarChromeGeometryReportingView()
-        view.role = role
-        view.isVisibleForReporting = isVisible
-        view.titlebarHeight = titlebarHeight
-        return view
-    }
-
-    func updateNSView(_ nsView: RightSidebarChromeGeometryReportingView, context: Context) {
-        nsView.role = role
-        nsView.isVisibleForReporting = isVisible
-        nsView.titlebarHeight = titlebarHeight
-        nsView.reportIfNeeded()
-    }
-}
-
 final class RightSidebarChromeGeometryReportingView: NSView {
     var role: RightSidebarChromeGeometryRole = .modeBar {
         didSet { reportIfNeeded() }
@@ -152,41 +130,5 @@ final class RightSidebarChromeGeometryReportingView: NSView {
                 titlebarHeight: bounds.height
             )
         )
-    }
-}
-
-extension View {
-    func reportRightSidebarChromeGeometryForBonsplitUITest(
-        role: RightSidebarChromeGeometryRole = .modeBar,
-        isVisible: Bool,
-        titlebarHeight: CGFloat
-    ) -> some View {
-        background(
-            RightSidebarChromeGeometryReporter(
-                role: role,
-                isVisible: isVisible,
-                titlebarHeight: titlebarHeight
-            )
-            .allowsHitTesting(false)
-        )
-    }
-
-    @ViewBuilder
-    func reportRightSidebarChromeNamedGeometryForBonsplitUITest(
-        keyPrefix: String?,
-        isVisible: Bool
-    ) -> some View {
-        if let keyPrefix {
-            background(
-                RightSidebarChromeGeometryReporter(
-                    role: .named(keyPrefix),
-                    isVisible: isVisible,
-                    titlebarHeight: 0
-                )
-                .allowsHitTesting(false)
-            )
-        } else {
-            self
-        }
     }
 }

@@ -151,6 +151,94 @@ struct WindowAccessor: NSViewRepresentable {
     }
 }
 
+struct RightSidebarChromeGeometryReporter: NSViewRepresentable {
+    var role: RightSidebarChromeGeometryRole
+    var isVisible: Bool
+    var titlebarHeight: CGFloat
+
+    func makeNSView(context: Context) -> RightSidebarChromeGeometryReportingView {
+        let view = RightSidebarChromeGeometryReportingView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: RightSidebarChromeGeometryReportingView, context: Context) {
+        update(view)
+        view.reportIfNeeded()
+    }
+
+    private func update(_ view: RightSidebarChromeGeometryReportingView) {
+        view.role = role
+        view.isVisibleForReporting = isVisible
+        view.titlebarHeight = titlebarHeight
+    }
+}
+
+extension View {
+    func reportRightSidebarChromeGeometryForBonsplitUITest(
+        role: RightSidebarChromeGeometryRole = .modeBar,
+        isVisible: Bool,
+        titlebarHeight: CGFloat
+    ) -> some View {
+        background(
+            RightSidebarChromeGeometryReporter(
+                role: role,
+                isVisible: isVisible,
+                titlebarHeight: titlebarHeight
+            )
+            .allowsHitTesting(false)
+        )
+    }
+
+    @ViewBuilder
+    func reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+        keyPrefix: String?,
+        isVisible: Bool
+    ) -> some View {
+        if let keyPrefix {
+            background(
+                RightSidebarChromeGeometryReporter(
+                    role: .named(keyPrefix),
+                    isVisible: isVisible,
+                    titlebarHeight: 0
+                )
+                .allowsHitTesting(false)
+            )
+        } else {
+            self
+        }
+    }
+}
+
+struct TitlebarChromeGeometryReporter: NSViewRepresentable {
+    let keyPrefix: String
+
+    func makeNSView(context: Context) -> TitlebarChromeGeometryReportingView {
+        let view = TitlebarChromeGeometryReportingView()
+        view.keyPrefix = keyPrefix
+        return view
+    }
+
+    func updateNSView(_ view: TitlebarChromeGeometryReportingView, context: Context) {
+        view.keyPrefix = keyPrefix
+        view.reportSoon()
+    }
+}
+
+struct SidebarWorkspaceScrollEdgeFadeMask: NSViewRepresentable {
+    let topHeight: CGFloat
+    let bottomHeight: CGFloat
+
+    func makeNSView(context: Context) -> SidebarWorkspaceScrollEdgeFadeMaskView {
+        SidebarWorkspaceScrollEdgeFadeMaskView()
+    }
+
+    func updateNSView(_ view: SidebarWorkspaceScrollEdgeFadeMaskView, context: Context) {
+        view.topHeight = topHeight
+        view.bottomHeight = bottomHeight
+    }
+}
+
 #if DEBUG
 private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
     static let defaultValue = MinimalModeInvalidationProbe()
