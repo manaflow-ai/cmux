@@ -1,6 +1,12 @@
 internal import Foundation
 internal import Darwin
 
+/// Result of proving that a pathname still routes to a retained bound listener.
+enum SocketBoundPathVerificationResult: Equatable, Sendable {
+    case verified(SocketPathIdentity)
+    case failed(SocketStageFailure)
+}
+
 extension SocketTransport {
     /// The filesystem identity of the socket inode at `path`, or nil when the
     /// path is missing or not a socket.
@@ -40,6 +46,105 @@ extension SocketTransport {
             return (nil, errnoCode)
         }
         return pathIdentityResult(at: path)
+    }
+
+    /// Proves that `path` still routes to `listenerSocket` before adopting its inode.
+    ///
+    /// A later `lstat(2)` alone is insufficient after the immediate post-bind
+    /// lookup failed: another process may have unlinked and rebound the same
+    /// pathname. The retained descriptor is made nonblocking and listening,
+    /// preexisting queued connections are drained, and a private loopback
+    /// connection must arrive on that exact descriptor. A final identity read
+    /// closes the remaining replacement race before ownership is promoted.
+    func verifyRetainedBoundPath(
+        at path: String,
+        listenerSocket: Int32
+    ) -> SocketBoundPathVerificationResult {
+        let identityResult = boundPathIdentityResult(at: path)
+        guard let candidateIdentity = identityResult.identity else {
+            return .failed(SocketStageFailure(
+                stage: "stat_bound_path",
+                errnoCode: identityResult.errnoCode ?? EIO
+            ))
+        }
+
+        if let errnoCode = configureNonBlocking(listenerSocket) {
+            return .failed(SocketStageFailure(
+                stage: "configure_nonblocking",
+                errnoCode: errnoCode
+            ))
+        }
+        guard listen(listenerSocket, listenBacklog) == 0 else {
+            return .failed(SocketStageFailure(stage: "listen", errnoCode: errno))
+        }
+
+        while true {
+            let queuedSocket = accept(listenerSocket, nil, nil)
+            if queuedSocket >= 0 {
+                _ = configureCloseOnExec(queuedSocket)
+                close(queuedSocket)
+                continue
+            }
+            let acceptErrno = errno
+            if acceptErrno == EINTR {
+                continue
+            }
+            guard acceptErrno == EAGAIN || acceptErrno == EWOULDBLOCK else {
+                return .failed(SocketStageFailure(
+                    stage: "verify_bound_path",
+                    errnoCode: acceptErrno
+                ))
+            }
+            break
+        }
+
+        let (verificationClient, createErrno) = makeListenerSocket()
+        guard verificationClient >= 0 else {
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: createErrno ?? EIO
+            ))
+        }
+        defer { close(verificationClient) }
+        if let errnoCode = configureNonBlocking(verificationClient) {
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: errnoCode
+            ))
+        }
+        guard var address = unixSocketAddress(path: path) else {
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: ENAMETOOLONG
+            ))
+        }
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                connect(
+                    verificationClient,
+                    socketAddress,
+                    socklen_t(MemoryLayout<sockaddr_un>.size)
+                )
+            }
+        }
+        guard connectResult == 0 else {
+            return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
+        }
+
+        var acceptedSocket: Int32 = -1
+        repeat {
+            acceptedSocket = accept(listenerSocket, nil, nil)
+        } while acceptedSocket < 0 && errno == EINTR
+        guard acceptedSocket >= 0 else {
+            return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
+        }
+        _ = configureCloseOnExec(acceptedSocket)
+        close(acceptedSocket)
+
+        guard pathIdentity(at: path) == candidateIdentity else {
+            return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
+        }
+        return .verified(candidateIdentity)
     }
 
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.

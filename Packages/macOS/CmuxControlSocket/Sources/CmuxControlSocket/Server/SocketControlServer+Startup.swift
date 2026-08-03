@@ -261,9 +261,7 @@ extension SocketControlServer {
             if !listenerActivated {
                 unlinkOwnedSocketPath(
                     activeSocketPath,
-                    ownership: activeBoundSocketPathOwnership,
-                    listenerSocket: activeServerSocket,
-                    pathLockFD: activeSocketPathLockFD
+                    ownership: activeBoundSocketPathOwnership
                 )
                 if activeServerSocket >= 0 {
                     close(activeServerSocket)
@@ -280,12 +278,17 @@ extension SocketControlServer {
         }
 
         if resumedIdentityPendingBind {
-            let identityResult = transport.boundPathIdentityResult(at: activeSocketPath)
-            guard let identity = identityResult.identity else {
+            switch transport.verifyRetainedBoundPath(
+                at: activeSocketPath,
+                listenerSocket: activeServerSocket
+            ) {
+            case .verified(let identity):
+                activeBoundSocketPathOwnership = .identified(identity)
+            case .failed(let failure):
                 let disposition = handleStartupFailure(
                     message: "socket.listener.start.failed",
-                    stage: "stat_bound_path",
-                    errnoCode: identityResult.errnoCode ?? EIO,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
                     request: ListenerStartRequest(
                         socketPath: activeSocketPath,
                         accessMode: request.accessMode,
@@ -303,7 +306,6 @@ extension SocketControlServer {
                 }
                 return false
             }
-            activeBoundSocketPathOwnership = .identified(identity)
         } else {
             let (newServerSocket, createSocketErrno) = transport.makeListenerSocket()
             guard newServerSocket >= 0 else {
@@ -651,31 +653,18 @@ extension SocketControlServer {
         _ = startAttempt(generation: generation)
     }
 
-    /// Removes a bound path only with an identity proof, including recovery
-    /// from an initially pending identity while both descriptor and lock remain held.
+    /// Removes a bound path only with the identity captured after a proven bind.
+    /// Identity-pending paths are always preserved during teardown.
     func unlinkOwnedSocketPath(
         _ path: String,
-        ownership: BoundSocketPathOwnership,
-        listenerSocket: Int32,
-        pathLockFD: Int32
+        ownership: BoundSocketPathOwnership
     ) {
-        let resolvedOwnership: BoundSocketPathOwnership
-        switch ownership {
-        case .none:
-            return
-        case .identified:
-            resolvedOwnership = ownership
-        case .identityPending:
-            guard listenerSocket >= 0,
-                  pathLockFD >= 0,
-                  let identity = transport.boundPathIdentityResult(at: path).identity else {
-                return
-            }
-            resolvedOwnership = .identified(identity)
-        }
+        // Never promote during teardown. A later identity read cannot prove
+        // that another process did not replace the original directory entry.
+        guard case .identified(let identity) = ownership else { return }
         guard listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
             currentIdentity: transport.pathIdentity(at: path),
-            boundIdentity: resolvedOwnership.identity
+            boundIdentity: identity
         ) else { return }
         unlink(path)
     }

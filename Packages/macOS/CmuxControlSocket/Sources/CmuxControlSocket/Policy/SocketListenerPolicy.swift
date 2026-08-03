@@ -179,8 +179,8 @@ public struct SocketListenerPolicy: Sendable {
     ///
     /// Retries are limited to transport occupancy, interrupted setup, temporary
     /// filesystem I/O failure (including post-bind identity capture), and
-    /// resource pressure. Permission and path-shape failures remain
-    /// immediately actionable.
+    /// resource pressure. Permission, path-shape, and inconclusive bound-path
+    /// ownership proofs remain immediately actionable.
     ///
     /// - Parameters:
     ///   - stage: Stable listener-start stage identifier.
@@ -196,6 +196,10 @@ public struct SocketListenerPolicy: Sendable {
               consecutiveFailures <= startupFailureRetryLimit else {
             return false
         }
+        // Once the retained descriptor is listening for an ownership proof,
+        // any inconclusive result must close it instead of leaving an
+        // unverified listener reachable during another retry delay.
+        guard stage != "verify_bound_path" else { return false }
 
         switch errnoCode {
         case EADDRINUSE:

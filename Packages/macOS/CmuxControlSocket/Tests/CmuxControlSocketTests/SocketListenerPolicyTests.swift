@@ -167,6 +167,14 @@ import Testing
             consecutiveFailures: 1
         ))
     }
+
+    @Test func inconclusiveBoundPathProofIsTerminal() {
+        #expect(!policy.shouldRetryStartupFailure(
+            stage: "verify_bound_path",
+            errnoCode: EIO,
+            consecutiveFailures: 1
+        ))
+    }
 }
 
 @Suite struct SocketListenerPolicyUnlinkTests {

@@ -68,9 +68,7 @@ extension SocketControlServer {
         monitorToCancel?.cancel()
         unlinkOwnedSocketPath(
             socketPathToUnlink,
-            ownership: boundSocketPathOwnershipToUnlink,
-            listenerSocket: socketToShutdown,
-            pathLockFD: socketPathLockFDToClose
+            ownership: boundSocketPathOwnershipToUnlink
         )
         if socketToClose >= 0 {
             close(socketToClose)

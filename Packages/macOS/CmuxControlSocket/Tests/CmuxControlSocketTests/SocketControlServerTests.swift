@@ -559,6 +559,7 @@ struct SocketControlServerStartupRecoveryTests {
 
         let replacement = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
         defer { close(replacement) }
+        #expect(listen(replacement, 4) == 0)
         #expect(chmod(harness.socketPath, 0o640) == 0)
         let replacementIdentity = try #require(
             harness.server.transport.pathIdentity(at: harness.socketPath)
