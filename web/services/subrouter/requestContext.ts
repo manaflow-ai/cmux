@@ -80,8 +80,10 @@ export async function resolveSubrouterRequestContext(
       }
 
       const nativeTokens = parseNativeStackTokens(request);
-      const tokenStore = nativeTokens ?? request as unknown as {
-        headers: { get(name: string): string | null };
+      const tokenStore = nativeTokens ?? {
+        headers: {
+          get: (name: string): string | null => request.headers.get(name),
+        },
       };
       // Stack may refresh a native session while verifying it. Forward the
       // authoritative token instead of the possibly stale request header.

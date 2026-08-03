@@ -26,7 +26,16 @@ export async function POST(request: Request): Promise<Response> {
       tenant.tenantKey,
       body.value,
     );
-    return jsonResponse({ teamId: context.team.teamId, lease });
+    return new Response(JSON.stringify({
+      teamId: context.team.teamId,
+      lease,
+    }), {
+      status: 200,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/json",
+      },
+    });
   } catch (error) {
     return subrouterErrorResponse(error);
   }

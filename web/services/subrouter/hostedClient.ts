@@ -169,7 +169,7 @@ export function createHostedSubrouterClient(options: {
     repairAccount: async (tenantKey, accountId, input) =>
       await uploadAccount(tenantKey, input, accountId),
     deleteAccount: async (tenantKey, accountId) => {
-      await tenantRequest(
+      await tenantRequestWithoutResponse(
         tenantKey,
         `/_subrouter/accounts/${encodeURIComponent(accountId)}`,
         { method: "DELETE" },
