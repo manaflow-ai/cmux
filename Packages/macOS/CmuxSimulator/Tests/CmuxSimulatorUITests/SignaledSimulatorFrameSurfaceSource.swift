@@ -23,6 +23,10 @@ final class SignaledSimulatorFrameSurfaceSource:
         lock.withLock { copies }
     }
 
+    var hasPublicationHandler: Bool {
+        lock.withLock { publicationHandler != nil }
+    }
+
     @discardableResult
     func setFramePublicationHandler(
         _ handler: (@Sendable () -> Void)?

@@ -76,6 +76,27 @@ struct SimulatorFrameSourceFailureTests {
         #expect(retainedTimer == nil)
     }
 
+    @Test("Notification-backed controllers stay idle between publications")
+    func notificationBackedControllerDoesNotRetainFallbackTimer() {
+        let source = SignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        let controller = SimulatorFramePresentationController(
+            source: source,
+            presentationDidComplete: { _ in },
+            sourceFailureDidOccur: {}
+        )
+        defer { controller.invalidate() }
+
+        controller.startPresenting(maximumFramesPerSecond: 120)
+
+        #expect(source.hasPublicationHandler)
+        #expect(!hasFallbackPresentationTimer(controller))
+    }
+
     private func hasFallbackPresentationTimer(
         _ controller: SimulatorFramePresentationController
     ) -> Bool {

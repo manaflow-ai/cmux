@@ -1680,6 +1680,76 @@ struct ApplicationSurfaceTests {
         ))
     }
 
+    @Test func inProcessApplicationControlIgnoresExternalSocketMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-in-process-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: manager,
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let resolution = controller.controlSurfaceCreate(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 42,
+                applicationProcessID: 43,
+                applicationTitle: "Preview",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            requestOrigin: .inProcess
+        )
+
+        guard case let .created(
+            _,
+            createdWorkspaceID,
+            _,
+            surfaceID,
+            typeRawValue
+        ) = resolution else {
+            Issue.record("Expected trusted in-process application creation")
+            return
+        }
+        #expect(createdWorkspaceID == workspace.id)
+        #expect(typeRawValue == PanelType.application.rawValue)
+        workspace.panels[surfaceID]?.close()
+    }
+
     @Test func socketApplicationControlRejectsAuthorizationFromPriorMode() throws {
         let controller = TerminalController.shared
         controller.stop()
