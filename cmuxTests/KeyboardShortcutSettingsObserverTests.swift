@@ -145,6 +145,29 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(observer.revision >= 2)
     }
 
+    @Test func constructionAndPreStartNotificationsDoNotReadPersistence() async {
+        let notificationCenter = NotificationCenter()
+        let state = ShortcutProviderState(configuredShortcut: .unbound)
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: notificationCenter,
+            shortcutProvider: { action in
+                state.shortcut(for: action)
+            }
+        )
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil
+        )
+        notificationCenter.post(name: KeyboardLayout.didChangeNotification, object: nil)
+        await observer.waitUntilShortcutSnapshotIsIdle()
+
+        #expect(
+            state.globalSearchLookupCount == 0,
+            "Observer construction or pre-start notifications read shortcut persistence"
+        )
+    }
+
     @Test func blockedShortcutProviderDoesNotBlockMainActorDuringObserverStartup() async {
         let probe = BlockedShortcutProviderProbe()
         Task.detached {
