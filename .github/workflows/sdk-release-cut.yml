@@ -1249,7 +1249,7 @@ jobs:
           [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
           [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          actual_sha256="$(cd dist && sha256sum ./*.whl ./*.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
             echo "downloaded Python artifact digest mismatch" >&2
             exit 1
@@ -1372,7 +1372,7 @@ jobs:
           [[ "$(basename "${wheels[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}-py3-none-any.whl" ]]
           [[ "$(basename "${sdists[0]}")" == "cmux_sdk-${CMUX_SDK_VERSION}.tar.gz" ]]
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          actual_sha256="$(cd dist && sha256sum ./*.whl ./*.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
+          actual_sha256="$(cd dist && sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1)"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
             echo "downloaded Python artifact digest mismatch" >&2
             exit 1
