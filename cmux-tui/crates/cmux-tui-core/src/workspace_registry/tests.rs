@@ -2842,6 +2842,252 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
 }
 
 #[test]
+fn schema_nine_multiview_converges_with_the_session_journal() {
+    let root = temp_root("schema-nine-multiview-journal");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-nine-seed");
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    let event = legacy
+        .query_row(
+            "SELECT resource_revision, previous_resource_revision,
+                    json_extract(producer_json, '$.id'), correlation_id,
+                    json_extract(payload_json, '$.changes')
+             FROM session_journal WHERE resource_revision IS NOT NULL",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP TABLE journal_hook_deliveries;
+             DROP TABLE journal_hooks;
+             DROP TABLE journal_ingress_receipts;
+             DROP TABLE journal_operation_receipts;
+             DROP TABLE journal_producers;
+             DROP TABLE journal_checkpoints;
+             DROP TABLE journal_content_blobs;
+             DROP TABLE journal_segments;
+             DROP TABLE journal_event_index;
+             DROP TABLE session_journal;
+             CREATE TABLE resource_events (
+               revision INTEGER PRIMARY KEY NOT NULL,
+               previous_revision INTEGER NOT NULL,
+               origin TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               deltas_json TEXT NOT NULL
+             );
+             UPDATE meta SET value = '9' WHERE key = 'schema_version';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![event.0, event.1, event.2, event.3, event.4],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let page = migrated.session_journal_after(0, 10).unwrap();
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(page.records[0].kind, "session.journal.migrated");
+    assert_eq!(page.records[1].resource_revision, Some(1));
+    let resource_events = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'resource_events'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(resource_events, 0);
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_ten_journal_converges_with_terminal_multiview() {
+    let root = temp_root("schema-ten-journal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-ten-seed");
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_single_view (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_single_view(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_single_view RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             UPDATE meta SET value = '10' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    migrated
+        .connection
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    migrated
+        .connection
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 2, 2, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    let live_views = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_tabs
+             WHERE content_id = ?1 AND deleted_revision IS NULL",
+            [terminal_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(live_views, 2);
+    assert!(!migrated.session_journal_after(0, 10).unwrap().records.is_empty());
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_journal_subject_expands_to_every_live_view_path() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-multiview-subjects").unwrap();
+    commit_terminal_topology(&mut registry, "journal-multiview-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first_tab = tab_id(1);
+    let second_tab = tab_id(2);
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("journal-multiview-second-view", "test").unwrap(),
+            "terminal.project",
+            &json!({"terminal_id":terminal_id,"pane_id":pane_id(1)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(second_tab.clone()),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_id.clone()),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![first_tab.clone(), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"terminal_id":terminal_id,"tab_id":second_tab}),
+            &json!([{"kind":"upsert","resource":"terminal","id":terminal_id}]),
+        )
+        .unwrap();
+
+    let record = registry
+        .session_journal_after(0, 10)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.kind == "terminal.project")
+        .unwrap();
+    let pane = pane_id(1);
+    let screen = screen_id(1);
+    let workspace_id = workspace(1, "one", "One").public_id;
+    for (kind, id) in [
+        ("terminal", terminal_id.as_str()),
+        ("tab", first_tab.as_str()),
+        ("tab", second_tab.as_str()),
+        ("pane", pane.as_str()),
+        ("screen", screen.as_str()),
+        ("workspace", workspace_id.as_str()),
+    ] {
+        assert!(
+            record.subjects.iter().any(|subject| subject.kind == kind && subject.id == id),
+            "missing {kind}:{id} from {:#?}",
+            record.subjects
+        );
+    }
+}
+
+#[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
     let browser = browser_id(1);
