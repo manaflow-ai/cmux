@@ -4,7 +4,14 @@ internal import Darwin
 /// Result of proving that a pathname still routes to a retained bound listener.
 enum SocketBoundPathVerificationResult: Equatable, Sendable {
     case verified(SocketPathIdentity)
+    case pending(SocketStageFailure)
     case failed(SocketStageFailure)
+}
+
+private enum SocketConnectCompletion {
+    case connected
+    case pending(Int32)
+    case failed(Int32)
 }
 
 extension SocketTransport {
@@ -136,13 +143,30 @@ extension SocketTransport {
         )
         let effectiveConnectResult = injectedConnectErrno == nil ? connectResult : -1
         let effectiveConnectErrno = injectedConnectErrno ?? systemConnectErrno ?? EIO
-        guard effectiveConnectResult == 0
-                || effectiveConnectErrno == EINPROGRESS
-                || effectiveConnectErrno == EALREADY else {
+        guard effectiveConnectResult == 0 || Self.isPendingConnectErrno(effectiveConnectErrno) else {
             return .failed(SocketStageFailure(
                 stage: "verify_bound_path",
                 errnoCode: effectiveConnectErrno
             ))
+        }
+        if effectiveConnectResult != 0 {
+            switch nonBlockingConnectCompletion(
+                socket: verificationClient,
+                path: path
+            ) {
+            case .connected:
+                break
+            case .pending(let errnoCode):
+                return .pending(SocketStageFailure(
+                    stage: "verify_bound_path_pending",
+                    errnoCode: errnoCode
+                ))
+            case .failed(let errnoCode):
+                return .failed(SocketStageFailure(
+                    stage: "verify_bound_path",
+                    errnoCode: errnoCode
+                ))
+            }
         }
 
         var acceptedSocket: Int32 = -1
@@ -150,7 +174,20 @@ extension SocketTransport {
             acceptedSocket = accept(listenerSocket, nil, nil)
         } while acceptedSocket < 0 && errno == EINTR
         guard acceptedSocket >= 0 else {
-            return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
+            let acceptErrno = errno
+            if acceptErrno == EAGAIN || acceptErrno == EWOULDBLOCK {
+                // A completed pathname connection must already be queued on
+                // this retained listener. If it is not, the pathname routed
+                // to a replacement descriptor and ownership cannot be proven.
+                return .failed(SocketStageFailure(
+                    stage: "verify_bound_path",
+                    errnoCode: ESTALE
+                ))
+            }
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: acceptErrno
+            ))
         }
         _ = configureCloseOnExec(acceptedSocket)
         close(acceptedSocket)
@@ -159,6 +196,64 @@ extension SocketTransport {
             return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
         }
         return .verified(candidateIdentity)
+    }
+
+    /// Checks a nonblocking connection without waiting on the calling actor.
+    /// A zero-timeout `poll` only snapshots readiness; an incomplete connect is
+    /// returned to the listener's bounded asynchronous startup retry path.
+    private func nonBlockingConnectCompletion(
+        socket: Int32,
+        path: String
+    ) -> SocketConnectCompletion {
+        if let injectedErrno = injectedErrnoCode(
+            stage: "verify_bound_path_readiness",
+            path: path
+        ) {
+            return Self.isPendingConnectErrno(injectedErrno)
+                ? .pending(injectedErrno)
+                : .failed(injectedErrno)
+        }
+
+        var descriptor = pollfd(fd: socket, events: Int16(POLLOUT), revents: 0)
+        var readinessResult: Int32
+        repeat {
+            readinessResult = poll(&descriptor, 1, 0)
+        } while readinessResult < 0 && errno == EINTR
+
+        if readinessResult == 0 {
+            return .pending(EINPROGRESS)
+        }
+        guard readinessResult > 0 else {
+            return .failed(errno)
+        }
+        guard descriptor.revents & Int16(POLLNVAL) == 0 else {
+            return .failed(EBADF)
+        }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(
+            socket,
+            SOL_SOCKET,
+            SO_ERROR,
+            &socketError,
+            &socketErrorLength
+        ) == 0 else {
+            return .failed(errno)
+        }
+        if socketError == 0 {
+            return .connected
+        }
+        return Self.isPendingConnectErrno(socketError)
+            ? .pending(socketError)
+            : .failed(socketError)
+    }
+
+    private static func isPendingConnectErrno(_ errnoCode: Int32) -> Bool {
+        errnoCode == EINPROGRESS
+            || errnoCode == EALREADY
+            || errnoCode == EAGAIN
+            || errnoCode == EWOULDBLOCK
     }
 
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.

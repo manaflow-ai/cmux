@@ -196,6 +196,12 @@ public struct SocketListenerPolicy: Sendable {
               consecutiveFailures <= startupFailureRetryLimit else {
             return false
         }
+        if stage == "verify_bound_path_pending" {
+            return errnoCode == EINPROGRESS
+                || errnoCode == EALREADY
+                || errnoCode == EAGAIN
+                || errnoCode == EWOULDBLOCK
+        }
         // Once the retained descriptor is listening for an ownership proof,
         // any inconclusive result must close it instead of leaving an
         // unverified listener reachable during another retry delay.
