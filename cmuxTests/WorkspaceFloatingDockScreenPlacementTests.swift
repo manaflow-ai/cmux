@@ -696,7 +696,7 @@ struct WorkspaceFloatingDockKeyContextTests {
     }
 
     @Test
-    func parkedRenameAccessoryUsesTheMainWindowAsItsKeyContextOwner() throws {
+    func parkedRenameAccessoryUsesItsFloatingWindowAsItsKeyContextOwner() throws {
         _ = NSApplication.shared
         let noteURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-rename-owner-\(UUID().uuidString).md")
@@ -739,13 +739,13 @@ struct WorkspaceFloatingDockKeyContextTests {
         let floatingWindow = try #require(presenter.window(for: dock))
         presenter.beginRenaming(dock)
 
-        let accessory = (parent.childWindows ?? []).first { window in
+        let accessory = (floatingWindow.childWindows ?? []).first { window in
             window.identifier?.rawValue.hasPrefix(
                 "cmux.workspace.float.parkingAccessory."
             ) == true
         }
         #expect(accessory != nil)
-        #expect(accessory?.parent === parent)
-        #expect(accessory?.parent !== floatingWindow)
+        #expect(accessory?.parent === floatingWindow)
+        #expect(accessory?.parent !== parent)
     }
 }
