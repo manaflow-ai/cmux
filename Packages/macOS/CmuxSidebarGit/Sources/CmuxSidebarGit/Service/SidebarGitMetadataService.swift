@@ -68,6 +68,11 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
+    var workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Task<Void, Never>] = [:]
+    var workspaceGitMetadataWatcherTeardownTasksByID: [UUID: Task<Void, Never>] = [:]
+    var workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey: [
+        WorkspaceGitMetadataWatchedPathsKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest]
+    ] = [:]
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
     let workspaceGitSnapshotCacheNamespace = UUID()
@@ -139,6 +144,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             task.cancel()
         }
         for task in workspaceGitSnapshotTasksByDirectory.values {
+            task.cancel()
+        }
+        for task in workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey.values {
             task.cancel()
         }
     }

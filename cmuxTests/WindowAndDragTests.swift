@@ -1148,7 +1148,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             return
         }
 
-        let controller = WindowDecorationsController()
+        let controller = WindowDecorationsController(initialPresentationMode: .minimal)
         controller.apply(to: window)
 
         guard let target = contentView.subviews.compactMap({ $0 as? MinimalModeSidebarControlActionView }).first else {

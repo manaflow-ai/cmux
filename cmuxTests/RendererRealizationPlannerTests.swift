@@ -20,6 +20,7 @@ struct RendererRealizationPlannerTests {
             notificationCenter: NotificationCenter(),
             surfaceProvider: { [] },
             surfaceLookup: { _ in nil },
+            initialSettings: .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1),
             settingsProvider: {
                 let isMainThread = Thread.isMainThread
                 Task { await threadProbe.record(isMainThread) }
@@ -416,6 +417,7 @@ private final class RendererRealizationSchedulerHarness {
         surfaceLookup: { [unowned self] id in
             surfaces.first { $0.id == id }
         },
+        initialSettings: .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1),
         settingsProvider: {
             .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1)
         },

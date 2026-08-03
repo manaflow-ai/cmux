@@ -9,7 +9,7 @@ import CmuxTestSupport
 import Observation
 import SwiftUI
 
-enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
+enum TitlebarControlsStyle: Int, CaseIterable, Identifiable, Sendable {
     case classic
     case compact
     case roomy

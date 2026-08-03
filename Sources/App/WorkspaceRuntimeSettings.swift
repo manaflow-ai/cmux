@@ -389,6 +389,14 @@ enum RendererRealizationSettings {
     static let defaultMaxWarmRenderers = catalog.rendererRealizationMaxWarmRenderers.defaultValue
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
 
+    static var defaultValues: Values {
+        Values(
+            enabled: defaultEnabled,
+            idleSeconds: defaultIdleSeconds,
+            maxWarmRenderers: defaultMaxWarmRenderers
+        )
+    }
+
     static func values(defaults: UserDefaults = .standard) -> Values {
         Values(
             enabled: isEnabled(defaults: defaults),

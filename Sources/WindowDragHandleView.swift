@@ -679,7 +679,7 @@ enum MinimalModeTitlebarDebugSettings {
     }
 }
 
-struct MinimalModeTitlebarDebugSnapshot: Equatable {
+struct MinimalModeTitlebarDebugSnapshot: Equatable, Sendable {
     let leftControlsLeadingInset: Double
     let leftControlsTopInset: Double
     let trafficLightTabBarLeadingInset: Double
@@ -768,7 +768,9 @@ func minimalModeSidebarTitlebarControlsFrame(
     contentViewIsFlipped: Bool,
     trafficLightFrameInContent: NSRect?,
     visualDownwardAdjustment: CGFloat = 0,
-    defaults: UserDefaults = .standard
+    defaults: UserDefaults = .standard,
+    leadingInset: CGFloat? = nil,
+    topInset: CGFloat? = nil
 ) -> NSRect {
     let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
     let targetY: CGFloat
@@ -778,13 +780,13 @@ func minimalModeSidebarTitlebarControlsFrame(
             ? centeredY + visualDownwardAdjustment
             : centeredY - visualDownwardAdjustment
     } else {
-        let topInset = MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+        let topInset = topInset ?? MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
         targetY = contentViewIsFlipped
             ? contentBounds.minY + topInset
             : max(0, contentBounds.maxY - hostHeight - topInset)
     }
     return NSRect(
-        x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
+        x: leadingInset ?? MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
         y: targetY,
         width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
         height: hostHeight

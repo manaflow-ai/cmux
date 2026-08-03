@@ -12,6 +12,8 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
     private let installHandler: InstallHandler?
     private var requestedGeneration: UInt64 = 0
     private var isLoading = false
+    private var loadTask: Task<Snapshot?, Never>?
+    private var completionTask: Task<Void, Never>?
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
@@ -25,6 +27,8 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
     }
 
     deinit {
+        loadTask?.cancel()
+        completionTask?.cancel()
         for waiter in idleWaiters {
             waiter.resume()
         }
@@ -43,13 +47,31 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
         }
     }
 
+    func cancel() {
+        requestedGeneration &+= 1
+        loadTask?.cancel()
+        completionTask?.cancel()
+        loadTask = nil
+        completionTask = nil
+        isLoading = false
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
     private func beginLoad(generation: UInt64) {
         isLoading = true
         let loader = self.loader
-        Task { @MainActor [weak self] in
-            let replacement = await Task.detached(priority: .utility) {
-                loader()
-            }.value
+        let loadTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return nil }
+            return loader()
+        }
+        self.loadTask = loadTask
+        completionTask = Task { @MainActor [weak self] in
+            let replacement = await loadTask.value
+            guard !Task.isCancelled else { return }
             self?.finishLoad(replacement, generation: generation)
         }
     }
@@ -58,6 +80,8 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
         _ replacement: Snapshot?,
         generation: UInt64
     ) {
+        loadTask = nil
+        completionTask = nil
         guard generation == requestedGeneration else {
             beginLoad(generation: requestedGeneration)
             return
