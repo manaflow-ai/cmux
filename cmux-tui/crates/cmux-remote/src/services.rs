@@ -17,7 +17,9 @@ use crate::daemon::ServerConnection;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
 };
-use crate::workspace::{ClientScope, ProcessSubscriptionError, WorkspaceService};
+use crate::workspace::{
+    ClientScope, PreparedRpcResponse, ProcessSubscriptionError, WorkspaceService,
+};
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
@@ -445,8 +447,8 @@ impl DaemonServices {
             if matches!(&request.request, WorkspaceRequest::CancelRequest { .. }) {
                 // Cancellation must remain available when ordinary work fills
                 // admission. Inline handling also bounds cancellation floods.
-                let response = workspace.handle_rpc_for(scope.clone(), request).await;
-                send_workspace_response(&workspace, &messages, response, false).await?;
+                let response = workspace.prepare_rpc_for(scope.clone(), request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, false).await?;
                 continue;
             }
             let permit = match request_slots.for_lane(lane).clone().try_acquire_owned() {
@@ -467,8 +469,8 @@ impl DaemonServices {
                 // Mutations execute in receive order on their traffic-class
                 // stream and are never aborted because a response stream ends.
                 let _permit = permit;
-                let response = workspace.handle_rpc_for(scope.clone(), request).await;
-                send_workspace_response(&workspace, &messages, response, true).await?;
+                let response = workspace.prepare_rpc_for(scope.clone(), request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, true).await?;
                 continue;
             }
             let workspace = workspace.clone();
@@ -476,8 +478,8 @@ impl DaemonServices {
             let messages = messages.clone();
             requests.spawn_local(async move {
                 let _permit = permit;
-                let response = workspace.handle_rpc_for(scope, request).await;
-                send_workspace_response(&workspace, &messages, response, true).await
+                let response = workspace.prepare_rpc_for(scope, request).await;
+                send_prepared_workspace_response(&workspace, &messages, response, true).await
             });
         }
         requests.abort_all();
@@ -661,6 +663,22 @@ async fn send_workspace_response(
     response: RpcResponse,
     allow_offload: bool,
 ) -> Result<(), ServicesError> {
+    send_prepared_workspace_response(
+        workspace,
+        messages,
+        PreparedRpcResponse::plain(response),
+        allow_offload,
+    )
+    .await
+}
+
+async fn send_prepared_workspace_response(
+    workspace: &WorkspaceService,
+    messages: &MessageStream,
+    mut prepared: PreparedRpcResponse,
+    allow_offload: bool,
+) -> Result<(), ServicesError> {
+    let response = prepared.take_response();
     let response_id = response.id;
     let retryable_if_too_large = workspace_response_too_large_is_retryable(&response);
     let encoded = if allow_offload && workspace_response_needs_codec(&response) {
@@ -675,8 +693,16 @@ async fn send_workspace_response(
         encode_workspace_response(&response)?
     };
     match encoded {
-        EncodedWorkspaceResponse::Message(encoded) => messages.send(&encoded).await,
+        EncodedWorkspaceResponse::Message(encoded) => {
+            messages.send(&encoded).await?;
+            prepared.commit_delivery();
+            Ok(())
+        }
         EncodedWorkspaceResponse::TooLarge => {
+            // The client did not receive the requested page. Dropping the
+            // delivery guard restores its input cursor before the fallback is
+            // sent, regardless of whether that send succeeds.
+            drop(prepared);
             let mut error = RpcError::new(
                 "resource-exhausted",
                 "RPC response exceeds the maximum message size",
@@ -995,16 +1021,18 @@ async fn read_mux_uploads<R>(
 where
     R: AsyncRead + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::io::BufReader;
 
     let mut reader = BufReader::new(local_reader);
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        line.clear();
-        let size = reader.read_until(b'\n', &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
         if size == 0 {
             return Ok(());
+        }
+        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+            return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
             continue;
@@ -1102,15 +1130,20 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::default();
-        while let Some(chunk) = remote.receive().await? {
+        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
                     tracker.suppress_response(input.request);
                     local_writer.write_all(&input.into_local_line()?).await?;
-                } else if let Some((lane, line)) = assembler.push(chunk.lane, chunk.payload)? {
-                    tracker.observe_request(&line, lane);
-                    local_writer.write_all(&line).await?;
+                } else {
+                    let budget = chunk.take_budget();
+                    if let Some(line) =
+                        assembler.push_retaining(chunk.lane, chunk.payload, budget)?
+                    {
+                        tracker.observe_request(line.payload(), line.lane());
+                        local_writer.write_all(line.payload()).await?;
+                    }
                 }
             }
             if chunk.finished || chunk.reset {
@@ -1659,6 +1692,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_response_send_keeps_paginated_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(directory.path().join(name), name).unwrap();
+        }
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new("failed-page-send", cmux_remote_protocol::SessionId([15; 16]));
+        let opened = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(1),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Workspace { id, .. } = opened.result.unwrap() else { panic!() };
+        let first = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(2),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: None,
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { next_cursor: Some(cursor), .. } = first.result.unwrap()
+        else {
+            panic!()
+        };
+        let prepared = workspace
+            .prepare_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(3),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor.clone()),
+                    },
+                },
+            )
+            .await;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let _client_stream = client
+            .open(Service::WorkspaceRpc, BTreeMap::new())
+            .await
+            .expect("open workspace RPC stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept workspace RPC stream")
+            .expect("workspace RPC stream was delivered");
+        incoming.stream.close().await.expect("close test response stream");
+        let messages = MessageStream::with_lane(Arc::new(incoming.stream), Lane::Control);
+        let send_error = send_prepared_workspace_response(&workspace, &messages, prepared, false)
+            .await
+            .expect_err("closed response stream should reject the page");
+        assert!(matches!(send_error, ServicesError::Service(ServiceError::Closed)));
+
+        let retried = workspace
+            .handle_rpc_for(
+                scope,
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(4),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id,
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { entries, .. } = retried.result.unwrap() else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "b.txt");
+
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn process_stream_duplicate_reservation_is_rejected_before_open() {
         let workspace = WorkspaceService::new();
         let scope =
@@ -2062,6 +2197,135 @@ mod tests {
                         })) if signaled == process
                     ),
                     "process signal stalled behind a blocked stdin write: {signal:?}"
+                );
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn dropped_wait_requests_release_control_admission() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let request_slots = RequestAdmission::new();
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    let request_slots = request_slots.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "dropped-wait-test",
+                            cmux_remote_protocol::SessionId([32; 16]),
+                        );
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec!["/bin/sleep".into(), "30".into()],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+
+                let mut pending = Vec::with_capacity(MAX_CONTROL_RPC_REQUESTS);
+                for _ in 0..MAX_CONTROL_RPC_REQUESTS {
+                    pending.push(
+                        client
+                            .begin_request(WorkspaceRequest::WaitProcess { process })
+                            .await
+                            .unwrap(),
+                    );
+                }
+                let admission_filled =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != 0 {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                drop(pending);
+                let admission_recovered =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != MAX_CONTROL_RPC_REQUESTS
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                let capabilities_succeeded = if admission_recovered {
+                    matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(1),
+                            client.request(WorkspaceRequest::Capabilities),
+                        )
+                        .await,
+                        Ok(Ok(WorkspaceResponse::Capabilities { .. }))
+                    )
+                } else {
+                    false
+                };
+
+                workspace
+                    .handle_request(WorkspaceRequest::SignalProcess {
+                        process,
+                        signal: ProcessSignal::Kill,
+                    })
+                    .await
+                    .unwrap();
+                workspace.handle_request(WorkspaceRequest::WaitProcess { process }).await.unwrap();
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(admission_filled, "48 wait requests never filled control admission");
+                assert!(
+                    admission_recovered,
+                    "dropping transmitted wait requests left server work and admission active"
+                );
+                assert!(
+                    capabilities_succeeded,
+                    "control RPC stayed unavailable after dropped waits were canceled"
                 );
             })
             .await;
@@ -2517,6 +2781,62 @@ mod tests {
              interactive={interactive_result:?}"
         );
         assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn partial_mux_server_line_retains_budget_until_local_write_finishes() {
+        let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
+        let packets = crate::mux_codec::encode_line(1, &line).unwrap();
+        assert_eq!(packets.len(), 2);
+        let incoming_budget =
+            packets.iter().map(|packet| packet.len().max(MIN_BUFFERED_MUX_MESSAGE_BYTES)).sum();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new_with_incoming_budget(
+            daemon_endpoint,
+            EndpointRole::Daemon,
+            incoming_budget,
+        );
+        let mux = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let incoming_mux = daemon.accept().await.unwrap().unwrap();
+        let additional = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_incoming = daemon.accept().await.unwrap().unwrap();
+        let (pump_socket, mut local_core) = tokio::io::duplex(1);
+        let (reader, writer) = tokio::io::split(pump_socket);
+        let pump = tokio::spawn(pump_mux_server(Arc::new(incoming_mux.stream), reader, writer));
+
+        for packet in packets {
+            mux.send_on(Lane::Interactive, packet).await.unwrap();
+        }
+        let mut first_byte = [0_u8; 1];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            local_core.read_exact(&mut first_byte),
+        )
+        .await
+        .expect("assembled mux line never reached the blocked local writer")
+        .unwrap();
+        additional
+            .send_on(Lane::Interactive, Bytes::from_static(b"budget-overflow"))
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            additional_incoming.stream.receive(),
+        )
+        .await
+        .expect("additional mux stream did not resolve");
+        assert!(
+            matches!(result, Err(ServiceError::Reset(ref message)) if message.contains("byte budget")),
+            "partial mux line released its incoming budget before the local write: {result:?}"
+        );
+
+        pump.abort();
+        let _ = pump.await;
+        client.shutdown().await;
+        daemon.shutdown().await;
     }
 
     #[tokio::test]

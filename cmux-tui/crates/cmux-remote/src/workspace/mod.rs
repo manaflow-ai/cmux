@@ -11,6 +11,7 @@ mod git;
 mod patch;
 mod path;
 mod process;
+mod query;
 mod route;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -27,6 +28,7 @@ use blocking::WorkspaceBlockingPool;
 use path::WorkspaceRoot;
 use process::{ProcessManager, ProcessSpawnOptions};
 pub use process::{ProcessSubscription, ProcessSubscriptionError};
+use query::{ContinuationDelivery, WorkspaceQueryContext, WorkspaceQueryService};
 use route::RouteManager;
 
 const MAX_WORKSPACES: usize = 256;
@@ -39,6 +41,7 @@ struct WorkspaceServiceInner {
     blocking: WorkspaceBlockingPool,
     codec: WorkspaceBlockingPool,
     processes: ProcessManager,
+    queries: Arc<WorkspaceQueryService>,
     routes: RouteManager,
     computer_capabilities: Vec<ComputerUseCapability>,
     request_control: StdMutex<RequestControlState>,
@@ -115,6 +118,66 @@ pub(crate) struct WorkspaceShutdownResidual {
     pub(crate) codec_jobs: usize,
 }
 
+pub(super) struct PreparedWorkspaceResponse {
+    response: WorkspaceResponse,
+    delivery: Option<ContinuationDelivery>,
+}
+
+impl PreparedWorkspaceResponse {
+    fn plain(response: WorkspaceResponse) -> Self {
+        Self { response, delivery: None }
+    }
+
+    fn paginated(response: WorkspaceResponse, delivery: Option<ContinuationDelivery>) -> Self {
+        Self { response, delivery }
+    }
+
+    pub(super) fn commit(mut self) -> WorkspaceResponse {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+        self.response
+    }
+}
+
+pub(crate) struct PreparedRpcResponse {
+    response: Option<RpcResponse>,
+    delivery: Option<ContinuationDelivery>,
+}
+
+impl PreparedRpcResponse {
+    pub(crate) fn plain(response: RpcResponse) -> Self {
+        Self { response: Some(response), delivery: None }
+    }
+
+    fn from_result(id: RequestId, result: Result<PreparedWorkspaceResponse, RpcError>) -> Self {
+        match result {
+            Ok(prepared) => Self {
+                response: Some(RpcResponse { id, result: Ok(prepared.response) }),
+                delivery: prepared.delivery,
+            },
+            Err(error) => Self::plain(RpcResponse { id, result: Err(error) }),
+        }
+    }
+
+    fn commit_into_response(mut self) -> RpcResponse {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+        self.response.take().expect("prepared RPC response remains present")
+    }
+
+    pub(crate) fn take_response(&mut self) -> RpcResponse {
+        self.response.take().expect("prepared RPC response remains present")
+    }
+
+    pub(crate) fn commit_delivery(mut self) {
+        if let Some(delivery) = self.delivery.take() {
+            delivery.commit();
+        }
+    }
+}
+
 impl Default for WorkspaceService {
     fn default() -> Self {
         Self::new()
@@ -133,6 +196,7 @@ impl WorkspaceService {
                 blocking: WorkspaceBlockingPool::default(),
                 codec: WorkspaceBlockingPool::with_jobs(WORKSPACE_CODEC_JOBS),
                 processes: ProcessManager::default(),
+                queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities,
                 request_control: StdMutex::new(RequestControlState::default()),
@@ -149,6 +213,7 @@ impl WorkspaceService {
                 blocking: WorkspaceBlockingPool::with_hook(jobs, hook),
                 codec: WorkspaceBlockingPool::with_jobs(WORKSPACE_CODEC_JOBS),
                 processes: ProcessManager::default(),
+                queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities: Vec::new(),
                 request_control: StdMutex::new(RequestControlState::default()),
@@ -173,24 +238,36 @@ impl WorkspaceService {
         self.handle_rpc_for(ClientScope::local(), request).await
     }
 
+    pub(crate) async fn prepare_rpc(&self, request: RpcRequest) -> PreparedRpcResponse {
+        self.prepare_rpc_for(ClientScope::local(), request).await
+    }
+
     pub(crate) async fn handle_rpc_for(
         &self,
         scope: ClientScope,
         request: RpcRequest,
     ) -> RpcResponse {
+        self.prepare_rpc_for(scope, request).await.commit_into_response()
+    }
+
+    pub(crate) async fn prepare_rpc_for(
+        &self,
+        scope: ClientScope,
+        request: RpcRequest,
+    ) -> PreparedRpcResponse {
         let id = request.id;
         if let WorkspaceRequest::CancelRequest { request: target } = &request.request {
             let result = self.cancel_request(&scope, *target).await;
-            return RpcResponse { id, result };
+            return PreparedRpcResponse::plain(RpcResponse { id, result });
         }
         if request.timeout_ms.is_some() && !request_supports_cancellation(&request.request) {
-            return RpcResponse {
+            return PreparedRpcResponse::plain(RpcResponse {
                 id,
                 result: Err(RpcError::new(
                     "deadline-unsupported",
                     "this mutating request cannot be canceled safely",
                 )),
-            };
+            });
         }
         let supports_cancellation = request_supports_cancellation(&request.request);
         let (cancel, mut canceled) = watch::channel(false);
@@ -202,26 +279,26 @@ impl WorkspaceService {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if control.shutting_down || control.closing_clients.contains(&scope) {
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new("session-closed", "client session is closing")),
-                };
+                });
             }
             if control.pending_cancellations.remove(&key) {
                 control.cancellation_order.retain(|pending| pending != &key);
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new("canceled", "request was canceled before execution")),
-                };
+                });
             }
             if control.active.contains_key(&key) {
-                return RpcResponse {
+                return PreparedRpcResponse::plain(RpcResponse {
                     id,
                     result: Err(RpcError::new(
                         "duplicate-request-id",
                         format!("request id {id} is already active"),
                     )),
-                };
+                });
             }
             control.active.insert(
                 key.clone(),
@@ -237,11 +314,11 @@ impl WorkspaceService {
             key,
         };
         if !supports_cancellation {
-            let result = self.handle_request_for(&scope, request.request).await;
-            return RpcResponse { id, result };
+            let result = self.prepare_request_for(&scope, request.request).await;
+            return PreparedRpcResponse::from_result(id, result);
         }
         let timeout_ms = request.timeout_ms;
-        let operation = self.handle_request_for(&scope, request.request);
+        let operation = self.prepare_request_for(&scope, request.request);
         tokio::pin!(operation);
         let deadline = async move {
             match timeout_ms {
@@ -260,7 +337,7 @@ impl WorkspaceService {
                 Err(_) => Err(RpcError::new("canceled", "request cancellation state closed")),
             },
         };
-        RpcResponse { id, result }
+        PreparedRpcResponse::from_result(id, result)
     }
 
     pub async fn handle_request(
@@ -271,6 +348,104 @@ impl WorkspaceService {
     }
 
     async fn handle_request_for(
+        &self,
+        scope: &ClientScope,
+        request: WorkspaceRequest,
+    ) -> Result<WorkspaceResponse, RpcError> {
+        self.prepare_request_for(scope, request).await.map(PreparedWorkspaceResponse::commit)
+    }
+
+    async fn prepare_request_for(
+        &self,
+        scope: &ClientScope,
+        request: WorkspaceRequest,
+    ) -> Result<PreparedWorkspaceResponse, RpcError> {
+        match request {
+            WorkspaceRequest::ListDirectory { workspace, path, include_hidden, limit, cursor } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
+                self.inner
+                    .blocking
+                    .run_async("list-directory", move || async move {
+                        let context = WorkspaceQueryContext::new(&queries, &scope, &root);
+                        files::list_directory(
+                            &context,
+                            &path,
+                            include_hidden,
+                            limit,
+                            cursor.as_ref(),
+                        )
+                        .await
+                    })
+                    .await
+            }
+            WorkspaceRequest::Search {
+                workspace,
+                query,
+                paths,
+                globs,
+                include_hidden,
+                max_results,
+                cursor,
+            } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
+                self.inner
+                    .blocking
+                    .run_async("search", move || async move {
+                        let context = WorkspaceQueryContext::new(&queries, &scope, &root);
+                        files::search(
+                            &context,
+                            &query,
+                            &paths,
+                            &globs,
+                            include_hidden,
+                            max_results,
+                            cursor.as_ref(),
+                        )
+                        .await
+                    })
+                    .await
+            }
+            WorkspaceRequest::Diff {
+                workspace,
+                paths,
+                staged,
+                context,
+                format,
+                cursor,
+                max_bytes,
+            } => {
+                let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
+                self.inner
+                    .blocking
+                    .run_async("diff", move || async move {
+                        let query_context = WorkspaceQueryContext::new(&queries, &scope, &root);
+                        git::diff(
+                            &query_context,
+                            &paths,
+                            staged,
+                            context,
+                            format,
+                            cursor.as_ref(),
+                            max_bytes,
+                        )
+                        .await
+                    })
+                    .await
+            }
+            request => self
+                .handle_plain_request_for(scope, request)
+                .await
+                .map(PreparedWorkspaceResponse::plain),
+        }
+    }
+
+    async fn handle_plain_request_for(
         &self,
         scope: &ClientScope,
         request: WorkspaceRequest,
@@ -312,47 +487,15 @@ impl WorkspaceService {
             }
             WorkspaceRequest::ReadFile { workspace, path, offset, limit } => {
                 let root = self.workspace_for(scope, &workspace).await?;
-                files::read_file(&root, &path, offset, limit).await
+                let context = WorkspaceQueryContext::new(&self.inner.queries, scope, &root);
+                files::read_file(&context, &path, offset, limit).await
             }
             WorkspaceRequest::WriteFile { workspace, path, data, precondition, create_parents } => {
                 let root = self.workspace_for(scope, &workspace).await?;
                 files::write_file(&root, &path, &data, &precondition, create_parents).await
             }
-            WorkspaceRequest::ListDirectory { workspace, path, include_hidden, limit, cursor } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                self.inner
-                    .blocking
-                    .run_async("list-directory", move || async move {
-                        files::list_directory(&root, &path, include_hidden, limit, cursor.as_ref())
-                            .await
-                    })
-                    .await
-            }
-            WorkspaceRequest::Search {
-                workspace,
-                query,
-                paths,
-                globs,
-                include_hidden,
-                max_results,
-                cursor,
-            } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                self.inner
-                    .blocking
-                    .run_async("search", move || async move {
-                        files::search(
-                            &root,
-                            &query,
-                            &paths,
-                            &globs,
-                            include_hidden,
-                            max_results,
-                            cursor.as_ref(),
-                        )
-                        .await
-                    })
-                    .await
+            WorkspaceRequest::ListDirectory { .. } | WorkspaceRequest::Search { .. } => {
+                unreachable!("paginated requests are prepared before plain dispatch")
             }
             WorkspaceRequest::ApplyPatch { workspace, patch: source, dry_run, preconditions } => {
                 let root = self.workspace_for(scope, &workspace).await?;
@@ -367,31 +510,8 @@ impl WorkspaceService {
                 let root = self.workspace_for(scope, &workspace).await?;
                 git::status(&root).await
             }
-            WorkspaceRequest::Diff {
-                workspace,
-                paths,
-                staged,
-                context,
-                format,
-                cursor,
-                max_bytes,
-            } => {
-                let root = self.workspace_for(scope, &workspace).await?;
-                self.inner
-                    .blocking
-                    .run_async("diff", move || async move {
-                        git::diff(
-                            &root,
-                            &paths,
-                            staged,
-                            context,
-                            format,
-                            cursor.as_ref(),
-                            max_bytes,
-                        )
-                        .await
-                    })
-                    .await
+            WorkspaceRequest::Diff { .. } => {
+                unreachable!("paginated requests are prepared before plain dispatch")
             }
             WorkspaceRequest::SpawnProcess {
                 workspace,
@@ -585,7 +705,7 @@ impl WorkspaceService {
         scope: &ClientScope,
         workspace: &WorkspaceId,
     ) -> Result<(), RpcError> {
-        {
+        let removed_workspace = {
             let mut catalog = self.inner.catalog.write().await;
             if !catalog.workspaces.contains_key(workspace) {
                 return Err(unknown_workspace(workspace));
@@ -605,6 +725,11 @@ impl WorkspaceService {
             if !still_leased {
                 catalog.workspaces.remove(workspace);
             }
+            !still_leased
+        };
+        self.inner.queries.close_client_workspace(scope, workspace);
+        if removed_workspace {
+            self.inner.queries.close_workspace(workspace);
         }
         self.inner.processes.close_workspace(scope, workspace).await;
         self.inner.routes.close_workspace(scope, workspace).await;
@@ -668,7 +793,7 @@ impl WorkspaceService {
         if let Some(existing) = catalog
             .workspaces
             .values()
-            .find(|workspace| workspace.canonical_root() == candidate.canonical_root())
+            .find(|workspace| workspace.same_opened_root(&candidate))
             .cloned()
         {
             catalog.leases.entry(scope.clone()).or_default().insert(existing.id.clone());
@@ -747,11 +872,13 @@ impl WorkspaceService {
         }
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
+        self.inner.queries.close_client(scope);
         self.wait_for_requests(Some(scope)).await;
         // A mutation that was already active when closure began can publish a
         // process, route, or lease after the first cleanup snapshot.
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
+        self.inner.queries.close_client(scope);
         let mut catalog = self.inner.catalog.write().await;
         // Workspace roots belong to the daemon, like tmux sessions. A client
         // disconnect releases only that client's lease; another authorized
@@ -790,6 +917,7 @@ impl WorkspaceService {
         }
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
+        self.inner.queries.clear();
         self.wait_for_requests(None).await;
         let blocking_jobs = self.inner.blocking.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
         let codec_jobs = self.inner.codec.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
@@ -797,6 +925,7 @@ impl WorkspaceService {
         // initial shutdown snapshot.
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
+        self.inner.queries.clear();
         let mut catalog = self.inner.catalog.write().await;
         catalog.leases.clear();
         catalog.workspaces.clear();
@@ -863,6 +992,7 @@ fn computer_feature_name(feature: ComputerUseFeature) -> &'static str {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use cmux_remote_protocol::{
         ByteString, FilePrecondition, ProcessDescriptor, ProcessEnvironment, ProcessIo,
@@ -914,6 +1044,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timed_out_directory_page_keeps_its_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(directory.path().join(name), name).unwrap();
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new((StdMutex::new(false), std::sync::Condvar::new()));
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let entered_tx = Arc::new(StdMutex::new(Some(entered_tx)));
+        let hook = {
+            let calls = Arc::clone(&calls);
+            let gate = Arc::clone(&gate);
+            let entered_tx = Arc::clone(&entered_tx);
+            Arc::new(move || {
+                if calls.fetch_add(1, Ordering::SeqCst) != 1 {
+                    return;
+                }
+                if let Some(entered_tx) =
+                    entered_tx.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+                {
+                    let _ = entered_tx.send(());
+                }
+                let (released, changed) = &*gate;
+                let released = released.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                drop(
+                    changed
+                        .wait_while(released, |released| !*released)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
+            }) as Arc<dyn Fn() + Send + Sync>
+        };
+        let service = WorkspaceService::with_blocking_hook(1, hook);
+        let opened = service
+            .handle_request(WorkspaceRequest::OpenWorkspace {
+                root: directory.path().to_string_lossy().into_owned(),
+            })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: workspace, .. } = opened else { panic!() };
+        let first = service
+            .handle_request(WorkspaceRequest::ListDirectory {
+                workspace: workspace.clone(),
+                path: String::new(),
+                include_hidden: false,
+                limit: 1,
+                cursor: None,
+            })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Directory { next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+
+        let timed = tokio::spawn({
+            let service = service.clone();
+            let workspace = workspace.clone();
+            let cursor = cursor.clone();
+            async move {
+                service
+                    .handle_rpc(RpcRequest {
+                        id: RequestId::from_u128(2),
+                        timeout_ms: Some(10),
+                        request: WorkspaceRequest::ListDirectory {
+                            workspace,
+                            path: String::new(),
+                            include_hidden: false,
+                            limit: 1,
+                            cursor: Some(cursor),
+                        },
+                    })
+                    .await
+            }
+        });
+        entered_rx.await.unwrap();
+        let timed = tokio::time::timeout(std::time::Duration::from_secs(2), timed)
+            .await
+            .expect("directory page did not reach its deadline")
+            .unwrap();
+        assert_eq!(timed.result.unwrap_err().code, "deadline-exceeded");
+        let (released, changed) = &*gate;
+        *released.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        changed.notify_all();
+
+        let retried = service
+            .handle_rpc(RpcRequest {
+                id: RequestId::from_u128(3),
+                timeout_ms: None,
+                request: WorkspaceRequest::ListDirectory {
+                    workspace,
+                    path: String::new(),
+                    include_hidden: false,
+                    limit: 1,
+                    cursor: Some(cursor),
+                },
+            })
+            .await;
+        let WorkspaceResponse::Directory { entries, .. } = retried.result.unwrap() else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "b.txt");
+    }
+
+    #[tokio::test]
     async fn duplicate_open_reuses_workspace_identity() {
         let directory = tempdir().unwrap();
         let service = WorkspaceService::new();
@@ -925,6 +1158,49 @@ mod tests {
         let second =
             service.handle_request(WorkspaceRequest::OpenWorkspace { root }).await.unwrap();
         assert_eq!(first, second);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn replaced_workspace_path_gets_a_new_identity() {
+        let parent = tempdir().unwrap();
+        let root_path = parent.path().join("workspace");
+        let pinned_path = parent.path().join("pinned-workspace");
+        std::fs::create_dir(&root_path).unwrap();
+        let service = WorkspaceService::new();
+        let root = root_path.to_string_lossy().into_owned();
+        let first = service
+            .handle_request(WorkspaceRequest::OpenWorkspace { root: root.clone() })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: first, .. } = first else { panic!() };
+
+        std::fs::rename(&root_path, &pinned_path).unwrap();
+        std::fs::create_dir(&root_path).unwrap();
+        let second =
+            service.handle_request(WorkspaceRequest::OpenWorkspace { root }).await.unwrap();
+        let WorkspaceResponse::Workspace { id: second, .. } = second else { panic!() };
+        assert_ne!(first, second);
+
+        for (workspace, path, contents) in [
+            (first, "old-root.txt", b"old".as_slice()),
+            (second, "new-root.txt", b"new".as_slice()),
+        ] {
+            service
+                .handle_request(WorkspaceRequest::WriteFile {
+                    workspace,
+                    path: path.into(),
+                    data: ByteString::from_bytes(contents),
+                    precondition: FilePrecondition::Missing,
+                    create_parents: false,
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(std::fs::read(pinned_path.join("old-root.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(root_path.join("new-root.txt")).unwrap(), b"new");
+        assert!(!root_path.join("old-root.txt").exists());
+        assert!(!pinned_path.join("new-root.txt").exists());
     }
 
     #[tokio::test]
