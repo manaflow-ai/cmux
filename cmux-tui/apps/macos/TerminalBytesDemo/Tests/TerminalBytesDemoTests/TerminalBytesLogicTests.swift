@@ -269,4 +269,44 @@ struct TerminalBytesLogicTests {
         #expect(await waitUntil { !model.isConnecting })
         model.shutdown()
     }
+
+    @Test @MainActor
+    func exitedDiagnosticsCloseTheAttachmentWithoutAnInputError() async throws {
+        let raw = try #require(OpaquePointer(bitPattern: 4))
+        let exitedDiagnostics = #"{"status":"exited","ready":false}"#
+        let handle = TerminalClientHandle(
+            raw: raw,
+            attachClient: { _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            sendClient: { _, _, _ in false },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, buffer, capacity in
+                let bytes = Array(exitedDiagnostics.utf8)
+                if let buffer, capacity > 0 {
+                    let copied = min(bytes.count, capacity - 1)
+                    for index in 0..<copied {
+                        buffer[index] = CChar(bitPattern: bytes[index])
+                    }
+                    buffer[copied] = 0
+                }
+                return bytes.count
+            }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle
+        )
+
+        model.connect()
+        #expect(await waitUntil { model.diagnostics == exitedDiagnostics })
+        #expect(!model.isConnected)
+        #expect(model.submit(.bytes(Data("x".utf8))) == false)
+        #expect(model.errorMessage.isEmpty)
+        model.shutdown()
+    }
 }
