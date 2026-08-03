@@ -13339,6 +13339,44 @@ mod tests {
     }
 
     #[test]
+    fn journal_restore_preview_satisfies_the_public_result_contract() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-restore-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("restore-contract", SurfaceOptions::default(), &root).unwrap();
+        mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "journal-restore-preview",
+            "session.journal.restore.preview",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "checkpoint":"latest",
+            }),
+            None,
+        );
+
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["unsupported_required_record_count"], "0");
+        assert_eq!(response["result"]["unsupported_required_records_truncated"], false);
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(scheduler);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     #[ignore = "manual throughput probe"]
     fn journal_compiled_regex_throughput_probe() {
         let document = JournalDocument::new(SessionJournalRecord {
