@@ -57,13 +57,13 @@ public struct ChatMessageRowView: View {
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .permissionRequest(let request):
-                ChatPermissionCardView(
+                ChatPermissionCardBridge(
                     request: request,
                     timestamp: snapshot.message.timestamp,
                     actions: actions
                 )
             case .question(let question):
-                ChatQuestionCardView(question: question, actions: actions)
+                ChatQuestionCardBridge(question: question, actions: actions)
             case .status(let transition):
                 ChatStatusRowBridge(transition: transition, timestamp: snapshot.message.timestamp)
             case .attachment(let attachment):
@@ -129,6 +129,29 @@ private struct ChatUnsupportedRowBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatUnsupportedRowView, context: Context) {}
+}
+
+private struct ChatPermissionCardBridge: UIViewRepresentable {
+    let request: ChatPermissionRequest
+    let timestamp: Date
+    let actions: ChatRowActions
+
+    func makeUIView(context: Context) -> ChatPermissionCardView {
+        ChatPermissionCardView(request: request, timestamp: timestamp, actions: actions)
+    }
+
+    func updateUIView(_ view: ChatPermissionCardView, context: Context) {}
+}
+
+private struct ChatQuestionCardBridge: UIViewRepresentable {
+    let question: ChatQuestion
+    let actions: ChatRowActions
+
+    func makeUIView(context: Context) -> ChatQuestionCardView {
+        ChatQuestionCardView(question: question, actions: actions)
+    }
+
+    func updateUIView(_ view: ChatQuestionCardView, context: Context) {}
 }
 #endif
 

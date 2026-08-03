@@ -119,6 +119,49 @@ struct ChatNativeTranscriptRowTests {
         open.sendActions(for: .primaryActionTriggered)
         #expect(openCount == 1)
     }
+
+    @Test("permission decision disarms both choices before dispatch")
+    func permissionSingleDecision() throws {
+        var answers: [Int] = []
+        let view = ChatPermissionCardView(
+            request: ChatPermissionRequest(title: "Allow command?", subject: "swift test"),
+            timestamp: .now,
+            actions: ChatRowActions(answerOption: { answers.append($0) })
+        )
+        let buttons = view.descendants.compactMap { $0 as? UIButton }
+        let approve = try #require(buttons.first { $0.accessibilityIdentifier == "ChatPermissionApprove" })
+        let deny = try #require(buttons.first { $0.accessibilityIdentifier == "ChatPermissionDeny" })
+
+        approve.sendActions(for: .primaryActionTriggered)
+        deny.sendActions(for: .primaryActionTriggered)
+        #expect(answers == [0])
+        #expect(!approve.isEnabled)
+        #expect(!deny.isEnabled)
+    }
+
+    @Test("question accepts only its first tapped option")
+    func questionSingleDecision() throws {
+        var answers: [Int] = []
+        let view = ChatQuestionCardView(
+            question: ChatQuestion(
+                prompt: "Choose",
+                options: [
+                    .init(label: "First"),
+                    .init(label: "Second", detail: "More detail"),
+                ]
+            ),
+            actions: ChatRowActions(answerOption: { answers.append($0) })
+        )
+        let buttons = view.descendants.compactMap { $0 as? UIButton }
+        let first = try #require(buttons.first { $0.accessibilityIdentifier == "ChatQuestionOption0" })
+        let second = try #require(buttons.first { $0.accessibilityIdentifier == "ChatQuestionOption1" })
+
+        second.sendActions(for: .primaryActionTriggered)
+        first.sendActions(for: .primaryActionTriggered)
+        #expect(answers == [1])
+        #expect(!first.isEnabled)
+        #expect(!second.isEnabled)
+    }
 }
 
 private extension UIView {

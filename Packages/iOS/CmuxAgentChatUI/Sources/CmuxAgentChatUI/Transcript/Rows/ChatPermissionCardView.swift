@@ -1,155 +1,184 @@
-import CMUXMobileCore
 import CmuxAgentChat
-import SwiftUI
+
 #if canImport(UIKit)
 import UIKit
-#endif
 
-/// An actionable permission card: title, the gated command in a mono chip,
-/// and Approve/Deny buttons. Once resolved it freezes into a receipt line.
-/// Never collapsible.
-public struct ChatPermissionCardView: View {
-    private let request: ChatPermissionRequest
-    private let timestamp: Date
+/// Native permission card that atomically disarms after one decision.
+@MainActor
+public final class ChatPermissionCardView: UIView {
     private let actions: ChatRowActions
+    private var decisionButtons: [UIButton] = []
+    private var tappedIndex: Int?
 
-    @Environment(\.chatTheme) private var theme
-
-    /// Set on the first decision tap so the buttons disarm immediately;
-    /// answering is raw key injection over the Mac round-trip, and a second
-    /// tap before the receipt echoes back would select a different option.
-    @State private var tappedIndex: Int?
-
-    /// Creates a permission card.
-    ///
-    /// - Parameters:
-    ///   - request: The permission payload (pending or resolved).
-    ///   - timestamp: When the request was raised; shown on the receipt.
-    ///   - actions: Row action bundle.
-    public init(request: ChatPermissionRequest, timestamp: Date, actions: ChatRowActions) {
-        self.request = request
-        self.timestamp = timestamp
+    public init(
+        request: ChatPermissionRequest,
+        timestamp: Date,
+        actions: ChatRowActions
+    ) {
         self.actions = actions
-    }
+        super.init(frame: .zero)
 
-    public var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(request.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(request.subject)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(theme.terminalCardFill, in: .rect(cornerRadius: 6))
-                    .textSelection(.enabled)
-                if let resolution = request.resolution {
-                    receipt(resolution: resolution)
-                } else {
-                    decisionButtons
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(theme.accent, lineWidth: 1.5)
+        let content = UIStackView()
+        content.axis = .vertical
+        content.alignment = .fill
+        content.spacing = 10
+
+        let title = UILabel()
+        title.text = request.title
+        title.font = .preferredFont(forTextStyle: .subheadline).weighted(.semibold)
+        title.textColor = .label
+        title.numberOfLines = 0
+        content.addArrangedSubview(title)
+        content.addArrangedSubview(subjectView(request.subject))
+
+        if let resolution = request.resolution {
+            content.addArrangedSubview(receiptView(resolution: resolution, timestamp: timestamp))
+        } else {
+            let approve = decisionButton(
+                title: String(
+                    localized: "chat.permission.approve",
+                    defaultValue: "Approve",
+                    bundle: .module
+                ),
+                index: 0,
+                filled: true,
+                accessibilityIdentifier: "ChatPermissionApprove"
             )
-            Spacer(minLength: 32)
+            let deny = decisionButton(
+                title: String(
+                    localized: "chat.permission.deny",
+                    defaultValue: "Deny",
+                    bundle: .module
+                ),
+                index: 1,
+                filled: false,
+                accessibilityIdentifier: "ChatPermissionDeny"
+            )
+            decisionButtons = [approve, deny]
+            let decisions = UIStackView(arrangedSubviews: decisionButtons)
+            decisions.axis = .vertical
+            decisions.spacing = 8
+            content.addArrangedSubview(decisions)
         }
+
+        let card = UIView()
+        card.layer.cornerRadius = 12
+        card.layer.borderWidth = 1.5
+        card.layer.borderColor = UIColor.systemBlue.cgColor
+        content.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            content.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            content.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+        ])
+        card.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(card)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32),
+            card.topAnchor.constraint(equalTo: topAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    private var decisionButtons: some View {
-        VStack(spacing: 8) {
-            Button {
-                decide(0)
-            } label: {
-                HStack(spacing: 6) {
-                    if tappedIndex == 0 {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    }
-                    Text(
-                        String(localized: "chat.permission.approve", defaultValue: "Approve", bundle: .module)
-                    )
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(theme.accent, in: .rect(cornerRadius: 10))
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ChatPermissionApprove")
-            Button {
-                decide(1)
-            } label: {
-                Text(
-                    String(localized: "chat.permission.deny", defaultValue: "Deny", bundle: .module)
-                )
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(theme.hairline, lineWidth: 1)
-                )
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ChatPermissionDeny")
-        }
-        .disabled(tappedIndex != nil)
-        .opacity(tappedIndex == nil ? 1 : 0.6)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func subjectView(_ subject: String) -> UIView {
+        let label = UILabel()
+        label.text = subject
+        label.font = .monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
+            weight: .regular
+        )
+        label.textColor = UIColor(white: 0.88, alpha: 1)
+        label.numberOfLines = 0
+        let container = UIView()
+        container.backgroundColor = UIColor(white: 0.055, alpha: 1)
+        container.layer.cornerRadius = 6
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 5),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5),
+        ])
+        return container
+    }
+
+    private func decisionButton(
+        title: String,
+        index: Int,
+        filled: Bool,
+        accessibilityIdentifier: String
+    ) -> UIButton {
+        let button = UIButton(type: .system)
+        var configuration = filled ? UIButton.Configuration.filled() : UIButton.Configuration.bordered()
+        configuration.title = title
+        configuration.cornerStyle = .fixed
+        configuration.background.cornerRadius = 10
+        configuration.baseBackgroundColor = filled ? .systemBlue : .clear
+        configuration.baseForegroundColor = filled ? .white : .label
+        button.configuration = configuration
+        button.accessibilityIdentifier = accessibilityIdentifier
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        button.addAction(UIAction { [weak self] _ in self?.decide(index) }, for: .primaryActionTriggered)
+        return button
     }
 
     private func decide(_ index: Int) {
         guard tappedIndex == nil else { return }
         tappedIndex = index
-        #if os(iOS)
-        MobileHapticFeedback().impact(style: .medium)
-        #endif
+        for button in decisionButtons {
+            button.isEnabled = false
+            button.alpha = 0.6
+        }
+        var configuration = decisionButtons[index].configuration
+        configuration?.showsActivityIndicator = true
+        decisionButtons[index].configuration = configuration
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         actions.answerOption(index)
     }
 
-    private func receipt(resolution: ChatPermissionRequest.Resolution) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: receiptSymbolName(resolution: resolution))
-                .font(.caption2.weight(.semibold))
-                .accessibilityHidden(true)
-            Text(verbatim: "\(receiptLabel(resolution: resolution)) · \(timestamp.formatted(.dateTime.hour().minute()))")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-
-    private func receiptSymbolName(resolution: ChatPermissionRequest.Resolution) -> String {
-        switch resolution {
-        case .approved: return "checkmark"
-        case .denied: return "xmark"
-        case .expired: return "clock"
-        }
-    }
-
-    private func receiptLabel(resolution: ChatPermissionRequest.Resolution) -> String {
+    private func receiptView(
+        resolution: ChatPermissionRequest.Resolution,
+        timestamp: Date
+    ) -> UIView {
+        let symbol: String
+        let text: String
         switch resolution {
         case .approved:
-            return String(
-                localized: "chat.permission.approved", defaultValue: "Approved", bundle: .module
-            )
+            symbol = "checkmark"
+            text = String(localized: "chat.permission.approved", defaultValue: "Approved", bundle: .module)
         case .denied:
-            return String(
-                localized: "chat.permission.denied", defaultValue: "Denied", bundle: .module
-            )
+            symbol = "xmark"
+            text = String(localized: "chat.permission.denied", defaultValue: "Denied", bundle: .module)
         case .expired:
-            return String(
-                localized: "chat.permission.expired", defaultValue: "Expired", bundle: .module
-            )
+            symbol = "clock"
+            text = String(localized: "chat.permission.expired", defaultValue: "Expired", bundle: .module)
         }
+        let label = UILabel()
+        label.text = "\(text) · \(timestamp.formatted(.dateTime.hour().minute()))"
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.textColor = .secondaryLabel
+        let icon = UIImageView(image: UIImage(systemName: symbol))
+        icon.tintColor = .secondaryLabel
+        let stack = UIStackView(arrangedSubviews: [icon, label, UIView()])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 4
+        return stack
     }
 }
+
+private extension UIFont {
+    func weighted(_ weight: UIFont.Weight) -> UIFont {
+        UIFont.systemFont(ofSize: pointSize, weight: weight)
+    }
+}
+#endif

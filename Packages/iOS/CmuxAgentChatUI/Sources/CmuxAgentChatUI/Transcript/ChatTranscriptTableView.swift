@@ -498,7 +498,15 @@ private struct ChatTranscriptTableConfiguration {
                 )
             case .unsupported(let payload):
                 content = ChatUnsupportedRowView(payload: payload)
-            case .prose, .terminal, .fileEdit, .permissionRequest, .question, .attachment:
+            case .permissionRequest(let request):
+                content = ChatPermissionCardView(
+                    request: request,
+                    timestamp: snapshot.message.timestamp,
+                    actions: actions
+                )
+            case .question(let question):
+                content = ChatQuestionCardView(question: question, actions: actions)
+            case .prose, .terminal, .fileEdit, .attachment:
                 return nil
             }
             let spacing: CGFloat
