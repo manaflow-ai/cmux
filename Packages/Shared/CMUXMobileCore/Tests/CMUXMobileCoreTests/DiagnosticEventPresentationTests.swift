@@ -33,11 +33,11 @@ import Testing
             c: 42
         )
         let described = DiagnosticEventPresentation.describe(event)
-        #expect(described.name == "transportDialFailed")
+        #expect(described.name == "Transport dial failed")
         #expect(described.fields == [
-            .init(key: "transport", value: "iroh"),
-            .init(key: "failure", value: "policyUnavailable"),
-            .init(key: "attempt_id", value: "42"),
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "failure", value: "Relay policy unavailable"),
+            .init(key: "attempt", value: "42"),
         ])
     }
 
@@ -45,7 +45,7 @@ import Testing
         let retry = DiagnosticEventPresentation.describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 32_331)
         )
-        #expect(retry.fields == [.init(key: "delay_ms", value: "32331")])
+        #expect(retry.fields == [.init(key: "retry_delay", value: "32.331 seconds")])
 
         let close = DiagnosticEventPresentation.describe(
             DiagnosticEvent(
@@ -58,10 +58,10 @@ import Testing
             )
         )
         #expect(close.fields == [
-            .init(key: "app_error_code", value: "7"),
-            .init(key: "initiator", value: "timedOut"),
-            .init(key: "failure", value: "transportIdleTimedOut"),
-            .init(key: "session_id", value: "9"),
+            .init(key: "initiator", value: "Timed out"),
+            .init(key: "failure", value: "Transport idle timed out"),
+            .init(key: "application_error_code", value: "7"),
+            .init(key: "session", value: "9"),
         ])
     }
 
@@ -69,12 +69,12 @@ import Testing
         let phase = DiagnosticEventPresentation.describe(
             DiagnosticEvent(code: .appLifecycleChanged, tNanos: 1, a: DiagnosticAppLifecyclePhase.background.rawValue)
         )
-        #expect(phase.fields == [.init(key: "phase", value: "background")])
+        #expect(phase.fields == [.init(key: "phase", value: "Background")])
 
         let reachability = DiagnosticEventPresentation.describe(
             DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0)
         )
-        #expect(reachability.fields == [.init(key: "reachable", value: "false")])
+        #expect(reachability.fields == [.init(key: "network", value: "Offline")])
     }
 
     @Test func unknownRawValuesFallBackToIntegers() {
@@ -82,9 +82,140 @@ import Testing
             DiagnosticEvent(code: .transportDialFailed, tNanos: 1, a: 999, b: 998)
         )
         #expect(described.fields == [
-            .init(key: "transport", value: "999"),
-            .init(key: "failure", value: "998"),
+            .init(key: "transport", value: "Unknown transport (999)"),
+            .init(key: "failure", value: "Unknown failure (998)"),
         ])
+    }
+
+    @Test func everyEventCodeHasAReadableTitle() {
+        let expected: [DiagnosticEventCode: String] = [
+            .connect: "Connection attempt started",
+            .pairOk: "Pairing succeeded",
+            .pairFail: "Pairing failed",
+            .renderGridLag: "Render grid lagged",
+            .livenessResubscribe: "Silent event stream resubscribed",
+            .streamEnded: "Event stream ended",
+            .inputSeqBehind: "Terminal input acknowledgements fell behind",
+            .byteGap: "Terminal byte gap detected",
+            .error: "Unclassified transport error",
+            .pairUnreachable: "Pairing skipped while offline",
+            .composerPresentedChanged: "Composer visibility changed",
+            .composerInputTextChanged: "Composer draft changed",
+            .composerViewAppear: "Composer appeared",
+            .composerViewDisappear: "Composer disappeared",
+            .composerFieldFocusChanged: "Composer focus changed",
+            .composerActiveTransition: "Composer activation changed",
+            .composerKeyboardToggleWhilePresented: "Keyboard toggled while composer was open",
+            .transportDialStarted: "Transport dial started",
+            .transportDialConnected: "Transport connected",
+            .transportDialFailed: "Transport dial failed",
+            .hostAuthenticated: "Host authenticated",
+            .rpcReady: "RPC session ready",
+            .recoveryStarted: "Connection recovery started",
+            .recoverySucceeded: "Connection recovery succeeded",
+            .recoveryFailed: "Connection recovery failed",
+            .endpointStarting: "Iroh endpoint starting",
+            .endpointActive: "Iroh endpoint active",
+            .endpointStopped: "Iroh endpoint stopped",
+            .endpointFailed: "Iroh endpoint failed",
+            .relayPolicyRefreshStarted: "Relay policy refresh started",
+            .relayPolicyRefreshSucceeded: "Relay policy refreshed",
+            .relayPolicyRefreshFailed: "Relay policy refresh failed",
+            .selectedPathChanged: "Selected network path changed",
+            .sessionClosed: "Transport session closed",
+            .routeUnavailable: "No usable transport route",
+            .retryScheduled: "Retry scheduled",
+            .discoveryStarted: "Iroh route discovery started",
+            .discoverySucceeded: "Iroh route discovery succeeded",
+            .discoveryFailed: "Iroh route discovery failed",
+            .admissionSucceeded: "Client admitted",
+            .admissionFailed: "Client admission failed",
+            .hostAuthenticationFailed: "Host authentication failed",
+            .rpcFailed: "RPC session failed",
+            .transportSessionLifecycle: "Transport session state changed",
+            .appLifecycleChanged: "App lifecycle changed",
+            .reachabilityChanged: "Network reachability changed",
+            .transportCloseAttribution: "Transport close attributed",
+            .transportPathEvent: "Transport path changed",
+        ]
+
+        #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
+        for code in DiagnosticEventCode.allCases {
+            #expect(
+                DiagnosticEventPresentation.describe(
+                    DiagnosticEvent(code: code, tNanos: 1)
+                ).name == expected[code]
+            )
+        }
+    }
+
+    @Test func decodesEveryStructuredPayloadIntoSemanticFields() {
+        let recovery = DiagnosticEventPresentation.describe(DiagnosticEvent(
+            code: .recoveryStarted,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 1
+        ))
+        #expect(recovery.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "trigger", value: "Network changed"),
+        ])
+
+        let endpoint = DiagnosticEventPresentation.describe(DiagnosticEvent(
+            code: .endpointFailed,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.endpointUnavailable.rawValue
+        ))
+        #expect(endpoint.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "failure", value: "Iroh endpoint unavailable"),
+        ])
+
+        let session = DiagnosticEventPresentation.describe(DiagnosticEvent(
+            code: .transportSessionLifecycle,
+            tNanos: 1,
+            a: DiagnosticSessionLifecycleKind.established.rawValue,
+            b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+            c: 12
+        ))
+        #expect(session.fields == [
+            .init(key: "state", value: "Established"),
+            .init(key: "purpose", value: "Foreground control"),
+            .init(key: "session", value: "12"),
+        ])
+
+        let composer = DiagnosticEventPresentation.describe(DiagnosticEvent(
+            code: .composerActiveTransition,
+            tNanos: 1,
+            ms: 300,
+            a: 1,
+            b: InputResponderIdentity.uiTextField.rawValue,
+            c: 0
+        ))
+        #expect(composer.fields == [
+            .init(key: "composer_active", value: "Yes"),
+            .init(key: "first_responder", value: "Text field"),
+            .init(key: "keyboard_height", value: "300 points"),
+            .init(key: "terminal_input_focused", value: "No"),
+        ])
+
+        let input = DiagnosticEventPresentation.describe(DiagnosticEvent(
+            code: .inputSeqBehind,
+            tNanos: 1,
+            surface: 7,
+            a: 10,
+            b: 20
+        ))
+        #expect(input.fields == [
+            .init(key: "surface", value: "7"),
+            .init(key: "local_sequence", value: "10"),
+            .init(key: "remote_sequence", value: "20"),
+        ])
+
+        for described in [recovery, endpoint, session, composer, input] {
+            #expect(!described.fields.contains { ["a", "b", "c", "ms"].contains($0.key) })
+        }
     }
 
     @Test func extractsFailureAndTransportKinds() {

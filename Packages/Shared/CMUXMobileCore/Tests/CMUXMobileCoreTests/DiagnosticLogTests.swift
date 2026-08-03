@@ -49,29 +49,44 @@ import os
         let log = DiagnosticLog(
             capacity: 16,
             buildStamp: "cmux DEV test",
+            role: .mobileClient,
             anchorWallNanos: 1_700_000_000_000_000_000,
             anchorMonotonicNanos: 500
         )
-        log.record(DiagnosticEvent(code: .connect, tNanos: 1_000))
-        log.record(DiagnosticEvent(code: .pairOk, tNanos: 2_000, ms: 250))
-        log.record(DiagnosticEvent(code: .inputSeqBehind, tNanos: 3_000, surface: 7, a: 10, b: 20))
+        log.record(DiagnosticEvent(code: .connect, tNanos: 500))
+        log.record(DiagnosticEvent(code: .pairOk, tNanos: 250_000_500, ms: 250))
+        log.record(DiagnosticEvent(
+            code: .inputSeqBehind,
+            tNanos: 500_000_500,
+            surface: 7,
+            a: 10,
+            b: 20
+        ))
         await waitForProcessed(log, 3)
 
-        let blob = await log.export()
-        let text = String(decoding: blob, as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let report = await log.snapshot(
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        #expect(text == """
+        cmux Iroh and transport report
+        Report format: 2
+        Generated: 2023-11-14 22:13:21.000 UTC
+        Source: iOS client
+        Build: cmux DEV test
+        Event count: 3
 
-        // Header: version, anchors, count, build stamp.
-        #expect(lines[0].hasPrefix("cmuxdiag v1"))
-        #expect(lines[0].contains("anchorWallNs=1700000000000000000"))
-        #expect(lines[0].contains("anchorMonoNs=500"))
-        #expect(lines[0].contains("count=3"))
-        #expect(lines[0].contains("build=cmux DEV test"))
+        Timeline (oldest first)
+        2023-11-14 22:13:20.000 UTC | Connection attempt started
+        2023-11-14 22:13:20.250 UTC | Pairing succeeded (Duration: 250 ms)
+        2023-11-14 22:13:20.500 UTC | Terminal input acknowledgements fell behind (Surface: 7, Local sequence: 10, Remote sequence: 20)
 
-        // One compact row per event: tNanos,code,surface,ms,a,b,c (absent = empty).
-        #expect(lines[1] == "1000,1,,,,,")
-        #expect(lines[2] == "2000,2,,250,,,")
-        #expect(lines[3] == "3000,7,7,,10,20,")
+        """)
+
+        let liveText = String(decoding: await log.export(), as: UTF8.self)
+        #expect(liveText.contains("Connection attempt started"))
+        #expect(!liveText.contains("anchorWallNs"))
+        #expect(!liveText.contains("500,1,,,,,"))
     }
 
     @Test func duplicateSelectedPathNotificationsDoNotExportFalseChanges() async {
@@ -131,17 +146,8 @@ import os
         }
         #expect(await log.count() == 3)
 
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let rows = text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .dropFirst()
-            .filter { !$0.isEmpty }
-            .map(String.init)
-        #expect(rows.count == 3)
         // Oldest (tNanos 0,1,2) evicted; newest (3,4,5) retained, in order.
-        #expect(rows[0].hasPrefix("3,"))
-        #expect(rows[1].hasPrefix("4,"))
-        #expect(rows[2].hasPrefix("5,"))
+        #expect(await log.snapshot().events.map(\.tNanos) == [3, 4, 5])
     }
 
     @Test func recordIsNonBlockingUnderBurst() async {
@@ -179,30 +185,44 @@ import os
         }
         #expect(await log.count() == capacity)
 
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let rows = text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .dropFirst()
-            .filter { !$0.isEmpty }
-            .map(String.init)
-        #expect(rows.count == capacity)
         // Newest `capacity` events are tNanos 9,10,11,12, in order.
-        #expect(rows[0].hasPrefix("9,"))
-        #expect(rows[1].hasPrefix("10,"))
-        #expect(rows[2].hasPrefix("11,"))
-        #expect(rows[3].hasPrefix("12,"))
+        #expect(await log.snapshot().events.map(\.tNanos) == [9, 10, 11, 12])
     }
 
     @Test func exportOnEmptyLogHasHeaderOnly() async {
-        let log = DiagnosticLog(capacity: 8)
-        let text = String(decoding: await log.export(), as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        #expect(lines[0].hasPrefix("cmuxdiag v1"))
-        #expect(lines[0].contains("count=0"))
-        // No build stamp segment when empty default was used.
-        #expect(!lines[0].contains("build="))
-        // Nothing after the header but the trailing newline split.
-        #expect(lines.filter { !$0.isEmpty }.count == 1)
+        let report = DiagnosticReport(
+            role: .unspecified,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        #expect(text == """
+        cmux Iroh and transport report
+        Report format: 2
+        Generated: 2023-11-14 22:13:21.000 UTC
+        Source: Unspecified runtime
+        Event count: 0
+
+        Timeline (oldest first)
+        No events recorded.
+
+        """)
+        #expect(!text.contains("anchorWallNs"))
+        #expect(!text.contains("anchorMonoNs"))
+    }
+
+    @Test func exportUsesReadableRelativeTimesWithoutAWallClockAnchor() {
+        let report = DiagnosticReport(
+            role: .macHost,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            events: [
+                DiagnosticEvent(code: .endpointStarting, tNanos: 5_000),
+                DiagnosticEvent(code: .endpointActive, tNanos: 250_005_000),
+            ]
+        )
+
+        let text = String(decoding: report.compactExport(), as: UTF8.self)
+        #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
+        #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
     }
 
     @Test func transportDiagnosticCodesAreStableAndAppendOnly() {

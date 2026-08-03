@@ -29,6 +29,10 @@ import Testing
         #expect(incident?.kind == .failure)
         #expect(incident?.severity == .warning)
         #expect(incident?.signature == "transportDialFailed/policyUnavailable/iroh")
+        #expect(
+            incident?.title
+                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+        )
         #expect(incident?.coalescedCount == 1)
         #expect(incident?.consecutiveFailures == 1)
     }
@@ -44,6 +48,10 @@ import Testing
         #expect(recapture != nil)
         #expect(recapture?.coalescedCount == 3)
         #expect(recapture?.secondsSinceFirstCoalesced == 680)
+        #expect(
+            recapture?.title
+                == "Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1) (3 occurrences)"
+        )
     }
 
     @Test func distinctSignaturesCaptureIndependently() {
@@ -140,6 +148,10 @@ import Testing
         #expect(outage?.severity == .error)
         #expect(outage?.signature == "transport-outage")
         #expect(outage?.consecutiveFailures == 5)
+        #expect(
+            outage?.title
+                == "Transport outage: 5 consecutive failures over 60 seconds. Latest: Transport dial failed (Transport: Iroh, Failure: Relay policy unavailable, Attempt: 1)"
+        )
 
         // While the outage is armed-off, further failures stay quiet.
         #expect(policy.decide(dialFailed(at: 80)) == nil)
