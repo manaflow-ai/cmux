@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import CmuxCanvas
 
 /// Command+scroll canvas panning and the one-time discovery hint that teaches
@@ -110,10 +109,11 @@ extension CanvasRootView {
         guard !Self.didShowCommandScrollHintThisSession else { return }
         guard commandScrollHintHost == nil else { return }
         commandScrollHintTask?.cancel()
-        commandScrollHintTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+        commandScrollHintTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await runtimeClock.sleep(.seconds(1.2))
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.presentCommandScrollHint() }
+            presentCommandScrollHint()
         }
     }
 
@@ -134,9 +134,7 @@ extension CanvasRootView {
             Self.didShowCommandScrollHintThisSession = true
         }
 
-        let host = NSHostingView(rootView: CanvasCommandScrollHint(text: commandScrollHintText))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        host.wantsLayer = true
+        let host = CanvasCommandScrollHint(text: commandScrollHintText)
         addSubview(host, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
             host.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -145,10 +143,11 @@ extension CanvasRootView {
         commandScrollHintHost = host
 
         // Auto-dismiss after a few seconds (cancellable, lifecycle-tied).
-        commandScrollHintTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_400_000_000)
+        commandScrollHintTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await runtimeClock.sleep(.seconds(3.4))
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.dismissCommandScrollHint() }
+            dismissCommandScrollHint()
         }
     }
 

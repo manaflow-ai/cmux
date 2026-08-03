@@ -2,7 +2,7 @@ public import AppKit
 
 /// A value snapshot describing one panel the canvas should display.
 ///
-/// Built by the host's SwiftUI container on every update pass, one per
+/// Built by the host container on every update pass, one per
 /// panel; the canvas root view groups descriptors into panes using the
 /// model's tab state and diffs against its current pane views, so host
 /// state changes flow into AppKit without the canvas observing any store.

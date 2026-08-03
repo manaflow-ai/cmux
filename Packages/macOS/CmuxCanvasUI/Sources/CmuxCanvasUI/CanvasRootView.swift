@@ -1,12 +1,11 @@
 public import AppKit
-import SwiftUI
 import CmuxCanvas
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
 ///
-/// The host's SwiftUI layer feeds it value snapshots (`CanvasPaneDescriptor`)
-/// through `sync`; all durable geometry lives in ``CanvasModel``. Panel
+/// The host feeds it value snapshots (`CanvasPaneDescriptor`) through `sync`;
+/// all durable geometry lives in ``CanvasModel``. Panel
 /// content and theming stay host-owned behind ``CanvasPaneContentMounting``
 /// and ``CanvasTheme``.
 @MainActor
@@ -15,6 +14,7 @@ public final class CanvasRootView: NSView {
     let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
     let minimapAutoHideScheduler: CanvasMinimapAutoHideScheduler
+    let runtimeClock: CanvasMinimapAutoHideClock
     /// Pre-localized text for the Command+scroll discovery hint.
     let commandScrollHintText: String
     let scrollView: CanvasScrollView
@@ -47,7 +47,7 @@ public final class CanvasRootView: NSView {
     /// One-per-session throttle for the Command+scroll discovery hint.
     static var didShowCommandScrollHintThisSession = false
     var commandScrollHintTask: Task<Void, Never>?
-    var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
+    var commandScrollHintHost: CanvasCommandScrollHint?
     /// A saved viewport waiting for contentSize to settle. Cleared when applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
     var isDiscreteZoomAnimationActive = false
@@ -83,6 +83,7 @@ public final class CanvasRootView: NSView {
         self.commandScrollHintText = commandScrollHintText
         self.themeProvider = themeProvider
         self.minimapAutoHideScheduler = CanvasMinimapAutoHideScheduler(clock: minimapClock)
+        self.runtimeClock = CanvasMinimapAutoHideClock(minimapClock)
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
         applyTheme()

@@ -6,8 +6,9 @@ import Observation
 ///
 /// `UpdateStateModel` holds the current ``UpdateState`` (plus an optional `overrideState` used
 /// by debug tooling), the most recently detected background update, and a set of derived,
-/// localized display strings the UI renders. It is observed directly by SwiftUI via the
-/// Observation framework; appearance (color) derivations live in the `CmuxUpdaterUI` package.
+/// localized display strings the UI renders. Native UI observes ``presentationRevision`` and
+/// reads the current presentation state on the main actor; appearance derivations live in the
+/// `CmuxUpdaterUI` package.
 ///
 /// State transitions funnel through ``setState(_:)`` / ``setOverrideState(_:)`` (and the
 /// higher-level mutators), which both apply the change and emit on the ``stateChanges()``
@@ -28,6 +29,12 @@ public final class UpdateStateModel {
     public private(set) var detectedUpdateVersion: String?
     /// The appcast item for the most recently detected background update, if any.
     public private(set) var detectedUpdateItem: SUAppcastItem?
+    /// Monotonic invalidation token for native presentation observers.
+    ///
+    /// The token is `Sendable`, so macOS 26 clients can consume it through the transactional
+    /// `Observations` async sequence without moving callback-bearing ``UpdateState`` values
+    /// across an actor boundary.
+    public private(set) var presentationRevision: UInt64 = 0
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -99,6 +106,7 @@ public final class UpdateStateModel {
     }
 
     private func notifyStateChanged() {
+        presentationRevision &+= 1
         appendPendingChange(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
@@ -163,12 +171,14 @@ public final class UpdateStateModel {
         let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
         detectedUpdateItem = version == nil ? nil : item
         detectedUpdateVersion = version
+        presentationRevision &+= 1
     }
 
     /// Clears any detected background update.
     public func clearDetectedUpdate() {
         detectedUpdateItem = nil
         detectedUpdateVersion = nil
+        presentationRevision &+= 1
     }
 
     #if DEBUG
@@ -177,6 +187,7 @@ public final class UpdateStateModel {
     public func debugSetDetectedVersion(_ version: String?) {
         detectedUpdateItem = nil
         detectedUpdateVersion = version
+        presentationRevision &+= 1
     }
 
     /// Overrides the state with a synthetic error so the matching error popover can be previewed

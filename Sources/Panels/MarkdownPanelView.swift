@@ -6,12 +6,11 @@ import WebKit
 /// SwiftUI view that renders a MarkdownPanel's content in a WKWebView using
 /// marked.js + github-markdown-css + highlight.js.
 ///
-/// We render through a web view (rather than the previous MarkdownUI path)
-/// so that:
+/// We render through a web view so that:
 ///   - Native browser text selection works across the entire document
 ///     (Cmd+A / drag-select span paragraphs, headings, code blocks, etc.).
-///     MarkdownUI rendered each block as an isolated SwiftUI `Text`, which
-///     made it impossible to select more than one block at a time.
+///     The previous renderer isolated each block, which made it impossible to
+///     select more than one block at a time.
 ///   - Rendering uses GitHub's actual markdown CSS, so tables, task lists,
 ///     nested lists, blockquotes, and code blocks look identical to what
 ///     users see on github.com.

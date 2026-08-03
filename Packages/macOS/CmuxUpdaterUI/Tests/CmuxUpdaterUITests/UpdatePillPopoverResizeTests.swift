@@ -1,66 +1,40 @@
 import AppKit
-import SwiftUI
+import CmuxUpdater
 import Testing
 @testable import CmuxUpdaterUI
 
 @MainActor
-@Suite("Update pill popover resize", .serialized)
+@Suite("Update popover native sizing", .serialized)
 struct UpdatePillPopoverResizeTests {
-    @Test("Visible content refresh does not resize the popover synchronously")
-    func visibleContentRefreshDoesNotResizeSynchronously() async {
-        var isPresented = true
-        let popover = VisibleRecordingPopover()
-        popover.animates = true
-        let coordinator = UpdatePillPopoverAnchor.Coordinator(
-            isPresented: Binding(
-                get: { isPresented },
-                set: { isPresented = $0 }
-            )
+    @Test("A state transition recomputes native popover content size")
+    func stateTransitionRecomputesContentSize() async {
+        let model = UpdateStateModel()
+        model.setState(.checking(.init(cancel: {})))
+        let controller = UpdatePopoverViewController(
+            model: model,
+            actions: TestUpdateActionsHost()
         )
-        coordinator.popover = popover
+        let checkingSize = controller.preferredContentSize
 
-        coordinator.updateRootView(popoverContent(width: 180, height: 80))
+        model.setState(.error(.init(
+            error: NSError(domain: "test.update", code: 1),
+            retry: {},
+            dismiss: {},
+            technicalDetails: String(repeating: "Details ", count: 20),
+            feedURLString: nil
+        )))
         await Task.yield()
-        #expect(popover.isShown)
-        #expect(popover.animates)
-        popover.resetRecordedAssignments()
 
-        coordinator.updateRootView(popoverContent(width: 360, height: 240))
-
-        #expect(
-            popover.assignedSizes.isEmpty,
-            "A visible representable update must return before changing NSPopover.contentSize"
-        )
-        await Task.yield()
-        #expect(popover.assignedSizes == [NSSize(width: 360, height: 240)])
-    }
-
-    private func popoverContent(width: CGFloat, height: CGFloat) -> AnyView {
-        AnyView(
-            Color.clear
-                .frame(width: width, height: height)
-                .fixedSize()
-        )
+        #expect(checkingSize.width == 300)
+        #expect(controller.preferredContentSize.width == 300)
+        #expect(controller.preferredContentSize.height > checkingSize.height)
     }
 }
 
 @MainActor
-/// Supplies shown-popover state without requiring a WindowServer and records the real AppKit mutation boundary.
-private final class VisibleRecordingPopover: NSPopover {
-    private var storedContentSize = NSSize.zero
-    private(set) var assignedSizes: [NSSize] = []
+private final class TestUpdateActionsHost: UpdateActionsHost {
+    let updateLogPath = "/tmp/cmux-update-test.log"
 
-    override var isShown: Bool { true }
-
-    override var contentSize: NSSize {
-        get { storedContentSize }
-        set {
-            storedContentSize = newValue
-            assignedSizes.append(newValue)
-        }
-    }
-
-    func resetRecordedAssignments() {
-        assignedSizes.removeAll()
-    }
+    func checkForUpdatesInCustomUI() {}
+    func attemptUpdate() {}
 }

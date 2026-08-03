@@ -1,94 +1,146 @@
-public import SwiftUI
+public import AppKit
 public import CmuxUpdater
+import QuartzCore
 
-/// A badge view that displays the current state of an update operation (icon, progress ring,
-/// or loading spinner) for the update pill.
-public struct UpdateBadge: View {
-    private let model: UpdateStateModel
-    private let appearance: UpdateAppearance
-
-    /// Creates a badge for `model`, using `appearance` for the loading-spinner tint.
-    public init(model: UpdateStateModel, appearance: UpdateAppearance) {
-        self.model = model
-        self.appearance = appearance
+/// Native badge showing the current update phase as a symbol, progress ring, or spinner.
+@MainActor
+public final class UpdateBadgeView: NSView {
+    private enum Content: Equatable {
+        case none
+        case symbol(String)
+        case progress(Double)
+        case spinner
     }
 
-    public var body: some View {
-        badgeContent
-            .accessibilityLabel(model.text)
+    private let imageView = NSImageView()
+    private let trackLayer = CAShapeLayer()
+    private let progressLayer = CAShapeLayer()
+    private var content: Content = .none
+    private var tintColor: NSColor = .labelColor
+
+    /// Creates an empty update badge.
+    public init() {
+        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 14, height: 14)))
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        widthAnchor.constraint(equalToConstant: 14).isActive = true
+        heightAnchor.constraint(equalToConstant: 14).isActive = true
+
+        wantsLayer = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.imageScaling = .scaleProportionallyDown
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        layer?.addSublayer(trackLayer)
+        layer?.addSublayer(progressLayer)
+        [trackLayer, progressLayer].forEach {
+            $0.fillColor = NSColor.clear.cgColor
+            $0.lineWidth = 2
+            $0.lineCap = .round
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
     }
 
-    @ViewBuilder
-    private var badgeContent: some View {
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Applies the current model presentation.
+    public func update(model: UpdateStateModel, appearance: UpdateAppearance) {
+        tintColor = appearance.foregroundColor(for: model)
+        setAccessibilityLabel(model.text)
+
+        let nextContent: Content
         if model.showsDetectedBackgroundUpdate {
-            if let iconName = model.iconName {
-                Image(systemName: iconName)
-            }
+            nextContent = model.iconName.map(Content.symbol) ?? .none
         } else {
             switch model.effectiveState {
             case .downloading(let download):
                 if let expectedLength = download.expectedLength, expectedLength > 0 {
-                    let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
-                    ProgressRingView(progress: progress)
+                    nextContent = .progress(Self.clamp(Double(download.progress) / Double(expectedLength)))
                 } else {
-                    Image(systemName: "arrow.down.circle")
+                    nextContent = .symbol("arrow.down.circle")
                 }
-
             case .extracting(let extracting):
-                ProgressRingView(progress: min(1, max(0, extracting.progress)))
-
+                nextContent = .progress(Self.clamp(extracting.progress))
             case .preparingCheck, .checking, .startingDownload:
-                BrowserStyleLoadingSpinner(size: 14, color: appearance.foregroundColor(for: model))
-
+                nextContent = .spinner
             default:
-                if let iconName = model.iconName {
-                    Image(systemName: iconName)
-                }
+                nextContent = model.iconName.map(Content.symbol) ?? .none
             }
         }
+
+        content = nextContent
+        applyContent()
+        needsLayout = true
     }
-}
 
-private struct ProgressRingView: View {
-    let progress: Double
-    let lineWidth: CGFloat = 2
+    public override func layout() {
+        super.layout()
+        let diameter = min(bounds.width, bounds.height) - 2
+        let ringRect = NSRect(
+            x: bounds.midX - diameter / 2,
+            y: bounds.midY - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        let path = CGPath(ellipseIn: ringRect, transform: nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        trackLayer.frame = bounds
+        progressLayer.frame = bounds
+        trackLayer.path = path
+        progressLayer.path = path
+        CATransaction.commit()
+    }
 
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.2), lineWidth: lineWidth)
+    private func applyContent() {
+        progressLayer.removeAnimation(forKey: "cmux.update.spinner")
+        imageView.isHidden = true
+        trackLayer.isHidden = true
+        progressLayer.isHidden = true
 
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.primary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.2), value: progress)
+        switch content {
+        case .none:
+            return
+        case .symbol(let name):
+            imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            imageView.contentTintColor = tintColor
+            imageView.isHidden = false
+        case .progress(let progress):
+            configureRing(progress: progress)
+        case .spinner:
+            configureRing(progress: 0.28)
+            let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+            rotation.fromValue = 0
+            rotation.toValue = Double.pi * 2
+            rotation.duration = 0.9
+            rotation.repeatCount = .infinity
+            rotation.isRemovedOnCompletion = false
+            progressLayer.add(rotation, forKey: "cmux.update.spinner")
         }
     }
-}
 
-private struct BrowserStyleLoadingSpinner: View {
-    let size: CGFloat
-    let color: Color
-
-    var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let angle = (t.truncatingRemainder(dividingBy: 0.9) / 0.9) * 360.0
-
-            ZStack {
-                Circle()
-                    .stroke(color.opacity(0.20), lineWidth: ringWidth)
-                Circle()
-                    .trim(from: 0.0, to: 0.28)
-                    .stroke(color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
-                    .rotationEffect(.degrees(angle))
-            }
-            .frame(width: size, height: size)
-        }
+    private func configureRing(progress: Double) {
+        trackLayer.strokeColor = tintColor.withAlphaComponent(0.2).cgColor
+        progressLayer.strokeColor = tintColor.cgColor
+        progressLayer.strokeStart = 0
+        progressLayer.strokeEnd = Self.clamp(progress)
+        trackLayer.isHidden = false
+        progressLayer.isHidden = false
+        progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
-    private var ringWidth: CGFloat {
-        max(1.6, size * 0.14)
+    private static func clamp(_ value: Double) -> Double {
+        min(1, max(0, value))
     }
 }

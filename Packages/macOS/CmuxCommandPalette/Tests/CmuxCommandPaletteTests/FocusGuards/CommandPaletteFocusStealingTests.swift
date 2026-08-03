@@ -11,7 +11,7 @@ private final class FocusStealingSurfaceView: NSView, FocusStealingResponder {}
 /// A view that is not a focus stealer (mirrors ordinary chrome / overlay views).
 private final class UnrelatedView: NSView {}
 
-/// A non-view text delegate (SwiftUI can attach one to field editors).
+/// A non-view text delegate that can be attached to field editors.
 private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
 
 @MainActor

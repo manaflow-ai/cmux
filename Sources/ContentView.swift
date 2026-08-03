@@ -46,6 +46,14 @@ private final class CommandPaletteOverlayContainerView: NSView {
     }
 }
 
+private struct NativeCommandPalettePanelHitRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> CommandPalettePanelHitRegionView {
+        CommandPalettePanelHitRegionView(frame: .zero)
+    }
+
+    func updateNSView(_ view: CommandPalettePanelHitRegionView, context: Context) {}
+}
+
 #if DEBUG
 private func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
     guard let window else { return "nil" }
@@ -3661,7 +3669,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(width: targetWidth)
-                .background(CommandPalettePanelHitRegion())
+                .background(NativeCommandPalettePanelHitRegion())
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
@@ -14696,10 +14704,23 @@ struct SidebarFooterButtons: View {
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+                NativeUpdatePillBridge(model: updateViewModel, actions: updateActionsHost)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct NativeUpdatePillBridge: NSViewRepresentable {
+    let model: UpdateStateModel
+    let actions: any UpdateActionsHost
+
+    func makeNSView(context: Context) -> UpdatePillView {
+        UpdatePillView(model: model, accent: cmuxAccentNSColor(), actions: actions)
+    }
+
+    func updateNSView(_ view: UpdatePillView, context: Context) {
+        view.setAccentColor(cmuxAccentNSColor())
     }
 }
 

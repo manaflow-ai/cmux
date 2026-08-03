@@ -1,9 +1,9 @@
 /// The host-application update actions the update pill and popover invoke, plus the log path
 /// surfaced in error details.
 ///
-/// This is the dependency-inversion seam between the update UI and the app: the views call up
+/// This is the dependency-inversion seam between the update UI and the app: native controls call up
 /// through this protocol instead of reaching `AppDelegate` directly. The app's delegate
-/// conforms and is passed into ``UpdatePill``.
+/// conforms and is passed into ``UpdatePillView``.
 @MainActor
 public protocol UpdateActionsHost: AnyObject {
     /// Start a user-initiated check using the custom popover UI (the pill's primary action when

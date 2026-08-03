@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import CmuxCanvas
 
 /// Delegate through which a pane view reports gestures to the canvas root.
@@ -28,7 +27,7 @@ final class CanvasPaneView: NSView {
     /// The container the panel content view is mounted into.
     let contentContainer = NSView()
 
-    private let titleBarHost: NSHostingView<CanvasPaneTitleBarView>
+    private let titleBarHost: CanvasPaneTitleBarView
     private var chrome = CanvasPaneChrome(
         tabs: [],
         selectedTabId: nil,
@@ -38,7 +37,7 @@ final class CanvasPaneView: NSView {
     private var activeDragRegion: CanvasPaneHitRegion?
     private var dragStartedMoving = false
     private var dragStartDocumentPoint: CGPoint = .zero
-    /// Tab/close hit rects in tab-bar coordinates, reported by SwiftUI.
+    /// Tab and close hit rectangles in title-bar coordinates.
     private var tabHitRegions = CanvasTabHitRegions()
     private var tabOrder: [UUID] = []
     private var hoveredTabId: UUID?
@@ -47,8 +46,7 @@ final class CanvasPaneView: NSView {
     /// no drag started.
     private var pendingTabClick: (panelId: UUID, isClose: Bool)?
     /// Horizontal tab-strip scroll offset and the measured content width,
-    /// used to scroll overflowing tabs (the pane view owns the title-bar's
-    /// scroll events, so a SwiftUI ScrollView can't be used).
+    /// used to scroll overflowing tabs.
     private var tabScrollOffset: CGFloat = 0
     private var tabContentWidth: CGFloat = 0
 
@@ -69,15 +67,23 @@ final class CanvasPaneView: NSView {
 
     init(paneID: CanvasPaneID) {
         self.paneID = paneID
-        self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
+        self.titleBarHost = CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
             barBackground: .windowBackgroundColor,
             hoveredTabId: nil,
             scrollOffset: 0,
             onHitRegionsChanged: { _ in },
             onContentWidthChanged: { _ in }
-        ))
+        )
         super.init(frame: .zero)
+        titleBarHost.onHitRegionsChanged = { [weak self] regions in
+            self?.tabHitRegions = regions
+        }
+        titleBarHost.onContentWidthChanged = { [weak self] width in
+            guard let self, self.tabContentWidth != width else { return }
+            self.tabContentWidth = width
+            self.clampTabScrollOffset()
+        }
 
         wantsLayer = true
         layer?.cornerRadius = Self.cornerRadius
@@ -124,19 +130,11 @@ final class CanvasPaneView: NSView {
     }
 
     private func rebuildTitleBar() {
-        titleBarHost.rootView = CanvasPaneTitleBarView(
+        titleBarHost.update(
             chrome: chrome,
             barBackground: paneBackground,
             hoveredTabId: hoveredTabId,
-            scrollOffset: tabScrollOffset,
-            onHitRegionsChanged: { [weak self] regions in
-                self?.tabHitRegions = regions
-            },
-            onContentWidthChanged: { [weak self] width in
-                guard let self, self.tabContentWidth != width else { return }
-                self.tabContentWidth = width
-                self.clampTabScrollOffset()
-            }
+            scrollOffset: tabScrollOffset
         )
         applyChromeColors()
     }
@@ -280,8 +278,7 @@ final class CanvasPaneView: NSView {
 
     /// The pane owns every event over the resize rim AND the tab bar: drags
     /// stay on the fast AppKit path and tab clicks resolve deterministically
-    /// against the reported hit regions (SwiftUI gesture recognizers fought
-    /// drags and swallowed close clicks).
+    /// against the native title bar's reported hit regions.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let result = super.hitTest(point)
         guard result != nil, result !== self else { return result }

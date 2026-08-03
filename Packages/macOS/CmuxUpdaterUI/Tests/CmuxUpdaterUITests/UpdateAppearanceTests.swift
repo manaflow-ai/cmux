@@ -1,4 +1,4 @@
-import SwiftUI
+import AppKit
 import Testing
 @testable import CmuxUpdater
 @testable import CmuxUpdaterUI
@@ -12,8 +12,8 @@ import Testing
     @Test func idleUsesNeutralColors() {
         let model = UpdateStateModel()
         let appearance = UpdateAppearance(accent: .red)
-        #expect(appearance.foregroundColor(for: model) == .primary)
-        #expect(appearance.iconColor(for: model) == .secondary)
+        #expect(appearance.foregroundColor(for: model) == .labelColor)
+        #expect(appearance.iconColor(for: model) == .secondaryLabelColor)
     }
 
     @Test func notFoundUsesWhiteForeground() {

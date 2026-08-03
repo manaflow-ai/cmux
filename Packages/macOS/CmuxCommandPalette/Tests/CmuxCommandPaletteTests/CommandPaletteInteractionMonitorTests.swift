@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import Testing
 @testable import CmuxCommandPalette
 
@@ -43,8 +42,7 @@ struct CommandPaletteInteractionMonitorTests {
         underlyingView.addSubview(overlayView)
 
         let panelFrame = NSRect(x: 100, y: 100, width: 200, height: 100)
-        let panelMarker = NSHostingView(rootView: CommandPalettePanelHitRegion())
-        panelMarker.frame = panelFrame
+        let panelMarker = CommandPalettePanelHitRegionView(frame: panelFrame)
         overlayView.addSubview(panelMarker)
         overlayView.layoutSubtreeIfNeeded()
         let panelCenter = NSPoint(x: panelFrame.midX, y: panelFrame.midY)
