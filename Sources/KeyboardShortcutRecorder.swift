@@ -1,176 +1,218 @@
 import CmuxFoundation
 import AppKit
-import SwiftUI
 
-/// View for recording a keyboard shortcut
-struct KeyboardShortcutRecorder: View {
-    let label: String
-    var subtitle: String? = nil
-    @Binding var shortcut: StoredShortcut
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
-    var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
-        .accepted($0)
-    }
-    var validationMessage: String? = nil
-    var validationButtonTitle: String? = nil
-    var onValidationButtonPressed: (() -> Void)? = nil
-    var undoButtonTitle: String? = nil
-    var onUndoButtonPressed: (() -> Void)? = nil
-    var hasPendingRejection: Bool = false
-    var isDisabled: Bool = false
-    var firstStrokeRequiresModifier: Bool = true
-    var onRecordingChanged: (Bool) -> Void = { _ in }
-    var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
-    @State private var isRecording = false
-    @State private var restoreShortcut: StoredShortcut?
+@MainActor
+final class KeyboardShortcutRecorderNativeView: NSView {
+    private let titleField = NSTextField(labelWithString: "")
+    private let subtitleField = NSTextField(labelWithString: "")
+    private let recorderButton = ShortcutRecorderNSButton()
+    private let clearRestoreButton = NSButton()
+    private let validationContainer = NSView()
+    private let validationMessageField = NSTextField(wrappingLabelWithString: "")
+    private let validationButton = NSButton()
+    private let undoButton = NSButton()
+    private var shortcut = StoredShortcut.unbound
+    private var restoreShortcut: StoredShortcut?
+    private var onShortcutChanged: (StoredShortcut) -> Void = { _ in }
+    private var onValidationButtonPressed: (() -> Void)?
+    private var onUndoButtonPressed: (() -> Void)?
+    private var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
+    private var isDisabled = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                    if let subtitle {
-                        Text(subtitle)
-                            .cmuxFont(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                ShortcutRecorderButton(
-                    shortcut: $shortcut,
-                    isRecording: $isRecording,
-                    hasPendingRejection: hasPendingRejection,
-                    firstStrokeRequiresModifier: firstStrokeRequiresModifier,
-                    displayString: displayString,
-                    transformRecordedShortcut: transformRecordedShortcut,
-                    onRecordingChanged: onRecordingChanged,
-                    onRecorderFeedbackChanged: onRecorderFeedbackChanged
-                )
-                    .frame(width: 160)
-                    .disabled(isDisabled)
-
-                let canRestoreShortcut = shortcut.isUnbound && restoreShortcut != nil
-                Button {
-                    KeyboardShortcutRecorderActivity.stopAllRecording()
-
-                    if canRestoreShortcut, let restoreShortcut {
-                        shortcut = restoreShortcut
-                        self.restoreShortcut = nil
-                    } else if !shortcut.isUnbound {
-                        restoreShortcut = shortcut
-                        shortcut = .unbound
-                    }
-
-                    onRecorderFeedbackChanged(nil)
-                } label: {
-                    Image(systemName: canRestoreShortcut ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill")
-                        .imageScale(.medium)
-                }
-                .buttonStyle(.borderless)
-                .disabled(isDisabled || (shortcut.isUnbound && restoreShortcut == nil))
-                .safeHelp(
-                    canRestoreShortcut
-                        ? String(localized: "shortcut.recorder.restore.help", defaultValue: "Restore previous shortcut")
-                        : String(localized: "shortcut.recorder.clear.help", defaultValue: "Unbind shortcut")
-                )
-                .accessibilityLabel(
-                    canRestoreShortcut
-                        ? String(localized: "shortcut.recorder.restore", defaultValue: "Restore")
-                        : String(localized: "shortcut.recorder.clear", defaultValue: "Unbind")
-                )
-                .accessibilityIdentifier("ShortcutRecorderClearRestoreButton")
-            }
-
-            if let validationMessage {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .cmuxFont(.caption)
-                        .foregroundStyle(.red)
-
-                    Text(validationMessage)
-                        .cmuxFont(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if let validationButtonTitle, let onValidationButtonPressed {
-                        Button(validationButtonTitle, action: onValidationButtonPressed)
-                            .buttonStyle(.link)
-                            .cmuxFont(.caption)
-                    }
-
-                    if let undoButtonTitle, let onUndoButtonPressed {
-                        Button(undoButtonTitle, action: onUndoButtonPressed)
-                            .buttonStyle(.link)
-                            .cmuxFont(.caption)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.red.opacity(0.12))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.red.opacity(0.35), lineWidth: 1)
-                }
-                .accessibilityIdentifier("ShortcutRecorderValidationMessage")
-            }
-        }
-        .onChange(of: shortcut) { _, newValue in
-            if !newValue.isUnbound {
-                restoreShortcut = nil
-            }
-        }
-    }
-}
-
-private struct ShortcutRecorderButton: NSViewRepresentable {
-    @Binding var shortcut: StoredShortcut
-    @Binding var isRecording: Bool
-    var hasPendingRejection: Bool = false
-    var firstStrokeRequiresModifier: Bool = true
-    let displayString: (StoredShortcut) -> String
-    let transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution
-    let onRecordingChanged: (Bool) -> Void
-    let onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void
-
-    func makeNSView(context: Context) -> ShortcutRecorderNSButton {
-        let button = ShortcutRecorderNSButton()
-        button.shortcut = shortcut
-        button.displayString = displayString
-        button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        button.transformRecordedShortcut = transformRecordedShortcut
-        button.onShortcutRecorded = { newShortcut in
-            shortcut = newShortcut
-            isRecording = false
-            onRecorderFeedbackChanged(nil)
-        }
-        button.onRecordingChanged = { recording in
-            isRecording = recording
-            onRecordingChanged(recording)
-        }
-        button.onRecorderFeedbackChanged = onRecorderFeedbackChanged
-        return button
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureViews()
     }
 
-    func updateNSView(_ nsView: ShortcutRecorderNSButton, context: Context) {
-        nsView.shortcut = shortcut
-        nsView.displayString = displayString
-        nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
-        nsView.transformRecordedShortcut = transformRecordedShortcut
-        nsView.onRecordingChanged = { recording in
-            isRecording = recording
-            onRecordingChanged(recording)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        label: String,
+        subtitle: String?,
+        shortcut: StoredShortcut,
+        displayString: @escaping (StoredShortcut) -> String,
+        transformRecordedShortcut: @escaping (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution,
+        validationMessage: String?,
+        validationButtonTitle: String?,
+        onValidationButtonPressed: (() -> Void)?,
+        undoButtonTitle: String?,
+        onUndoButtonPressed: (() -> Void)?,
+        hasPendingRejection: Bool,
+        isDisabled: Bool,
+        firstStrokeRequiresModifier: Bool,
+        onShortcutChanged: @escaping (StoredShortcut) -> Void,
+        onRecordingChanged: @escaping (Bool) -> Void,
+        onRecorderFeedbackChanged: @escaping (ShortcutRecorderRejectedAttempt?) -> Void
+    ) {
+        if self.shortcut != shortcut, !shortcut.isUnbound {
+            restoreShortcut = nil
         }
-        nsView.onRecorderFeedbackChanged = onRecorderFeedbackChanged
+        self.shortcut = shortcut
+        self.isDisabled = isDisabled
+        self.onShortcutChanged = onShortcutChanged
+        self.onValidationButtonPressed = onValidationButtonPressed
+        self.onUndoButtonPressed = onUndoButtonPressed
+        self.onRecorderFeedbackChanged = onRecorderFeedbackChanged
+
+        titleField.stringValue = label
+        subtitleField.stringValue = subtitle ?? ""
+        subtitleField.isHidden = subtitle == nil
+        recorderButton.shortcut = shortcut
+        recorderButton.displayString = displayString
+        recorderButton.transformRecordedShortcut = transformRecordedShortcut
+        recorderButton.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        recorderButton.isEnabled = !isDisabled
+        recorderButton.onShortcutRecorded = { [weak self] newShortcut in
+            guard let self else { return }
+            self.shortcut = newShortcut
+            self.restoreShortcut = nil
+            self.onShortcutChanged(newShortcut)
+            self.onRecorderFeedbackChanged(nil)
+            self.updateClearRestoreButton()
+        }
+        recorderButton.onRecordingChanged = onRecordingChanged
+        recorderButton.onRecorderFeedbackChanged = onRecorderFeedbackChanged
         if !hasPendingRejection {
-            nsView.clearPendingRejection()
+            recorderButton.clearPendingRejection()
         }
-        nsView.updateTitle()
+        recorderButton.updateTitle()
+
+        validationMessageField.stringValue = validationMessage ?? ""
+        validationContainer.isHidden = validationMessage == nil
+        configureActionButton(validationButton, title: validationButtonTitle, action: onValidationButtonPressed)
+        configureActionButton(undoButton, title: undoButtonTitle, action: onUndoButtonPressed)
+        updateClearRestoreButton()
+        invalidateIntrinsicContentSize()
+    }
+
+    private func configureViews() {
+        titleField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        subtitleField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        subtitleField.textColor = .secondaryLabelColor
+        subtitleField.maximumNumberOfLines = 2
+
+        let labelStack = NSStackView(views: [titleField, subtitleField])
+        labelStack.orientation = .vertical
+        labelStack.alignment = .leading
+        labelStack.spacing = 2
+
+        recorderButton.translatesAutoresizingMaskIntoConstraints = false
+        recorderButton.widthAnchor.constraint(equalToConstant: 160).isActive = true
+
+        clearRestoreButton.isBordered = false
+        clearRestoreButton.imagePosition = .imageOnly
+        clearRestoreButton.target = self
+        clearRestoreButton.action = #selector(clearOrRestore(_:))
+        clearRestoreButton.setAccessibilityIdentifier("ShortcutRecorderClearRestoreButton")
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let topRow = NSStackView(views: [labelStack, spacer, recorderButton, clearRestoreButton])
+        topRow.orientation = .horizontal
+        topRow.alignment = .centerY
+        topRow.spacing = 12
+
+        validationContainer.wantsLayer = true
+        validationContainer.layer?.cornerRadius = 6
+        validationContainer.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.12).cgColor
+        validationContainer.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.35).cgColor
+        validationContainer.layer?.borderWidth = 1
+        validationContainer.setAccessibilityIdentifier("ShortcutRecorderValidationMessage")
+
+        let warningImage = NSImageView(image: NSImage(
+            systemSymbolName: "exclamationmark.triangle.fill",
+            accessibilityDescription: nil
+        ) ?? NSImage())
+        warningImage.contentTintColor = .systemRed
+        warningImage.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        validationMessageField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        validationMessageField.textColor = .systemRed
+        validationMessageField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let validationRow = NSStackView(views: [warningImage, validationMessageField, validationButton, undoButton])
+        validationRow.orientation = .horizontal
+        validationRow.alignment = .firstBaseline
+        validationRow.spacing = 8
+        validationRow.translatesAutoresizingMaskIntoConstraints = false
+        validationContainer.addSubview(validationRow)
+        NSLayoutConstraint.activate([
+            validationRow.leadingAnchor.constraint(equalTo: validationContainer.leadingAnchor, constant: 8),
+            validationRow.trailingAnchor.constraint(lessThanOrEqualTo: validationContainer.trailingAnchor, constant: -8),
+            validationRow.topAnchor.constraint(equalTo: validationContainer.topAnchor, constant: 6),
+            validationRow.bottomAnchor.constraint(equalTo: validationContainer.bottomAnchor, constant: -6),
+        ])
+
+        let rootStack = NSStackView(views: [topRow, validationContainer])
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.spacing = 4
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: topAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            topRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            validationContainer.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+        ])
+    }
+
+    private func configureActionButton(
+        _ button: NSButton,
+        title: String?,
+        action: (() -> Void)?
+    ) {
+        button.title = title ?? ""
+        button.isHidden = title == nil || action == nil
+        button.isBordered = false
+        button.contentTintColor = .linkColor
+        button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        button.target = self
+        button.action = button === validationButton
+            ? #selector(validationAction(_:))
+            : #selector(undoAction(_:))
+    }
+
+    private func updateClearRestoreButton() {
+        let canRestore = shortcut.isUnbound && restoreShortcut != nil
+        let symbol = canRestore ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill"
+        let help = canRestore
+            ? String(localized: "shortcut.recorder.restore.help", defaultValue: "Restore previous shortcut")
+            : String(localized: "shortcut.recorder.clear.help", defaultValue: "Unbind shortcut")
+        clearRestoreButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)
+        clearRestoreButton.toolTip = help
+        clearRestoreButton.isEnabled = !isDisabled && (!shortcut.isUnbound || restoreShortcut != nil)
+    }
+
+    @objc private func clearOrRestore(_ sender: NSButton) {
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+        let next: StoredShortcut
+        if shortcut.isUnbound, let restoreShortcut {
+            next = restoreShortcut
+            self.restoreShortcut = nil
+        } else if !shortcut.isUnbound {
+            restoreShortcut = shortcut
+            next = .unbound
+        } else {
+            return
+        }
+        shortcut = next
+        recorderButton.shortcut = next
+        recorderButton.updateTitle()
+        onShortcutChanged(next)
+        onRecorderFeedbackChanged(nil)
+        updateClearRestoreButton()
+    }
+
+    @objc private func validationAction(_ sender: NSButton) {
+        onValidationButtonPressed?()
+    }
+
+    @objc private func undoAction(_ sender: NSButton) {
+        onUndoButtonPressed?()
     }
 }
 
@@ -480,7 +522,7 @@ final class ShortcutRecorderNSButton: NSButton {
     }
 #endif
 
-    deinit {
+    isolated deinit {
         stopRecording()
         NotificationCenter.default.removeObserver(
             self,

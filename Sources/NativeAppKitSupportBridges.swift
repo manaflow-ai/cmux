@@ -525,6 +525,51 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 }
 
+struct KeyboardShortcutRecorder: NSViewRepresentable {
+    let label: String
+    var subtitle: String? = nil
+    @Binding var shortcut: StoredShortcut
+    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
+        .accepted($0)
+    }
+    var validationMessage: String? = nil
+    var validationButtonTitle: String? = nil
+    var onValidationButtonPressed: (() -> Void)? = nil
+    var undoButtonTitle: String? = nil
+    var onUndoButtonPressed: (() -> Void)? = nil
+    var hasPendingRejection = false
+    var isDisabled = false
+    var firstStrokeRequiresModifier = true
+    var onRecordingChanged: (Bool) -> Void = { _ in }
+    var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
+
+    func makeNSView(context: Context) -> KeyboardShortcutRecorderNativeView {
+        KeyboardShortcutRecorderNativeView(frame: .zero)
+    }
+
+    func updateNSView(_ view: KeyboardShortcutRecorderNativeView, context: Context) {
+        view.update(
+            label: label,
+            subtitle: subtitle,
+            shortcut: shortcut,
+            displayString: displayString,
+            transformRecordedShortcut: transformRecordedShortcut,
+            validationMessage: validationMessage,
+            validationButtonTitle: validationButtonTitle,
+            onValidationButtonPressed: onValidationButtonPressed,
+            undoButtonTitle: undoButtonTitle,
+            onUndoButtonPressed: onUndoButtonPressed,
+            hasPendingRejection: hasPendingRejection,
+            isDisabled: isDisabled,
+            firstStrokeRequiresModifier: firstStrokeRequiresModifier,
+            onShortcutChanged: { shortcut = $0 },
+            onRecordingChanged: onRecordingChanged,
+            onRecorderFeedbackChanged: onRecorderFeedbackChanged
+        )
+    }
+}
+
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating
