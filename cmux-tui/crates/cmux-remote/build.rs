@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,6 +7,8 @@ use std::process::{Command, Stdio};
 const BUILD_COMMIT_ENV: &str = "CMUX_TUI_BUILD_COMMIT";
 const BUILD_IDENTITY_ENV: &str = "CMUX_TUI_BUILD_IDENTITY";
 const DIRTY_SEPARATOR: &[u8] = b"\0cmux-tui-untracked\0";
+
+const _: () = cmux_tui_source_watch::ACTIVE;
 
 fn main() {
     println!("cargo:rerun-if-env-changed={BUILD_COMMIT_ENV}");
@@ -73,6 +76,22 @@ fn source_revision(manifest_dir: &Path) -> String {
     )
     .unwrap_or_else(|| panic!("could not enumerate cmux-tui source files"));
     track_source_files(&git_root, &source_files);
+    let ignored_entries = git_bytes(
+        &git_root,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "--full-name",
+            "-z",
+            "--",
+            pathspecs[0],
+        ],
+    )
+    .unwrap_or_else(|| panic!("could not enumerate ignored cmux-tui paths"));
+    track_source_directories(&git_root, &source_root, &source_files, &ignored_entries);
 
     let tracked_diff = git_bytes(
         &git_root,
@@ -138,7 +157,7 @@ fn track_git_path(manifest_dir: &Path, path: &str) {
     if let Some(path) = git(manifest_dir, &["rev-parse", "--git-path", path])
         && Path::new(&path).exists()
     {
-        println!("cargo:rerun-if-changed={path}");
+        emit_cargo_path_directive("rerun-if-changed", Path::new(&path));
     }
 }
 
@@ -146,12 +165,75 @@ fn track_source_files(git_root: &Path, source_files: &[u8]) {
     for path in nul_separated(source_files) {
         let path =
             std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
-        assert!(
-            !path.chars().any(char::is_control),
-            "cmux-tui source path contains a control character"
-        );
-        println!("cargo:rerun-if-changed={}", git_root.join(path).display());
+        emit_cargo_path_directive("rerun-if-changed", &git_root.join(path));
     }
+}
+
+fn track_source_directories(
+    git_root: &Path,
+    source_root: &Path,
+    source_files: &[u8],
+    ignored_entries: &[u8],
+) {
+    let mut unsafe_directories = HashSet::new();
+    for path in nul_separated(ignored_entries) {
+        let path = std::str::from_utf8(path)
+            .unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 ignored path"));
+        let absolute = git_root.join(path.trim_end_matches('/'));
+        let mut directory = if path.ends_with('/') {
+            absolute.as_path()
+        } else {
+            absolute.parent().unwrap_or(&absolute)
+        };
+        while directory.starts_with(source_root) {
+            unsafe_directories.insert(directory.to_owned());
+            if directory == source_root {
+                break;
+            }
+            let Some(parent) = directory.parent() else {
+                break;
+            };
+            directory = parent;
+        }
+    }
+
+    let mut watched = BTreeSet::new();
+    for path in nul_separated(source_files) {
+        let path =
+            std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
+        let absolute = git_root.join(path);
+        let Some(mut directory) = absolute.parent() else {
+            continue;
+        };
+        let mut candidate = None;
+        while directory.starts_with(source_root) {
+            if unsafe_directories.contains(directory) {
+                break;
+            }
+            candidate = Some(directory.to_owned());
+            if directory == source_root {
+                break;
+            }
+            let Some(parent) = directory.parent() else {
+                break;
+            };
+            directory = parent;
+        }
+        if let Some(candidate) = candidate {
+            watched.insert(candidate);
+        }
+    }
+    for directory in watched {
+        emit_cargo_path_directive("rerun-if-changed", &directory);
+    }
+}
+
+fn emit_cargo_path_directive(directive: &str, path: &Path) {
+    let value = path.to_string_lossy();
+    if value.chars().any(char::is_control) {
+        panic!("Cargo directive path contains a control character");
+    }
+    println!("cargo:{directive}={value}");
 }
 
 fn nul_separated(values: &[u8]) -> impl Iterator<Item = &[u8]> {

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::body::Bytes;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Request, State};
-use axum::http::header::{CONNECTION, RETRY_AFTER};
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::header::{CONNECTION, ORIGIN, RETRY_AFTER};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -80,6 +80,7 @@ struct ControlRegistration {
     provider_ticket: String,
     deadline: Instant,
     provider_expiry: Option<Instant>,
+    provider_expires_at_unix: Option<u64>,
 }
 
 struct Circuit {
@@ -276,7 +277,14 @@ impl Relay {
         (StatusCode::OK, Json(relay.health().await))
     }
 
-    async fn websocket_handler(State(relay): State<Self>, upgrade: WebSocketUpgrade) -> Response {
+    async fn websocket_handler(
+        State(relay): State<Self>,
+        headers: HeaderMap,
+        upgrade: WebSocketUpgrade,
+    ) -> Response {
+        if headers.contains_key(ORIGIN) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
         let Some(permit) = relay.try_admit_upgraded_socket() else {
             let mut response =
                 (StatusCode::SERVICE_UNAVAILABLE, "relay concurrent WebSocket limit was reached")
@@ -656,6 +664,8 @@ impl Relay {
             .as_ref()
             .map(|claims| expiry_as_instant(claims.expires_at_unix, system_now, instant_now))
             .transpose()?;
+        let provider_expires_at_unix =
+            provider_claims.as_ref().map(|claims| claims.expires_at_unix);
         let deadline = provider_expiry
             .map_or(instant_now + self.inner.config.lease_duration, |expiry| {
                 expiry.min(instant_now + self.inner.config.lease_duration)
@@ -700,6 +710,7 @@ impl Relay {
                     provider_ticket: ticket,
                     deadline,
                     provider_expiry,
+                    provider_expires_at_unix,
                 },
             );
             state.attachments.insert(peer.id, Attachment::Control { slot: slot.clone() });
@@ -745,7 +756,9 @@ impl Relay {
         validate_slot(&slot)?;
         validate_lane(&lane)?;
         validate_ticket_size(&ticket)?;
-        self.inner
+        let system_now = SystemTime::now();
+        let provider_claims = self
+            .inner
             .tickets
             .verify_provider(
                 &ticket,
@@ -758,19 +771,22 @@ impl Relay {
                     generation: Some(generation),
                     require_route_binding: false,
                 },
-                SystemTime::now(),
+                system_now,
             )
             .map_err(|error| RelayError::policy("invalid-ticket", error.to_string(), false))?;
-        let issued_at_unix = unix_timestamp(SystemTime::now())?;
-        let expires_at_unix =
+        let issued_at_unix = unix_timestamp(system_now)?;
+        let configured_expires_at_unix =
             issued_at_unix.checked_add(self.inner.config.join_ticket_ttl.as_secs()).ok_or_else(
                 || RelayError::internal("ticket-expiry", "relay join ticket expiry overflowed"),
             )?;
+        let client_expires_at_unix = provider_claims.as_ref().map(|claims| claims.expires_at_unix);
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
             let mut state = self.inner.state.lock().await;
-            let Some((daemon, control_deadline)) =
-                state.controls.get(&slot).map(|control| (control.peer.clone(), control.deadline))
+            let Some((daemon, control_deadline, daemon_expires_at_unix)) =
+                state.controls.get(&slot).map(|control| {
+                    (control.peer.clone(), control.deadline, control.provider_expires_at_unix)
+                })
             else {
                 return Err(RelayError::policy(
                     "slot-offline",
@@ -805,6 +821,9 @@ impl Relay {
                     "relay circuit limit was reached",
                 ));
             }
+            let expires_at_unix = configured_expires_at_unix
+                .min(client_expires_at_unix.unwrap_or(u64::MAX))
+                .min(daemon_expires_at_unix.unwrap_or(u64::MAX));
             let circuit = CircuitId(Uuid::new_v4().simple().to_string());
             let client_claims = join_claims(
                 self.inner.tickets.issuer(),
@@ -1502,6 +1521,8 @@ mod tests {
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::{HeaderValue, header::ORIGIN};
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
     use super::*;
@@ -1654,6 +1675,17 @@ mod tests {
         lane: Option<LaneToken>,
         generation: Option<u64>,
     ) -> String {
+        let issued_at_unix = unix_timestamp(SystemTime::now()).unwrap();
+        provider_ticket_expiring_at(config, permission, lane, generation, issued_at_unix + 60)
+    }
+
+    fn provider_ticket_expiring_at(
+        config: &RelayConfig,
+        permission: RelayPermission,
+        lane: Option<LaneToken>,
+        generation: Option<u64>,
+        expires_at_unix: u64,
+    ) -> String {
         let role = match permission {
             RelayPermission::Register => RelayRole::Daemon,
             RelayPermission::Connect => RelayRole::Client,
@@ -1676,7 +1708,7 @@ mod tests {
                 lane,
                 generation,
                 issued_at_unix,
-                expires_at_unix: issued_at_unix + 60,
+                expires_at_unix,
             })
             .unwrap()
     }
@@ -1944,6 +1976,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delegated_join_tickets_do_not_outlive_either_provider_ticket() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![17; 32]),
+            ticket_issuer: "relay-expiry.test".into(),
+            join_ticket_ttl: Duration::from_secs(120),
+            ..RelayConfig::default()
+        };
+        let relay = Relay::new(config.clone()).unwrap();
+        let now = unix_timestamp(SystemTime::now()).unwrap();
+        let daemon_expiry = now + 30;
+        let client_expiry = now + 45;
+        let lane = LaneToken("interactive".into());
+        let generation = 23;
+        let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
+        relay
+            .register(
+                daemon,
+                REMOTE_PROTOCOL_VERSION,
+                "slot-a".into(),
+                provider_ticket_expiring_at(
+                    &config,
+                    RelayPermission::Register,
+                    None,
+                    None,
+                    daemon_expiry,
+                ),
+            )
+            .await
+            .unwrap();
+        let (client, _client_outbound, _client_shutdown) = test_peer(2, &config);
+        let circuit = relay
+            .allocate(
+                &client,
+                REMOTE_PROTOCOL_VERSION,
+                "slot-a".into(),
+                provider_ticket_expiring_at(
+                    &config,
+                    RelayPermission::Connect,
+                    Some(lane.clone()),
+                    Some(generation),
+                    client_expiry,
+                ),
+                lane.clone(),
+                generation,
+            )
+            .await
+            .unwrap();
+        let state = relay.inner.state.lock().await;
+        let allocated = state.circuits.get(&circuit).unwrap();
+        for (role, ticket) in [
+            (RelayRole::Client, &allocated.client_join_ticket),
+            (RelayRole::Daemon, &allocated.daemon_join_ticket),
+        ] {
+            let claims = relay
+                .inner
+                .tickets
+                .verify_join(
+                    ticket,
+                    TicketExpectation {
+                        permission: RelayPermission::Join,
+                        role,
+                        slot: "slot-a",
+                        circuit: Some(&circuit),
+                        lane: Some(&lane),
+                        generation: Some(generation),
+                        require_route_binding: true,
+                    },
+                    SystemTime::now(),
+                )
+                .unwrap()
+                .unwrap();
+            assert!(claims.expires_at_unix <= daemon_expiry);
+            assert!(claims.expires_at_unix <= client_expiry);
+        }
+    }
+
+    #[tokio::test]
     async fn health_endpoint_is_available_without_a_websocket_upgrade() {
         let server = TestServer::start(RelayConfig::default()).await;
         let mut stream = TcpStream::connect(server.address).await.unwrap();
@@ -2109,6 +2218,30 @@ mod tests {
             tokio_tungstenite::tungstenite::Error::Http(response)
                 if response.status() == StatusCode::SERVICE_UNAVAILABLE
         ));
+    }
+
+    #[tokio::test]
+    async fn browser_origin_is_rejected_before_relay_admission() {
+        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let server = TestServer::start(config).await;
+
+        for path in ["/v1/relay", "/ws"] {
+            let mut request =
+                format!("ws://{}{path}", server.address).into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
+            let error =
+                connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
+            let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+                panic!("browser-origin rejection was not an HTTP response");
+            };
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(response.body().as_ref().is_none_or(Vec::is_empty));
+        }
+
+        let native = server.connect().await;
+        drop(native);
     }
 
     #[tokio::test]

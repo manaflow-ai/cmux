@@ -13,8 +13,9 @@ use worker::{
 use crate::abuse::{
     ACTIVE_CIRCUIT_LEASE_MS, ACTIVE_CIRCUIT_RENEW_MS, CIRCUIT_HANDSHAKE_TIMEOUT_MS,
     CIRCUIT_IDLE_TIMEOUT_MS, admit_circuit_socket, websocket_counts_toward_capacity,
+    websocket_is_open,
 };
-use crate::attachment::{CircuitAttachment, CircuitPhase};
+use crate::attachment::{CircuitAttachment, CircuitPhase, OutboundQueue};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, verify_ticket};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_opaque_identifier,
@@ -24,10 +25,117 @@ use crate::wire::{
 const PEER_TAG: &str = "circuit-peer";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
+const MAX_OUTBOUND_QUEUE_FRAMES: usize = 128;
+const MAX_OUTBOUND_QUEUE_BYTES: u32 = 2 * 1024 * 1024;
 const ACTIVE_CIRCUIT_STORAGE_KEY: &str = "active-circuit-v1";
 const RELEASE_RETRY_MS: u64 = 5_000;
 const CLOSE_POLICY: u16 = 1008;
 const CLOSE_UNSUPPORTED: u16 = 1003;
+const CLOSE_OVERLOADED: u16 = 1013;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutboundQueueError {
+    EmptyFrame,
+    FrameLimit,
+    ByteLimit,
+}
+
+fn outbound_queue_close(error: OutboundQueueError) -> (u16, &'static str, &'static str) {
+    match error {
+        OutboundQueueError::EmptyFrame => (
+            CLOSE_UNSUPPORTED,
+            "circuit frames must not be empty",
+            "circuit peer sent an empty frame",
+        ),
+        OutboundQueueError::FrameLimit | OutboundQueueError::ByteLimit => (
+            CLOSE_OVERLOADED,
+            "circuit peer is backpressured",
+            "circuit outbound queue limit exceeded",
+        ),
+    }
+}
+
+fn reserve_outbound_frame(
+    queue: &mut OutboundQueue,
+    buffered_bytes: u32,
+    frame_bytes: usize,
+) -> std::result::Result<(), OutboundQueueError> {
+    // Worker WebSocket sends are synchronous but not backpressured. Keep the
+    // runtime's byte count and our per-frame ledger in the socket attachment
+    // so the limits survive Durable Object hibernation.
+    if frame_bytes == 0 {
+        return Err(OutboundQueueError::EmptyFrame);
+    }
+
+    if buffered_bytes == 0 {
+        queue.untracked_bytes = 0;
+        queue.frame_bytes.clear();
+    } else if buffered_bytes < queue.observed_bytes {
+        let mut drained = queue.observed_bytes - buffered_bytes;
+        let untracked_drained = drained.min(queue.untracked_bytes);
+        queue.untracked_bytes -= untracked_drained;
+        drained -= untracked_drained;
+        while drained > 0 {
+            let Some(front) = queue.frame_bytes.front_mut() else {
+                break;
+            };
+            let frame_drained = drained.min(*front);
+            *front -= frame_drained;
+            drained -= frame_drained;
+            if *front == 0 {
+                queue.frame_bytes.pop_front();
+            }
+        }
+    } else if buffered_bytes > queue.observed_bytes {
+        queue.untracked_bytes =
+            queue.untracked_bytes.saturating_add(buffered_bytes - queue.observed_bytes);
+    }
+    queue.observed_bytes = buffered_bytes;
+
+    if queue.frame_bytes.len() >= MAX_OUTBOUND_QUEUE_FRAMES {
+        return Err(OutboundQueueError::FrameLimit);
+    }
+    let frame_bytes = u32::try_from(frame_bytes).map_err(|_| OutboundQueueError::ByteLimit)?;
+    let projected = buffered_bytes
+        .checked_add(frame_bytes)
+        .filter(|bytes| *bytes <= MAX_OUTBOUND_QUEUE_BYTES)
+        .ok_or(OutboundQueueError::ByteLimit)?;
+    queue.frame_bytes.push_back(frame_bytes);
+    queue.observed_bytes = projected;
+    Ok(())
+}
+
+fn persist_peer_before_forward<E>(
+    now_ms: u64,
+    peer: &mut CircuitAttachment,
+    persist_peer: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
+    forward: impl FnOnce() -> std::result::Result<(), E>,
+) -> std::result::Result<(), E> {
+    // The latest deadline across the ready pair is the shared circuit idle
+    // deadline. Persisting only the destination attachment also durably saves
+    // its outbound FIFO ledger, while avoiding a second attachment write on
+    // every interactive frame.
+    peer.idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
+    persist_peer(peer)?;
+    forward()
+}
+
+fn has_live_ready_pair(
+    sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
+    now_ms: u64,
+) -> bool {
+    let (open_ready, latest_deadline) = sockets.into_iter().fold(
+        (0_usize, 0_u64),
+        |(count, latest), (ready_state, phase, deadline)| {
+            if phase == CircuitPhase::Ready && websocket_is_open(ready_state) {
+                (count + 1, latest.max(deadline))
+            } else {
+                (count, latest)
+            }
+        },
+    );
+    open_ready >= 2 && latest_deadline > now_ms
+}
 
 #[durable_object]
 pub struct RelayCircuit {
@@ -122,21 +230,32 @@ impl RelayCircuit {
     fn matching_peer(
         &self,
         socket: &WebSocket,
+        current: &CircuitAttachment,
         relay: &RelaySocketAttachment,
         require_ready: bool,
     ) -> Option<(WebSocket, CircuitAttachment)> {
-        let current_generation = Self::attachment(socket).ok()?.generation;
+        let now_ms = self.now_ms();
         self.state
             .get_websockets_with_tag(PEER_TAG)
             .into_iter()
             .filter(|candidate| candidate != socket)
             .find_map(|candidate| {
                 let attachment = Self::attachment(&candidate).ok()?;
+                let shares_ready_deadline = current.phase == CircuitPhase::Ready
+                    && attachment.phase == CircuitPhase::Ready;
+                let effective_deadline = if shares_ready_deadline {
+                    current.idle_deadline_ms.max(attachment.idle_deadline_ms)
+                } else {
+                    attachment.idle_deadline_ms
+                };
                 if !websocket_counts_toward_capacity(
                     candidate.as_ref().ready_state(),
-                    attachment.idle_deadline_ms,
-                    self.now_ms(),
-                ) {
+                    effective_deadline,
+                    now_ms,
+                ) || (require_ready
+                    && (!websocket_is_open(socket.as_ref().ready_state())
+                        || current.phase != CircuitPhase::Ready))
+                {
                     return None;
                 }
                 let candidate_relay = attachment.relay.as_ref()?;
@@ -150,26 +269,45 @@ impl RelayCircuit {
                     && candidate_relay.slot == relay.slot
                     && candidate_relay.circuit == relay.circuit
                     && candidate_relay.lane == relay.lane
-                    && attachment.generation == current_generation)
+                    && attachment.generation == current.generation)
                     .then_some((candidate, attachment))
             })
     }
 
     fn joined_socket_for_role(&self, socket: &WebSocket, role: RelayRole) -> Option<WebSocket> {
-        self.state
+        let now_ms = self.now_ms();
+        let sockets = self
+            .state
             .get_websockets_with_tag(PEER_TAG)
             .into_iter()
             .filter(|candidate| candidate != socket)
-            .find(|candidate| {
-                Self::attachment(candidate).is_ok_and(|attachment| {
-                    websocket_counts_toward_capacity(
-                        candidate.as_ref().ready_state(),
-                        attachment.idle_deadline_ms,
-                        self.now_ms(),
-                    ) && attachment.phase != CircuitPhase::Pending
-                        && attachment.relay.as_ref().is_some_and(|relay| relay.role == role)
-                })
+            .filter_map(|candidate| {
+                Self::attachment(&candidate).ok().map(|attachment| (candidate, attachment))
             })
+            .collect::<Vec<_>>();
+        let latest_ready_deadline = sockets
+            .iter()
+            .filter(|(candidate, attachment)| {
+                attachment.phase == CircuitPhase::Ready
+                    && websocket_is_open(candidate.as_ref().ready_state())
+            })
+            .map(|(_, attachment)| attachment.idle_deadline_ms)
+            .max()
+            .unwrap_or(0);
+        sockets.into_iter().find_map(|(candidate, attachment)| {
+            let effective_deadline = if attachment.phase == CircuitPhase::Ready {
+                attachment.idle_deadline_ms.max(latest_ready_deadline)
+            } else {
+                attachment.idle_deadline_ms
+            };
+            (websocket_counts_toward_capacity(
+                candidate.as_ref().ready_state(),
+                effective_deadline,
+                now_ms,
+            ) && attachment.phase != CircuitPhase::Pending
+                && attachment.relay.as_ref().is_some_and(|relay| relay.role == role))
+                .then_some(candidate)
+        })
     }
 
     async fn notify_slot(&self, slot: &str, circuit: &CircuitId, event: &str) -> Result<()> {
@@ -321,7 +459,9 @@ impl RelayCircuit {
         socket.serialize_attachment(&attachment)?;
         self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
 
-        if let Some((peer, mut peer_attachment)) = self.matching_peer(socket, &relay, false) {
+        if let Some((peer, mut peer_attachment)) =
+            self.matching_peer(socket, &attachment, &relay, false)
+        {
             let active = ActiveCircuit {
                 slot: request.slot.clone(),
                 circuit: request.circuit.clone(),
@@ -404,7 +544,7 @@ impl RelayCircuit {
     fn forward_binary(
         &self,
         socket: &WebSocket,
-        mut attachment: CircuitAttachment,
+        attachment: CircuitAttachment,
         bytes: Vec<u8>,
     ) -> Result<()> {
         if bytes.len() > MAX_RELAY_BATCH_BYTES {
@@ -415,17 +555,34 @@ impl RelayCircuit {
             close(socket, 1011, "circuit attachment is incomplete");
             return Ok(());
         };
-        let Some((peer, _peer_attachment)) = self.matching_peer(socket, &relay, true) else {
+        let Some((peer, mut peer_attachment)) =
+            self.matching_peer(socket, &attachment, &relay, true)
+        else {
             close(socket, 1011, "circuit peer disconnected");
             return Ok(());
         };
 
-        let idle_deadline_ms = self.now_ms().saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
-        attachment.idle_deadline_ms = idle_deadline_ms;
-        socket.serialize_attachment(&attachment)?;
-        if peer.send_with_bytes(bytes).is_err() {
+        if let Err(error) = reserve_outbound_frame(
+            &mut peer_attachment.outbound,
+            peer.as_ref().buffered_amount(),
+            bytes.len(),
+        ) {
+            let (close_code, sender_reason, peer_reason) = outbound_queue_close(error);
+            close(socket, close_code, sender_reason);
+            close(&peer, close_code, peer_reason);
+            return Ok(());
+        }
+
+        let result = persist_peer_before_forward(
+            self.now_ms(),
+            &mut peer_attachment,
+            |attachment| peer.serialize_attachment(attachment),
+            || peer.send_with_bytes(bytes),
+        );
+        if let Err(error) = result {
             close(socket, 1011, "circuit peer unavailable");
             close(&peer, 1011, "circuit forwarding failed");
+            return Err(error);
         }
         Ok(())
     }
@@ -461,27 +618,45 @@ impl RelayCircuit {
         let Some(relay) = attachment.relay.as_ref() else {
             return;
         };
-        if let Some((peer, _)) = self.matching_peer(socket, relay, false) {
+        if let Some((peer, _)) = self.matching_peer(socket, &attachment, relay, false) {
             close(&peer, 1011, reason);
         }
     }
 
     fn live_socket_counts(&self, now_ms: u64) -> (usize, usize) {
-        self.state
+        let sockets = self
+            .state
             .get_websockets()
             .into_iter()
             .filter_map(|socket| {
-                let attachment = Self::attachment(&socket).ok()?;
-                websocket_counts_toward_capacity(
-                    socket.as_ref().ready_state(),
-                    attachment.idle_deadline_ms,
-                    now_ms,
-                )
-                .then_some(attachment)
+                Self::attachment(&socket).ok().map(|attachment| (socket, attachment))
             })
-            .fold((0, 0), |(total, pending), attachment| {
+            .collect::<Vec<_>>();
+        let latest_ready_deadline = sockets
+            .iter()
+            .filter(|(socket, attachment)| {
+                attachment.phase == CircuitPhase::Ready
+                    && websocket_is_open(socket.as_ref().ready_state())
+            })
+            .map(|(_, attachment)| attachment.idle_deadline_ms)
+            .max()
+            .unwrap_or(0);
+        sockets.into_iter().fold((0, 0), |(total, pending), (socket, attachment)| {
+            let effective_deadline = if attachment.phase == CircuitPhase::Ready {
+                attachment.idle_deadline_ms.max(latest_ready_deadline)
+            } else {
+                attachment.idle_deadline_ms
+            };
+            if websocket_counts_toward_capacity(
+                socket.as_ref().ready_state(),
+                effective_deadline,
+                now_ms,
+            ) {
                 (total + 1, pending + usize::from(attachment.phase == CircuitPhase::Pending))
-            })
+            } else {
+                (total, pending)
+            }
+        })
     }
 }
 
@@ -526,11 +701,14 @@ impl DurableObject for RelayCircuit {
         let has_ready = sockets.iter().any(|socket| {
             Self::attachment(socket).is_ok_and(|attachment| attachment.phase == CircuitPhase::Ready)
         });
-        let has_live_ready = sockets.iter().any(|socket| {
-            Self::attachment(socket).is_ok_and(|attachment| {
-                attachment.phase == CircuitPhase::Ready && attachment.idle_deadline_ms > now_ms
-            })
-        });
+        let has_live_ready = has_live_ready_pair(
+            sockets.iter().filter_map(|socket| {
+                Self::attachment(socket).ok().map(|attachment| {
+                    (socket.as_ref().ready_state(), attachment.phase, attachment.idle_deadline_ms)
+                })
+            }),
+            now_ms,
+        );
         let ready_expired = has_ready && !has_live_ready;
         for socket in &sockets {
             let expired_non_ready = Self::attachment(socket).is_ok_and(|attachment| {
@@ -611,6 +789,8 @@ impl DurableObject for RelayCircuit {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, RefCell};
+
     use super::*;
 
     #[test]
@@ -629,5 +809,146 @@ mod tests {
         assert!(decoded.releasing);
         assert_eq!(decoded.renew_at_ms, 500);
         assert_eq!(decoded.lease_expires_ms, 1_000);
+    }
+
+    #[test]
+    fn forwarded_activity_persists_one_peer_deadline_before_payload() {
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let operations = RefCell::new(Vec::new());
+
+        persist_peer_before_forward(
+            10_000,
+            &mut peer,
+            |_| {
+                operations.borrow_mut().push("peer");
+                Ok::<_, &'static str>(())
+            },
+            || {
+                operations.borrow_mut().push("forward");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let expected = 10_000 + CIRCUIT_IDLE_TIMEOUT_MS;
+        assert_eq!(peer.idle_deadline_ms, expected);
+        assert_eq!(&*operations.borrow(), &["peer", "forward"]);
+    }
+
+    #[test]
+    fn peer_attachment_failure_prevents_payload() {
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let forwarded = Cell::new(false);
+
+        let result = persist_peer_before_forward(
+            10_000,
+            &mut peer,
+            |_| Err("peer serialization failed"),
+            || {
+                forwarded.set(true);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("peer serialization failed"));
+        assert!(!forwarded.get());
+    }
+
+    #[test]
+    fn outbound_queue_reconciles_runtime_drain_before_reserving() {
+        let mut queue = OutboundQueue::default();
+        reserve_outbound_frame(&mut queue, 20, 100).unwrap();
+        assert_eq!(queue.untracked_bytes, 20);
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![100]);
+        assert_eq!(queue.observed_bytes, 120);
+
+        reserve_outbound_frame(&mut queue, 50, 10).unwrap();
+        assert_eq!(queue.untracked_bytes, 0);
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![50, 10]);
+        assert_eq!(queue.observed_bytes, 60);
+
+        reserve_outbound_frame(&mut queue, 0, 1).unwrap();
+        assert_eq!(queue.frame_bytes.iter().copied().collect::<Vec<_>>(), vec![1]);
+        assert_eq!(queue.observed_bytes, 1);
+    }
+
+    #[test]
+    fn outbound_queue_rejects_slow_consumers_by_frame_and_byte_budget() {
+        let mut frames = OutboundQueue::default();
+        for _ in 0..MAX_OUTBOUND_QUEUE_FRAMES {
+            let buffered = frames.observed_bytes;
+            reserve_outbound_frame(&mut frames, buffered, 1).unwrap();
+        }
+        let buffered = frames.observed_bytes;
+        assert_eq!(
+            reserve_outbound_frame(&mut frames, buffered, 1),
+            Err(OutboundQueueError::FrameLimit)
+        );
+
+        let mut bytes = OutboundQueue::default();
+        reserve_outbound_frame(&mut bytes, 0, MAX_RELAY_BATCH_BYTES).unwrap();
+        reserve_outbound_frame(&mut bytes, MAX_RELAY_BATCH_BYTES as u32, MAX_RELAY_BATCH_BYTES)
+            .unwrap();
+        assert_eq!(
+            reserve_outbound_frame(&mut bytes, MAX_OUTBOUND_QUEUE_BYTES, MAX_RELAY_BATCH_BYTES,),
+            Err(OutboundQueueError::ByteLimit)
+        );
+        assert_eq!(
+            reserve_outbound_frame(&mut OutboundQueue::default(), 0, 0),
+            Err(OutboundQueueError::EmptyFrame)
+        );
+    }
+
+    #[test]
+    fn outbound_queue_close_reasons_match_the_failure() {
+        assert_eq!(
+            outbound_queue_close(OutboundQueueError::EmptyFrame),
+            (
+                CLOSE_UNSUPPORTED,
+                "circuit frames must not be empty",
+                "circuit peer sent an empty frame",
+            )
+        );
+        for error in [OutboundQueueError::FrameLimit, OutboundQueueError::ByteLimit] {
+            assert_eq!(
+                outbound_queue_close(error),
+                (
+                    CLOSE_OVERLOADED,
+                    "circuit peer is backpressured",
+                    "circuit outbound queue limit exceeded",
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn maximum_outbound_queue_fits_the_hibernation_attachment_limit() {
+        let mut attachment = CircuitAttachment::pending(CircuitId("ab".repeat(32)), 1_000);
+        attachment.outbound.observed_bytes = MAX_OUTBOUND_QUEUE_BYTES;
+        attachment.outbound.frame_bytes =
+            std::iter::repeat_n(MAX_RELAY_BATCH_BYTES as u32, MAX_OUTBOUND_QUEUE_FRAMES).collect();
+
+        let encoded = serde_json::to_vec(&attachment).unwrap();
+        assert!(encoded.len() <= 2_048, "attachment used {} bytes", encoded.len());
+    }
+
+    #[test]
+    fn ready_pair_uses_the_latest_shared_activity_deadline() {
+        let ready = |state| (state, CircuitPhase::Ready, 200);
+        assert!(has_live_ready_pair([ready(1), ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1), ready(2)], 100));
+        assert!(has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 100), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Joined, 200)],
+            100,
+        ));
     }
 }
