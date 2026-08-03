@@ -13934,6 +13934,7 @@ mod tests {
         );
         let created_value = created["result"]["value"].clone();
         let terminal_id = created_value["terminal_id"].as_str().unwrap().to_string();
+        let terminal_public_id = TerminalPublicId::parse(&terminal_id).unwrap();
         let notification_params = serde_json::json!({
             "machine":"current",
             "session":"current",
@@ -14042,6 +14043,13 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
+        assert_eq!(after["terminals"], serde_json::json!([]));
+        assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
+        let exited =
+            reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["outcome"]["kind"], "unknown");
+        assert_eq!(exited["outcome"]["reason"], "missing-host-record");
         let notifications = public_request(
             &reopened,
             "notifications",
@@ -14093,7 +14101,11 @@ mod tests {
             assert_eq!(replay["result"]["replayed"], true, "{operation}");
         }
         assert_eq!(reopened.resource_notifications(256).len(), 1);
-        assert_eq!(reopened.list_agents(None, None).len(), 1);
+        assert_eq!(
+            reopened.list_agents(None, None).len(),
+            0,
+            "legacy surface-scoped agents must not retain a detached terminal"
+        );
         assert_eq!(
             reopened
                 .workspace_registry
@@ -14159,7 +14171,12 @@ mod tests {
         let base_pane = mux.with_state(|state| state.workspaces[0].screens[0].active_pane);
         let created = mux.new_pane_right(base_pane, 0.5, Some((38, 22))).unwrap();
         let created_pane = mux.with_state(|state| state.pane_of(created.id).unwrap());
-        let (selectors, screen_id) = {
+        let ContentPublicId::Terminal(created_terminal_id) =
+            created.resource_identity().unwrap().content_id.clone()
+        else {
+            panic!("layout undo fixture created a non-terminal surface");
+        };
+        let (selectors, screen_id, created_pane_id, created_tab_id) = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
             let (workspace, screen) = state.screen_of(created_pane).unwrap();
@@ -14172,6 +14189,8 @@ mod tests {
                     ..crate::ResourceSelectors::default()
                 },
                 state.workspaces[workspace].screens[screen].public_id.clone(),
+                state.resource_indexes.pane_ids[&created_pane].clone(),
+                state.resource_indexes.tab_ids[&created.id].clone(),
             )
         };
         let preview_fields =
@@ -14222,15 +14241,41 @@ mod tests {
         .unwrap();
         let reopened_before =
             reopened.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
-        // Restart may reconcile terminal liveness into a later public
-        // revision. The confirmation token is fenced by generation, screen,
-        // layout revision, and pane/tab membership rather than that unrelated
-        // liveness revision.
-        assert!(reopened_before.revision >= durable_before.revision);
-        assert_eq!(reopened_before.screens, durable_before.screens);
-        assert_eq!(reopened_before.panes, durable_before.panes);
-        assert_eq!(reopened_before.tabs, durable_before.tabs);
+        // The test runtime cannot preserve its newly created terminal across
+        // restart. Reconciliation records the definitive missing-host exit
+        // and removes only that terminal's pane and tab.
+        assert!(reopened_before.revision > durable_before.revision);
+        assert_eq!(
+            reopened_before.screens.iter().map(|screen| &screen.public_id).collect::<Vec<_>>(),
+            durable_before.screens.iter().map(|screen| &screen.public_id).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            reopened_before.panes,
+            durable_before
+                .panes
+                .iter()
+                .filter(|pane| pane.public_id != created_pane_id)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            reopened_before.tabs,
+            durable_before
+                .tabs
+                .iter()
+                .filter(|tab| tab.public_id != created_tab_id)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert!(reopened_before.panes.iter().all(|pane| pane.public_id != created_pane_id));
+        assert!(reopened_before.tabs.iter().all(|tab| tab.public_id != created_tab_id));
         assert!(reopened_before.screens.iter().any(|screen| screen.public_id == screen_id));
+        assert_eq!(reopened.resource_surface_for_terminal(&created_terminal_id), None);
+        let exited =
+            reopened.wait_for_terminal_exit(&created_terminal_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["outcome"]["kind"], "unknown");
+        assert_eq!(exited["outcome"]["reason"], "missing-host-record");
         let state_before = reopened.with_state(state_topology_fingerprint);
         let confirm_fields = serde_json::json!({
             "confirm_close":true,
@@ -18681,9 +18726,12 @@ mod tests {
                             },
                             ResourceChange::SetScreenOrder {
                                 workspace_id: workspace.public_id.clone(),
-                                screen_ids: vec![screen],
+                                screen_ids: vec![screen.clone()],
                             },
-                            ResourceChange::SetTabOrder { pane_id: pane, tab_ids: vec![tab] },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane.clone(),
+                                tab_ids: vec![tab.clone()],
+                            },
                             ResourceChange::SetActiveWorkspace {
                                 workspace_id: Some(workspace.public_id),
                             },
@@ -18768,7 +18816,42 @@ mod tests {
         assert!(!sidecar_path.exists(), "SQLite commit acknowledges the exact sidecar");
         let events = mux.resource_events_after(1).unwrap();
         assert_eq!(events.batches.len(), 1);
-        assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
+        assert_eq!(events.batches[0].previous_revision, 1);
+        assert_eq!(events.batches[0].revision, 2);
+        let changes = events.batches[0].changes.as_array().unwrap();
+        let exit_upsert = changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == terminal_public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("atomic exit batch omitted terminal metadata");
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], waited["outcome"]);
+        assert_eq!(exit_upsert["value"]["exit"]["exited_at"], waited["exited_at"]);
+        assert_eq!(exit_upsert["value"]["exit"]["revision"], waited["revision"]);
+        for (resource, id) in [
+            ("terminal", terminal_public_id.as_str()),
+            ("tab", tab.as_str()),
+            ("pane", pane.as_str()),
+            ("screen", screen.as_str()),
+        ] {
+            assert!(
+                changes.iter().any(|change| {
+                    change["resource"] == resource
+                        && change["id"] == id
+                        && change["kind"] == "delete"
+                }),
+                "atomic exit batch omitted {resource} {id} delete"
+            );
+        }
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["terminals"], serde_json::json!([]));
+        assert_eq!(snapshot["tabs"], serde_json::json!([]));
+        assert_eq!(snapshot["panes"], serde_json::json!([]));
+        assert_eq!(snapshot["screens"], serde_json::json!([]));
         mux.shutdown();
         drop(mux);
 
