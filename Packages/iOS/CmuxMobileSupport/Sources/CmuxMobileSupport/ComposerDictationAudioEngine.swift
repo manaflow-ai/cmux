@@ -1,5 +1,5 @@
 #if os(iOS)
-import AVFoundation
+@preconcurrency public import AVFoundation
 import Foundation
 
 /// Owns the `AVAudioEngine` + shared `AVAudioSession` lifecycle OFF the main
@@ -39,7 +39,7 @@ import Foundation
 /// enqueued while a ``start(tapBlock:onReady:)`` is mid-flight is always ordered
 /// AFTER that start's activation and BEFORE any later start's activation, so the
 /// engine can never be double-started or leak a tap across a rapid stop/restart.
-final class ComposerDictationAudioEngine: @unchecked Sendable {
+public final class ComposerDictationAudioEngine: @unchecked Sendable {
     /// The serial queue that owns every audio-hardware call. All mutable state
     /// below is confined to it, which is what makes the `@unchecked Sendable`
     /// conformance sound; ``teardownLocked()`` asserts execution lands here.
@@ -57,7 +57,7 @@ final class ComposerDictationAudioEngine: @unchecked Sendable {
     /// ``queue``.
     private var isActive = false
 
-    init() {}
+    public init() {}
 
     /// Activate the audio session and start the engine off the main actor,
     /// installing `tapBlock` on the input node. Reports the outcome through
@@ -70,7 +70,7 @@ final class ComposerDictationAudioEngine: @unchecked Sendable {
     ///   - tapBlock: Installed on the input node; invoked on the realtime audio
     ///     render thread for every captured buffer. Must be `@Sendable`.
     ///   - onReady: Called once on ``queue`` with whether the engine is running.
-    func start(
+    public func start(
         tapBlock: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void,
         onReady: @escaping @Sendable (Bool) -> Void
     ) {
@@ -110,7 +110,7 @@ final class ComposerDictationAudioEngine: @unchecked Sendable {
     /// off the main actor. Idempotent and safe to call from any state any number
     /// of times; serialized after any in-flight ``start(tapBlock:onReady:)`` so a
     /// stop enqueued during spin-up always tears the engine back down.
-    func stop() {
+    public func stop() {
         queue.async { [self] in
             teardownLocked()
         }

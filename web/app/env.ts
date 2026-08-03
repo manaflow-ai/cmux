@@ -161,6 +161,9 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    // Realtime session minting fails closed on Vercel when this rule is absent.
+    CMUX_REALTIME_SESSION_RATE_LIMIT_ID: z.string().min(1).optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -313,6 +316,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    OPENAI_API_KEY: trimEnv(process.env.OPENAI_API_KEY),
+    CMUX_REALTIME_SESSION_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_REALTIME_SESSION_RATE_LIMIT_ID,
+    ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),

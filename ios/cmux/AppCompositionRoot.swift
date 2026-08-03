@@ -1,10 +1,12 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileBrowser
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxVoice
 import CmuxSentryReporting
 import Foundation
 import SwiftUI
@@ -26,6 +28,12 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    let browserSettings: MobileBrowserSettings
+    let voiceSettings: VoiceSettingsStore
+    let realtimeVoiceRuntime: RealtimeVoiceRuntime
+    let voiceVocabularyStore: VoiceVocabularyStore
+    let parakeetModelCatalogStore: ParakeetModelCatalogStore
+    let parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     let connectionMethodStore: MobileConnectionMethodStore
@@ -123,6 +131,31 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
+        self.browserSettings = MobileBrowserSettings()
+        self.voiceSettings = VoiceSettingsStore()
+        let realtimeClientSecretProvider = HTTPRealtimeVoiceClientSecretProvider(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenSource: RealtimeVoiceTokenSource(
+                accessToken: { try? await auth.coordinator.accessToken() },
+                refreshToken: { await auth.coordinator.refreshToken() }
+            )
+        )
+        self.realtimeVoiceRuntime = RealtimeVoiceRuntime { toolExecutor in
+            RealtimeVoiceSession(
+                clientSecretProvider: realtimeClientSecretProvider,
+                toolExecutor: toolExecutor,
+                audioIO: RealtimeVoiceAudioEngine()
+            )
+        }
+        self.voiceVocabularyStore = VoiceVocabularyStore()
+        self.parakeetModelCatalogStore = ParakeetModelCatalogStore()
+        self.parakeetVocabularyBoostStore = ParakeetVocabularyBoostStore()
+        Self.configureComposerDictationBackend(
+            voiceSettings: voiceSettings,
+            voiceVocabularyStore: voiceVocabularyStore,
+            parakeetModelCatalogStore: parakeetModelCatalogStore,
+            parakeetVocabularyBoostStore: parakeetVocabularyBoostStore
+        )
         self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -163,6 +196,33 @@ final class AppCompositionRoot {
             enabled.caseInsensitiveCompare("NO") != .orderedSame
         default:
             true
+        }
+    }
+
+    private static func configureComposerDictationBackend(
+        voiceSettings: VoiceSettingsStore,
+        voiceVocabularyStore: VoiceVocabularyStore,
+        parakeetModelCatalogStore: ParakeetModelCatalogStore,
+        parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
+    ) {
+        ComposerDictationController.backendFactory = {
+            let engine = voiceSettings.effectiveEngine(
+                installedEngines: parakeetModelCatalogStore.installedEngineIDs
+            )
+            let vocabularyTerms = voiceVocabularyStore.recognitionTerms()
+            switch engine {
+            case .apple:
+                return AppleComposerDictationRecognitionBackend(contextualStrings: vocabularyTerms)
+            case .parakeetV3, .parakeetV3Int4, .parakeetV2:
+                guard let store = parakeetModelCatalogStore.store(for: engine) else {
+                    return AppleComposerDictationRecognitionBackend(contextualStrings: vocabularyTerms)
+                }
+                return ParakeetComposerDictationRecognitionBackend(
+                    modelStore: store,
+                    vocabularyTerms: vocabularyTerms,
+                    vocabularyBoostDirectory: parakeetVocabularyBoostStore.installedDirectoryForRecognition
+                )
+            }
         }
     }
 

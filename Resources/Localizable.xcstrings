@@ -260746,6 +260746,57 @@
         }
       }
     },
+    "mobile.voice.input.noFocusedTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click a terminal pane on your Mac before using Voice Mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Modeを使う前にMacでターミナルペインをクリックしてください。"
+          }
+        }
+      }
+    },
+    "mobile.voice.input.targetChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused pane changed. Check the target and speak again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインが変わりました。送信先を確認してもう一度話してください。"
+          }
+        }
+      }
+    },
+    "mobile.voice.input.targetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのターミナルは利用できなくなりました。"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

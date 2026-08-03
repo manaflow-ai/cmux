@@ -41,6 +41,12 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct VoiceInputRecord: Sendable, Equatable {
+        var workspaceID: String
+        var surfaceID: String
+        var text: String
+        var submit: Bool
+    }
     struct WorkspaceCreateRecord: Sendable, Equatable {
         var groupID: String?
         var title: String?
@@ -51,6 +57,7 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var voiceInputs: [VoiceInputRecord] = []
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
@@ -162,6 +169,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedVoiceInputs() -> [VoiceInputRecord] { voiceInputs }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
@@ -176,8 +184,10 @@ actor RoutingHostRouter {
         var id: String?
         var streamID: String?
         var surfaceID: String?
+        var workspaceID: String?
         var imageFormat: String?
         var text: String?
+        var submit: Bool?
         var notificationIDs: [String]?
         var clientID: String?
         var groupID: String?
@@ -372,6 +382,21 @@ actor RoutingHostRouter {
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return await terminalInputResponse(info)
+        case "mobile.voice.input":
+            let workspaceID = info.workspaceID ?? ""
+            let surfaceID = info.surfaceID ?? ""
+            voiceInputs.append(VoiceInputRecord(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                text: info.text ?? "",
+                submit: info.submit ?? false
+            ))
+            return try? Self.resultFrame(id: id, result: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "surface_title": "Voice Target",
+                "queued": false,
+            ])
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -464,8 +489,10 @@ private actor RoutingTransport: CmxByteTransport {
                 id: parsed?["id"] as? String,
                 streamID: params?["stream_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
+                workspaceID: params?["workspace_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
+                submit: params?["submit"] as? Bool,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
                 groupID: params?["group_id"] as? String,

@@ -1,0 +1,46 @@
+import Foundation
+import Testing
+@testable import CmuxVoice
+
+@MainActor
+@Suite struct VoiceSettingsStoreTests {
+    @Test func defaultsToAppleManualSubmitAndLocalVoice() {
+        let defaults = Self.defaults()
+        let store = VoiceSettingsStore(defaults: defaults)
+
+        #expect(store.selectedEngine == .apple)
+        #expect(store.voiceModeAutoSubmit == false)
+        #expect(store.gptVoiceEnabled == false)
+        #expect(store.effectiveEngine(modelInstalled: false) == .apple)
+    }
+
+    @Test func persistsSelectedEngineAutoSubmitAndGPTVoice() {
+        let defaults = Self.defaults()
+        var store: VoiceSettingsStore? = VoiceSettingsStore(defaults: defaults)
+        store?.selectedEngine = .parakeetV3
+        store?.voiceModeAutoSubmit = true
+        store?.gptVoiceEnabled = true
+        store = nil
+
+        let reloaded = VoiceSettingsStore(defaults: defaults)
+        #expect(reloaded.selectedEngine == .parakeetV3)
+        #expect(reloaded.voiceModeAutoSubmit)
+        #expect(reloaded.gptVoiceEnabled)
+    }
+
+    @Test func fallsBackToAppleWhenParakeetMissing() {
+        let defaults = Self.defaults()
+        let store = VoiceSettingsStore(defaults: defaults)
+        store.selectedEngine = .parakeetV3
+
+        #expect(store.effectiveEngine(modelInstalled: false) == .apple)
+        #expect(store.effectiveEngine(modelInstalled: true) == .parakeetV3)
+    }
+
+    private static func defaults() -> UserDefaults {
+        let suite = "CmuxVoiceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+}
