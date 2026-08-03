@@ -360,6 +360,14 @@ final class ApplicationCaptureView: NSView {
                             sessionID: session.sessionID
                         )
                 } catch {
+                    guard
+                        !Task.isCancelled,
+                        self.shouldCaptureNow,
+                        self.captureGeneration == generation,
+                        self.session?.sessionID == session.sessionID
+                    else {
+                        return
+                    }
                     self.handleRuntimeFailure(
                         .failed,
                         failureDetail: error.localizedDescription
@@ -377,6 +385,13 @@ final class ApplicationCaptureView: NSView {
                 self.remoteFrameView.setActive(true)
                 self.publishCaptureReadinessIfReady()
             } catch ApplicationSurfaceRuntimeError.permissionRequired {
+                guard
+                    !Task.isCancelled,
+                    self.shouldCaptureNow,
+                    self.captureGeneration == generation
+                else {
+                    return
+                }
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
                 self.onStateChanged(
@@ -385,6 +400,13 @@ final class ApplicationCaptureView: NSView {
                         .permissionRequired.localizedDescription
                 )
             } catch ApplicationSurfaceRuntimeError.windowUnavailable {
+                guard
+                    !Task.isCancelled,
+                    self.shouldCaptureNow,
+                    self.captureGeneration == generation
+                else {
+                    return
+                }
                 self.captureDesired = false
                 self.targetUnavailable = true
                 self.remoteFrameView.setActive(false)
@@ -394,6 +416,13 @@ final class ApplicationCaptureView: NSView {
                         .windowUnavailable.localizedDescription
                 )
             } catch {
+                guard
+                    !Task.isCancelled,
+                    self.shouldCaptureNow,
+                    self.captureGeneration == generation
+                else {
+                    return
+                }
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
                 cmuxDebugLog(
