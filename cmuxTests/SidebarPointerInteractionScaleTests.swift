@@ -65,7 +65,6 @@ extension SidebarLazyLayoutScaleTests {
     @Test
     @MainActor
     func testStationaryPointerChurnHasNoViewUpdateFaultsAndConverges() async throws {
-        let logStart = Date()
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
@@ -82,6 +81,7 @@ extension SidebarLazyLayoutScaleTests {
         )
         let pointerInWindow = scrollView.convert(pointerInScrollView, to: nil)
         harness.window.injectedMouseLocation = pointerInWindow
+        let logStart = Date()
 
         harness.counter.reset()
         NSApp.sendEvent(try Self.mouseMovedEvent(
