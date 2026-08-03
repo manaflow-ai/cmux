@@ -20,7 +20,7 @@ import Testing
 /// `= left` the right Option can never compose characters (`…`, `@`, `ą`,
 /// `/`), and with `= right` the right Option is never treated as Alt.
 @MainActor
-@Suite struct GhosttyOptionAsAltModsTests {
+@Suite(.serialized) struct GhosttyOptionAsAltModsTests {
     // MARK: NSEvent flags -> libghostty mods side bits
 
     @Test func rightOptionCarriesAltAndAltRightSideBit() {
