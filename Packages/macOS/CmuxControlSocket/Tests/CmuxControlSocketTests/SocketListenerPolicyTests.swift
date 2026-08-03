@@ -145,6 +145,27 @@ import Testing
         #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 2) == 200)
         #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 5) == 1_600)
         #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 6) == 2_000)
+        #expect((1...policy.startupFailureRetryLimit).reduce(0) {
+            $0 + policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: $1)
+        } == 5_100)
+    }
+
+    @Test func chmodRetriesOnlyTransientErrnos() {
+        #expect(policy.shouldRetryStartupFailure(
+            stage: "chmod",
+            errnoCode: EIO,
+            consecutiveFailures: 1
+        ))
+        #expect(policy.shouldRetryStartupFailure(
+            stage: "chmod",
+            errnoCode: EINTR,
+            consecutiveFailures: 1
+        ))
+        #expect(!policy.shouldRetryStartupFailure(
+            stage: "chmod",
+            errnoCode: EACCES,
+            consecutiveFailures: 1
+        ))
     }
 }
 
