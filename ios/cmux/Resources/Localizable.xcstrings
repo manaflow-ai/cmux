@@ -2092,6 +2092,23 @@
         }
       }
     },
+    "mobile.connection.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection is retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続を再試行しています"
+          }
+        }
+      }
+    },
     "mobile.computers.role.foreground": {
       "extractionState": "manual",
       "localizations": {
@@ -5611,6 +5628,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに接続処理が進行中です。完了まで少しお待ちください。接続されないままの場合のみ再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.routeCleanupBlocked": {
       "extractionState": "manual",
       "localizations": {
@@ -5811,6 +5845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already reconnecting to this computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータには再接続中です。"
           }
         }
       }

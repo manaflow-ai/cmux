@@ -94,7 +94,7 @@ cursor.
 
 ### Rust
 
-The `cmux-client` package exports crate `cmux`. Resource handles clone without
+The `cmux-sdk` package exports crate `cmux`. Resource handles clone without
 I/O. Mutation helpers create one secure key; `_with` variants accept explicit
 mutation options. Typed streams are owned iterators with cancellation handles.
 The optional `cmux-sidebar` package applies terminal-style render patches to a
@@ -110,10 +110,11 @@ dependencies. Private models live under `cmux.raw`.
 
 ### TypeScript
 
-`cmux/browser` is browser-safe ESM and accepts an injected WebSocket transport.
-`cmux/node` adds Unix socket discovery. Shared modules import no Node built-ins.
+The `cmux-sdk` package root exports the portable client. `cmux-sdk/browser` is
+browser-safe ESM and accepts an injected WebSocket transport. `cmux-sdk/node`
+adds Unix socket discovery. Shared modules import no Node built-ins.
 Stream APIs are `AsyncIterable`, accept `AbortSignal`, and preserve decimal
-strings. Private models live under `cmux/raw`.
+strings. Private models live under `cmux-sdk/raw`.
 
 ### Go
 

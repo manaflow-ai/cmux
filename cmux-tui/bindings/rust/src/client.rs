@@ -647,7 +647,7 @@ mod tests {
 
     fn temp_socket(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "cmux-client-{name}-{}-{}.sock",
+            "cmux-sdk-{name}-{}-{}.sock",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ))

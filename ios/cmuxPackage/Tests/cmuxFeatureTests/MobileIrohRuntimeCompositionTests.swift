@@ -92,6 +92,17 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     #if DEBUG
+    #if targetEnvironment(simulator)
+    @Test
+    func unsignedSimulatorTreatsSeededDeviceIdentityAsSameDeviceEvidence() {
+        let probe = MobileIrohDevelopmentFileEvidenceProbe(
+            bundleIdentifier: "dev.cmux.ios.simulator-identity-regression"
+        )
+
+        #expect(probe.probe() == .present)
+    }
+    #endif
+
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
@@ -132,7 +143,7 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
-        let readiness = MobileIrohConnectionReadinessSignal()
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         readiness.begin(revision: 2)
 
@@ -141,7 +152,78 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        await readiness.wait()
+        #expect(await readiness.wait(now: { Date(timeIntervalSince1970: 100) }) == .ready)
+    }
+
+    @Test
+    func connectionReadinessAbandonmentSettlesEveryWaiter() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let first = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        readiness.begin(revision: 2)
+        let second = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        #expect(readiness.complete(revision: 1) == false)
+        #expect(readiness.abandon(revision: 2))
+        #expect(await first.value == .inactive)
+        #expect(await second.value == .inactive)
+        #expect(readiness.isPending == false)
+    }
+
+    @Test
+    func cancelledConnectionReadinessWaiterReturnsInactive() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .inactive)
+        #expect(readiness.complete(revision: 1))
+    }
+
+    @Test
+    func connectionReadinessReadsClockAfterActivationSettles() async throws {
+        let start = Date(timeIntervalSince1970: 100)
+        var observedNow = start
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 30,
+                maximumDelay: 3_600,
+                jitterFraction: 0
+            ),
+            jitterUnitInterval: { 0 }
+        )
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { observedNow })
+        }
+        await Task.yield()
+
+        observedNow = start.addingTimeInterval(45)
+        _ = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: CmxIrohTrustBrokerClientError.connectivity,
+            retryAfterSeconds: nil,
+            now: start
+        ))
+
+        let outcome = await waiter.value
+        guard case let .failed(failure) = outcome else {
+            Issue.record("Expected failed readiness outcome")
+            return
+        }
+        #expect(failure.retryAfterSeconds == 1)
     }
 
     @Test

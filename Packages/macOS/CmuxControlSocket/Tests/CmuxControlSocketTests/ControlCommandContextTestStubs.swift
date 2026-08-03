@@ -45,6 +45,7 @@ extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
     func controlPaneResizeInvalidParametersMessage() -> String { "Invalid pane resize parameters" }
+    func controlPaneSurfaceNotFoundMessage() -> String { "Surface not found" }
     func controlPaneFocus(
         routing: ControlRoutingSelectors,
         paneID: UUID
@@ -419,6 +420,7 @@ extension ControlSurfaceContext {
             surfaceNotTerminal: ""
         )
     }
+    func controlSurfaceNotFoundMessage() -> String { "Surface not found" }
 
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
@@ -437,7 +439,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
