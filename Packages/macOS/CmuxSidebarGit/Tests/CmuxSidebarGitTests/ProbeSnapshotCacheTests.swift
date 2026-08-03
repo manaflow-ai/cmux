@@ -431,8 +431,6 @@ import CmuxGit
         #expect(await waitUntil {
             host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url
         })
-        firstService.clearWorkspaceGitProbes(workspaceId: workspaceId)
-
         let secondClock = ManualGitPollClock()
         let secondService = makeService(host: host, reader: reader, clock: secondClock)
         secondService.scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -446,5 +444,41 @@ import CmuxGit
         #expect(await waitUntil { secondService.workspaceGitProbeStateByKey[secondProbeKey] == nil })
 
         #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func clearingWorkspaceProbesClearsTrackedRepositoryLink() async throws {
+        let directory = "/tmp/repo"
+        let link = GitRepositoryLink(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let clock = ManualGitPollClock()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(
+                metadata: .repository(branch: "main", repositoryLink: link)
+            ),
+            clock: clock
+        )
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "repositoryLink"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await waitUntil {
+            host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url
+        })
+
+        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
+
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) == nil)
+        #expect(host.events.contains(.clearRepositoryLink(workspaceId, panelId)))
     }
 }
