@@ -317,4 +317,134 @@ import CmuxGit
         await reader.openGate()
         service.clearWorkspaceGitProbes(workspaceId: workspaceId)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func repositorySnapshotProjectsRepositoryLink() async throws {
+        let directory = "/tmp/repo"
+        let link = GitRepositoryLink(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "main", repositoryLink: link)
+        )
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "repositoryLink"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+
+        #expect(await waitUntil {
+            host.events.contains(
+                .repositoryLink(
+                    workspaceId,
+                    panelId,
+                    "origin",
+                    "manaflow-ai/cmux",
+                    URL(string: "https://github.com/manaflow-ai/cmux")!
+                )
+            )
+        })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func laterSnapshotWithoutRepositoryLinkClearsLinkButKeepsValidBranch() async throws {
+        let directory = "/tmp/repo"
+        let link = GitRepositoryLink(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "main", repositoryLink: link)
+        )
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "repositoryLinkPresent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await waitUntil {
+            host.events.contains {
+                if case .repositoryLink(workspaceId, panelId, _, _, _) = $0 { return true }
+                return false
+            }
+        })
+        let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        #expect(await waitUntil { service.workspaceGitProbeStateByKey[probeKey] == nil })
+
+        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
+        await reader.setMetadata(.repository(branch: "main"))
+        let nextClock = ManualGitPollClock()
+        let nextService = makeService(host: host, reader: reader, clock: nextClock)
+        nextService.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "repositoryLinkRemoved"
+        )
+        await nextClock.waitForSleeper()
+        await nextClock.resumeNext()
+
+        #expect(await waitUntil {
+            host.events.contains(.clearRepositoryLink(workspaceId, panelId))
+        })
+        #expect(host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)?.branch == "main")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func repeatedDetachedHeadSnapshotKeepsUnchangedRepositoryLink() async throws {
+        let directory = "/tmp/repo"
+        let link = GitRepositoryLink(
+            remoteName: "origin",
+            displayName: "manaflow-ai/cmux",
+            url: URL(string: "https://github.com/manaflow-ai/cmux")!
+        )
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: nil, repositoryLink: link)
+        )
+        let firstClock = ManualGitPollClock()
+        let firstService = makeService(host: host, reader: reader, clock: firstClock)
+
+        firstService.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "detachedHeadInitial"
+        )
+        await firstClock.waitForSleeper()
+        await firstClock.resumeNext()
+        #expect(await waitUntil {
+            host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url
+        })
+        firstService.clearWorkspaceGitProbes(workspaceId: workspaceId)
+
+        let secondClock = ManualGitPollClock()
+        let secondService = makeService(host: host, reader: reader, clock: secondClock)
+        secondService.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "detachedHeadRepeat"
+        )
+        await secondClock.waitForSleeper()
+        await secondClock.resumeNext()
+        let secondProbeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        #expect(await waitUntil { secondService.workspaceGitProbeStateByKey[secondProbeKey] == nil })
+
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId)?.url == link.url)
+    }
 }

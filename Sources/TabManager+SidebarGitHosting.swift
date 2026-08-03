@@ -62,6 +62,16 @@ extension TabManager: SidebarGitHosting {
         return SidebarPanelGitBranch(branch: state.branch, isDirty: state.isDirty)
     }
 
+    func panelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> (remoteName: String, displayName: String, url: URL)? {
+        guard let state = tabs.first(where: { $0.id == workspaceId })?.panelRepositoryLinks[panelId] else {
+            return nil
+        }
+        return (state.remoteName, state.displayName, state.url)
+    }
+
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return [] }
         return Set(workspace.panelGitBranches.keys)
@@ -85,7 +95,7 @@ extension TabManager: SidebarGitHosting {
 
     func hasWorkspaceLevelGitSignal(_ workspaceId: UUID) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
-        return workspace.gitBranch != nil || workspace.pullRequest != nil
+        return workspace.gitBranch != nil || workspace.pullRequest != nil || workspace.repositoryLink != nil
     }
 
     func isSelectedFocusedPanel(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -131,6 +141,27 @@ extension TabManager: SidebarGitHosting {
 
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID) {
         tabs.first(where: { $0.id == workspaceId })?.clearPanelGitBranch(panelId: panelId)
+    }
+
+    func updatePanelRepositoryLink(
+        workspaceId: UUID,
+        panelId: UUID,
+        remoteName: String,
+        displayName: String,
+        url: URL
+    ) {
+        tabs.first(where: { $0.id == workspaceId })?.updatePanelRepositoryLink(
+            panelId: panelId,
+            link: SidebarRepositoryLinkState(
+                remoteName: remoteName,
+                displayName: displayName,
+                url: url
+            )
+        )
+    }
+
+    func clearPanelRepositoryLink(workspaceId: UUID, panelId: UUID) {
+        tabs.first(where: { $0.id == workspaceId })?.clearPanelRepositoryLink(panelId: panelId)
     }
 
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge) {
