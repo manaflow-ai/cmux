@@ -120,6 +120,52 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
+    @Test func closeNativeFreesNeverOverlap() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let firstFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseFirstFree = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirstFree.signal()
+            firstFreeStarted.continuation.finish()
+        }
+
+        let firstTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.firstClose",
+            surface: surfaces[0],
+            callbackContext: nil,
+            freeSurface: { _ in
+                firstFreeStarted.continuation.yield()
+                _ = releaseFirstFree.wait(timeout: .distantFuture)
+            }
+        )
+        var firstFreeIterator = firstFreeStarted.stream.makeAsyncIterator()
+        _ = await firstFreeIterator.next()
+
+        let secondTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.secondClose",
+            surface: surfaces[1],
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+
+        #expect(
+            await secondTicket.wait(timeout: .milliseconds(100)) == false,
+            "concurrent native frees can corrupt Ghostty's renderer state"
+        )
+
+        releaseFirstFree.signal()
+        #expect(await firstTicket.wait(timeout: .seconds(1)))
+        #expect(await secondTicket.wait(timeout: .seconds(1)))
+    }
+
     @Test func stuckCloseFreeDoesNotStrandLaterCloses() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surfaces = (0..<3).map { _ in
