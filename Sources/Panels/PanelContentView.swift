@@ -57,6 +57,7 @@ final class PanelContentViewController: NSViewController {
         case accountSignIn
         case rightSidebarTool
         case customSidebar
+        case markdown
         case transitional(String)
     }
 
@@ -140,6 +141,8 @@ final class PanelContentViewController: NSViewController {
             return .rightSidebarTool
         case .customSidebar:
             return .customSidebar
+        case .markdown:
+            return .markdown
         default:
             return .transitional(configuration.panel.panelType.rawValue)
         }
@@ -166,6 +169,8 @@ final class PanelContentViewController: NSViewController {
             return RightSidebarToolPanelViewController(configuration: configuration)
         case .customSidebar:
             return CustomSidebarPanelViewController(configuration: configuration)
+        case .markdown:
+            return MarkdownPanelNativeViewController(configuration: configuration)
         case .transitional:
             return TransitionalPanelLeafHostingController(configuration: configuration)
         }

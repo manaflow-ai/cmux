@@ -219,18 +219,17 @@ struct MarkdownWebTheme: Equatable {
 
 /// Panel-owned renderer session for a markdown preview.
 ///
-/// SwiftUI may recreate `MarkdownWebRenderer` wrappers during split/tab layout
-/// updates. The session keeps the WebKit coordinator identity tied to the
-/// logical `MarkdownPanel` instead of the transient representable instance.
+/// The session keeps the WebKit coordinator identity tied to the logical
+/// `MarkdownPanel` instead of a transient panel mount.
 @MainActor
 final class MarkdownRendererSession {
-    private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
+    private let ownedCoordinator = MarkdownWebRendererCore.Coordinator()
 
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,
         filePath: String
-    ) -> MarkdownWebRenderer.Coordinator {
+    ) -> MarkdownWebRendererCore.Coordinator {
         ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         return ownedCoordinator
     }

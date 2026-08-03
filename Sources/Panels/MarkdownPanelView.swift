@@ -1,307 +1,734 @@
 import AppKit
 import CmuxFoundation
-import SwiftUI
+import Combine
 import WebKit
 
-/// SwiftUI view that renders a MarkdownPanel's content in a WKWebView using
-/// marked.js + github-markdown-css + highlight.js.
+/// Native panel controller for markdown preview and text editing.
 ///
-/// We render through a web view so that:
-///   - Native browser text selection works across the entire document
-///     (Cmd+A / drag-select span paragraphs, headings, code blocks, etc.).
-///     The previous renderer isolated each block, which made it impossible to
-///     select more than one block at a time.
-///   - Rendering uses GitHub's actual markdown CSS, so tables, task lists,
-///     nested lists, blockquotes, and code blocks look identical to what
-///     users see on github.com.
-///   - We can copy the rendered HTML straight from the same source the user
-///     is reading.
-struct MarkdownPanelView: View {
-    @ObservedObject var panel: MarkdownPanel
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let portalPriority: Int
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
+/// The renderer remains panel-owned so pane moves preserve the WKWebView and
+/// its WebContent process. AppKit owns the surrounding chrome and lifecycle.
+@MainActor
+final class MarkdownPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
+    private var configuration: PanelContentConfiguration
+    private weak var panel: MarkdownPanel?
+    private var panelCancellable: AnyCancellable?
+    private var defaultsTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var copyConfirmationTask: Task<Void, Never>?
+    private var externalApplicationTask: Task<Void, Never>?
+    private var externalApplications: [FileExternalOpenApplication] = []
+    private var resolvedExternalFileURL: URL?
+    private var lastFocusFlashToken = 0
 
-    @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashAnimationGeneration: Int = 0
-    @State private var copyConfirmation: CopyConfirmation? = nil
-    @State private var copyConfirmationGeneration: Int = 0
-    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    private let header = MarkdownPanelHeaderView()
+    private let divider = NSBox()
+    private let contentContainer = NSView()
+    private let renderer = MarkdownWebRendererNativeView()
+    private let unavailableView = MarkdownFileUnavailableView()
+    private let flashRing = WorkspaceAttentionFlashRingNativeView(frame: .zero)
+    private var textEditorController: FilePreviewTextEditorController?
 
-    private enum CopyConfirmation: Equatable {
-        case markdown
-        case html
+    init(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        super.init(nibName: nil, bundle: nil)
+        update(configuration: configuration)
+    }
 
-        var label: String {
-            switch self {
-            case .markdown:
-                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
-            case .html:
-                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+
+        header.translatesAutoresizingMaskIntoConstraints = false
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        renderer.translatesAutoresizingMaskIntoConstraints = false
+        unavailableView.translatesAutoresizingMaskIntoConstraints = false
+        flashRing.translatesAutoresizingMaskIntoConstraints = false
+
+        divider.boxType = .separator
+        contentContainer.wantsLayer = true
+        root.addSubview(header)
+        root.addSubview(divider)
+        root.addSubview(contentContainer)
+        contentContainer.addSubview(renderer)
+        contentContainer.addSubview(unavailableView)
+        root.addSubview(flashRing)
+
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            header.topAnchor.constraint(equalTo: root.topAnchor),
+            header.heightAnchor.constraint(equalToConstant: 30),
+            divider.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: header.bottomAnchor),
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            renderer.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            renderer.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            renderer.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            renderer.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+            unavailableView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            unavailableView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            unavailableView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            unavailableView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+            flashRing.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            flashRing.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            flashRing.topAnchor.constraint(equalTo: root.topAnchor),
+            flashRing.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+    }
+
+    func update(configuration: PanelContentConfiguration) {
+        self.configuration = configuration
+        loadViewIfNeeded()
+        guard let panel = configuration.panel as? MarkdownPanel else { return }
+        observe(panel)
+        refresh(panel: panel)
+    }
+
+    func teardownPanelContent() {
+        panelCancellable = nil
+        defaultsTask?.cancel()
+        defaultsTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        copyConfirmationTask?.cancel()
+        copyConfirmationTask = nil
+        externalApplicationTask?.cancel()
+        externalApplicationTask = nil
+        header.teardown()
+        renderer.teardown()
+        textEditorController?.panel = nil
+        textEditorController = nil
+        panel = nil
+    }
+
+    isolated deinit {
+        defaultsTask?.cancel()
+        refreshTask?.cancel()
+        copyConfirmationTask?.cancel()
+        externalApplicationTask?.cancel()
+    }
+
+    private func observe(_ panel: MarkdownPanel) {
+        guard self.panel !== panel else { return }
+        panelCancellable = panel.objectWillChange.sink { [weak self] in
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.scheduleRefresh()
             }
+        }
+        defaultsTask?.cancel()
+        defaultsTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(
+                named: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            ) {
+                guard !Task.isCancelled else { return }
+                self?.scheduleRefresh()
+            }
+        }
+        self.panel = panel
+        lastFocusFlashToken = panel.focusFlashToken
+        resolveExternalApplications(for: panel)
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let panel = self.panel else { return }
+            self.refresh(panel: panel)
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            filePathHeader
+    private func refresh(panel: MarkdownPanel) {
+        let appearance = configuration.appearance
+        let backgroundColor = appearance.contentBackgroundColor
+        view.layer?.backgroundColor = backgroundColor.cgColor
+        contentContainer.layer?.backgroundColor = backgroundColor.cgColor
+        view.appearance = NSAppearance(named: appearance.backgroundColor.isLightColor ? .aqua : .darkAqua)
 
-            Divider()
+        header.update(
+            panel: panel,
+            foregroundColor: appearance.foregroundColor,
+            onRevert: { [weak panel] in _ = panel?.loadTextContent() },
+            onSave: { [weak panel] in _ = panel?.saveTextContent() },
+            onRefresh: { [weak panel] in panel?.reloadFromDisk() },
+            onToggleMode: { [weak panel] in
+                guard let panel else { return }
+                panel.setDisplayMode(panel.displayMode == .preview ? .text : .preview)
+            },
+            onCopyMarkdown: { [weak self] in self?.copyAsMarkdown() },
+            onCopyHTML: { [weak self] in self?.copyAsHTML() },
+            onOpenExternally: { [weak self] button in self?.presentExternalMenu(relativeTo: button) }
+        )
 
-            if panel.isFileUnavailable {
-                fileUnavailableView
-            } else {
-                markdownBody
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(contentBackgroundColor)
-        .overlay {
-            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
-        }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
-        }
-        .environment(\.colorScheme, themeColorScheme)
-    }
-
-    // MARK: - Content
-
-    @ViewBuilder
-    private var markdownBody: some View {
-        ZStack {
-            MarkdownWebRenderer(
-                markdown: panel.content,
-                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
-                backgroundColor: appearance.contentBackgroundColor,
-                panelId: panel.id,
-                workspaceId: panel.workspaceId,
-                filePath: panel.filePath,
-                fontSize: panel.fontSize,
-                fontFamily: panel.fontFamily,
-                maxContentWidth: panel.maxContentWidth,
-                session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(panel.displayMode == .preview ? 1 : 0)
-            .allowsHitTesting(panel.displayMode == .preview)
-            .accessibilityHidden(panel.displayMode != .preview)
-
-            if panel.displayMode == .text {
-                FilePreviewTextEditor(
-                    panel: panel,
-                    isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: appearance.contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private var filePathHeader: some View {
-        PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.richtext",
+        renderer.update(
+            markdown: panel.content,
+            theme: MarkdownWebTheme.resolve(backgroundColor: appearance.backgroundColor),
+            backgroundColor: backgroundColor,
+            panelID: panel.id,
+            workspaceID: panel.workspaceId,
             filePath: panel.filePath,
-            foregroundColor: themeForegroundColor
-        ) {
-            if panel.displayMode == .text {
-                PanelHeaderIconButton(
-                    systemName: "arrow.counterclockwise",
-                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
-                    action: { panel.loadTextContent() }
-                )
+            fontSize: panel.fontSize,
+            fontFamily: panel.fontFamily,
+            maxContentWidth: panel.maxContentWidth,
+            session: panel.rendererSession,
+            onRequestPanelFocus: configuration.onRequestPanelFocus
+        )
 
-                PanelHeaderIconButton(
-                    systemName: "square.and.arrow.down",
-                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
-                    action: { panel.saveTextContent() }
-                )
-            }
-            if panel.displayMode == .preview {
-                MarkdownTypographyControl(panel: panel)
-                PanelHeaderIconButton(
-                    systemName: "arrow.clockwise",
-                    label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
-                    action: { panel.reloadFromDisk() }
-                )
-            }
-            markdownModeButton
-            MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
-                onCopyMarkdown: { copyAsMarkdown() },
-                onCopyHTML: { copyAsHTML() }
+        if textEditorController == nil {
+            let editor = FilePreviewTextEditorController(
+                panel: panel,
+                isVisibleInUI: false,
+                themeBackgroundColor: backgroundColor,
+                themeForegroundColor: appearance.foregroundColor,
+                drawsBackground: appearance.drawsContentBackground,
+                wordWrap: FilePreviewWordWrapSettings.isEnabled()
             )
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
-            )
+            let scrollView = editor.scrollView
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            contentContainer.addSubview(scrollView, positioned: .above, relativeTo: renderer)
+            NSLayoutConstraint.activate([
+                scrollView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+                scrollView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+            ])
+            textEditorController = editor
+        }
+
+        let showsTextEditor = !panel.isFileUnavailable && panel.displayMode == .text
+        textEditorController?.configure(
+            panel: panel,
+            isVisibleInUI: configuration.isVisibleInUI && showsTextEditor,
+            themeBackgroundColor: backgroundColor,
+            themeForegroundColor: appearance.foregroundColor,
+            drawsBackground: appearance.drawsContentBackground,
+            wordWrap: FilePreviewWordWrapSettings.isEnabled()
+        )
+        renderer.isHidden = panel.isFileUnavailable || panel.displayMode != .preview
+        textEditorController?.scrollView.isHidden = !showsTextEditor
+        unavailableView.isHidden = !panel.isFileUnavailable
+        unavailableView.update(filePath: panel.filePath)
+
+        if showsTextEditor, configuration.isFocused {
+            panel.retryPendingFocus()
+        }
+        if lastFocusFlashToken != panel.focusFlashToken {
+            lastFocusFlashToken = panel.focusFlashToken
+            flashRing.triggerFlash(reason: .navigation)
         }
     }
-
-    private var markdownModeButton: some View {
-        switch panel.displayMode {
-        case .preview:
-            PanelHeaderIconButton(
-                systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
-                action: { panel.setDisplayMode(.text) }
-            )
-        case .text:
-            PanelHeaderIconButton(
-                systemName: "eye",
-                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
-                action: { panel.setDisplayMode(.preview) }
-            )
-        }
-    }
-
-    private var fileUnavailableView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "doc.questionmark")
-                .cmuxFont(size: 40)
-                .foregroundColor(.secondary)
-            Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .cmuxFont(.headline)
-                .foregroundColor(.primary)
-            Text(panel.filePath)
-                .cmuxFont(size: 12, design: .monospaced)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
-            Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .cmuxFont(.caption)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Theme
-
-    private var contentBackgroundColor: Color {
-        Color(nsColor: appearance.contentBackgroundColor)
-    }
-
-    private var themeBackgroundColor: NSColor {
-        appearance.backgroundColor
-    }
-
-    private var themeForegroundColor: NSColor {
-        appearance.foregroundColor
-    }
-
-    private var themeColorScheme: ColorScheme {
-        themeBackgroundColor.isLightColor ? .light : .dark
-    }
-
-    // MARK: - Copy actions
 
     private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
-        flashCopyConfirmation(.markdown)
+        guard let panel else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(panel.content, forType: .string)
+        showCopyConfirmation(.markdown)
     }
 
     private func copyAsHTML() {
-        Task { @MainActor in
-            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+        guard let panel else { return }
+        copyConfirmationTask?.cancel()
+        copyConfirmationTask = Task { @MainActor [weak self, weak panel] in
+            guard let panel,
+                  let html = await panel.rendererSession.renderedHTML(markdown: panel.content),
+                  !Task.isCancelled else { return }
             let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
-            // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
-            flashCopyConfirmation(.html)
+            guard !Task.isCancelled else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(html, forType: .html)
+            pasteboard.setString(text, forType: .string)
+            self?.showCopyConfirmation(.html)
         }
     }
 
-    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
-        copyConfirmationGeneration &+= 1
-        let generation = copyConfirmationGeneration
-        copyConfirmation = kind
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard copyConfirmationGeneration == generation else { return }
-            if copyConfirmation == kind {
-                copyConfirmation = nil
+    private func showCopyConfirmation(_ confirmation: MarkdownCopyConfirmation) {
+        copyConfirmationTask?.cancel()
+        header.setCopyConfirmation(confirmation.label)
+        copyConfirmationTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(1_600))
+            } catch {
+                return
             }
+            self?.header.setCopyConfirmation(nil)
         }
     }
 
-    // MARK: - Focus Flash
-
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
-
-        for segment in FocusFlashPattern.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
-                }
-            }
+    private func resolveExternalApplications(for panel: MarkdownPanel) {
+        let fileURL = URL(fileURLWithPath: panel.filePath)
+        guard resolvedExternalFileURL != fileURL else { return }
+        resolvedExternalFileURL = fileURL
+        externalApplications = []
+        externalApplicationTask?.cancel()
+        externalApplicationTask = Task { @MainActor [weak self] in
+            let applications = await Task.detached(priority: .userInitiated) {
+                FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.externalApplications = applications
         }
     }
 
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
+    private func presentExternalMenu(relativeTo button: NSButton) {
+        guard let panel, !panel.isFileUnavailable else { return }
+        let fileURL = URL(fileURLWithPath: panel.filePath)
+        let applications = externalApplications.isEmpty
+            ? FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+            : externalApplications
+        let primary = applications.first(where: \.isDefault) ?? applications.first
+        let others = applications.filter { $0.id != primary?.id }
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primary,
+            otherApplications: others
+        )
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+    }
+}
+
+private enum MarkdownCopyConfirmation {
+    case markdown
+    case html
+
+    var label: String {
+        switch self {
+        case .markdown:
+            String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
+        case .html:
+            String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
         }
     }
 }
 
-// MARK: - Toolbar
+@MainActor
+private final class MarkdownPanelHeaderView: NSView {
+    private let iconView = NSImageView()
+    private let pathLabel = NSTextField(labelWithString: "")
+    private let controls = NSStackView()
+    private let confirmationLabel = NSTextField(labelWithString: "")
+    private let typographyButton = MarkdownTypographyButtonView(frame: .zero)
+    private let revertButton = PanelHeaderNativeButton(
+        systemName: "arrow.counterclockwise",
+        label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert")
+    )
+    private let saveButton = PanelHeaderNativeButton(
+        systemName: "square.and.arrow.down",
+        label: String(localized: "markdown.toolbar.save", defaultValue: "Save")
+    )
+    private let refreshButton = PanelHeaderNativeButton(
+        systemName: "arrow.clockwise",
+        label: String(localized: "filePreview.refresh", defaultValue: "Refresh")
+    )
+    private let modeButton = PanelHeaderNativeButton(systemName: "doc.plaintext", label: "")
+    private let copyMarkdownButton = PanelHeaderNativeButton(
+        systemName: "doc.on.doc",
+        label: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")
+    )
+    private let copyHTMLButton = PanelHeaderNativeButton(
+        systemName: "chevron.left.forwardslash.chevron.right",
+        label: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML")
+    )
+    private let externalButton = PanelHeaderNativeButton(systemName: "square.and.arrow.up", label: "")
 
-private struct MarkdownPanelToolbar: View {
-    let confirmation: String?
-    let onCopyMarkdown: () -> Void
-    let onCopyHTML: () -> Void
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        typographyButton.translatesAutoresizingMaskIntoConstraints = false
 
-    var body: some View {
-        HStack(spacing: 8) {
-            if let confirmation {
-                Text(confirmation)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .transition(.opacity)
-            }
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = .secondaryLabelColor
+        pathLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        pathLabel.maximumNumberOfLines = 1
+        pathLabel.isSelectable = true
+        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
-                systemImage: "doc.on.doc",
-                action: onCopyMarkdown
-            )
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
-                systemImage: "chevron.left.forwardslash.chevron.right",
-                action: onCopyHTML
-            )
-        }
-        .animation(.easeOut(duration: 0.15), value: confirmation)
+        confirmationLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        confirmationLabel.textColor = .secondaryLabelColor
+        confirmationLabel.lineBreakMode = .byTruncatingTail
+        confirmationLabel.isHidden = true
+
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 4
+        [
+            confirmationLabel,
+            revertButton,
+            saveButton,
+            typographyButton,
+            refreshButton,
+            modeButton,
+            copyMarkdownButton,
+            copyHTMLButton,
+            externalButton,
+        ].forEach(controls.addArrangedSubview)
+
+        addSubview(iconView)
+        addSubview(pathLabel)
+        addSubview(controls)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pathLabel.trailingAnchor.constraint(lessThanOrEqualTo: controls.leadingAnchor, constant: -8),
+            controls.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            controls.centerYAnchor.constraint(equalTo: centerYAnchor),
+            typographyButton.widthAnchor.constraint(equalToConstant: 20),
+            typographyButton.heightAnchor.constraint(equalToConstant: 20),
+        ])
     }
 
-    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        PanelHeaderIconButton(
-            systemName: systemImage,
-            label: title,
-            action: action
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        panel: MarkdownPanel,
+        foregroundColor: NSColor,
+        onRevert: @escaping () -> Void,
+        onSave: @escaping () -> Void,
+        onRefresh: @escaping () -> Void,
+        onToggleMode: @escaping () -> Void,
+        onCopyMarkdown: @escaping () -> Void,
+        onCopyHTML: @escaping () -> Void,
+        onOpenExternally: @escaping (NSButton) -> Void
+    ) {
+        let iconName = panel.displayIcon ?? "doc.richtext"
+        iconView.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: iconName,
+            pointSize: 16,
+            weight: .regular
         )
+        pathLabel.stringValue = panel.filePath
+        pathLabel.textColor = foregroundColor.withAlphaComponent(0.68)
+        typographyButton.update(panel: panel)
+
+        let isText = panel.displayMode == .text
+        revertButton.isHidden = !isText
+        saveButton.isHidden = !isText
+        typographyButton.isHidden = isText
+        refreshButton.isHidden = isText
+        revertButton.isEnabled = panel.isDirty
+        saveButton.isEnabled = panel.isDirty && !panel.isSaving
+        externalButton.isEnabled = !panel.isFileUnavailable
+
+        let modeIcon = isText ? "eye" : "doc.plaintext"
+        let modeLabel = isText
+            ? String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview")
+            : String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit")
+        modeButton.update(systemName: modeIcon, label: modeLabel)
+        let externalLabel = FileExternalOpenText.openExternally
+        externalButton.update(systemName: "square.and.arrow.up", label: externalLabel)
+
+        revertButton.actionClosure = onRevert
+        saveButton.actionClosure = onSave
+        refreshButton.actionClosure = onRefresh
+        modeButton.actionClosure = onToggleMode
+        copyMarkdownButton.actionClosure = onCopyMarkdown
+        copyHTMLButton.actionClosure = onCopyHTML
+        externalButton.actionClosure = { [weak externalButton] in
+            guard let externalButton else { return }
+            onOpenExternally(externalButton)
+        }
+    }
+
+    func setCopyConfirmation(_ confirmation: String?) {
+        confirmationLabel.stringValue = confirmation ?? ""
+        confirmationLabel.isHidden = confirmation == nil
+    }
+
+    func teardown() {
+        typographyButton.teardown()
+        [revertButton, saveButton, refreshButton, modeButton, copyMarkdownButton, copyHTMLButton, externalButton]
+            .forEach { $0.actionClosure = nil }
+    }
+}
+
+@MainActor
+private final class PanelHeaderNativeButton: NSButton {
+    var actionClosure: (() -> Void)?
+    private var trackingAreaReference: NSTrackingArea?
+    private var isPointerInside = false
+
+    init(systemName: String, label: String) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        title = ""
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        isBordered = false
+        focusRingType = .none
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        contentTintColor = .secondaryLabelColor
+        target = self
+        action = #selector(invoke)
+        widthAnchor.constraint(equalToConstant: 20).isActive = true
+        heightAnchor.constraint(equalToConstant: 20).isActive = true
+        update(systemName: systemName, label: label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaReference {
+            removeTrackingArea(trackingAreaReference)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        trackingAreaReference = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        updateBackground()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        updateBackground()
+    }
+
+    override var isHighlighted: Bool {
+        didSet { updateBackground() }
+    }
+
+    func update(systemName: String, label: String) {
+        image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: systemName,
+            pointSize: 13,
+            weight: .regular
+        )
+        toolTip = label
+        setAccessibilityLabel(label)
+    }
+
+    private func updateBackground() {
+        let opacity: CGFloat = isHighlighted ? 0.14 : (isPointerInside && isEnabled ? 0.08 : 0)
+        layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(opacity).cgColor
+    }
+
+    @objc private func invoke() {
+        actionClosure?()
+    }
+}
+
+@MainActor
+private final class MarkdownFileUnavailableView: NSView {
+    private let pathLabel = NSTextField(wrappingLabelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        let icon = NSImageView()
+        icon.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "doc.questionmark",
+            pointSize: 40,
+            weight: .regular
+        )
+        icon.contentTintColor = .secondaryLabelColor
+
+        let title = NSTextField(labelWithString: String(
+            localized: "markdown.fileUnavailable.title",
+            defaultValue: "File unavailable"
+        ))
+        title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        title.alignment = .center
+
+        pathLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        pathLabel.textColor = .secondaryLabelColor
+        pathLabel.alignment = .center
+        pathLabel.isSelectable = true
+        pathLabel.maximumNumberOfLines = 0
+
+        let message = NSTextField(wrappingLabelWithString: String(
+            localized: "markdown.fileUnavailable.message",
+            defaultValue: "The file may have been moved or deleted."
+        ))
+        message.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        message.textColor = .secondaryLabelColor
+        message.alignment = .center
+
+        let stack = NSStackView(views: [icon, title, pathLabel, message])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 12
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+            pathLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
+            icon.widthAnchor.constraint(equalToConstant: 44),
+            icon.heightAnchor.constraint(equalToConstant: 44),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(filePath: String) {
+        pathLabel.stringValue = filePath
+    }
+}
+
+@MainActor
+private final class MarkdownWebRendererNativeView: NSView {
+    private weak var installedWebView: WKWebView?
+    private weak var coordinator: MarkdownWebRendererCore.Coordinator?
+
+    func update(
+        markdown: String,
+        theme: MarkdownWebTheme,
+        backgroundColor: NSColor,
+        panelID: UUID,
+        workspaceID: UUID,
+        filePath: String,
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        session: MarkdownRendererSession,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        let coordinator = session.coordinator(
+            panelId: panelID,
+            workspaceId: workspaceID,
+            filePath: filePath
+        )
+        let isNewWebView = coordinator.webView == nil
+        let webView = coordinator.webView ?? makeWebView(coordinator: coordinator)
+        if installedWebView !== webView || webView.superview !== self {
+            webView.removeFromSuperview()
+            webView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(webView)
+            NSLayoutConstraint.activate([
+                webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                webView.topAnchor.constraint(equalTo: topAnchor),
+                webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            installedWebView = webView
+        }
+        self.coordinator = coordinator
+        configure(
+            webView,
+            coordinator: coordinator,
+            theme: theme,
+            backgroundColor: backgroundColor,
+            fontSize: fontSize,
+            fontFamily: fontFamily,
+            maxContentWidth: maxContentWidth,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+        if isNewWebView {
+            coordinator.loadShell(theme: theme, initialMarkdown: markdown)
+        } else {
+            coordinator.update(markdown: markdown, theme: theme)
+        }
+    }
+
+    func teardown() {
+        guard let webView = installedWebView as? MarkdownWebView else { return }
+        webView.onPointerDown = nil
+        installedWebView = nil
+        coordinator = nil
+    }
+
+    private func makeWebView(coordinator: MarkdownWebRendererCore.Coordinator) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.suppressesIncrementalRendering = false
+        configuration.userContentController.add(
+            WeakMarkdownScriptMessageHandler(coordinator),
+            name: "cmuxLib"
+        )
+        configuration.setURLSchemeHandler(
+            coordinator,
+            forURLScheme: MarkdownWebRendererCore.localImageURLScheme
+        )
+        configuration.setURLSchemeHandler(
+            coordinator,
+            forURLScheme: MarkdownWebRendererCore.remoteImageURLScheme
+        )
+        let webView = MarkdownWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
+        if #available(macOS 13.3, *) {
+#if DEBUG
+            webView.isInspectable = true
+#else
+            webView.isInspectable = false
+#endif
+        }
+        coordinator.webView = webView
+        return webView
+    }
+
+    private func configure(
+        _ webView: WKWebView,
+        coordinator: MarkdownWebRendererCore.Coordinator,
+        theme: MarkdownWebTheme,
+        backgroundColor: NSColor,
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        if let markdownView = webView as? MarkdownWebView {
+            markdownView.onPointerDown = onRequestPanelFocus
+            markdownView.onLeaveWindow = { [weak coordinator] in
+                coordinator?.handleViewLeftWindow()
+            }
+            markdownView.onReenterWindow = { [weak coordinator] in
+                coordinator?.handleViewReenteredWindow()
+            }
+        }
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
+        webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+        let appearanceName: NSAppearance.Name = theme.isDark ? .darkAqua : .aqua
+        if webView.appearance?.name != appearanceName {
+            webView.appearance = NSAppearance(named: appearanceName)
+        }
+        coordinator.setFontSize(fontSize)
+        coordinator.setFontFamily(fontFamily)
+        coordinator.setMaxContentWidth(maxContentWidth)
     }
 }

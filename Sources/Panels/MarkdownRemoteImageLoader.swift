@@ -12,7 +12,7 @@ enum MarkdownRemoteImageSecurity {
     static let maximumRemoteImageBytes = 8 * 1024 * 1024
 
     static func remoteImageURL(from requestURL: URL) -> URL? {
-        guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.remoteImageURLScheme,
+        guard requestURL.scheme?.lowercased() == MarkdownWebRendererCore.remoteImageURLScheme,
               let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
               let rawRemoteURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
               let remoteURL = URL(string: rawRemoteURL),

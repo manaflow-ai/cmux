@@ -649,32 +649,6 @@ struct KeyboardShortcutRecorder: NSViewRepresentable {
     }
 }
 
-struct MarkdownTypographyControl: NSViewRepresentable {
-    @ObservedObject var panel: MarkdownPanel
-
-    func makeNSView(context: Context) -> MarkdownTypographyButtonView {
-        let view = MarkdownTypographyButtonView(frame: .zero)
-        view.update(panel: panel)
-        return view
-    }
-
-    func updateNSView(_ view: MarkdownTypographyButtonView, context: Context) {
-        view.update(panel: panel)
-    }
-
-    static func dismantleNSView(_ view: MarkdownTypographyButtonView, coordinator: ()) {
-        view.teardown()
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: MarkdownTypographyButtonView,
-        context: Context
-    ) -> CGSize? {
-        CGSize(width: 20, height: 20)
-    }
-}
-
 @MainActor
 final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>,
     PanelContentControllerUpdating
@@ -731,16 +705,6 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
                 paneOwnershipOverride: configuration.paneOwnershipOverride,
                 onRequestPanelFocus: configuration.onRequestPanelFocus
             ).id(browserPanel.id).environment(\.paneDropZone, configuration.paneDropZone))
-        case .markdown:
-            guard let markdownPanel = panel as? MarkdownPanel else { return setEmpty() }
-            rootView = AnyView(MarkdownPanelView(
-                panel: markdownPanel,
-                isFocused: configuration.isFocused,
-                isVisibleInUI: configuration.isVisibleInUI,
-                portalPriority: configuration.portalPriority,
-                appearance: configuration.appearance,
-                onRequestPanelFocus: configuration.onRequestPanelFocus
-            ))
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return setEmpty() }
             rootView = AnyView(FilePreviewPanelView(
@@ -769,7 +733,7 @@ final class TransitionalPanelLeafHostingController: NSHostingController<AnyView>
             guard let loadingPanel = panel as? CloudVMLoadingPanel else { return setEmpty() }
             rootView = AnyView(CloudVMLoadingPanelView(panel: loadingPanel))
         case .simulator, .agentSession, .extensionBrowser, .mobilePairing, .accountSignIn,
-             .rightSidebarTool, .customSidebar:
+             .rightSidebarTool, .customSidebar, .markdown:
             setEmpty()
         }
         rootView = AnyView(
@@ -1066,102 +1030,6 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
             }
             return true
         }
-    }
-}
-
-struct MarkdownWebRenderer: NSViewRepresentable {
-    typealias Coordinator = MarkdownWebRendererCore.Coordinator
-    static let localImageURLScheme = MarkdownWebRendererCore.localImageURLScheme
-    static let remoteImageURLScheme = MarkdownWebRendererCore.remoteImageURLScheme
-
-    let markdown: String
-    let theme: MarkdownWebTheme
-    let backgroundColor: NSColor
-    let panelId: UUID
-    let workspaceId: UUID
-    let filePath: String
-    let fontSize: Double
-    let fontFamily: String
-    let maxContentWidth: Double
-    let session: MarkdownRendererSession
-    let onRequestPanelFocus: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-    }
-
-    func makeNSView(context: Context) -> WKWebView {
-        if let webView = context.coordinator.webView {
-            webView.removeFromSuperview()
-            configure(webView, coordinator: context.coordinator)
-            return webView
-        }
-
-        let configuration = WKWebViewConfiguration()
-        configuration.suppressesIncrementalRendering = false
-        configuration.userContentController.add(
-            WeakMarkdownScriptMessageHandler(context.coordinator),
-            name: "cmuxLib"
-        )
-        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: Self.localImageURLScheme)
-        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: Self.remoteImageURLScheme)
-        let webView = MarkdownWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
-        if #available(macOS 13.3, *) {
-#if DEBUG
-            webView.isInspectable = true
-#else
-            webView.isInspectable = false
-#endif
-        }
-        context.coordinator.webView = webView
-        configure(webView, coordinator: context.coordinator)
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        configure(webView, coordinator: context.coordinator)
-        context.coordinator.update(markdown: markdown, theme: theme)
-    }
-
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        if coordinator.webView === webView { return }
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-        (webView as? MarkdownWebView)?.onPointerDown = nil
-        (webView as? MarkdownWebView)?.onLeaveWindow = nil
-        (webView as? MarkdownWebView)?.onReenterWindow = nil
-        coordinator.cancelImageLoads()
-    }
-
-    private func configure(_ webView: WKWebView, coordinator: Coordinator) {
-        if let markdownView = webView as? MarkdownWebView {
-            markdownView.onPointerDown = onRequestPanelFocus
-            markdownView.onLeaveWindow = { [weak coordinator] in
-                coordinator?.handleViewLeftWindow()
-            }
-            markdownView.onReenterWindow = { [weak coordinator] in
-                coordinator?.handleViewReenteredWindow()
-            }
-        }
-        webView.navigationDelegate = coordinator
-        webView.uiDelegate = coordinator
-        webView.underPageBackgroundColor = backgroundColor
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
-        let appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
-        if webView.appearance !== appearance {
-            webView.appearance = appearance
-        }
-        coordinator.setFontSize(fontSize)
-        coordinator.setFontFamily(fontFamily)
-        coordinator.setMaxContentWidth(maxContentWidth)
     }
 }
 
