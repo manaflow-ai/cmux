@@ -29,6 +29,14 @@ extension ControlCommandContext {
             MainActor.assumeIsolated { body(seam) }
         }
     }
+
+    /// Test default for the preflight hop: the fakes have no known-ref
+    /// refresh, so it is the same synchronous main hop.
+    nonisolated func controlMainSyncWithoutRefreshingRefs<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        controlResolveOnMain(body)
+    }
 }
 
 extension ControlAppFocusContext {

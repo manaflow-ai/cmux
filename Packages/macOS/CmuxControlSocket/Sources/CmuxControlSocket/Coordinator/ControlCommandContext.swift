@@ -55,4 +55,17 @@ public protocol ControlCommandContext:
     nonisolated func controlResolveOnMain<T: Sendable>(
         _ body: @MainActor (any ControlCommandContext) -> T
     ) -> T
+
+    /// Runs a short closure synchronously on the main actor WITHOUT the
+    /// known-ref refresh — the hop the dispatch preflight takes to read the
+    /// handle registry (issue #9410).
+    ///
+    /// The preflight only resolves refs the caller already holds, and a ref
+    /// can only have reached a caller by being minted, so the refresh would
+    /// add a full window/workspace/pane/surface sweep to every ref-carrying
+    /// worker-lane request without changing the answer. Command bodies keep
+    /// using ``controlResolveOnMain``, whose refresh their ref minting needs.
+    nonisolated func controlMainSyncWithoutRefreshingRefs<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T
 }

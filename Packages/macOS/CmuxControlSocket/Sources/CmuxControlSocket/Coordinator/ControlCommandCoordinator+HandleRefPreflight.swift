@@ -126,12 +126,13 @@ extension ControlCommandCoordinator {
     /// takes the same `controlResolveOnMain` hop (and known-ref refresh) the
     /// worker-lane bodies use — only when a target actually needs it.
     ///
-    /// A ref-carrying worker request therefore costs one hop more than the
-    /// body's documented single hop. That is deliberate: the alternative is
-    /// threading validation through every worker-lane body's own hop, and the
-    /// typing-latency paths (`surface.send_text` / `send_key` from shell
-    /// integration and hooks) carry UUID targets, which skip the hop
-    /// entirely.
+    /// A ref-carrying worker request therefore costs one extra main hop, but
+    /// not an extra topology sweep: it uses the refresh-free
+    /// `controlMainSyncWithoutRefreshingRefs` seam, since a ref the caller
+    /// holds was necessarily minted before. A UUID target skips the hop
+    /// altogether, so the typing-latency paths (`surface.send_text` /
+    /// `send_key` from shell integration and hooks, which carry UUIDs) are
+    /// untouched.
     ///
     /// - Parameters:
     ///   - request: The decoded request envelope.
@@ -143,7 +144,7 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult? {
         if let malformed = malformedTargetError(request) { return malformed }
         guard targetsNeedHandleRegistry(request), let context else { return nil }
-        return context.controlResolveOnMain { _ in
+        return context.controlMainSyncWithoutRefreshingRefs { _ in
             self.unresolvedTargetError(request)
         }
     }
