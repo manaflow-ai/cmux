@@ -2,80 +2,13 @@
 import CmuxAgentChat
 import CmuxMobileSupport
 import Foundation
-import SwiftUI
 import UIKit
 
 let chatTranscriptAtBottomThreshold: CGFloat = 40
 
-/// UIKit-backed transcript list used on iOS for deterministic keyboard and inset behavior.
-struct ChatTranscriptTableView: UIViewRepresentable {
-    let rows: [ChatTranscriptRow]
-    let agentState: ChatAgentState
-    let hasMoreHistory: Bool
-    let hasLoadedInitialHistory: Bool
-    let initialLoadFailed: Bool
-    let historyTruncatedAtHead: Bool
-    let actions: ChatRowActions
-    let onReachTop: () -> Void
-    let onRetryInitialLoad: () -> Void
-    @Binding var isAtBottom: Bool
-    let scrollToBottomRequest: Int
-
-    @Environment(\.chatTheme) private var theme
-    @Environment(\.chatMarkdownRenderer) private var markdownRenderer
-    @Environment(\.chatContentCache) private var contentCache
-    @Environment(\.chatArtifactLoader) private var artifactLoader
-
-    func makeCoordinator() -> Coordinator {
-        let binding = $isAtBottom
-        return Coordinator(onAtBottomChanged: { binding.wrappedValue = $0 })
-    }
-
-    func makeUIView(context: Context) -> ChatTranscriptUITableView {
-        let tableView = ChatTranscriptUITableView(frame: .zero, style: .plain)
-        tableView.backgroundColor = .clear
-        tableView.separatorStyle = .none
-        tableView.keyboardDismissMode = .interactive
-        if #available(iOS 26.0, *) {
-            tableView.contentInsetAdjustmentBehavior = .automatic
-        } else {
-            tableView.contentInsetAdjustmentBehavior = .never
-        }
-        tableView.estimatedRowHeight = 96
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.allowsSelection = false
-        tableView.accessibilityIdentifier = "ChatTranscriptTableView"
-        tableView.register(ChatTranscriptCell.self, forCellReuseIdentifier: ChatTranscriptCell.reuseIdentifier)
-        tableView.applyScrollEdgeEffects(topSoft: true, bottomSoft: true)
-        tableView.dataSource = context.coordinator
-        tableView.delegate = context.coordinator
-        context.coordinator.attach(tableView)
-        return tableView
-    }
-
-    func updateUIView(_ tableView: ChatTranscriptUITableView, context: Context) {
-        context.coordinator.update(
-            configuration: ChatTranscriptTableConfiguration(
-                rows: rows,
-                agentState: agentState,
-                hasMoreHistory: hasMoreHistory,
-                hasLoadedInitialHistory: hasLoadedInitialHistory,
-                initialLoadFailed: initialLoadFailed,
-                historyTruncatedAtHead: historyTruncatedAtHead,
-                actions: actions,
-                onReachTop: onReachTop,
-                onRetryInitialLoad: onRetryInitialLoad,
-                theme: theme,
-                markdownRenderer: markdownRenderer,
-                contentCache: contentCache,
-                artifactLoader: artifactLoader
-            ),
-            in: tableView,
-            scrollToBottomRequest: scrollToBottomRequest
-        )
-    }
-
-    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+/// Owns native transcript data, scrolling, and viewport restoration.
+@MainActor
+final class ChatTranscriptTableCoordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
         private var configuration: ChatTranscriptTableConfiguration?
         private var items: [ChatTranscriptTableItem] = []
         private var agentState: ChatAgentState = .idle
@@ -354,7 +287,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(snapshot.wasAtBottom)
         }
-    }
 }
 
 @MainActor
@@ -448,7 +380,7 @@ struct ChatTranscriptTableConfiguration {
         case .typing:
             let typing = ChatTypingIndicatorView(
                 agentState: agentState,
-                incomingColor: UIColor(theme.incomingBubbleFill)
+                incomingColor: theme.incomingBubbleFill.uiColor
             )
             return topPadded(typing, padding: theme.intraGroupSpacing)
         case .bottomAnchor:
@@ -463,7 +395,7 @@ struct ChatTranscriptTableConfiguration {
         case .dateHeader(let day):
             return ChatDateHeaderView(day: day)
         case .unreadSeparator:
-            return ChatUnreadSeparatorView(accentColor: UIColor(theme.accent))
+            return ChatUnreadSeparatorView(accentColor: theme.accent.uiColor)
         case .pendingOutbound(let pending):
             return ChatPendingBubbleView(pending: pending, actions: actions)
         case .terminalCommand(let block):

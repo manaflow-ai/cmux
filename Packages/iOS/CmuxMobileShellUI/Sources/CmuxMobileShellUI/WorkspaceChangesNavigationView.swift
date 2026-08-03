@@ -16,7 +16,6 @@ struct WorkspaceChangesNavigationView: View {
     let inlineActionHost: ChatArtifactInlineActionHost?
     @Binding var path: [WorkspaceChangesNavigationRoute]
     let onClose: @MainActor @Sendable () -> Void
-    @State private var inlineActionDescriptor: ChatArtifactInlineActionDescriptor?
 
     init(
         branch: String,
@@ -43,7 +42,6 @@ struct WorkspaceChangesNavigationView: View {
         self.pagerActions = pagerActions
         self.inlineActionHost = inlineActionHost
         _path = path
-        _inlineActionDescriptor = State(initialValue: nil)
         self.onClose = onClose
     }
 
@@ -79,7 +77,7 @@ struct WorkspaceChangesNavigationView: View {
                     // conditional preview actions must be declared here rather
                     // than on the root list screen's toolbar.
                     .toolbar {
-                        if let inlineActionDescriptor,
+                        if let inlineActionDescriptor = inlineActionHost?.descriptor,
                            let inlineActionHost {
                             ToolbarItemGroup(placement: .topBarTrailing) {
                                 ForEach(inlineActionDescriptor.actions, id: \.self) { action in
@@ -140,9 +138,6 @@ struct WorkspaceChangesNavigationView: View {
                     }
                 }
             }
-        }
-        .onPreferenceChange(ChatArtifactInlineActionsPreferenceKey.self) { descriptor in
-            inlineActionDescriptor = descriptor
         }
         .accessibilityIdentifier("MobileChangesSheet")
     }

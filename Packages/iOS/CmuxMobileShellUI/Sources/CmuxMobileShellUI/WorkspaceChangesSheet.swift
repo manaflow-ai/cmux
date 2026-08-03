@@ -124,13 +124,10 @@ public struct WorkspaceChangesSheet: View {
             oldPath: file.oldPath,
             revision: revision
         )
-        return UIHostingController(rootView:
-            ChatArtifactInlineViewer(
-                path: resolvedPath,
-                actionHost: inlineActionHost
-            )
-            .environment(\.chatArtifactLoader, loader)
-            .id("\(revision.rawValue)\u{0}\(resolvedPath)")
+        return ChatArtifactInlineViewController(
+            path: resolvedPath,
+            loader: loader,
+            actionHost: inlineActionHost
         )
     }
 

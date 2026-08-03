@@ -1,4 +1,4 @@
-/// Selects file actions without coupling visibility rules to SwiftUI rendering.
+/// Selects file actions without coupling visibility rules to a renderer.
 struct ChatArtifactActionVisibilityPolicy: Equatable {
     static let imageActions: [ChatArtifactAction] = [.share, .save, .copyImage]
 

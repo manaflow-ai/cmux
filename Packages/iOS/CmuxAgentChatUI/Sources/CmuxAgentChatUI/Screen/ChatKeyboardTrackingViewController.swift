@@ -17,7 +17,6 @@ final class ChatKeyboardTrackingViewController: UIViewController, UIGestureRecog
     private let transcriptClipView = UIView(frame: .zero)
     private let bottomChromeContainerView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
-    weak var transcriptOverlayGeometry: ChatTranscriptOverlayGeometry?
     private var composerHeightConstraint: NSLayoutConstraint?
     private var transcriptClipTopConstraint: NSLayoutConstraint?
     private var transcriptClipBottomConstraint: NSLayoutConstraint?
@@ -321,10 +320,6 @@ final class ChatKeyboardTrackingViewController: UIViewController, UIGestureRecog
         updateConstraint(transcriptClipTopConstraint, to: 0)
         updateConstraint(transcriptClipBottomConstraint, to: clipBottomConstant)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        if let transcriptOverlayGeometry,
-           abs(transcriptOverlayGeometry.composerBottomInset - overlayBottomInset) > 0.5 {
-            transcriptOverlayGeometry.composerBottomInset = overlayBottomInset
-        }
         updateTranscriptViewportInsets(
             adjustedBottomInset: adjustedBottomInset,
             composerOverlayBottomInset: overlayBottomInset

@@ -73,7 +73,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (191 import files)
-  - [ ] `CmuxAgentChatUI` (69)
+  - [x] `CmuxAgentChatUI` (0)
   - [x] `CmuxMobileChanges` (0)
   - [x] `CmuxMobileTerminal` (0)
   - [x] `CmuxMobileToast` (0)

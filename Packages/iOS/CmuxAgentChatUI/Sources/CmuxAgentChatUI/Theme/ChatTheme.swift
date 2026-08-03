@@ -1,4 +1,4 @@
-import SwiftUI
+import CoreGraphics
 
 /// Visual tokens for the chat surface: colors, metrics, and type styles.
 ///
@@ -8,26 +8,26 @@ import SwiftUI
 public struct ChatTheme: Sendable, Equatable {
     /// Accent used for outgoing bubbles, actionable buttons, and the send
     /// button.
-    public var accent: Color
+    public var accent: ChatColor
 
     /// Fill for incoming (agent) prose bubbles.
-    public var incomingBubbleFill: Color
+    public var incomingBubbleFill: ChatColor
 
     /// Foreground for monospace content on ``terminalCardFill``. Terminal
     /// cards keep a dark fill in both color schemes (terminals read as
     /// screens), so their text is a fixed light color rather than the
     /// adaptive primary.
-    public var terminalCardText: Color
+    public var terminalCardText: ChatColor
 
     /// Fill for outgoing (user) prose bubbles.
-    public var outgoingBubbleFill: Color
+    public var outgoingBubbleFill: ChatColor
 
     /// Background for terminal and diff cards; darker than bubbles so
     /// terminals read as screens in both color schemes.
-    public var terminalCardFill: Color
+    public var terminalCardFill: ChatColor
 
     /// Hairline color for card borders and separators.
-    public var hairline: Color
+    public var hairline: ChatColor
 
     /// Corner radius of prose bubbles.
     public var bubbleCornerRadius: CGFloat
@@ -51,17 +51,17 @@ public struct ChatTheme: Sendable, Equatable {
     /// light-mode variants derived per surface. Terminal cards deliberately
     /// stay dark in both schemes.
     public init(
-        accent: Color = .blue,
-        incomingBubbleFill: Color = Color.chatAdaptive(
-            light: Color(red: 0.914, green: 0.914, blue: 0.922),
-            dark: Color(white: 0.16)
+        accent: ChatColor = .blue,
+        incomingBubbleFill: ChatColor = ChatColor.adaptive(
+            light: ChatColor(red: 0.914, green: 0.914, blue: 0.922),
+            dark: ChatColor(white: 0.16)
         ),
-        terminalCardText: Color = Color(white: 0.88),
-        outgoingBubbleFill: Color = .blue,
-        terminalCardFill: Color = Color(white: 0.055),
-        hairline: Color = Color.chatAdaptive(
-            light: Color(white: 0.78),
-            dark: Color(white: 0.28)
+        terminalCardText: ChatColor = ChatColor(white: 0.88),
+        outgoingBubbleFill: ChatColor = .blue,
+        terminalCardFill: ChatColor = ChatColor(white: 0.055),
+        hairline: ChatColor = ChatColor.adaptive(
+            light: ChatColor(white: 0.78),
+            dark: ChatColor(white: 0.28)
         ),
         bubbleCornerRadius: CGFloat = 18,
         bubbleGroupedCornerRadius: CGFloat = 6,
@@ -83,9 +83,4 @@ public struct ChatTheme: Sendable, Equatable {
         self.intraGroupSpacing = intraGroupSpacing
         self.bubbleMaxWidthFraction = bubbleMaxWidthFraction
     }
-}
-
-extension EnvironmentValues {
-    /// The active chat theme; defaults to ``ChatTheme/init(accent:incomingBubbleFill:outgoingBubbleFill:terminalCardFill:hairline:bubbleCornerRadius:bubbleGroupedCornerRadius:horizontalMargin:groupSpacing:intraGroupSpacing:bubbleMaxWidthFraction:)`` defaults.
-    @Entry public var chatTheme = ChatTheme()
 }

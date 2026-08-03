@@ -12,7 +12,7 @@ final class ChatTranscriptNativeView: UIView {
     private var configuration: ChatTranscriptTableConfiguration?
     private var scrollToBottomRequest = 0
     private var isAtBottom = true
-    private lazy var coordinator = ChatTranscriptTableView.Coordinator(
+    private lazy var coordinator = ChatTranscriptTableCoordinator(
         onAtBottomChanged: { [weak self] in self?.setAtBottom($0) }
     )
 
@@ -49,7 +49,7 @@ final class ChatTranscriptNativeView: UIView {
         buttonConfiguration.baseBackgroundColor = .systemBlue
         buttonConfiguration.cornerStyle = .capsule
         scrollToBottomButton.configuration = buttonConfiguration
-        scrollToBottomButton.accessibilityIdentifier = "ChatScrollToBottom"
+        scrollToBottomButton.accessibilityIdentifier = "ChatScrollToBottomButton"
         scrollToBottomButton.accessibilityLabel = String(
             localized: "chat.scroll_to_bottom.accessibility",
             defaultValue: "Scroll to latest message",

@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileToast
 import Foundation
 import Testing
 
@@ -317,6 +318,61 @@ struct ChatNativeTranscriptRowTests {
         #expect(stop.isEnabled)
         stop.sendActions(for: .primaryActionTriggered)
         #expect(interrupts == [false])
+    }
+
+    @Test("conversation controller owns transcript, composer, and navigation chrome")
+    func conversationControllerComposition() throws {
+        let defaults = try #require(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let store = ChatConversationStore(
+            descriptor: ChatSessionDescriptor(
+                id: "native-chat",
+                agentKind: .codex,
+                title: "Native chat"
+            ),
+            source: FixtureChatEventSource()
+        )
+        let controller = ChatViewController(
+            store: store,
+            toastCenter: ToastCenter(defaults: defaults),
+            runsStoreTask: false,
+            onOpenTerminal: {}
+        )
+        let navigation = UINavigationController(rootViewController: controller)
+
+        controller.loadViewIfNeeded()
+        navigation.beginAppearanceTransition(true, animated: false)
+        navigation.endAppearanceTransition()
+
+        #expect(controller.view.accessibilityIdentifier == "ChatScreen")
+        #expect(controller.view.descendants.contains {
+            $0.accessibilityIdentifier == "ChatTranscriptTableView"
+        })
+        #expect(controller.view.descendants.contains {
+            $0.accessibilityIdentifier == "ChatComposerField"
+        })
+        #expect(controller.navigationItem.title == "Native chat")
+        #expect(controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier == "ChatOpenTerminalButton")
+    }
+
+    @Test("artifact controller owns its native pager and navigation actions")
+    func artifactControllerComposition() throws {
+        let defaults = try #require(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let controller = ChatArtifactViewerController(
+            path: "/tmp/report.txt",
+            loader: .unsupported(),
+            toastCenter: ToastCenter(defaults: defaults),
+            onDone: {}
+        )
+
+        controller.loadViewIfNeeded()
+
+        #expect(controller.view.accessibilityIdentifier == "ChatArtifactViewer")
+        #expect(controller.children.contains { $0 is UIPageViewController })
+        #expect(controller.navigationItem.rightBarButtonItems?.contains {
+            $0.accessibilityIdentifier == "ChatArtifactDoneButton"
+        } == true)
     }
 }
 

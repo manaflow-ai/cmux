@@ -1,6 +1,6 @@
 import Foundation
 
-/// Parses Markdown into stable block-level values before SwiftUI lays it out.
+/// Parses Markdown into stable block-level values before native layout.
 struct ChatArtifactMarkdownDocument: Equatable, Sendable {
     let blocks: [ChatArtifactMarkdownBlock]
 

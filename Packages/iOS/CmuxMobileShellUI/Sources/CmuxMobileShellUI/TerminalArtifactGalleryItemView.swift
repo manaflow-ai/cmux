@@ -282,7 +282,7 @@ struct TerminalArtifactGalleryItemView: View, Equatable {
         return Image(systemName: glyph.systemImageName)
             .font(.system(size: layout == .grid ? gridSymbolSize : listSymbolSize, weight: .regular))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(glyph.tint.swiftUIColor)
+            .foregroundStyle(glyph.tint == .accent ? Color.blue : Color.secondary)
     }
 
     private var metadataText: String? {

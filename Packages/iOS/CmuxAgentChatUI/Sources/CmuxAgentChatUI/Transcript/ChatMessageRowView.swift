@@ -1,1 +1,1 @@
-// Intentionally empty. ChatTranscriptTableView dispatches native message rows directly.
+// Intentionally empty. ChatTranscriptNativeView dispatches native message rows directly.

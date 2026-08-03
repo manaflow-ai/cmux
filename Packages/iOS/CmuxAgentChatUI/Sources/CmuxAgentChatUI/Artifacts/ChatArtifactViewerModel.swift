@@ -2,6 +2,13 @@ import CmuxAgentChat
 import Foundation
 import Observation
 
+extension ChatArtifactStat {
+    /// Whether this artifact routes to the recursive folder browser.
+    func showsFolder(supportsDirectoryBrowsing: Bool) -> Bool {
+        isDirectory && supportsDirectoryBrowsing
+    }
+}
+
 /// Main-actor state machine for one progressively loaded artifact path.
 @Observable
 @MainActor

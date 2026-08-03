@@ -40,7 +40,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxAgentChatUITests",
-            dependencies: ["CmuxAgentChatUI"],
+            dependencies: ["CmuxAgentChatUI", "CmuxMobileToast"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
