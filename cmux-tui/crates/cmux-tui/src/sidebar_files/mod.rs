@@ -473,4 +473,10 @@ mod tests {
     fn creates_percent_encoded_file_url() {
         assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn creates_windows_drive_file_url() {
+        assert_eq!(file_url(Path::new(r"C:\a\b")), "file:///C:/a/b");
+    }
 }

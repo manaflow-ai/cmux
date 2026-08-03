@@ -232,11 +232,12 @@ jobs:
       - name: Binding e2e
         run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
-  windows-experimental:
-    name: windows experimental (x86_64-gnu)
+  windows-gnu:
+    name: windows GNU host (x86_64-gnu)
     runs-on: windows-latest
     timeout-minutes: 40
-    continue-on-error: true
+    env:
+      BINDGEN_EXTRA_CLANG_ARGS: --target=x86_64-w64-windows-gnu --sysroot=C:/msys64/mingw64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -255,11 +256,15 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Install Rust GNU target
+      - name: Install Rust GNU host and cross-test toolchains
         shell: bash
         run: |
-          rustup target add x86_64-pc-windows-gnu
+          rustup toolchain install 1.91.0-x86_64-pc-windows-gnu --profile minimal
+          rustup toolchain install 1.91.0-x86_64-pc-windows-msvc --profile minimal
+          rustup target add --toolchain 1.91.0-x86_64-pc-windows-msvc x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          test "$(rustc +1.91.0-x86_64-pc-windows-gnu -vV | sed -n 's/^host: //p')" = x86_64-pc-windows-gnu
+          test "$(rustc +1.91.0-x86_64-pc-windows-msvc -vV | sed -n 's/^host: //p')" = x86_64-pc-windows-msvc
 
       - name: Build libghostty-vt for Windows GNU
         shell: bash
@@ -268,6 +273,43 @@ jobs:
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           zig ar t "$RUNNER_TEMP/ghostty-vt-win-gnu/lib/ghostty-vt-static.lib" | head
 
-      - name: cargo build cmux-tui for Windows GNU
+      - name: Build cmux-tui on a native Windows GNU host
+        id: native-build
+        continue-on-error: true
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+        run: cargo +1.91.0-x86_64-pc-windows-gnu build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+
+      - name: Test native Zig target selection
+        id: zig-target-test
+        continue-on-error: true
+        shell: bash
+        working-directory: cmux-tui
+        run: |
+          rustc +1.91.0-x86_64-pc-windows-gnu --test crates/ghostty-vt-sys/build_support.rs -o "$RUNNER_TEMP/ghostty-vt-build-support-tests.exe"
+          "$RUNNER_TEMP/ghostty-vt-build-support-tests.exe" --exact tests::native_windows_gnu_keeps_the_explicit_gnu_abi
+
+      - name: Test that unsupported terminal probes stay silent
+        id: terminal-probe-test
+        continue-on-error: true
+        working-directory: cmux-tui
+        run: cargo +1.91.0-x86_64-pc-windows-msvc test -p cmux-tui --bin cmux-tui --target x86_64-pc-windows-gnu --locked terminal_probe_does_not_write_queries_without_a_reply_reader
+
+      - name: Test Windows file URL conversion
+        id: file-url-test
+        continue-on-error: true
+        working-directory: cmux-tui
+        run: cargo +1.91.0-x86_64-pc-windows-msvc test -p cmux-tui --bin cmux-tui --target x86_64-pc-windows-gnu --locked creates_windows_drive_file_url
+
+      - name: Require all Windows GNU checks
+        if: always()
+        shell: bash
+        env:
+          NATIVE_BUILD_OUTCOME: ${{ steps.native-build.outcome }}
+          ZIG_TARGET_TEST_OUTCOME: ${{ steps.zig-target-test.outcome }}
+          TERMINAL_PROBE_TEST_OUTCOME: ${{ steps.terminal-probe-test.outcome }}
+          FILE_URL_TEST_OUTCOME: ${{ steps.file-url-test.outcome }}
+        run: |
+          test "$NATIVE_BUILD_OUTCOME" = success
+          test "$ZIG_TARGET_TEST_OUTCOME" = success
+          test "$TERMINAL_PROBE_TEST_OUTCOME" = success
+          test "$FILE_URL_TEST_OUTCOME" = success

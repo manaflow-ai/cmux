@@ -1894,7 +1894,8 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn production_graphics_writer_is_disabled_without_interruptible_output() {
-        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())));
+        let (processing_fence, _notifier) = graphics_fence_channel();
+        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())), processing_fence, || {});
         let Err(error) = result else {
             panic!("non-Unix graphics output must be disabled");
         };
