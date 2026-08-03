@@ -68,6 +68,13 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
+        // An explicit `kind:N` target that the registry cannot resolve is a
+        // stale ref, not "no target": fail before any command can fall back to
+        // the focused/selected object and act on it (issue #9410). Runs after
+        // the caller's known-ref refresh, so every live object already has a
+        // ref.
+        if let staleRef = staleHandleRefError(request.params) { return staleRef }
+
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
