@@ -457,7 +457,7 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
+        // pass through to pane drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
         if routingContext.allowsBrowserPortalDragRouting,
@@ -623,7 +623,7 @@ final class WindowBrowserHostView: NSView {
 
     private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
         guard let window else { return false }
-        // Window-level portal hosts sit above SwiftUI content. Never intercept
+        // Window-level portal hosts sit above workspace content. Never intercept
         // hits that land in native titlebar space or the custom titlebar strip
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
@@ -668,8 +668,8 @@ final class WindowBrowserHostView: NSView {
             return false
         }
 
-        // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
-        // to reach the SwiftUI sidebar divider resizer zone.
+        // Browser portal host sits above workspace content. Allow pointer/mouse events
+        // to reach the sidebar divider resizer zone.
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
 
@@ -1172,7 +1172,7 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: BrowserSearchOverlay?
-    private var designComposerHostingView: BrowserDesignModeComposerHostingView?
+    private var designComposerView: BrowserDesignModeComposerView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
@@ -1409,21 +1409,19 @@ final class WindowBrowserSlotView: NSView {
 
     func setDesignComposer(_ configuration: BrowserPortalDesignComposerConfiguration?) {
         guard let configuration else {
-            designComposerHostingView?.removeFromSuperview()
-            designComposerHostingView = nil
+            designComposerView?.removeFromSuperview()
+            designComposerView = nil
             designComposerPanelId = nil
             return
         }
 
-        if let overlay = designComposerHostingView {
-            if designComposerPanelId != configuration.panelId {
-                overlay.rootView = Self.makeDesignComposerRootView(
-                    configuration: configuration,
-                    overlay: overlay
-                )
-                overlay.cardFrameInTopLeftCoordinates = .zero
-                designComposerPanelId = configuration.panelId
-            }
+        if designComposerPanelId != configuration.panelId {
+            designComposerView?.removeFromSuperview()
+            designComposerView = nil
+            designComposerPanelId = nil
+        }
+
+        if let overlay = designComposerView {
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
                 addSubview(overlay)
@@ -1438,15 +1436,12 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let overlay = BrowserDesignModeComposerHostingView(
-            rootView: BrowserDesignModePopoverHost(controller: configuration.controller)
-        )
-        overlay.rootView = Self.makeDesignComposerRootView(
-            configuration: configuration,
-            overlay: overlay
-        )
+        let overlay = BrowserDesignModeComposerView(controller: configuration.controller)
         overlay.onPointerInsideCard = { [weak controller = configuration.controller] in
             controller?.clearPageHoverThrottled()
+        }
+        overlay.onCardFrameChange = { [weak controller = configuration.controller] frame in
+            controller?.updateComposerFrame(frame)
         }
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
@@ -1456,26 +1451,9 @@ final class WindowBrowserSlotView: NSView {
             overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        designComposerHostingView = overlay
+        designComposerView = overlay
         designComposerPanelId = configuration.panelId
         bringInteractionLayersToFrontIfNeeded()
-    }
-
-    private static func makeDesignComposerRootView(
-        configuration: BrowserPortalDesignComposerConfiguration,
-        overlay: BrowserDesignModeComposerHostingView
-    ) -> BrowserDesignModePopoverHost {
-        let dragBridge = BrowserDesignModeCardDragBridge()
-        overlay.onCardDrag = { [weak dragBridge] translation in
-            dragBridge?.translation = translation
-        }
-        return BrowserDesignModePopoverHost(
-            controller: configuration.controller,
-            dragBridge: dragBridge
-        ) { [weak overlay, weak controller = configuration.controller] frame in
-            overlay?.cardFrameInTopLeftCoordinates = frame
-            controller?.updateComposerFrame(frame)
-        }
     }
 
     private func logOmnibarSuggestionsEvent(_ action: String, configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
@@ -1736,7 +1714,7 @@ final class WindowBrowserSlotView: NSView {
         if view === paneDropTargetView { return 4 }
         if view === omnibarSuggestionsHostingView { return 3 }
         if view === searchOverlayHostingView { return 2 }
-        if view === designComposerHostingView { return 1 }
+        if view === designComposerView { return 1 }
         return 0
     }
 
@@ -2174,7 +2152,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
-    /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
+    /// Nested presentation layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
     /// portal locked to the pane the user can actually see.
     private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
@@ -3725,7 +3703,7 @@ final class WindowBrowserPortal: NSObject {
             guard entry.webView != nil else { return webViewId }
             guard let container = entry.containerView else { return webViewId }
             guard let anchor = entry.anchorView else {
-                // Workspace switching hides retiring browser portals before SwiftUI unmounts
+                // Workspace switching hides retiring browser portals before AppKit removes
                 // their anchor views. Keep the hidden WKWebView/slot alive so switching back
                 // can rebind the existing view instead of forcing a full WebKit reload.
                 return nil

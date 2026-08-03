@@ -1,182 +1,315 @@
 import AppKit
 import CmuxBrowser
-import SwiftUI
 
-/// Cursor-style floating composer card for Design Mode.
-///
-/// Matches Cursor's design-mode composer: a flat dark card with the selected
-/// element chips inline ahead of the change-description field, and a footer
-/// with the copy shortcut hint and action. Always renders dark, like the
-/// selection overlays it accompanies.
-struct BrowserDesignModePopover: View {
-    @Bindable var controller: BrowserDesignModeController
-    @State private var tokenFieldHeight: CGFloat = BrowserDesignModeTokenStyle.singleLineFieldHeight
+/// Cursor-style AppKit composer card for Design Mode.
+@MainActor
+final class BrowserDesignModeCardView: NSView {
+    private static let width: CGFloat = 420
+    private static let horizontalInset: CGFloat = 10
+    private static let verticalInset: CGFloat = 10
+    private static let maximumEditorHeight: CGFloat = 340
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Single line: everything inline, vertically centered.
-            // Overflowing prompt: the field takes the full width and the
-            // controls drop to their own bottom row, like Cursor. The field
-            // is always present — an emptied prompt keeps the composer open.
-            let field = BrowserDesignModeTokenField(
-                controller: controller,
-                selections: controller.snapshot?.selections ?? [],
-                resetGeneration: controller.promptResetGeneration,
-                onHeightChange: { height in
-                    if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
-                }
-            )
-            // The card grows downward with the prompt; the inner scroll
-            // viewport only engages past this generous ceiling.
-            .frame(height: min(max(tokenFieldHeight, BrowserDesignModeTokenStyle.singleLineFieldHeight), 340))
-            // ONE layout for every prompt size (a state-dependent layout
-            // switch caused a re-wrap livelock): the mode toggle pins to the
-            // TOP-LEFT, the copy action overlays the BOTTOM-RIGHT, and the
-            // field keeps a constant width between them — vertically centered
-            // when single-line, growing straight down as the prompt wraps.
-            HStack(alignment: .top, spacing: 10) {
-                modeToggle
-                field
-                    .padding(.top, 2)
-                    // Keep the last line clear of the overlaid copy control.
-                    .padding(.trailing, 30)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                copyButton
-            }
-            errorMessage
-        }
-        .padding(10)
-        .frame(width: 420)
-        .background(cardBackground)
-        .environment(\.colorScheme, .dark)
-        .onHover { hovering in
-            // The page cannot see the pointer while it is over the native
-            // card; clear its hover highlight so no stale target lingers.
-            if hovering {
-                Task { @MainActor in await controller.clearPageHover() }
-            }
-        }
-        .onExitCommand {
-            Task { @MainActor in await controller.handleEscape() }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(localized: "browser.designMode.title", defaultValue: "Design Mode"))
+    private let controller: BrowserDesignModeController
+    private let modeContainer = NSView()
+    private let selectButton = NSButton()
+    private let drawButton = NSButton()
+    private let copyButton = NSButton()
+    private let errorLabel = NSTextField(wrappingLabelWithString: "")
+    private lazy var tokenEditor = BrowserDesignModeTokenEditor(controller: controller) { [weak self] height in
+        self?.setEditorHeight(height)
     }
+    private var editorHeight = BrowserDesignModeTokenStyle.singleLineFieldHeight
+    private var errorHeight: CGFloat = 0
+    private var trackingArea: NSTrackingArea?
+    private var dragStartInWindow: NSPoint?
+    private var dragActive = false
 
-    private var cardBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        return shape
-            .fill(Color(red: 0.110, green: 0.110, blue: 0.118).opacity(0.98))
-            .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.35), radius: 14, y: 5)
-    }
+    var onPreferredHeightChange: (() -> Void)?
+    var onPointerInside: (() -> Void)?
+    var onDrag: ((CGSize?) -> Void)?
 
-    /// Switches between the exclusive element-select and draw-capture modes.
-    private var modeToggle: some View {
-        HStack(spacing: 2) {
-            modeButton(
-                icon: "cursorarrow",
-                mode: .select,
-                help: String(localized: "browser.designMode.mode.select", defaultValue: "Select elements")
-            )
-            modeButton(
-                icon: "scribble",
-                mode: .draw,
-                help: String(localized: "browser.designMode.mode.draw", defaultValue: "Draw a capture area")
-            )
-        }
-        .padding(2)
-        .background(Capsule().fill(Color.white.opacity(0.07)))
-    }
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
 
-    private func modeButton(icon: String, mode: BrowserDesignModeInteractionMode, help: String) -> some View {
-        Button {
-            Task { @MainActor in await controller.setInteractionMode(mode) }
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(controller.interactionMode == mode ? Color.white : Color.white.opacity(0.45))
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(
-                        controller.interactionMode == mode
-                            ? Color(red: 0.25, green: 0.47, blue: 0.96)
-                            : Color.clear
-                    )
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .safeHelp(help)
-        .accessibilityLabel(help)
-        .accessibilityAddTraits(controller.interactionMode == mode ? .isSelected : [])
-    }
-
-
-    @ViewBuilder
-    private var errorMessage: some View {
-        if let message = controller.errorMessage {
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .cmuxFont(size: 11)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// Circular trailing action, mirroring the cmux agent composer's send
-    /// button and Cursor's compact pill affordance. Shows a checkmark right
-    /// after a successful copy.
-    private var copyButton: some View {
-        Button {
-            Task { @MainActor in await controller.copySelection() }
-        } label: {
-            Image(systemName: controller.didCopy ? "checkmark" : "doc.on.clipboard")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(
-                    controller.didCopy
-                        ? AnyShapeStyle(.green)
-                        : AnyShapeStyle(.white.opacity(controller.canCopy ? 0.85 : 0.3))
-                )
-                // Same 26pt footprint as the mode toggle capsule so the
-                // left and right controls sit symmetrically in the card.
-                .frame(width: 26, height: 26)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut(.return, modifiers: .command)
-        .disabled(!controller.canCopy)
-        .safeHelp(
-            "\(String(localized: "browser.designMode.copy", defaultValue: "Copy")) (\(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩")))"
+    override var intrinsicContentSize: NSSize {
+        let bodyHeight = max(26, editorHeight + 4)
+        let errorSpacing: CGFloat = errorHeight > 0 ? 6 : 0
+        return NSSize(
+            width: Self.width,
+            height: Self.verticalInset * 2 + bodyHeight + errorSpacing + errorHeight
         )
-        .accessibilityLabel(String(localized: "browser.designMode.copy", defaultValue: "Copy"))
-        .accessibilityIdentifier("BrowserDesignModeCopyButton")
     }
 
+    init(controller: BrowserDesignModeController) {
+        self.controller = controller
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(
+            calibratedRed: 0.110,
+            green: 0.110,
+            blue: 0.118,
+            alpha: 0.98
+        ).cgColor
+        layer?.cornerRadius = 26
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.09).cgColor
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.35
+        layer?.shadowRadius = 14
+        layer?.shadowOffset = CGSize(width: 0, height: -5)
+
+        configureModeContainer()
+        configureButton(
+            selectButton,
+            symbol: "cursorarrow",
+            action: #selector(selectMode),
+            help: String(localized: "browser.designMode.mode.select", defaultValue: "Select elements")
+        )
+        configureButton(
+            drawButton,
+            symbol: "scribble",
+            action: #selector(drawMode),
+            help: String(localized: "browser.designMode.mode.draw", defaultValue: "Draw a capture area")
+        )
+        configureButton(
+            copyButton,
+            symbol: "doc.on.clipboard",
+            action: #selector(copySelection),
+            help: "\(String(localized: "browser.designMode.copy", defaultValue: "Copy")) (\(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩")))"
+        )
+        copyButton.keyEquivalent = "\r"
+        copyButton.keyEquivalentModifierMask = [.command]
+        copyButton.setAccessibilityLabel(
+            String(localized: "browser.designMode.copy", defaultValue: "Copy")
+        )
+        copyButton.setAccessibilityIdentifier("BrowserDesignModeCopyButton")
+
+        errorLabel.font = .systemFont(ofSize: 11)
+        errorLabel.textColor = .systemRed
+        errorLabel.maximumNumberOfLines = 0
+        errorLabel.lineBreakMode = .byWordWrapping
+        errorLabel.isHidden = true
+
+        addSubview(modeContainer)
+        modeContainer.addSubview(selectButton)
+        modeContainer.addSubview(drawButton)
+        addSubview(tokenEditor)
+        addSubview(copyButton)
+        addSubview(errorLabel)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(String(localized: "browser.designMode.title", defaultValue: "Design Mode"))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        selections: [BrowserDesignModeSelection],
+        resetGeneration: UInt,
+        requestedChange: String,
+        interactionMode: BrowserDesignModeInteractionMode,
+        canCopy: Bool,
+        didCopy: Bool,
+        errorMessage: String?
+    ) {
+        tokenEditor.update(
+            selections: selections,
+            resetGeneration: resetGeneration,
+            requestedChange: requestedChange
+        )
+        updateModeButton(selectButton, selected: interactionMode == .select)
+        updateModeButton(drawButton, selected: interactionMode == .draw)
+        copyButton.image = NSImage(
+            systemSymbolName: didCopy ? "checkmark" : "doc.on.clipboard",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+        copyButton.isEnabled = canCopy
+        copyButton.contentTintColor = didCopy
+            ? .systemGreen
+            : NSColor.white.withAlphaComponent(canCopy ? 0.85 : 0.3)
+        updateError(errorMessage)
+    }
+
+    func focusEditor() {
+        tokenEditor.focus()
+    }
+
+    override func layout() {
+        super.layout()
+        let bodyHeight = max(26, editorHeight + 4)
+        modeContainer.frame = CGRect(x: 10, y: 10, width: 52, height: 26)
+        selectButton.frame = CGRect(x: 2, y: 2, width: 22, height: 22)
+        drawButton.frame = CGRect(x: 28, y: 2, width: 22, height: 22)
+        tokenEditor.frame = CGRect(x: 72, y: 12, width: bounds.width - 116, height: editorHeight)
+        copyButton.frame = CGRect(x: bounds.width - 36, y: 10 + bodyHeight - 26, width: 26, height: 26)
+        if !errorLabel.isHidden {
+            errorLabel.frame = CGRect(
+                x: Self.horizontalInset,
+                y: Self.verticalInset + bodyHeight + 6,
+                width: bounds.width - Self.horizontalInset * 2,
+                height: errorHeight
+            )
+        }
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: 26,
+            cornerHeight: 26,
+            transform: nil
+        )
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onPointerInside?()
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartInWindow = event.locationInWindow
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if let start = dragStartInWindow {
+            let dx = event.locationInWindow.x - start.x
+            let dy = start.y - event.locationInWindow.y
+            if dragActive || abs(dx) > 3 || abs(dy) > 3 {
+                dragActive = true
+                onDrag?(CGSize(width: dx, height: dy))
+            }
+        }
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if dragActive { onDrag?(nil) }
+        dragStartInWindow = nil
+        dragActive = false
+        super.mouseUp(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        Task { @MainActor [controller] in
+            await controller.handleEscape()
+        }
+    }
+
+    private func configureModeContainer() {
+        modeContainer.wantsLayer = true
+        modeContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.07).cgColor
+        modeContainer.layer?.cornerRadius = 13
+        modeContainer.layer?.cornerCurve = .continuous
+    }
+
+    private func configureButton(
+        _ button: NSButton,
+        symbol: String,
+        action: Selector,
+        help: String
+    ) {
+        button.image = NSImage(
+            systemSymbolName: symbol,
+            accessibilityDescription: help
+        )?.withSymbolConfiguration(.init(pointSize: 10.5, weight: .semibold))
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.setButtonType(.momentaryPushIn)
+        button.target = self
+        button.action = action
+        button.toolTip = help
+        button.setAccessibilityLabel(help)
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 11
+        button.layer?.cornerCurve = .continuous
+    }
+
+    private func updateModeButton(_ button: NSButton, selected: Bool) {
+        button.contentTintColor = NSColor.white.withAlphaComponent(selected ? 1 : 0.45)
+        button.layer?.backgroundColor = selected
+            ? NSColor(calibratedRed: 0.25, green: 0.47, blue: 0.96, alpha: 1).cgColor
+            : NSColor.clear.cgColor
+        button.setAccessibilitySelected(selected)
+    }
+
+    private func setEditorHeight(_ proposed: CGFloat) {
+        let next = min(
+            max(proposed, BrowserDesignModeTokenStyle.singleLineFieldHeight),
+            Self.maximumEditorHeight
+        )
+        guard abs(next - editorHeight) > 0.5 else { return }
+        editorHeight = next
+        invalidateIntrinsicContentSize()
+        onPreferredHeightChange?()
+    }
+
+    private func updateError(_ message: String?) {
+        let nextMessage = message.map { "⚠︎ \($0)" } ?? ""
+        guard errorLabel.stringValue != nextMessage || errorLabel.isHidden != (message == nil) else { return }
+        errorLabel.stringValue = nextMessage
+        errorLabel.isHidden = message == nil
+        if let message {
+            let attributes: [NSAttributedString.Key: Any] = [.font: errorLabel.font ?? .systemFont(ofSize: 11)]
+            let rect = ("⚠︎ \(message)" as NSString).boundingRect(
+                with: CGSize(width: Self.width - Self.horizontalInset * 2, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: attributes
+            )
+            errorHeight = ceil(rect.height)
+        } else {
+            errorHeight = 0
+        }
+        invalidateIntrinsicContentSize()
+        onPreferredHeightChange?()
+    }
+
+    @objc private func selectMode() {
+        Task { @MainActor [controller] in await controller.setInteractionMode(.select) }
+    }
+
+    @objc private func drawMode() {
+        Task { @MainActor [controller] in await controller.setInteractionMode(.draw) }
+    }
+
+    @objc private func copySelection() {
+        Task { @MainActor [controller] in await controller.copySelection() }
+    }
 }
 
 // MARK: - Token field
 
-/// The prompt editor with selections embedded as inline tokens.
-///
-/// Each selection is an attachment character in the text storage, so tokens
-/// live INSIDE the prompt: backspace deletes a token like a character
-/// (anywhere, not only when the field is empty), clicking a token flashes its
-/// element on the page, and typed text flows around them.
-private struct BrowserDesignModeTokenField: NSViewRepresentable {
-    let controller: BrowserDesignModeController
-    let selections: [BrowserDesignModeSelection]
-    let resetGeneration: UInt
-    let onHeightChange: (CGFloat) -> Void
+/// Native prompt editor with selections embedded as attachment tokens.
+@MainActor
+final class BrowserDesignModeTokenEditor: NSScrollView {
+    private let tokenTextView = BrowserDesignModeTokenTextView()
+    private let coordinator: Coordinator
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller, onHeightChange: onHeightChange)
-    }
+    init(
+        controller: BrowserDesignModeController,
+        onHeightChange: @escaping (CGFloat) -> Void
+    ) {
+        coordinator = Coordinator(controller: controller, onHeightChange: onHeightChange)
+        super.init(frame: .zero)
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let textView = BrowserDesignModeTokenTextView()
-        textView.delegate = context.coordinator
-        textView.onHoveredTokenIdentityChanged = { [weak coordinator = context.coordinator] identity in
+        let textView = tokenTextView
+        textView.delegate = coordinator
+        textView.onHoveredTokenIdentityChanged = { [weak coordinator] identity in
             coordinator?.hoverToken(identity)
         }
         textView.drawsBackground = false
@@ -209,51 +342,49 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                 defaultValue: "Describe the change"
             )
         )
-        // The SwiftUI frame caps the field height; content beyond the cap
-        // stays reachable through this scroll viewport.
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.verticalScrollElasticity = .none
-        scrollView.hasHorizontalScroller = false
-        scrollView.documentView = textView
+        drawsBackground = false
+        borderType = .noBorder
+        hasVerticalScroller = false
+        autohidesScrollers = true
+        verticalScrollElasticity = .none
+        hasHorizontalScroller = false
+        documentView = textView
         // contentSize is zero before layout; keep the text view's width (and
         // therefore the wrapping container width) pinned to the scroll
         // view's live content width or lines never wrap.
-        scrollView.contentView.postsFrameChangedNotifications = true
-        context.coordinator.frameObserver = NotificationCenter.default.addObserver(
+        contentView.postsFrameChangedNotifications = true
+        coordinator.frameObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification,
-            object: scrollView.contentView,
+            object: contentView,
             queue: .main
-        ) { [weak textView, weak scrollView] _ in
+        ) { [weak textView, weak self] _ in
             MainActor.assumeIsolated {
-                guard let textView, let scrollView else { return }
-                let width = scrollView.contentView.bounds.width
+                guard let textView, let self else { return }
+                let width = self.contentView.bounds.width
                 guard width > 0, abs(textView.frame.width - width) > 0.5 else { return }
                 textView.setFrameSize(NSSize(width: width, height: max(textView.frame.height, 1)))
             }
         }
-        context.coordinator.textView = textView
-        context.coordinator.restoreArchivedPrompt(selections: selections)
-        context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
-        DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
-        }
-        return scrollView
+        coordinator.textView = textView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.applyResetIfNeeded(generation: resetGeneration)
-        context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        if let textView = scrollView.documentView as? BrowserDesignModeTokenTextView {
-            textView.onHoveredTokenIdentityChanged = nil
-        }
-        coordinator.hoverToken(nil)
+    func update(
+        selections: [BrowserDesignModeSelection],
+        resetGeneration: UInt,
+        requestedChange: String
+    ) {
+        coordinator.restoreArchivedPrompt(selections: selections)
+        coordinator.applyResetIfNeeded(generation: resetGeneration)
+        coordinator.sync(selections: selections, requestedChange: requestedChange)
+    }
+
+    func focus() {
+        window?.makeFirstResponder(tokenTextView)
     }
 
     @MainActor
@@ -295,9 +426,10 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             removalRequests.removeAll()
             controller.requestedChange = ""
             controller.promptRuns = []
-            // Runs inside updateNSView; a synchronous @State write would be
-            // silently dropped by SwiftUI and the card would stay tall.
-            DispatchQueue.main.async { [weak self] in
+            // Defer one executor turn so the editor can finish its mutation
+            // before the card remeasures itself.
+            Task { @MainActor [weak self] in
+                await Task.yield()
                 self?.reportHeight()
             }
         }
@@ -359,10 +491,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             lastIdentities = attachmentIdentities(in: storage)
             controller.requestedChange = plainText(of: storage)
             archivePrompt()
-            // sync() runs inside makeNSView/updateNSView; defer the height
-            // report so the @State write happens outside SwiftUI's update
-            // pass. textDidChange() reports synchronously (AppKit event).
-            DispatchQueue.main.async { [weak self] in
+            // Let AppKit commit the storage update before measuring layout.
+            Task { @MainActor [weak self] in
+                await Task.yield()
                 self?.reportHeight()
             }
         }
@@ -504,7 +635,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // Synchronous on purpose: typing-driven reports (textDidChange)
             // must resize the card in the same event cycle or every wrap
             // paints one frame with the new line clipped. Callers that run
-            // inside a SwiftUI update pass defer at their own call site.
+            // during a reconciliation pass defer at their own call site.
             onHeightChange(height)
         }
 
@@ -563,7 +694,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             lastIdentities = attachmentIdentities(in: storage)
             controller.requestedChange = plainText(of: storage)
             textView.setSelectedRange(NSRange(location: storage.length, length: 0))
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                await Task.yield()
                 self?.reportHeight()
             }
         }
