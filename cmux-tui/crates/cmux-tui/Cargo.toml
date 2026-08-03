@@ -35,6 +35,7 @@ zeroize.workspace = true
 terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
+sha2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true

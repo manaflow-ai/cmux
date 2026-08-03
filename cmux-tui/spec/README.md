@@ -29,6 +29,11 @@ boundary.
 
 ## Raw and implementation protocols
 
+The authenticated remote daemon has an independent protocol version.
+[`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md)
+define remote protocol 5; `mux-control` carries private control protocol 10
+inside that authenticated session.
+
 Protocol v10 is the current private mux implementation protocol. It remains
 documented for cmux frontends and compatibility adapters:
 

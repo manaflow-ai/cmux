@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_remote_protocol::RpcError;
-use tokio::sync::{Notify, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 
 const MAX_WORKSPACE_BLOCKING_JOBS: usize = 4;
 
@@ -38,6 +38,39 @@ struct BlockingLifecycleState {
 
 struct JobRegistration {
     lifecycle: Arc<BlockingLifecycle>,
+}
+
+struct CompletedBlockingJob<T> {
+    result: Option<Result<T, RpcError>>,
+    permit: Option<OwnedSemaphorePermit>,
+    registration: Option<JobRegistration>,
+}
+
+impl<T> CompletedBlockingJob<T> {
+    fn new(
+        result: Result<T, RpcError>,
+        permit: OwnedSemaphorePermit,
+        registration: JobRegistration,
+    ) -> Self {
+        Self { result: Some(result), permit: Some(permit), registration: Some(registration) }
+    }
+
+    fn into_result(mut self) -> Result<T, RpcError> {
+        let result = self.result.take().expect("blocking job result remains present");
+        drop(self.registration.take());
+        drop(self.permit.take());
+        result
+    }
+}
+
+impl<T> Drop for CompletedBlockingJob<T> {
+    fn drop(&mut self) {
+        // Stateful results can own rollback guards. Release those before
+        // another job acquires this slot and observes the guarded state.
+        drop(self.result.take());
+        drop(self.registration.take());
+        drop(self.permit.take());
+    }
 }
 
 impl Drop for JobRegistration {
@@ -90,20 +123,35 @@ impl WorkspaceBlockingPool {
         })?;
         #[cfg(test)]
         let before_job = self.before_job.clone();
-        tokio::task::spawn_blocking(move || {
-            // Keep admission charged even if the awaiting request is canceled.
-            let _permit = permit;
-            let _registration = registration;
+        let (completed_tx, completed_rx) = oneshot::channel();
+        let worker = tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             if let Some(before_job) = before_job {
                 before_job();
             }
-            job()
-        })
-        .await
-        .map_err(|error| {
+            // Move admission into the result so a canceled receiver drops any
+            // rollback guard before releasing this worker slot.
+            drop(completed_tx.send(CompletedBlockingJob::new(job(), permit, registration)));
+        });
+        let result = match completed_rx.await {
+            Ok(result) => result,
+            Err(_) => {
+                return match worker.await {
+                    Ok(()) => Err(RpcError::new(
+                        "internal",
+                        format!("workspace {operation} worker returned no result"),
+                    )),
+                    Err(error) => Err(RpcError::new(
+                        "internal",
+                        format!("workspace {operation} worker failed: {error}"),
+                    )),
+                };
+            }
+        };
+        worker.await.map_err(|error| {
             RpcError::new("internal", format!("workspace {operation} worker failed: {error}"))
-        })?
+        })?;
+        result.into_result()
     }
 
     pub(crate) async fn run_async<T, F, Fut>(

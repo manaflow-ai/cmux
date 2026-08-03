@@ -35,39 +35,27 @@ struct CmxAuthoritativeDiscoveryResolver: Sendable {
         let response = try await authority.syncConnectivity(
             knownRevision: cached?.revision
         )
-        if let snapshot = response.snapshot {
-            let completeSnapshot: CmxIrohDiscoveryResponse
-            if snapshot.bindings.count == CmxIrohDiscoveryPage.legacyBindingLimit {
-                completeSnapshot = try await broker.discover()
-                try Self.requireRevision(
-                    completeSnapshot,
-                    atLeast: response.revision
-                )
-            } else {
-                completeSnapshot = snapshot
-            }
-            try Self.requireRevision(completeSnapshot, atLeast: minimumRevision)
+        if let snapshot = response.snapshot,
+           response.snapshotComplete == true {
+            try Self.requireRevision(snapshot, atLeast: minimumRevision)
             if !response.reset {
-                try Self.requireRevision(
-                    completeSnapshot,
-                    atLeast: cached?.revision
-                )
+                try Self.requireRevision(snapshot, atLeast: cached?.revision)
             }
-            return completeSnapshot
+            return snapshot
+        }
+        if response.snapshot != nil {
+            let discovery = try await broker.discover()
+            try Self.requireRevision(discovery, atLeast: response.revision)
+            try Self.requireRevision(discovery, atLeast: minimumRevision)
+            if !response.reset {
+                try Self.requireRevision(discovery, atLeast: cached?.revision)
+            }
+            return discovery
         }
         guard !response.reset,
               let cached,
               cached.revision == response.revision else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        if cached.bindings.count == CmxIrohDiscoveryPage.legacyBindingLimit {
-            let completeSnapshot = try await broker.discover()
-            try Self.requireRevision(
-                completeSnapshot,
-                atLeast: response.revision
-            )
-            try Self.requireRevision(completeSnapshot, atLeast: minimumRevision)
-            return completeSnapshot
         }
         try Self.requireRevision(cached, atLeast: minimumRevision)
         return cached

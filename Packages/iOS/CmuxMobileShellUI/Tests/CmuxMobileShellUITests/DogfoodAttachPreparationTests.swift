@@ -5,6 +5,21 @@ import Testing
 struct DogfoodAttachPreparationTests {
     @Test
     @MainActor
+    func waitsForTransportReadinessBeforeConsumingAttachURL() async {
+        let recorder = DogfoodAttachPreparationRecorder()
+        let preparation = DogfoodAttachPreparation {
+            await recorder.record("ready")
+        }
+
+        await preparation.run {
+            await recorder.record("attach")
+        }
+
+        #expect(await recorder.values() == ["ready", "attach"])
+    }
+
+    @Test
+    @MainActor
     func failedInjectedAttachReleasesStartupToStoredReconnect() throws {
         let coordinator = MobileStartupConnectionCoordinator()
 
@@ -34,6 +49,20 @@ struct DogfoodAttachPreparationTests {
 
     @Test
     @MainActor
+    func approvalPendingInjectedAttachKeepsExclusiveStartupOwnership() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attachAttempt = try #require(coordinator.claimInjectedAttach())
+
+        #expect(!coordinator.finishInjectedAttach(
+            attachAttempt,
+            outcome: .awaitingUserApproval
+        ))
+        #expect(coordinator.claimInjectedAttach() == nil)
+        #expect(coordinator.claimStoredReconnect() == nil)
+    }
+
+    @Test
+    @MainActor
     func cancelledInjectedAttachReleasesImmediatelyAndIgnoresLateCompletion() throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let cancelledAttempt = try #require(coordinator.claimInjectedAttach())
@@ -48,5 +77,17 @@ struct DogfoodAttachPreparationTests {
         #expect(!coordinator.finishInjectedAttach(cancelledAttempt, outcome: .connected))
         #expect(!coordinator.finishInjectedAttach(currentAttempt, outcome: .connected))
         #expect(coordinator.claimStoredReconnect() == nil)
+    }
+}
+
+private actor DogfoodAttachPreparationRecorder {
+    private var events: [String] = []
+
+    func record(_ event: String) {
+        events.append(event)
+    }
+
+    func values() -> [String] {
+        events
     }
 }

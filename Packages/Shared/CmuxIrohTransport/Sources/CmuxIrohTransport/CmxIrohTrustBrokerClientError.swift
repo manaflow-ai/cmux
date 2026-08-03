@@ -28,7 +28,16 @@ public enum CmxIrohTrustBrokerClientError:
         case .rateLimited:
             return true
         case let .rejected(statusCode, _):
-            return Self.isRegistryChurn(error)
+            // A 401 here already survived the
+            // broker client's single force-refresh retry, so it is a session
+            // transition still settling (rotation race, locked token store) or
+            // a server-side availability condition — not a trust change. The
+            // cached policy was verified when stored; tearing the runtime down
+            // buys nothing and turns a seconds-long auth blip into a full
+            // endpoint rebuild. A genuinely dead session clears auth state
+            // through the coordinator, which stops the runtime through the
+            // lifecycle owner instead.
+            return statusCode == 401
                 || statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
@@ -54,8 +63,9 @@ public enum CmxIrohTrustBrokerClientError:
         case let .rejected(statusCode, _):
             // A server failure cannot establish trust, so retrying the request
             // is safe while the lifecycle-owned start task remains current.
-            return Self.isRegistryChurn(error)
-                || statusCode == 408
+            // An authentication rejection cannot establish initial trust. It
+            // must return to the auth lifecycle instead of retrying forever.
+            return statusCode == 408
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
@@ -66,15 +76,6 @@ public enum CmxIrohTrustBrokerClientError:
              .invalidResponse:
             return false
         }
-    }
-
-    private static func isRegistryChurn(_ error: any Error) -> Bool {
-        guard case let .rejected(statusCode, code)? = error as? Self,
-              statusCode == 409 else {
-            return false
-        }
-        return code == "discovery_cursor_stale"
-            || code == "discovery_snapshot_changed"
     }
 
     /// The validated server retry floor, when present.

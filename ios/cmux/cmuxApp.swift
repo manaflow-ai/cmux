@@ -149,6 +149,12 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
     }
 
     private var mobileRootScene: CMUXMobileRootScene {

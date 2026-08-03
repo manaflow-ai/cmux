@@ -31,7 +31,7 @@ cmux-tui daemon --session dev \
   --advertise wss://cmux.example/v1/link
 ```
 
-Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.0.1:8443/v1/link`. The advertised URL becomes an enrollment route hint. Binding plaintext directly to a non-loopback address requires `--remote-ws-insecure-bind` and should be limited to a trusted network.
+Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.0.1:8443/v1/link`. Preserve the native client's lack of an `Origin` header because cmux rejects browser-origin upgrades. The advertised URL becomes an enrollment route hint. Binding plaintext directly to a non-loopback address requires `--remote-ws-insecure-bind` and should be limited to a trusted network.
 
 `npx cmux` exposes the same commands when using the npm distribution:
 
@@ -58,7 +58,7 @@ cmux-tui enroll pending --session dev
 cmux-tui enroll approve <invitation-id> --session dev
 ```
 
-`--invite-file -` reads exactly one line from stdin. This leaves subsequent stdin lines available to `rpc`. Inline `--invite` and positional invitation URIs remain compatible, but shells and process inspection can expose those forms.
+`--invite-file -` reads exactly one line from stdin. This leaves subsequent stdin lines available to `rpc`. Inline `--invite` and positional invitation URIs are rejected because shells and process inspection can expose those forms.
 
 Invitation startup stays alive through the invitation's remaining lifetime and the five-minute approval window. `--connect-timeout-seconds` can impose a different bound, and canceling the client also cancels connection setup.
 
@@ -111,8 +111,7 @@ Every command that selects SSH as its initial route performs the same probe and 
 
 | Option | Effect and default |
 | --- | --- |
-| positional route | `ws`, `wss`, `unix`, `ssh`, `iroh`, or relay URL; an invitation URI is also accepted |
-| `--invite <uri>` | Supply an invitation separately so a positional route can be tried first |
+| positional route | `ws`, `wss`, `unix`, `ssh`, `iroh`, or relay URL; invitation URIs must use `--invite-file` |
 | `--invite-file <path>` | Read one invitation from an owner-only file, or one stdin line when the path is `-`, without putting the secret in process arguments |
 | `--daemon <fingerprint>` | Select one known enrolled or carrier daemon when no route is supplied or several match |
 | `--lanes <policy>` | `auto`, `single`, or `isolated`; default `auto`; only the `cmux-tui ssh` shorthand defaults to `single` |
@@ -129,11 +128,11 @@ Every command that selects SSH as its initial route performs the same probe and 
 
 Reconnect defaults are unlimited attempts, 100 ms initial delay, 5 s maximum delay, a 15 s timeout per attempt, full jitter, a 5 s heartbeat interval, and a 15 s heartbeat timeout. Override them with `--reconnect-attempts <n|unlimited>`, `--reconnect-initial-ms`, `--reconnect-max-ms`, `--reconnect-attempt-timeout-ms`, `--reconnect-jitter <full|none>`, `--heartbeat-interval-ms`, and `--heartbeat-timeout-ms`.
 
-A single relay route needs `--relay-slot` and exactly one of `--relay-ticket`, `--relay-ticket-file`, or `--relay-ticket-command`. For independent relay fallbacks, repeat groups of `--relay-route`, `--relay-slot`, and one credential source in occurrence order. A client or daemon accepts at most four relay registrations. Route-scoped credentials override an invitation credential for the same route; invitation credentials override the unscoped single-relay fallback. Repeat `--relay-ticket-command-arg` immediately after its command to construct argv without a shell.
+A single relay route needs `--relay-slot` and exactly one of `--relay-ticket-file` or `--relay-ticket-command`. For independent relay fallbacks, repeat groups of `--relay-route`, `--relay-slot`, and one credential source in occurrence order. A client or daemon accepts at most four relay registrations. Route-scoped credentials override an invitation credential for the same normalized route, and invitation credentials fill only routes without an explicit credential. Repeat `--relay-ticket-command-arg` immediately after its command to construct argv without a shell.
 
 File, command, and Rust callback credential sources are queried for Register or Connect sockets and on provider-authentication retry. Relay-minted Join tickets authenticate circuit sockets. A credential is limited to 4096 visible ASCII bytes, and a credential command has a ten-second default deadline. Sources remain in memory for reconnects within that client process. They are not persisted in known-daemon state, so pass them again on each later `connect` invocation.
 
-`enroll` actions are `status`, `create`, `pending`, `approve <invitation-id>`, `deny <invitation-id>`, `devices`, `connections`, `revoke <device-id>`, and `disconnect <device-id> <session-id>`. `enroll connect` is a compatibility alias for `connect`. Shared owner options are `--session`, `--state-dir`, `--admin-socket`, and `--json`. `connections --json` reports each daemon-observed generation, connected or reconnecting state, remaining resume lease, and lane-to-physical-link bindings. `create` accepts `--ttl <seconds>` (capped at five minutes), repeated `--advertise`, and up to two relay bootstrap records. Repeat `--relay-route`, `--relay-slot`, and either `--relay-ticket` or `--relay-ticket-file`; values pair by occurrence order.
+`enroll` actions are `status`, `create`, `pending`, `approve <invitation-id>`, `deny <invitation-id>`, `devices`, `connections`, `revoke <device-id>`, and `disconnect <device-id> <session-id>`. `enroll connect` is a compatibility alias for `connect`. Shared owner options are `--session`, `--state-dir`, `--admin-socket`, and `--json`. `connections --json` reports each daemon-observed generation, connected or reconnecting state, remaining resume lease, and lane-to-physical-link bindings. `create` accepts `--ttl <seconds>` (capped at five minutes), repeated `--advertise`, and up to two relay bootstrap records. Repeat `--relay-route`, `--relay-slot`, and `--relay-ticket-file`; values pair by occurrence order.
 
 ## Transport and lane policy
 
@@ -250,11 +249,17 @@ SLOT="$(openssl rand -hex 16)"
 cargo build -p cmux-relay
 ```
 
-Mint separate daemon and client provider tickets for one opaque slot:
+Mint separate daemon and client provider tickets into owner-only files for one opaque slot:
 
 ```sh
-REGISTER_TICKET="$(target/debug/cmux-relay ticket --permission register --slot "$SLOT")"
-CONNECT_TICKET="$(target/debug/cmux-relay ticket --permission connect --slot "$SLOT")"
+RELAY_STATE="${XDG_RUNTIME_DIR:-$HOME/.cache}/cmux-relay-dev"
+install -d -m 700 "$RELAY_STATE"
+install -m 600 /dev/null "$RELAY_STATE/register.ticket"
+install -m 600 /dev/null "$RELAY_STATE/connect.ticket"
+target/debug/cmux-relay ticket --permission register --slot "$SLOT" \
+  > "$RELAY_STATE/register.ticket"
+target/debug/cmux-relay ticket --permission connect --slot "$SLOT" \
+  > "$RELAY_STATE/connect.ticket"
 ```
 
 Run ticket commands in a shell that has the same `CMUX_RELAY_HMAC_SECRET`. Then start the foreground relay in a dedicated terminal with that secret:
@@ -263,7 +268,7 @@ Run ticket commands in a shell that has the same `CMUX_RELAY_HMAC_SECRET`. Then 
 target/debug/cmux-relay serve --bind 127.0.0.1:8787
 ```
 
-A public TLS proxy must forward `/v1/relay`, the WebSocket Upgrade headers, and the `Authorization` header to the loopback relay.
+A public TLS proxy must forward `/v1/relay`, the WebSocket Upgrade headers, and the `Authorization` header to the loopback relay without injecting an `Origin` header.
 
 Register the daemon:
 
@@ -271,7 +276,7 @@ Register the daemon:
 cmux-tui daemon --session dev \
   --relay relay+wss://relay.example \
   --relay-slot "$SLOT" \
-  --relay-ticket "$REGISTER_TICKET"
+  --relay-ticket-file "$RELAY_STATE/register.ticket"
 ```
 
 Production deployments can refresh short-lived tickets from an owner-readable file or an argv-based credential command. The source is queried for each Register or Connect WebSocket and provider-authentication retry:
@@ -290,7 +295,15 @@ cmux-tui connect relay+wss://relay.example \
 
 The Rust API also accepts an asynchronous callback for a broker-backed credential source. Credential values, command output, authorization headers, and relay protocol ticket fields are redacted from debug output and errors.
 
-Connect a client with `relay+wss://relay.example`, the same slot, and its Connect ticket. Provider tickets are short-lived abuse-control capabilities. They never grant workspace authority and cannot decrypt tunneled traffic.
+Deliver the owner-only Connect ticket file to the client, then connect with `relay+wss://relay.example` and the same slot:
+
+```sh
+cmux-tui connect relay+wss://relay.example \
+  --relay-slot "$SLOT" \
+  --relay-ticket-file "$RELAY_STATE/connect.ticket"
+```
+
+Provider tickets are short-lived abuse-control capabilities. They never grant workspace authority and cannot decrypt tunneled traffic.
 
 For first-time mobile or off-network enrollment, embed a short-lived Connect ticket and relay route in the invitation:
 
@@ -298,7 +311,7 @@ For first-time mobile or off-network enrollment, embed a short-lived Connect tic
 cmux-tui enroll create --session dev \
   --relay-route relay+wss://relay.example \
   --relay-slot "$SLOT" \
-  --relay-ticket "$CONNECT_TICKET"
+  --relay-ticket-file "$RELAY_STATE/connect.ticket"
 ```
 
 The ticket is sensitive and exists only to reach the daemon for enrollment. The invitation still requires the Noise secret, daemon-key pin, and owner approval. After enrollment, pass a fresh file, command, or callback credential on each new client invocation for long-lived relay access instead of reusing the invitation ticket. The same invitation format accepts `relay+do://` routes.
@@ -326,11 +339,11 @@ The Worker under `relays/cloudflare-do` implements the same relay v2 control mes
 cmux-tui daemon --session dev \
   --relay relay+do://relay-worker.example \
   --relay-slot <base64url-slot> \
-  --relay-ticket <register-ticket>
+  --relay-ticket-file /path/to/register.ticket
 
 cmux-tui connect relay+do://relay-worker.example \
   --relay-slot <base64url-slot> \
-  --relay-ticket <connect-ticket>
+  --relay-ticket-file /path/to/connect.ticket
 ```
 
 The provider derives `/v1/slots/<slot>/control`, `/v1/slots/<slot>/connect`, and `/v1/circuits/<circuit>`. It sends the provider or Join ticket in the WebSocket `Authorization` header and repeats it in the relay control protocol for defense in depth. Durable Objects supply slot-to-circuit indirection and hibernation. They remain a relay provider under the WebSocket carrier contract, rather than becoming a separate session transport.
