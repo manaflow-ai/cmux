@@ -189,6 +189,10 @@ final class TerminalBytesDemoTests: XCTestCase {
         XCTAssertFalse(source.contains("swift-package clean"))
         XCTAssertTrue(source.contains("--scratch-path \"$SWIFT_BUILD_ROOT\""))
         XCTAssertFalse(source.contains("$SCRIPT_DIR/.build/debug"))
+        XCTAssertTrue(source.contains("trap cleanup EXIT"))
+        XCTAssertTrue(source.contains("trap 'exit 130' INT"))
+        XCTAssertTrue(source.contains("trap 'exit 143' TERM"))
+        XCTAssertFalse(source.contains("trap cleanup EXIT INT TERM"))
     }
 
     @MainActor

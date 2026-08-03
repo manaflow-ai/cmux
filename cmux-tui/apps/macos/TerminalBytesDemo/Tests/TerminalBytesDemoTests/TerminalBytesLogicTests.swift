@@ -71,7 +71,7 @@ private func makeBlockingInputHarness() -> (
     let releaseFirst = DispatchSemaphore(value: 0)
     let handle = TerminalClientHandle(
         rawAddress: 8,
-        attachClient: { _, _, _, _ in true },
+        attachClient: { _, _, _, _, _ in true },
         destroyClient: { _ in },
         detachClient: { _ in },
         setUpdateCallback: { _, _, _ in },
@@ -368,7 +368,7 @@ struct TerminalBytesLogicTests {
         let attempts = LockedCounter()
         let handle = TerminalClientHandle(
             rawAddress: 5,
-            attachClient: { _, _, _, _ in true },
+            attachClient: { _, _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in },
             setUpdateCallback: { _, _, _ in },
@@ -405,7 +405,7 @@ struct TerminalBytesLogicTests {
         let calls = LockedClientCalls()
         let handle = TerminalClientHandle(
             rawAddress: rawAddress,
-            attachClient: { client, terminal, _, _ in
+            attachClient: { client, terminal, _, _, _ in
                 calls.recordAttach(client: client, terminal: String(cString: terminal!))
                 return true
             },
@@ -457,7 +457,7 @@ struct TerminalBytesLogicTests {
         let releaseFirst = DispatchSemaphore(value: 0)
         let handle = TerminalClientHandle(
             rawAddress: 7,
-            attachClient: { _, _, _, _ in true },
+            attachClient: { _, _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in },
             setUpdateCallback: { _, _, _ in },
@@ -534,7 +534,7 @@ struct TerminalBytesLogicTests {
         let releaseAttach = DispatchSemaphore(value: 0)
         let handle = TerminalClientHandle(
             rawAddress: 2,
-            attachClient: { _, _, _, _ in
+            attachClient: { _, _, _, _, _ in
                 attachStarted.set()
                 releaseAttach.wait()
                 return true
@@ -591,12 +591,100 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
+    func timedOutReconnectUsesADeadlineAndReturnsToARetryableState() async throws {
+        let timeouts = LockedInputs()
+        let handle = TerminalClientHandle(
+            rawAddress: 9,
+            attachClient: { _, _, error, capacity, timeoutMilliseconds in
+                timeouts.record(String(timeoutMilliseconds))
+                _ = copyTestCString(
+                    "terminal connection timed out",
+                    buffer: error,
+                    capacity: capacity
+                )
+                return false
+            },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        await handle.disconnect()
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle
+        )
+
+        model.connect()
+        #expect(await waitUntil { timeouts.values == ["15000"] && !model.isConnecting })
+        #expect(!model.errorMessage.isEmpty)
+
+        model.connect()
+        #expect(
+            await waitUntil {
+                timeouts.values == ["15000", "15000"] && !model.isConnecting
+            }
+        )
+        #expect(!model.errorMessage.isEmpty)
+        model.shutdown()
+    }
+
+    @Test @MainActor
+    func changedInvitationReplacesTheRetainedEnrollment() async throws {
+        let attached = LockedFlag()
+        let destroyed = LockedFlag()
+        let invitations = LockedInputs()
+        let handle = TerminalClientHandle(
+            rawAddress: 10,
+            attachClient: { _, _, _, _, _ in
+                attached.set()
+                return true
+            },
+            destroyClient: { _ in destroyed.set() },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        await handle.disconnect()
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "cmux://enroll/old",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            connectClient: { invitation, _ in
+                invitations.record(invitation)
+                return ConnectedHandle(rawAddress: nil, error: "replacement rejected")
+            }
+        )
+
+        model.invitation = "cmux://enroll/new"
+        model.connect()
+
+        #expect(
+            await waitUntil {
+                invitations.values == ["cmux://enroll/new"] && destroyed.value
+                    && !model.isConnecting
+            }
+        )
+        #expect(!attached.value)
+        model.shutdown()
+    }
+
+    @Test @MainActor
     func disconnectDoesNotBlockTheMainActor() async throws {
         let detachStarted = LockedFlag()
         let releaseDetach = DispatchSemaphore(value: 0)
         let handle = TerminalClientHandle(
             rawAddress: 3,
-            attachClient: { _, _, _, _ in true },
+            attachClient: { _, _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in
                 detachStarted.set()
@@ -632,7 +720,7 @@ struct TerminalBytesLogicTests {
         let liveDiagnostics = #"{"status":"live","ready":true}"#
         let handle = TerminalClientHandle(
             rawAddress: 6,
-            attachClient: { _, _, _, _ in true },
+            attachClient: { _, _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in },
             setUpdateCallback: { _, callback, context in
@@ -667,7 +755,7 @@ struct TerminalBytesLogicTests {
         let exitedDiagnostics = "not-json"
         let handle = TerminalClientHandle(
             rawAddress: 4,
-            attachClient: { _, _, _, _ in true },
+            attachClient: { _, _, _, _, _ in true },
             destroyClient: { _ in },
             detachClient: { _ in },
             setUpdateCallback: { _, callback, context in
