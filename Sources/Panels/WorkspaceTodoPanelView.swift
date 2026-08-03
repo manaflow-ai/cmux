@@ -230,42 +230,34 @@ private struct WorkspaceTodoPaneContent: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if let effective {
-                Button {
-                    isStatusPopoverPresented.toggle()
-                } label: {
-                    SidebarWorkspaceTaskStatusGlyph(
-                        status: effective,
-                        hasOverride: hasOverride,
-                        usesMonochrome: false,
-                        monochromeColor: .primary,
-                        neutralColor: .secondary,
+                WorkspaceTodoStatusGlyphButton(
+                    status: effective,
+                    hasOverride: hasOverride,
+                    fontScale: Self.headerGlyphFontScale,
+                    onClick: { isStatusPopoverPresented.toggle() }
+                )
+                .frame(
+                    width: SidebarRowTaskStatusGlyphButton.occupiedSize(
                         fontScale: Self.headerGlyphFontScale
-                    )
-                    .contentShape(Rectangle().inset(by: -3))
-                }
-                .buttonStyle(.plain)
+                    ).width,
+                    height: SidebarRowTaskStatusGlyphButton.occupiedSize(
+                        fontScale: Self.headerGlyphFontScale
+                    ).height
+                )
                 .background(
-                    SidebarWorkspaceTodoPopoverHost(
+                    WorkspaceTodoStatusPopoverAnchor(
                         isPresented: $isStatusPopoverPresented,
                         model: SidebarWorkspaceStatusPopoverModel(
                             inferred: inferred,
                             activeOverride: hasOverride ? effective : nil
                         ),
-                        minWidth: 200,
-                        maxHeight: 400,
-                        preferredEdge: .maxY
-                    ) { model, close in
-                        SidebarWorkspaceStatusPopover(
-                            model: model,
-                            onSelectLane: { [workspace] status in
-                                WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
-                            },
-                            onSelectNone: { [workspace] in
-                                WorkspaceTodoActions.hideStatus(for: [workspace])
-                            },
-                            onClose: close
-                        )
-                    }
+                        onSelectLane: { [workspace] status in
+                            WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
+                        },
+                        onSelectNone: { [workspace] in
+                            WorkspaceTodoActions.hideStatus(for: [workspace])
+                        }
+                    )
                 )
                 .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
             }
@@ -480,6 +472,85 @@ private struct WorkspaceTodoPaneContent: View {
         editingItemId = nil
         editingText = ""
         editFieldFocused = false
+    }
+}
+
+@MainActor
+private struct WorkspaceTodoStatusPopoverAnchor: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let model: SidebarWorkspaceStatusPopoverModel
+    let onSelectLane: @MainActor (WorkspaceTaskStatus?) -> Void
+    let onSelectNone: @MainActor () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        reconcile(view, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        reconcile(view, coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.presenter.close()
+    }
+
+    private func reconcile(_ view: NSView, coordinator: Coordinator) {
+        coordinator.presenter.onExternalDismiss = {
+            if isPresented { isPresented = false }
+        }
+        guard isPresented else {
+            coordinator.presenter.close()
+            return
+        }
+        if coordinator.presenter.isShown {
+            coordinator.presenter.update(model)
+        } else {
+            coordinator.presenter.present(
+                model: model,
+                onSelectLane: onSelectLane,
+                onSelectNone: onSelectNone,
+                relativeTo: view.bounds,
+                of: view,
+                preferredEdge: .maxY
+            )
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        let presenter = SidebarRowStatusPopoverPresenter()
+    }
+}
+
+@MainActor
+private struct WorkspaceTodoStatusGlyphButton: NSViewRepresentable {
+    let status: WorkspaceTaskStatus
+    let hasOverride: Bool
+    let fontScale: CGFloat
+    let onClick: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> SidebarRowTaskStatusGlyphButton {
+        SidebarRowTaskStatusGlyphButton()
+    }
+
+    func updateNSView(_ button: SidebarRowTaskStatusGlyphButton, context: Context) {
+        button.configure(
+            model: .init(
+                status: status,
+                hasOverride: hasOverride,
+                usesMonochrome: false,
+                fontScale: fontScale
+            ),
+            monochromeColor: .labelColor,
+            neutralColor: .secondaryLabelColor
+        )
+        button.onClick = onClick
     }
 }
 
