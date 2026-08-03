@@ -6,6 +6,7 @@ import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import type { SubrouterAccount } from "@/services/subrouter/types";
+import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
 import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
   authorizedSubrouterTeams,
@@ -35,6 +36,7 @@ type DashboardTeam = {
 
 type AccountState =
   | { readonly kind: "ok"; readonly accounts: readonly SubrouterAccount[] }
+  | { readonly kind: "migrationPending" }
   | { readonly kind: "notConfigured" }
   | { readonly kind: "error" };
 
@@ -157,6 +159,8 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
 
       {accountState.kind === "notConfigured" ? (
         <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
+      ) : accountState.kind === "migrationPending" ? (
+        <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
       ) : accountState.kind === "error" ? (
         <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
       ) : (
@@ -269,6 +273,9 @@ async function loadAccounts(
   accessToken: string,
 ): Promise<AccountState> {
   try {
+    if (!await hostedSubrouterCutoverReadyForTeam(team.id)) {
+      return { kind: "migrationPending" };
+    }
     const client = createHostedSubrouterClient();
     const tenant = await client.exchangeTeam(accessToken, {
       teamId: team.id,

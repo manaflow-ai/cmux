@@ -125,7 +125,9 @@ export async function runLegacyTenantMigration(options: {
         `legacy source finalization mismatch for ${destination.mapping.tenantId}`,
       );
     }
-    await options.markHostedReady(destination.mapping.teamId);
+    if (result.sourceFinalized) {
+      await options.markHostedReady(destination.mapping.teamId);
+    }
     migrated += result.migrated;
     options.log({
       mode: options.finalizeSource ? "finalize" : "pre-copy",

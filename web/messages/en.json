@@ -236,6 +236,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "migrationPendingTitle": "Account migration in progress",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",

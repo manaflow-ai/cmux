@@ -216,10 +216,7 @@ export const env = createEnv({
     // Temporary retirement credentials for DB-mapped tenants created before
     // hosted Stack onboarding. Remove after subrouter_tenants is empty.
     SUBROUTER_BASE_URL: z.string().url().optional(),
-    SUBROUTER_ADMIN_TOKEN: requireVercelNonPreviewValue(
-      "SUBROUTER_ADMIN_TOKEN",
-      z.string().min(1).max(1_024),
-    ),
+    SUBROUTER_ADMIN_TOKEN: z.string().min(1).max(1_024).optional(),
     SUBROUTER_HOSTED_URL: z.string().url().optional(),
     SUBROUTER_STACK_TENANT_DELETE_TOKEN: requireVercelNonPreviewValue(
       "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
