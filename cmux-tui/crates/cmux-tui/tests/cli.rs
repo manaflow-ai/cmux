@@ -28,11 +28,17 @@ impl HeadlessServer {
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
+        // A headless fixture must never inherit the developer's real plugin
+        // configuration. Backend sidebar plugins are durable auxiliary
+        // resources, so starting one here would outlive the terminal-only
+        // cleanup below and leak a user-configured process from the test.
+        let config = dir.join("config.json");
         let child = Command::new(bin())
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
