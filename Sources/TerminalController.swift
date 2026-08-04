@@ -2212,32 +2212,32 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         #if DEBUG
         case "debug.notification.mode":
-            guard let enabled = boolParam(params, "enabled") else {
+            guard let enabled = notificationDebugBoolParam(params, "enabled") else {
                 return v2Error(
                     id: id,
                     code: "invalid_params",
                     message: String(
                         localized: "debug.notification.error.missingEnabled",
-                        defaultValue: "Missing enabled"
+                        defaultValue: "Pass enabled=true or enabled=false to turn notification debug mode on or off."
                     )
                 )
             }
             NotificationDebugEmitter.shared.isModeEnabled = enabled
             return v2Ok(id: id, result: ["enabled": enabled])
         case "debug.notification.emit":
-            guard let kind = stringParam(params, "kind"), !kind.isEmpty else {
+            guard let kind = notificationDebugStringParam(params, "kind"), !kind.isEmpty else {
                 return v2Error(
                     id: id,
                     code: "invalid_params",
                     message: String(
                         localized: "debug.notification.error.missingKind",
-                        defaultValue: "Missing kind"
+                        defaultValue: "Pass kind=<notification kind> to choose which debug notification to emit."
                     )
                 )
             }
             let emitted = NotificationDebugEmitter.shared.emit(
                 kind: kind,
-                forceBanner: boolParam(params, "force_banner") ?? false,
+                forceBanner: notificationDebugBoolParam(params, "force_banner") ?? false,
                 target: notificationDebugCallerTarget(params: params)
             )
             guard emitted else {

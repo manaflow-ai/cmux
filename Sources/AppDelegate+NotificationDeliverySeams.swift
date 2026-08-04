@@ -88,10 +88,26 @@ extension AppDelegate {
         retargetsToLiveSurfaceOwner: Bool
     ) -> Bool {
         guard let surfaceId else { return false }
+        // A reply follows the surface to its CURRENT workspace exactly like
+        // banner-open delivery does: a moved pane keeps its surface identity
+        // but may live under another window's tab manager, and send_text
+        // routing needs the live workspace to select that manager. A gone
+        // target fails closed instead of typing into a stale claim.
+        let target: (tabId: UUID, surfaceId: UUID?)
+        if retargetsToLiveSurfaceOwner {
+            guard let liveTarget = agentNotificationDeliveryTarget(
+                claimedTabId: tabId,
+                surfaceId: surfaceId
+            ) else { return false }
+            target = liveTarget
+        } else {
+            target = (tabId, surfaceId)
+        }
         let payload: [String: Any] = [
             "id": UUID().uuidString,
             "method": "surface.send_text",
             "params": [
+                "workspace_id": target.tabId.uuidString,
                 "surface_id": surfaceId.uuidString,
                 "text": text + "\r",
             ],

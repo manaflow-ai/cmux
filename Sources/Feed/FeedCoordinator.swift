@@ -48,6 +48,15 @@ final class FeedCoordinator: @unchecked Sendable {
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
+    /// Tail of the serialized `CMUXFeedQuestion.` category mutation chain.
+    /// `UNUserNotificationCenter` has no atomic category merge, so every
+    /// mutation is a get→filter→set round trip; two concurrent round trips
+    /// (mint racing mint, or mint racing cancel) each capture a stale snapshot
+    /// and the later `set` silently drops the earlier write. The coordinator
+    /// is the sole owner of this category namespace, and every mutation
+    /// appends here so round trips never interleave.
+    @MainActor private var questionCategoryUpdates: Task<Void, Never>?
+
     private init() {}
 
     /// Must be called once at app launch to install the store.
@@ -1029,23 +1038,36 @@ private extension FeedCoordinator {
             intentIdentifiers: [],
             options: []
         )
-        center.getNotificationCategories { [weak self] current in
-            Task { @MainActor [weak self] in
-                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
-                let liveCategoryIds = self.liveWaiterRequestIds().map { "CMUXFeedQuestion.\($0)" }
-                var categories = Set(current.filter { category in
-                    !category.identifier.hasPrefix("CMUXFeedQuestion.")
-                        || liveCategoryIds.contains(category.identifier)
-                })
-                categories.insert(minted)
-                center.setNotificationCategories(categories)
-                self.addNotificationIfStillAwaiting(
-                    center: center,
-                    request: request,
-                    requestId: requestId,
-                    effects: effects
-                )
-            }
+        enqueueQuestionCategoryUpdate { [weak self] in
+            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+            let current = await center.notificationCategories()
+            let liveCategoryIds = self.liveWaiterRequestIds().map { "CMUXFeedQuestion.\($0)" }
+            var categories = Set(current.filter { category in
+                !category.identifier.hasPrefix("CMUXFeedQuestion.")
+                    || liveCategoryIds.contains(category.identifier)
+            })
+            categories.insert(minted)
+            center.setNotificationCategories(categories)
+            self.addNotificationIfStillAwaiting(
+                center: center,
+                request: request,
+                requestId: requestId,
+                effects: effects
+            )
+        }
+    }
+
+    /// Appends one `CMUXFeedQuestion.` category round trip to the serialized
+    /// chain (see `questionCategoryUpdates`). Order between distinct requests
+    /// is irrelevant — a mint whose waiter already resolved aborts on its
+    /// `isAwaitingDecision` guard, and every update prunes dead categories —
+    /// but no two round trips may interleave.
+    @MainActor
+    private func enqueueQuestionCategoryUpdate(_ update: @escaping @MainActor () async -> Void) {
+        let previous = questionCategoryUpdates
+        questionCategoryUpdates = Task { @MainActor in
+            await previous?.value
+            await update()
         }
     }
 
@@ -1122,9 +1144,12 @@ private extension FeedCoordinator {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
         let categoryId = "CMUXFeedQuestion.\(requestId)"
-        center.getNotificationCategories { current in
-            let categories = Set(current.filter { $0.identifier != categoryId })
-            center.setNotificationCategories(categories)
+        Task { @MainActor [weak self] in
+            self?.enqueueQuestionCategoryUpdate {
+                let current = await center.notificationCategories()
+                let categories = Set(current.filter { $0.identifier != categoryId })
+                center.setNotificationCategories(categories)
+            }
         }
     }
 }

@@ -7,6 +7,14 @@ private struct TerminalCallerTarget {
     let surfaceId: UUID?
 }
 
+/// Resolved caller-notification address, shared across the entrypoints of
+/// `resolvedCallerNotificationTarget`. Carries identities only so callers
+/// outside this file never hold live `Workspace` references.
+struct TerminalCallerNotificationTarget: Sendable {
+    let workspaceId: UUID
+    let surfaceId: UUID?
+}
+
 @MainActor
 extension TerminalController {
     func v2IdentifyCallerPayload(
@@ -68,13 +76,13 @@ extension TerminalController {
     }
 
     func v2NotificationCreateForCaller(params: [String: Any]) -> V2CallResult {
-        guard let fallbackTabManager = activeTabManagerForCallerNotification() else {
+        guard activeTabManagerForCallerNotification() != nil else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
         let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
         let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
-        let callerTTY = Self.normalizedTTYName(stringParam(params, "caller_tty"))
+        let callerTTY = stringParam(params, "caller_tty")
         let preferTTY = boolParam(params, "prefer_tty") ?? false
         let title = stringParam(params, "title") ?? "Notification"
         let subtitle = stringParam(params, "subtitle") ?? ""
@@ -83,8 +91,7 @@ extension TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
-            let target = Self.callerNotificationTarget(
-                fallback: fallbackTabManager,
+            let target = self.resolvedCallerNotificationTarget(
                 preferredWorkspaceId: preferredWorkspaceId,
                 preferredSurfaceId: preferredSurfaceId,
                 callerTTY: callerTTY,
@@ -95,7 +102,7 @@ extension TerminalController {
                 return
             }
             self.deliverNotificationSynchronously(
-                tabId: target.workspace.id,
+                tabId: target.workspaceId,
                 surfaceId: target.surfaceId,
                 title: title,
                 subtitle: subtitle,
@@ -104,30 +111,37 @@ extension TerminalController {
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
             result = .ok([
-                "workspace_id": target.workspace.id.uuidString,
+                "workspace_id": target.workspaceId.uuidString,
                 "surface_id": surfaceId
             ])
         }
         return result
     }
 
-    #if DEBUG
-    func notificationDebugCallerTarget(params: [String: Any]) -> NotificationDebugTarget? {
-        guard let fallbackTabManager = activeTabManagerForCallerNotification() else { return nil }
-        let target = Self.callerNotificationTarget(
-            fallback: fallbackTabManager,
-            preferredWorkspaceId: v2UUID(params, "preferred_workspace_id"),
-            preferredSurfaceId: v2UUID(params, "preferred_surface_id"),
-            callerTTY: Self.normalizedTTYName(stringParam(params, "caller_tty")),
-            preferTTY: boolParam(params, "prefer_tty") ?? false
-        )
-        guard let target else { return nil }
-        return NotificationDebugTarget(
+    /// Shared caller-target resolution entrypoint: the workspace/surface a
+    /// caller-addressed notification should land on, resolved with the same
+    /// TTY/preference/moved-pane rules for every entrypoint that needs it
+    /// (`notification.create_for_caller` above; the notification debug
+    /// emitter's target resolution in DEBUG builds).
+    func resolvedCallerNotificationTarget(
+        preferredWorkspaceId: UUID?,
+        preferredSurfaceId: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool
+    ) -> TerminalCallerNotificationTarget? {
+        guard let fallback = activeTabManagerForCallerNotification() else { return nil }
+        guard let target = Self.callerNotificationTarget(
+            fallback: fallback,
+            preferredWorkspaceId: preferredWorkspaceId,
+            preferredSurfaceId: preferredSurfaceId,
+            callerTTY: Self.normalizedTTYName(callerTTY),
+            preferTTY: preferTTY
+        ) else { return nil }
+        return TerminalCallerNotificationTarget(
             workspaceId: target.workspace.id,
             surfaceId: target.surfaceId
         )
     }
-    #endif
 
     private static func callerNotificationTarget(
         fallback: TabManager,
@@ -296,13 +310,13 @@ extension TerminalController {
         return nil
     }
 
-    func stringParam(_ params: [String: Any], _ key: String) -> String? {
+    private func stringParam(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func boolParam(_ params: [String: Any], _ key: String) -> Bool? {
+    private func boolParam(_ params: [String: Any], _ key: String) -> Bool? {
         if let value = params[key] as? Bool { return value }
         if let value = params[key] as? NSNumber { return value.boolValue }
         switch stringParam(params, key)?.lowercased() {

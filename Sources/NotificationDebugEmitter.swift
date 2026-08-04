@@ -62,7 +62,11 @@ final class NotificationDebugEmitter {
         }
         guard Self.kinds.contains(kind) else { return false }
 
+        // Fail closed without a resolved target: a real hook event always
+        // carries workspace identity, so a synthetic one without it would
+        // exercise a path production never takes.
         if kind.hasPrefix("feed-") {
+            guard let target else { return false }
             return emitFeed(kind: kind, target: target)
         }
         guard let target, let surfaceId = target.surfaceId else { return false }
@@ -166,7 +170,7 @@ final class NotificationDebugEmitter {
         )
     }
 
-    private func emitFeed(kind: String, target: NotificationDebugTarget?) -> Bool {
+    private func emitFeed(kind: String, target: NotificationDebugTarget) -> Bool {
         let suffix = UUID().uuidString.prefix(8).lowercased()
         let requestId = "debug-\(suffix)"
         let event = feedEvent(kind: kind, requestId: requestId, target: target)
@@ -181,11 +185,11 @@ final class NotificationDebugEmitter {
     private func feedEvent(
         kind: String,
         requestId: String,
-        target: NotificationDebugTarget?
+        target: NotificationDebugTarget
     ) -> WorkstreamEvent? {
         let common = (
-            workspaceId: target?.workspaceId.uuidString,
-            surfaceId: target?.surfaceId?.uuidString
+            workspaceId: target.workspaceId.uuidString,
+            surfaceId: target.surfaceId?.uuidString
         )
         switch kind {
         case "feed-permission":

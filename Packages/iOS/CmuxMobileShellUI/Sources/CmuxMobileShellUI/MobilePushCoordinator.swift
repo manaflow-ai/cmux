@@ -493,7 +493,17 @@ public final class MobilePushCoordinator {
         )
         replySendInFlight = false
         if !sent {
-            mobilePushLog.error("inline reply terminal input failed")
+            // A failed RPC send must not consume the reply: re-park it (with
+            // its original createdAt, so the 120 s lifetime still bounds the
+            // total retry window) and let the next store/channel readiness
+            // event retry, instead of looping here against a channel that
+            // just proved unhealthy. A reply parked mid-send wins instead —
+            // latest user intent replaces the failed one.
+            mobilePushLog.error("inline reply terminal input failed; re-parking for retry")
+            if pendingReplyState.pending == nil {
+                pendingReplyState.park(ready)
+            }
+            return
         }
         await applyPendingReplyIfReady()
     }
