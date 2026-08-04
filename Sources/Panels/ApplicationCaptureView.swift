@@ -1289,4 +1289,18 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
+    static func resolvedNormalizedMouseDelta(
+        reportedDelta: CGPoint,
+        previousPoint: CGPoint?,
+        currentPoint: CGPoint,
+        in bounds: CGRect,
+        sourceFrameSize: CGSize
+    ) -> CGPoint? {
+        normalizedMouseDelta(
+            delta: reportedDelta,
+            in: bounds,
+            sourceFrameSize: sourceFrameSize
+        )
+    }
+
 }
