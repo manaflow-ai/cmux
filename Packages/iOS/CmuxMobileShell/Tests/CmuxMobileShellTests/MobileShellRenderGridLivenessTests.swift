@@ -4,6 +4,27 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+@MainActor
+@Test func primaryTerminalSubscriptionCarriesThePerLaunchNonce() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let launchID = "11111111-1111-1111-1111-111111111111"
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        dogfoodLaunchID: launchID
+    )
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(
+        await router.launchIDs(for: "mobile.events.subscribe").last
+            == launchID
+    )
+    _ = store
+}
+
 // Regression coverage for the render-grid liveness watchdog false-fire
 // (Release-sim bisect, 2026-06-10): the phone logged "render-grid stream
 // silent for 10499ms, re-subscribing" every ~10.5s plus "subscribe failed

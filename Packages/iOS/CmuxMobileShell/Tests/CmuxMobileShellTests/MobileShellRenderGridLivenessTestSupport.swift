@@ -21,6 +21,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var launchID: String?
         var workspaceID: String?
         var streamID: String?
         var groupID: String?
@@ -114,6 +115,7 @@ actor LivenessHostRouter {
     func record(
         method: String?,
         topics: [String]?,
+        launchID: String? = nil,
         workspaceID: String? = nil,
         streamID: String? = nil,
         groupID: String? = nil,
@@ -125,6 +127,7 @@ actor LivenessHostRouter {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
+            launchID: launchID,
             workspaceID: workspaceID,
             streamID: streamID,
             groupID: groupID,
@@ -231,6 +234,10 @@ actor LivenessHostRouter {
             guard request.method == method else { return nil }
             return request.topics
         }
+    }
+
+    func launchIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.launchID)
     }
 
     func workspaceIDs(for method: String) -> [String?] {
@@ -798,6 +805,7 @@ actor LivenessTransport: CmxByteTransport {
             await router.record(
                 method: method,
                 topics: topics,
+                launchID: params?["launch_id"] as? String,
                 workspaceID: params?["workspace_id"] as? String,
                 streamID: streamID,
                 groupID: params?["group_id"] as? String,
@@ -938,7 +946,8 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
-    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
+    dogfoodLaunchID: String? = nil
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -947,7 +956,8 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(
         runtime: runtime,
-        terminalInputAckResubscribeClock: inputAckRetryClock
+        terminalInputAckResubscribeClock: inputAckRetryClock,
+        dogfoodLaunchID: dogfoodLaunchID
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)

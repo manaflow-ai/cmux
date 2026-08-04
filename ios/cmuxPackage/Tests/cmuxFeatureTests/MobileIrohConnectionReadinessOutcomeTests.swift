@@ -4,8 +4,14 @@ import Testing
 
 struct MobileIrohConnectionReadinessOutcomeTests {
     @Test func successfulOutcomesDoNotReportFailureKinds() {
-        #expect(MobileIrohConnectionReadinessOutcome.inactive.failureKind == nil)
-        #expect(MobileIrohConnectionReadinessOutcome.ready.failureKind == nil)
+        #expect(
+            MobileIrohConnectionReadinessOutcome.inactive.failureKind?.rawValue
+                == nil
+        )
+        #expect(
+            MobileIrohConnectionReadinessOutcome.ready.failureKind?.rawValue
+                == nil
+        )
     }
 
     @Test func failedOutcomeReportsItsFailureKind() {
