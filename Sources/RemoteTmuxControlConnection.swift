@@ -830,6 +830,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
