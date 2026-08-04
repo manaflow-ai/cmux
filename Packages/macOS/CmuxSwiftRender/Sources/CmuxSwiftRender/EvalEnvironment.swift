@@ -72,9 +72,9 @@ public final class EvalEnvironment {
         functions[name] ?? parent?.lookupFunction(name)
     }
 
-    /// Records an executed member read when this evaluation requested coverage.
-    func recordMemberAccess(_ name: String) {
-        memberAccessRecorder?.record(name)
+    /// Records an executed member read when its base value was selected for coverage.
+    func recordMemberAccess(_ name: String, on baseValue: SwiftValue) {
+        memberAccessRecorder?.record(name, on: baseValue)
     }
 
     /// A fresh child scope for a loop body, `if` branch, or closure.

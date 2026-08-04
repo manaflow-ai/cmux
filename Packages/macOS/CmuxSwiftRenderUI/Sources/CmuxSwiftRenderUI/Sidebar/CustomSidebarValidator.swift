@@ -88,9 +88,14 @@ public struct CustomSidebarValidator {
                 let source = try String(contentsOf: fileURL, encoding: .utf8)
                 let interpreter = SwiftViewInterpreter()
                 let program = interpreter.parse(source)
+                let evaluationState = dataContext ?? fallbackDataContext
+                let trackedWorkspaceValues = dataContext == nil && fallbackComparisonDataContext != nil
+                    ? workspaceValues(in: evaluationState)
+                    : []
                 let evaluation = interpreter.evaluateWithDiagnostics(
                     program,
-                    state: dataContext ?? fallbackDataContext
+                    state: evaluationState,
+                    trackingMemberAccessesOn: trackedWorkspaceValues
                 )
                 guard let node = evaluation.node else {
                     return invalidEntry(
@@ -116,7 +121,7 @@ public struct CustomSidebarValidator {
                 }
                 if dataContext == nil,
                    let comparisonContext = fallbackComparisonDataContext,
-                   !evaluation.accessedMemberNames.isDisjoint(
+                   !evaluation.accessedTrackedMemberNames.isDisjoint(
                        with: Self.representativeOptionalWorkspaceFields
                    ),
                    interpreter.evaluate(program, state: comparisonContext) == node {
@@ -206,116 +211,18 @@ public struct CustomSidebarValidator {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
         let builder = CustomSidebarDataContextBuilder(calendar: calendar)
-        let richWorkspace = representativeSelectedWorkspace(includingOptionalData: true)
-        let comparisonWorkspace = representativeSelectedWorkspace(includingOptionalData: false)
-        let sparseWorkspace = representativeSparseWorkspace()
+        let richWorkspace = makeRepresentativeSelectedWorkspace(includingOptionalData: true)
+        let comparisonWorkspace = makeRepresentativeSelectedWorkspace(includingOptionalData: false)
+        let sparseWorkspace = makeRepresentativeSparseWorkspace()
         return (
             rich: builder.dataContext(
-                for: representativeSnapshot(workspaces: [richWorkspace, sparseWorkspace])
+                for: makeRepresentativeSnapshot(workspaces: [richWorkspace, sparseWorkspace])
             ),
             withoutOptionalData: builder.dataContext(
-                for: representativeSnapshot(workspaces: [comparisonWorkspace, sparseWorkspace])
+                for: makeRepresentativeSnapshot(workspaces: [comparisonWorkspace, sparseWorkspace])
             )
         )
     }()
-
-    private static func representativeSelectedWorkspace(
-        includingOptionalData: Bool
-    ) -> CustomSidebarWorkspaceSnapshot {
-        let pullRequest: SwiftValue = .object([
-            "number": .int(412),
-            "label": .string("PR #412"),
-            "url": .string("https://github.com/manaflow-ai/cmux/pull/412"),
-            "status": .string("open"),
-            "stale": .bool(false),
-            "branch": .string("fix/checkout"),
-        ])
-        return CustomSidebarWorkspaceSnapshot(
-            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12)),
-            title: "checkout-flow",
-            isSelected: true,
-            isPinned: false,
-            index: 0,
-            directory: "/Users/cmux/checkout-flow",
-            listeningPorts: [3000],
-            unreadCount: 3,
-            surfaces: [
-                CustomSidebarSurfaceSnapshot(
-                    panelId: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x14)),
-                    title: "Tests",
-                    isFocused: true,
-                    isPinned: false,
-                    directory: "/Users/cmux/checkout-flow",
-                    gitBranch: "fix/checkout",
-                    gitIsDirty: false,
-                    listeningPorts: [3000]
-                ),
-            ],
-            surfaceCount: 1,
-            customDescription: includingOptionalData ? "Checkout work" : nil,
-            customColor: includingOptionalData ? "#7AA2F7" : nil,
-            gitBranch: includingOptionalData ? "fix/checkout" : nil,
-            gitIsDirty: false,
-            pullRequestValues: includingOptionalData ? [pullRequest] : [],
-            progress: includingOptionalData ? .init(value: 0.41, label: "Tests running") : nil,
-            latestConversationMessage: includingOptionalData ? "Waiting for review" : nil,
-            latestSubmittedMessage: includingOptionalData ? "Finish checkout coverage" : nil,
-            latestSubmittedAt: includingOptionalData
-                ? Date(timeIntervalSince1970: 1_779_999_400)
-                : nil,
-            remote: includingOptionalData
-                ? .init(target: "aws-m4pro-1", stateRawValue: "connected", isConnected: true)
-                : nil
-        )
-    }
-
-    private static func representativeSparseWorkspace() -> CustomSidebarWorkspaceSnapshot {
-        CustomSidebarWorkspaceSnapshot(
-            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x13)),
-            title: "notes",
-            isSelected: false,
-            isPinned: false,
-            index: 1,
-            directory: "/Users/cmux/notes",
-            listeningPorts: [],
-            unreadCount: 0,
-            surfaces: [],
-            surfaceCount: 0,
-            customDescription: nil,
-            customColor: nil,
-            gitBranch: nil,
-            gitIsDirty: false,
-            pullRequestValues: [],
-            progress: nil,
-            latestConversationMessage: nil,
-            latestSubmittedMessage: nil,
-            latestSubmittedAt: nil,
-            remote: nil
-        )
-    }
-
-    private static func representativeSnapshot(
-        workspaces: [CustomSidebarWorkspaceSnapshot]
-    ) -> CustomSidebarContextSnapshot {
-        let selectedId = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12))
-        return CustomSidebarContextSnapshot(
-            workspaces: workspaces,
-            selectedWorkspaceId: selectedId,
-            selectedWorkspaceTitle: "checkout-flow",
-            totalUnreadCount: 3,
-            now: Date(timeIntervalSince1970: 1_780_000_000)
-        )
-    }
-
-    private static func firstWorkspaceFields(
-        in context: [String: SwiftValue]
-    ) -> [String: SwiftValue] {
-        guard case let .array(workspaces)? = context["workspaces"],
-              case let .object(fields)? = workspaces.first else {
-            return [:]
-        }
-        return fields
-    }
 
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
         let swiftURL = directory.appendingPathComponent("\(name).swift")
@@ -342,6 +249,108 @@ public struct CustomSidebarValidator {
             errorMessage: message
         )
     }
+}
+
+private func makeRepresentativeSelectedWorkspace(
+    includingOptionalData: Bool
+) -> CustomSidebarWorkspaceSnapshot {
+    let pullRequest: SwiftValue = .object([
+        "number": .int(412),
+        "label": .string("PR #412"),
+        "url": .string("https://github.com/manaflow-ai/cmux/pull/412"),
+        "status": .string("open"),
+        "stale": .bool(false),
+        "branch": .string("fix/checkout"),
+    ])
+    return CustomSidebarWorkspaceSnapshot(
+        id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12)),
+        title: "checkout-flow",
+        isSelected: true,
+        isPinned: false,
+        index: 0,
+        directory: "/Users/cmux/checkout-flow",
+        listeningPorts: [3000],
+        unreadCount: 3,
+        surfaces: [
+            CustomSidebarSurfaceSnapshot(
+                panelId: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x14)),
+                title: "Tests",
+                isFocused: true,
+                isPinned: false,
+                directory: "/Users/cmux/checkout-flow",
+                gitBranch: "fix/checkout",
+                gitIsDirty: false,
+                listeningPorts: [3000]
+            ),
+        ],
+        surfaceCount: 1,
+        customDescription: includingOptionalData ? "Checkout work" : nil,
+        customColor: includingOptionalData ? "#7AA2F7" : nil,
+        gitBranch: includingOptionalData ? "fix/checkout" : nil,
+        gitIsDirty: false,
+        pullRequestValues: includingOptionalData ? [pullRequest] : [],
+        progress: includingOptionalData ? .init(value: 0.41, label: "Tests running") : nil,
+        latestConversationMessage: includingOptionalData ? "Waiting for review" : nil,
+        latestSubmittedMessage: includingOptionalData ? "Finish checkout coverage" : nil,
+        latestSubmittedAt: includingOptionalData
+            ? Date(timeIntervalSince1970: 1_779_999_400)
+            : nil,
+        remote: includingOptionalData
+            ? .init(target: "aws-m4pro-1", stateRawValue: "connected", isConnected: true)
+            : nil
+    )
+}
+
+private func makeRepresentativeSparseWorkspace() -> CustomSidebarWorkspaceSnapshot {
+    CustomSidebarWorkspaceSnapshot(
+        id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x13)),
+        title: "notes",
+        isSelected: false,
+        isPinned: false,
+        index: 1,
+        directory: "/Users/cmux/notes",
+        listeningPorts: [],
+        unreadCount: 0,
+        surfaces: [],
+        surfaceCount: 0,
+        customDescription: nil,
+        customColor: nil,
+        gitBranch: nil,
+        gitIsDirty: false,
+        pullRequestValues: [],
+        progress: nil,
+        latestConversationMessage: nil,
+        latestSubmittedMessage: nil,
+        latestSubmittedAt: nil,
+        remote: nil
+    )
+}
+
+private func makeRepresentativeSnapshot(
+    workspaces: [CustomSidebarWorkspaceSnapshot]
+) -> CustomSidebarContextSnapshot {
+    let selectedId = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12))
+    return CustomSidebarContextSnapshot(
+        workspaces: workspaces,
+        selectedWorkspaceId: selectedId,
+        selectedWorkspaceTitle: "checkout-flow",
+        totalUnreadCount: 3,
+        now: Date(timeIntervalSince1970: 1_780_000_000)
+    )
+}
+
+private func workspaceValues(in context: [String: SwiftValue]) -> [SwiftValue] {
+    guard case let .array(workspaces)? = context["workspaces"] else { return [] }
+    return workspaces
+}
+
+private func firstWorkspaceFields(
+    in context: [String: SwiftValue]
+) -> [String: SwiftValue] {
+    guard case let .object(fields)? = workspaceValues(in: context).first else {
+        return [:]
+    }
+    return fields
 }
 
 private func decodingPath(_ ctx: DecodingError.Context) -> String {

@@ -139,6 +139,25 @@ struct CustomSidebarValidationTests {
         )
     }
 
+    @Test("does not attribute nested tab fields to their workspace")
+    func acceptsNestedMemberSharingOptionalWorkspaceFieldName() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("tabs.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                ForEach(workspace.tabs) { tab in
+                    Text(tab.branch)
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+    }
+
     @MainActor
     @Test("model re-resolves preferred file kind on reload")
     func modelReresolvesPreferredFileKind() throws {
