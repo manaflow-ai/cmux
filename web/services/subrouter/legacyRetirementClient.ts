@@ -14,6 +14,7 @@ export type LegacySubrouterMigrationInput = {
 export type LegacySubrouterRetirementClient = {
   readonly revokeTenant: (
     tenantId: string,
+    options?: { readonly signal?: AbortSignal },
   ) => Promise<{ readonly revoked: boolean }>;
   readonly migrateTenant: (
     tenantId: string,
@@ -92,8 +93,11 @@ export function createLegacySubrouterRetirementClient(
   };
 
   return {
-    revokeTenant: async (tenantId) => {
-      const response = await request(tenantId, "revoke", { method: "POST" });
+    revokeTenant: async (tenantId, options) => {
+      const response = await request(tenantId, "revoke", {
+        method: "POST",
+        signal: options?.signal,
+      });
       if (response.status === 404) return { revoked: false };
       if (!response.ok) {
         throw new LegacySubrouterRetirementError("revoke", response.status);

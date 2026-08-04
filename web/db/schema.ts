@@ -85,13 +85,17 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "hosted_delete_pending" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "legacy_delete_pending" | "hosted_delete_pending" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
     attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    legacySubrouterRetiredTenantIds: jsonb("legacy_subrouter_retired_tenant_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     hostedSubrouterDeletedTeamIds: jsonb("hosted_subrouter_deleted_team_ids")
       .$type<string[]>()
       .notNull()
