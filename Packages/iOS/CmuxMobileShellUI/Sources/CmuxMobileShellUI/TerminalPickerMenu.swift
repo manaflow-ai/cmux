@@ -74,6 +74,32 @@ struct TerminalPickerMenu: View, Equatable {
             }
         }
 
+        if value.supportsBrowserStream {
+            if !value.browserStreamRows.isEmpty {
+                Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                    ForEach(value.browserStreamRows) { panel in
+                        Button { actions.selectBrowserStream(panel.id) } label: {
+                            Label(
+                                panel.label,
+                                systemImage: panel.id == value.activeBrowserStreamPanelID
+                                    ? "checkmark.circle.fill"
+                                    : "globe"
+                            )
+                        }
+                        .accessibilityIdentifier("BrowserStreamMenuItem-\(panel.id)")
+                    }
+                }
+            }
+        } else {
+            Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                Label(
+                    L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),
+                    systemImage: "arrow.down.circle"
+                )
+                .accessibilityIdentifier("BrowserStreamMacUpdateHint")
+            }
+        }
+
         Section {
             Button(action: actions.createWorkspace) {
                 Label(

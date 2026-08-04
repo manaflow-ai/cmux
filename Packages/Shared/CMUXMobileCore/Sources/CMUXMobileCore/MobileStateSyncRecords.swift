@@ -105,6 +105,12 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let windowID: String?
     /// User-facing workspace title.
     public let title: String
+    /// Custom workspace description, when one is set.
+    public let customDescription: String?
+    /// Whether the Mac's durable description was longer than the mobile value.
+    public let customDescriptionIsTruncated: Bool
+    /// Custom workspace accent color as `#RRGGBB`, when one is set.
+    public let customColorHex: String?
     /// The workspace's presented working directory, when reported.
     public let currentDirectory: String?
     /// Whether the Mac currently has this workspace selected.
@@ -139,6 +145,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         id: String,
         windowID: String?,
         title: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
         currentDirectory: String?,
         isSelected: Bool,
         isPinned: Bool,
@@ -154,6 +163,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.id = id
         self.windowID = windowID
         self.title = title
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isSelected = isSelected
         self.isPinned = isPinned
@@ -167,10 +179,36 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.surfaces = surfaces
     }
 
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+        title = try container.decode(String.self, forKey: .title)
+        customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+        customDescriptionIsTruncated = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .customDescriptionIsTruncated
+        ) ?? false
+        customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+        currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+        isSelected = try container.decode(Bool.self, forKey: .isSelected)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+        preview = try container.decodeIfPresent(String.self, forKey: .preview)
+        previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+        lastActivityAt = try container.decode(Double.self, forKey: .lastActivityAt)
+        hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
+        sortIndex = try container.decode(Int.self, forKey: .sortIndex)
+        terminals = try container.decode([Terminal].self, forKey: .terminals)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case windowID = "window_id"
         case title
+        case customDescription = "description"
+        case customDescriptionIsTruncated = "description_truncated"
+        case customColorHex = "custom_color"
         case currentDirectory = "current_directory"
         case isSelected = "is_selected"
         case isPinned = "is_pinned"
@@ -198,6 +236,8 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// SF Symbol rendered by the corresponding group row on the Mac.
+    public let iconSymbol: String?
     /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
     /// Position in the Mac's presented section order.
@@ -214,6 +254,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        iconSymbol: String? = nil,
         anchorWorkspaceID: String,
         sortIndex: Int
     ) {
@@ -221,6 +262,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
         self.sortIndex = sortIndex
     }
@@ -230,6 +272,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case name
         case isCollapsed = "is_collapsed"
         case isPinned = "is_pinned"
+        case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
         case sortIndex = "sort_index"
     }

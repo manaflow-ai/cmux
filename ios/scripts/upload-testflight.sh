@@ -214,6 +214,21 @@ verify_ipa_framework_minimum_os_versions() {
   return 0
 }
 
+# App Store Connect symbolicates TestFlight/App Store crashes from the
+# .symbols files that an app-store-connect export places in the IPA's
+# top-level Symbols/ directory (extracted from the archive's dSYMs when the
+# export options carry uploadSymbols=YES). Without them ASC reports "No dSYM
+# files available" and every crash arrives as raw `cmux + offset` frames.
+# Check the IPA that actually ships: a re-zip that packs only Payload/
+# silently drops Symbols/, which is exactly how every beta through build
+# 20260730090940 shipped unsymbolicatable.
+verify_ipa_contains_app_symbols() {
+  local ipa="$1"
+  # No `grep -q` here: under `set -o pipefail`, -q's early exit can kill
+  # zipinfo with SIGPIPE and fail a VALID IPA. Plain grep drains its input.
+  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/[^/]*\.symbols$' >/dev/null
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -322,9 +337,10 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the selected
-                            external beta group (single external group by
-                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            also assigns the processed build to the Founder's
+                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
+                            _NAME) and the Pro group
+                            (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
                             Also set via
@@ -338,8 +354,8 @@ Options:
                             CMUX_TESTFLIGHT_SKIP_NOTES=1.
   --notes-from-range <base> Auto-generate the "What to Test" notes from the
                             iOS-affecting commits in <base>..HEAD instead of the
-                            ios/CHANGELOG.md top entry (used by the every-2h beta
-                            lane so each build's notes reflect what changed since
+                            ios/CHANGELOG.md top entry (used by the every-main-push
+                            beta lane so each build's notes reflect what changed since
                             the previous beta for the selected audience). Skips
                             the changelog preflight and version-match guard.
   --auto-version            Stamp the beta build's MARKETING_VERSION at archive time
@@ -431,10 +447,9 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
-# Whether this invocation should assign an uploaded external build to the
-# external beta group itself. The scheduled GitHub Actions lane disables this and
-# runs assignment in a separate post-upload job so a distribution failure cannot
-# cause duplicate uploads of the same SHA on the next schedule.
+# Whether this invocation should assign an uploaded external build to its
+# subscriber groups. Internal-only automation disables this; manual external
+# cuts keep assignment inline after upload.
 ASSIGN_EXTERNAL_GROUP=1
 if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
   ASSIGN_EXTERNAL_GROUP=0
@@ -448,7 +463,7 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-main-push beta
 # lane so each build's notes reflect what actually changed since the previous
 # beta for whichever audience is being shipped. When set, the changelog
 # preflight + version-match guard are skipped (the notes no longer come from the
@@ -673,6 +688,17 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
 fi
 
+# An external lane is incomplete unless the uploaded build is assigned to both
+# subscriber groups and submitted for Beta App Review when required. Validate
+# the credentials before archiving so a missing key cannot leave an uploaded but
+# undistributed build behind.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: external TestFlight distribution requires configured App Store Connect credentials for subscriber-group assignment and Beta App Review. Configure the external distribution credentials before rerunning the external lane." >&2
+    exit 2
+  fi
+fi
+
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
 # as an *update* when its CFBundleVersion is the highest integer build for the
 # app, so a regressed numbering scheme (or a bad manual --build-number) silently
@@ -886,6 +912,18 @@ if [[ ! "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
 fi
 if [[ "$ARCHIVE_MARKETING_VERSION" != "$EXPECTED_MARKETING_VERSION" ]]; then
   echo "error: archive marketing version is '$ARCHIVE_MARKETING_VERSION' but lane '$LANE' requires '$EXPECTED_MARKETING_VERSION'. Re-archive for the selected lane." >&2
+  exit 1
+fi
+
+# The archive's dSYMs are the source of both symbol paths for this build: the
+# Symbols/ files the export embeds in the IPA for App Store Connect crash
+# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# local symbolication after ASC's copy is unavailable. An archive without
+# dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
+# download) would ship a build whose crashes can never be symbolicated by
+# anyone, so fail before the expensive export.
+if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 2>/dev/null | grep -q .; then
+  echo "error: archive has no dSYM bundles at $ARCHIVE_PATH/dSYMs; crashes for this build could never be symbolicated. Archive Release with DEBUG_INFORMATION_FORMAT=dwarf-with-dsym (or re-fetch the archive if it was downloaded)." >&2
   exit 1
 fi
 
@@ -1159,11 +1197,24 @@ PY
   fi
   codesign --verify --strict --verbose=2 "$RESIGN_APP"
 
-  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
-  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  # Re-zip with the exact IPA layout and repoint $IPA_PATH so the existing
+  # upload step ships the re-signed IPA. Payload/ is not the only top-level
+  # member that matters: the export also produced Symbols/ (the .symbols files
+  # App Store Connect needs to symbolicate crash reports) and may produce
+  # SwiftSupport/. A Payload-only re-zip shipped every beta without symbols
+  # ("No dSYM files available" on ASC), so pack every Apple package directory
+  # the export put in the IPA. The include list stays explicit because this
+  # script also writes loose entitlements/profile plists into $RESIGN_DIR that
+  # must never ship.
   RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
   rm -f "$RESIGNED_IPA"
-  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$RESIGN_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" "${IPA_MEMBERS[@]}" )
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
   # silently, and the whole point is that aps-environment survives. Re-verify the
@@ -1207,6 +1258,12 @@ if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
   exit 1
 fi
 echo "signed IPA framework deployment metadata verified"
+
+if ! verify_ipa_contains_app_symbols "$IPA_PATH"; then
+  echo "error: final IPA carries no Symbols/*.symbols, so App Store Connect would report 'No dSYM files available' and every crash for this build would be unsymbolicatable; refusing to upload. The export must run with uploadSymbols=YES against an archive that has dSYMs, and any re-zip must preserve the Symbols/ directory." >&2
+  exit 1
+fi
+echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash symbolication)"
 
 echo "IPA_PATH=$IPA_PATH"
 
@@ -1468,24 +1525,32 @@ else
   fi
 fi
 
-# --external means "ship to founders", not merely "make this build externally
-# eligible in principle". After upload, assign the processed build to the app's
-# external beta group so external testers actually receive it, and create the
-# Beta App Review submission when Apple requires one for a new
-# beta marketing version. This is fatal: a red CI/upload is preferable to
-# claiming the external lane tracked main when the build never reached the
-# founders lane.
+# --external means "ship to subscribers", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the
+# Founder's Edition and Pro beta groups so both audiences receive it, and create
+# the Beta App Review submission when Apple requires one for a new beta marketing
+# version. This is fatal: a red CI/upload is preferable to claiming the external
+# lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
-    exit 0
+    echo "error: App Store Connect credentials are unavailable; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Configure the external distribution credentials, then rerun the external lane." >&2
+    exit 1
   fi
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  EXTERNAL_GROUP_SELECTOR=()
+  if [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-id "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID" )
+  elif [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-name "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME" )
+  else
+    EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
+  fi
+  PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-      --build-number "$SHIPPED_BUILD_NUMBER"
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi
