@@ -1591,7 +1591,9 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        let fakeSurfaceToken = UInt(bitPattern: fakeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+            guard UInt(bitPattern: surface) == fakeSurfaceToken else { return }
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
         }
