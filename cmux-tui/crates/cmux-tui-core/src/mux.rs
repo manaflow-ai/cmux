@@ -19257,7 +19257,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none();
-            let retry_finished = !mux.terminal_exit_detaches.lock().unwrap().contains(TERMINAL);
+            let retry_finished = !mux.terminal_exit_detaches.contains(TERMINAL);
             if detached && retry_finished {
                 break;
             }
