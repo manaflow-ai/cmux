@@ -152,31 +152,31 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        // `makeLaunchedApp()` deliberately wraps `launch()` in a broad,
-        // non-strict expected failure for headless activation. That wrapper
-        // can finish this test before the Settings assertions run. `activate`
-        // launches when needed without that wrapper, so missing controls are
-        // real regression failures.
-        app.activate()
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        // Headless CI leaves the app running in the background. Keep XCTest
+        // alive through that known launch failure, then restore fail-fast so
+        // every Settings assertion below remains a real regression failure.
+        continueAfterFailure = true
+        let launchOptions = XCTExpectedFailure.Options()
+        launchOptions.isStrict = false
+        XCTExpectFailure(
+            "Headless CI may launch the app without foreground activation",
+            options: launchOptions
+        ) {
+            app.launch()
+        }
+        continueAfterFailure = false
         XCTAssertTrue(
             poll(timeout: 10.0) {
                 app.state == .runningForeground || app.state == .runningBackground
             },
             "App failed to launch. state=\(app.state.rawValue)"
         )
-        if app.state != .runningForeground {
-            app.activate()
-        }
+        let window = app.windows["Settings"]
         XCTAssertTrue(
-            poll(timeout: 6.0) { app.state == .runningForeground },
-            "App did not become foreground. state=\(app.state.rawValue)"
+            poll(timeout: 8.0) { window.exists },
+            "Settings window did not open"
         )
-        XCTAssertTrue(
-            waitForWindowCount(atLeast: 1, app: app, timeout: 8.0),
-            "main window did not appear"
-        )
-        let window = openSettings(app)
-        defer { closeSettings(app, window) }
         navigate(window, to: "Mobile")
 
         let forwarding = toggle(
