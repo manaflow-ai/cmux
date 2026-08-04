@@ -1946,9 +1946,9 @@ import Testing
                 let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
                 guard observedBundleIdentifier == bundleIdentifier else { return }
                 let observedPhase = notification.userInfo?["phase"] as? String
-                notificationLock.lock()
-                observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
-                notificationLock.unlock()
+                notificationLock.withLock {
+                    observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
+                }
                 reloadConfirmed()
             }
             defer { DistributedNotificationCenter.default().removeObserver(observer) }
@@ -1971,9 +1971,7 @@ import Testing
             "light:Theme B,dark:Theme B",
             "light:Theme C,dark:Theme C",
         ])
-        notificationLock.lock()
-        let reloads = observedReloads
-        notificationLock.unlock()
+        let reloads = notificationLock.withLock { observedReloads }
         XCTAssertEqual(reloads.map { $0.bundleIdentifier }, Array(repeating: bundleIdentifier, count: 3))
         XCTAssertEqual(reloads.map { $0.phase }, Array(repeating: "final", count: 3))
         XCTAssertEqual(responder.receivedRequests, [])

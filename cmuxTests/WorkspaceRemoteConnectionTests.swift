@@ -2055,11 +2055,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // rather than shelling out to scp, so the remote path this test is about arrives
                 // inside the command and the destination host is its own argument.
                 if command.contains("cat > ") {
-                    lock.lock()
-                    uploadCommand = command
-                    uploadDestination = arguments.dropLast().last
-                    uploadPayload = stdin
-                    lock.unlock()
+                    lock.withLock {
+                        uploadCommand = command
+                        uploadDestination = arguments.dropLast().last
+                        uploadPayload = stdin
+                    }
                     uploadInvoked.fulfill()
                     return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
                 }
@@ -2099,11 +2099,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: true)
 
         await fulfillment(of: [uploadInvoked], timeout: 2.0)
-        lock.lock()
-        let capturedCommand = uploadCommand
-        let capturedDestination = uploadDestination
-        let capturedPayload = uploadPayload
-        lock.unlock()
+        let (capturedCommand, capturedDestination, capturedPayload) = lock.withLock {
+            (uploadCommand, uploadDestination, uploadPayload)
+        }
         // The property under test is unchanged — the daemon lands on an absolute path under the
         // remote HOME rather than a relative one — but it now lives in the remote command instead
         // of an scp destination, so assert it there.
@@ -2176,9 +2174,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     )
                 }
                 if remoteDaemonServeCommand(command) {
-                    lock.lock()
-                    helloCount += 1
-                    lock.unlock()
+                    lock.withLock {
+                        helloCount += 1
+                    }
                     // An override present before bootstrap forces a proactive install and would
                     // stop this from being a capability-reinstall test. Publish the deterministic
                     // binary only after the existing daemon's hello; the missing-capability branch
@@ -2199,11 +2197,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // before any hello would be a first install and would not exercise the
                 // missing-capability path this test is named for.
                 if command.contains("cat > ") {
-                    lock.lock()
-                    uploadCommand = command
-                    uploadPayload = stdin
-                    helloCountBeforeUpload = helloCount
-                    lock.unlock()
+                    lock.withLock {
+                        uploadCommand = command
+                        uploadPayload = stdin
+                        helloCountBeforeUpload = helloCount
+                    }
                     uploadInvoked.fulfill()
                     return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
                 }
@@ -2240,11 +2238,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: true)
 
         await fulfillment(of: [uploadInvoked], timeout: 2.0)
-        lock.lock()
-        let capturedCommand = uploadCommand
-        let capturedPayload = uploadPayload
-        let capturedHelloCount = helloCountBeforeUpload
-        lock.unlock()
+        let (capturedCommand, capturedPayload, capturedHelloCount) = lock.withLock {
+            (uploadCommand, uploadPayload, helloCountBeforeUpload)
+        }
         let command = try XCTUnwrap(capturedCommand)
         XCTAssertTrue(
             command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
