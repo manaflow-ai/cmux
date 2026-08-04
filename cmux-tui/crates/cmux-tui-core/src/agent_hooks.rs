@@ -504,7 +504,10 @@ fn add_agent_topology(
             .and_then(Value::as_str)
             .or_else(|| normalized.get("native_agent_id").and_then(Value::as_str))
     } else {
-        normalized.get("native_agent_id").and_then(Value::as_str)
+        normalized
+            .get("native_agent_id")
+            .and_then(Value::as_str)
+            .or_else(|| normalized.get("native_root_agent_id").and_then(Value::as_str))
     }
     .map(str::to_owned);
     let fallback_agent_name =
@@ -548,7 +551,10 @@ fn add_agent_topology(
         let parent_id = stable_topology_id("agentnode", &[&tree_id, "root"]);
         normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
         normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
-    } else if child_event || native_agent_id.is_some() {
+    } else if child_event
+        || native_agent_id.as_deref()
+            != normalized.get("native_root_agent_id").and_then(Value::as_str)
+    {
         normalized.insert("agent_relation".into(), Value::String("unknown".into()));
     } else {
         normalized.insert("agent_relation".into(), Value::String("root".into()));
@@ -704,12 +710,25 @@ mod tests {
 
     #[test]
     fn nested_agent_edges_are_stable_and_indexable_without_payload_scans() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
         let parent = agent_hook_journal_ingress(
-            "claude",
+            "codex",
             "SubagentStart",
             None,
             json!({
                 "session_id":"tree-session",
+                "root_session_id":"tree-session",
                 "agent_id":"child-a",
                 "parent_agent_id":"root-agent",
                 "root_agent_id":"root-agent",
@@ -718,11 +737,12 @@ mod tests {
         )
         .unwrap();
         let child = agent_hook_journal_ingress(
-            "claude",
+            "codex",
             "SubagentStart",
             None,
             json!({
                 "session_id":"tree-session",
+                "root_session_id":"tree-session",
                 "agent_id":"emitting-parent",
                 "child_agent_id":"child-b",
                 "parent_agent_id":"child-a",
@@ -732,11 +752,12 @@ mod tests {
         )
         .unwrap();
         let completed = agent_hook_journal_ingress(
-            "claude",
+            "codex",
             "subagent.completed",
             None,
             json!({
                 "session_id":"tree-session",
+                "root_session_id":"tree-session",
                 "agent_id":"emitting-parent",
                 "child_agent_id":"child-b",
                 "parent_agent_id":"child-a",
@@ -752,6 +773,11 @@ mod tests {
         assert_eq!(child.payload["normalized"]["native_agent_id"], "emitting-parent");
         assert_eq!(child.payload["normalized"]["native_child_agent_id"], "child-b");
         assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(root.payload["normalized"]["agent_relation"], "root");
+        assert_eq!(
+            parent.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
         assert_eq!(
             child.payload["normalized"]["parent_agent_node_id"],
             parent.payload["normalized"]["agent_node_id"]
