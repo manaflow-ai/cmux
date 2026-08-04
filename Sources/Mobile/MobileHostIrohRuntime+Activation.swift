@@ -116,9 +116,19 @@ extension MobileHostIrohRuntime {
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
                 credentialPair: { [weak auth] in
-                    guard let auth,
-                          let session = try? await auth.authenticatedSessionSnapshot(),
-                          session.accountID == accountID else { return nil }
+                    guard let auth else { return nil }
+                    let session: AuthenticatedSessionSnapshot
+                    do {
+                        session = try await auth.authenticatedSessionSnapshot()
+                    } catch AuthError.unauthorized {
+                        // Definitively signed out: fail closed.
+                        return nil
+                    }
+                    // Transient failures (a revalidation owns the token
+                    // store, a re-mint is in flight or offline) rethrow so
+                    // the broker classifies them connectivity instead of
+                    // tearing the host runtime down as unauthorized.
+                    guard session.accountID == accountID else { return nil }
                     return CmxIrohBrokerCredentials(
                         accessToken: session.accessToken,
                         refreshToken: session.refreshToken
@@ -142,6 +152,7 @@ extension MobileHostIrohRuntime {
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
         var freshRelayCredential: CmxIrohRelayTokenResponse?
+        var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -150,31 +161,45 @@ extension MobileHostIrohRuntime {
                 broker: relayPolicyBroker
             )
             let effective: CmxIrohEffectiveRelayPolicy
-            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-            do {
-                let outcome = try await service.refreshWithCredential(
-                    endpointID: derivedEndpointID,
-                    accountID: accountID,
-                    trustRoot: relayPolicyTrustRoot,
-                    now: Date()
-                )
-                effective = outcome.effective
-                freshRelayCredential = outcome.relayCredential
-                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-            } catch {
-                diagnosticLog.record(DiagnosticEvent(
-                    .relayPolicyRefreshFailed,
-                    b: Self.diagnosticFailureKind(for: error).rawValue
-                ))
+            if protocolConfiguration.allowsNATTraversalAfterAdmission {
+                // A verified cached policy is sufficient to bind, register,
+                // and discover. Refresh it immediately after activation so
+                // broker latency never gates direct-path availability.
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     relayCredential: cachedRelay,
                     now: Date()
                 )
-                mobileHostIrohLog.error(
-                    "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
-                )
+                relayPolicyNeedsImmediateRefresh = true
+            } else {
+                // Relay-only verification cannot become active without the
+                // current signed fleet and credential, so keep its explicit
+                // readiness barrier.
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                do {
+                    let outcome = try await service.refreshWithCredential(
+                        endpointID: derivedEndpointID,
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        now: Date()
+                    )
+                    effective = outcome.effective
+                    freshRelayCredential = outcome.relayCredential
+                    diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch {
+                    diagnosticLog.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
+                    effective = await service.restore(
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        relayCredential: cachedRelay,
+                        now: Date()
+                    )
+                    relayPolicyNeedsImmediateRefresh = true
+                }
             }
             endpointRelayProfile = effective.endpointRelayProfile
             managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
@@ -367,6 +392,19 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
+            handleRoute: { [weak self] binding, pathHints in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
+                await self?.recordActiveRoute(
+                    binding,
+                    pathHints: pathHints,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
+                )
+            },
             handleDeactivation: { [weak self] _ in
                 await self?.handleActiveRuntimeDeactivation(
                     revision: revision,
@@ -379,7 +417,7 @@ extension MobileHostIrohRuntime {
                         // therefore closes every Iroh-authorized connection and
                         // leaves Tailscale/other private-network sessions intact.
                         MobileHostService.shared.closeAllIrohConnections()
-                        MobileHostService.shared.updateIrohBinding(nil)
+                        MobileHostService.shared.updateIrohRoute(identity: nil)
                     }
                 )
             },
@@ -469,7 +507,8 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             endpointID: derivedEndpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            refreshImmediately: relayPolicyNeedsImmediateRefresh
         )
         publishIrohSettingsUpdate()
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
@@ -483,6 +522,25 @@ extension MobileHostIrohRuntime {
         tag: String,
         revision: UInt64
     ) {
+        guard allowsPersistence(
+            accountID: accountID,
+            revision: revision
+        ) else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
+        if preparedSignOut?.pendingRevocation?.accountID == accountID {
+            preparedSignOut = nil
+        }
+    }
+
+    private func recordActiveRoute(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
         guard revision == lifecycleRevision else { return }
         lastKnownBindingID = binding.bindingID
         lastKnownAccountID = accountID
@@ -490,7 +548,10 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
-        MobileHostService.shared.updateIrohBinding(binding)
+        MobileHostService.shared.updateIrohRoute(
+            identity: binding.endpointID,
+            pathHints: pathHints
+        )
     }
 
     private func allowsPersistence(
