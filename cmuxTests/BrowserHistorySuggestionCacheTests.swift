@@ -81,4 +81,39 @@ import Testing
         store.clearHistory()
         #expect(store.residentSuggestionCandidateCount == 0)
     }
+
+    @Test func largeHistoryImportDoesNotScanExistingHistoryForEveryEntry() throws {
+        let (store, fileURL) = makeStore()
+        defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
+
+        let now = Date()
+        let existing = (0..<2_000).map { index in
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: "https://example.com/page/\(index)",
+                title: "Existing \(index)",
+                lastVisited: now.addingTimeInterval(TimeInterval(-index)),
+                visitCount: 1
+            )
+        }
+        let encoder = JSONEncoder()
+        try encoder.encode(existing).write(to: fileURL, options: .atomic)
+
+        let imported = existing.reversed().map { entry in
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: entry.url,
+                title: "Imported",
+                lastVisited: now,
+                visitCount: 2
+            )
+        }
+
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            #expect(store.mergeImportedEntries(imported) == imported.count)
+        }
+
+        #expect(elapsed < .milliseconds(500))
+    }
 }
