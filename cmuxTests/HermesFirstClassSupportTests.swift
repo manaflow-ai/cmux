@@ -214,6 +214,27 @@ struct HermesFirstClassSupportTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
         let socketPath = "/tmp/cmux-debug-hermes-first-class.sock"
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
+        let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
+        let legacyCommand = #"sh -c 'cmux_cli=cmux; "$cmux_cli" hooks hermes-agent prompt-submit'"#
+        let userCommand = "echo user-owned Hermes hook"
+        let existingAllowlist = try JSONSerialization.data(
+            withJSONObject: [
+                "approvals": [
+                    [
+                        "event": "pre_llm_call",
+                        "command": legacyCommand,
+                        "approved_at": "2026-01-01T00:00:00Z",
+                    ],
+                    [
+                        "event": "pre_tool_call",
+                        "command": userCommand,
+                        "scope": "user",
+                    ],
+                ],
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try existingAllowlist.write(to: allowlistURL, options: .atomic)
 
         let result = try runProcess(
             executablePath: cliPath,
@@ -234,20 +255,25 @@ struct HermesFirstClassSupportTests {
             encoding: .utf8
         )
         let allowlistData = try Data(
-            contentsOf: hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
+            contentsOf: allowlistURL
         )
         let allowlist = try #require(
             JSONSerialization.jsonObject(with: allowlistData) as? [String: Any]
         )
         let approvals = try #require(allowlist["approvals"] as? [[String: Any]])
         let commands = approvals.compactMap { $0["command"] as? String }
+        let cmuxCommands = commands.filter {
+            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks hermes-agent ")
+        }
 
-        #expect(!commands.isEmpty)
         #expect(commands.count == approvals.count)
-        #expect(commands.allSatisfy { $0.contains("cmux-hermes-agent-hook-v2") })
-        #expect(commands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") })
-        #expect(commands.allSatisfy { $0.contains("--socket '\(socketPath)'") })
-        #expect(commands.allSatisfy { !$0.contains("$CMUX_") })
+        #expect(commands.contains(userCommand))
+        #expect(!commands.contains(legacyCommand))
+        #expect(!cmuxCommands.isEmpty)
+        #expect(cmuxCommands.allSatisfy { $0.contains("cmux-hermes-agent-hook-v2") })
+        #expect(cmuxCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") })
+        #expect(cmuxCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") })
+        #expect(cmuxCommands.allSatisfy { !$0.contains("$CMUX_") })
         #expect(config.contains("cmux-hermes-agent-hook-v2"))
         #expect(config.contains(pinnedCLI.path))
         #expect(config.contains(socketPath))
