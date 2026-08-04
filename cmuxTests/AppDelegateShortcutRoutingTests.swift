@@ -1236,6 +1236,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // This test owns the window through ARC, so AppKit must not release it as well when the
+        // deferred performClose() below runs. Leaving the default on drops the last retain a
+        // runloop turn later while the delegate's window context and the focus-capture swizzle
+        // still hold weak references to that address, which aborts the whole test host instead
+        // of failing one test. Every other closed window in this file does the same.
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         let tabManager = TabManager()
@@ -1714,7 +1720,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
+        defer {
+            AppDelegate.shared = previousAppDelegate
+            // AppDelegate.init() points the shared surface registry's route retirer at itself, and
+            // the registry holds that collaborator weakly. Restoring `shared` alone leaves the
+            // retirer nil once this temporary delegate dies, so every later test in this host runs
+            // against a registry that never sweeps retired main-window routes.
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()
@@ -2939,7 +2954,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // The same window shape MobilePairingWindowController creates, keyed by
         // the same identifier constant, so this test fails if the pairing
         // window's identifier ever drops out of cmuxAuxiliaryWindowIdentifiers
-        // (the regression: Cmd+W on "Pair iPhone" closed a terminal tab in the
+        // (the regression: Cmd+W on "Tailscale Pairing" closed a terminal tab in the
         // main window behind it instead of the pairing window).
         let pairingWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 800),
@@ -2978,7 +2993,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Pair iPhone window")
+        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Tailscale Pairing window")
         XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in the pairing window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in the pairing window should not close a terminal tab")
         XCTAssertNotEqual(

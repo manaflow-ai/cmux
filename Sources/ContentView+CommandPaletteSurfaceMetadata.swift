@@ -27,7 +27,7 @@ extension ContentView {
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         case .mobilePairing:
-            return String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")
+            return String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")
         case .accountSignIn:
             return String(localized: "settings.section.account", defaultValue: "Account")
         }
