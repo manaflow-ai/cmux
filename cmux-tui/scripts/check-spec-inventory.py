@@ -160,7 +160,10 @@ def command_names() -> set[str]:
 
 
 def rust_function_body(source: str, name: str) -> str:
-    match = re.search(rf"\bfn\s+{re.escape(name)}\s*\([^)]*\)[^{{]*\{{", source)
+    match = re.search(
+        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>]*>)?\s*\([^)]*\)[^{{]*\{{",
+        source,
+    )
     if not match:
         fail(f"cannot find Rust function {name}")
     start = match.end()
@@ -541,6 +544,16 @@ def assigned_event_names(tokens: list[str], constants: dict[str, str]) -> set[st
     return names
 
 
+def serialized_literal_event_names(source: str) -> set[str]:
+    """Find event discriminants in struct serializers and manual JSON writers."""
+
+    names = set(re.findall(r'\bevent\s*:\s*"([a-z]+(?:-[a-z]+)*)"', source))
+    names.update(
+        re.findall(r'\\"event\\":\\"([a-z]+(?:-[a-z]+)*)\\"', source)
+    )
+    return names
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
@@ -549,6 +562,7 @@ def event_names() -> set[str]:
     names = json_macro_event_names(tokens, constants)
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
+    names.update(serialized_literal_event_names(production))
 
     mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)
@@ -566,7 +580,16 @@ def function_event_names(source: str, name: str) -> set[str]:
     names = json_macro_event_names(tokens, constants)
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
+    names.update(serialized_literal_event_names(body))
     return names
+
+
+def first_function_event_names(source: str, *names: str) -> set[str]:
+    for name in names:
+        if re.search(rf"\bfn\s+{re.escape(name)}(?:\s*<[^>]*>)?\s*\(", source):
+            return function_event_names(source, name)
+    fail(f"cannot find Rust function {' or '.join(names)}")
+    return set()
 
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
@@ -579,8 +602,14 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
-    add(function_event_names(server, "render_state_json"), "attach-render")
-    add(function_event_names(server, "browser_state_json"), "attach-browser")
+    add(
+        first_function_event_names(server, "render_state_message", "render_state_json"),
+        "attach-render",
+    )
+    add(
+        first_function_event_names(server, "browser_state_message", "browser_state_json"),
+        "attach-browser",
+    )
     return hints
 
 

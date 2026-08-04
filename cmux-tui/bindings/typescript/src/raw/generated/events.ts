@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
 
 
 import type * as T from "./types.js";
@@ -92,6 +92,18 @@ export type FrontendProjectionChangedEvent = { event: "frontend-projection-chang
   "subject_key": string;
 };
 
+/** Protocol v10; emission: emitted; streams: subscribe. */
+export type GraphicsStatusEvent = { event: "graphics-status" } & {
+  "attempts"?: number;
+  "cell_height"?: number;
+  "cell_width"?: number;
+  "error"?: string;
+  "kind": "kitty-image-budget-worker-start-failed" | "kitty-image-budget-update-failed" | "cell-pixel-update-retries-exhausted";
+  "remaining"?: bigint;
+  "retry_exhausted"?: boolean;
+  "summary"?: string;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
@@ -157,6 +169,8 @@ export type RenderDeltaEvent = { event: "render-delta" } & {
   "default_bg"?: T.ColorHex;
   "default_fg"?: T.ColorHex;
   "full": boolean;
+  "graphics"?: T.RenderGraphicsDelta;
+  "history_epoch"?: bigint;
   "rows": Array<T.RenderRow>;
   "scrollback_rows"?: number;
   "size"?: T.Size;
@@ -168,6 +182,8 @@ export type RenderStateEvent = { event: "render-state" } & {
   "cursor": T.RenderCursor;
   "default_bg": T.ColorHex;
   "default_fg": T.ColorHex;
+  "graphics"?: T.RenderGraphics;
+  "history_epoch": bigint;
   "rows": Array<T.RenderRow>;
   "scrollback_rows": number;
   "size": T.Size;
@@ -180,6 +196,8 @@ export type ResizedEvent = { event: "resized" } & {
   "cols": number;
   /** Protocol 6 compatibility field. */
   "data"?: T.Base64;
+  "kitty_graphics_state"?: T.KittyGraphicsState;
+  "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "replay"?: T.Base64;
   "rows": number;
   "surface": T.Id;
@@ -300,6 +318,8 @@ export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
   "cols": number;
   "data": T.Base64;
+  "kitty_graphics_state"?: T.KittyGraphicsState;
+  "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;
   "surface": T.Id;
 };
@@ -375,6 +395,7 @@ export type KnownCmuxEvent =
   | EmptyEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
+  | GraphicsStatusEvent
   | LayoutChangedEvent
   | NotificationEvent
   | OutputEvent
@@ -421,6 +442,7 @@ export type KnownSubscribeEvent =
   | ConfigReloadRequestedEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
+  | GraphicsStatusEvent
   | LayoutChangedEvent
   | NotificationEvent
   | OverflowEvent

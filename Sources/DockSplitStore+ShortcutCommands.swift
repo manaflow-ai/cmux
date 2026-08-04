@@ -62,8 +62,9 @@ extension DockSplitStore {
 
     private func applyFocusedShortcutSelection() {
         guard let pane = bonsplitController.focusedPaneId,
-              let tab = bonsplitController.selectedTab(inPane: pane) else { return }
-        applyDockSelection(tabId: tab.id, inPane: pane)
+              let tab = bonsplitController.selectedTab(inPane: pane),
+              let panelId = surfaceIdToPanelId[tab.id] else { return }
+        focusPanelFromDockInteraction(panelId, window: nil)
     }
 
     private func selectDockSurface(number: Int) -> Bool {
@@ -79,7 +80,7 @@ extension DockSplitStore {
         }
         guard let tab else { return true }
         bonsplitController.selectTab(tab.id)
-        applyDockSelection(tabId: tab.id, inPane: pane)
+        applyFocusedShortcutSelection()
         return true
     }
 
@@ -136,7 +137,7 @@ extension DockSplitStore: FocusHistoryHosting {
 
     func focusPanel(workspaceId: UUID, panelId: UUID) {
         guard self.workspaceId == workspaceId else { return }
-        focusPanel(panelId)
+        focusPanelFromDockInteraction(panelId, window: nil)
     }
 
     func triggerFocusFlash(workspaceId: UUID, panelId: UUID) {
@@ -146,7 +147,7 @@ extension DockSplitStore: FocusHistoryHosting {
 
     func focusSelectedWorkspacePanel() {
         guard let focusedPanelId else { return }
-        focusPanel(focusedPanelId)
+        focusPanelFromDockInteraction(focusedPanelId, window: nil)
     }
 
     func focusHistoryRevisionDidChange() {}

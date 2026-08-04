@@ -34,6 +34,8 @@ const requiredRelayProductionEnv = {
 };
 
 const requiredSubrouterDeploymentEnv = {
+  SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
+  SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
   SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
   SUBROUTER_ALLOWED_TEAM_IDS: "test-team",
 };
@@ -48,6 +50,18 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
+  });
+
+  test("rejects the retired annual Pro price override at startup", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_YEARLY_PRICE_ID: "price_grandfathered_240",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_288_PRICE_ID",
+    );
   });
 
   test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
@@ -81,6 +95,22 @@ describe("client config env validation", () => {
     });
 
     expect(result.exitCode).toBe(0);
+  });
+
+  test("allows hosted-only production after the temporary legacy admin token is retired", () => {
+    const { SUBROUTER_ADMIN_TOKEN: _legacyToken, ...hostedSubrouterEnv } =
+      requiredSubrouterDeploymentEnv;
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...hostedSubrouterEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("SUBROUTER_ADMIN_TOKEN");
   });
 
   test("allows credential-free docs channel deployments", () => {

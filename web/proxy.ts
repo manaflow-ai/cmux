@@ -13,6 +13,7 @@ import {
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
+const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
@@ -48,11 +49,14 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
-  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  // Temporary redirect: /changelog[/<version>] → /docs/changelog[/<version>],
+  // preserving any locale prefix.
+  const changelogMatch = pathname.match(
+    /^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog(\/[^/]+)?\/?$/,
+  );
   if (changelogMatch) {
     const url = request.nextUrl.clone();
-    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
 
@@ -69,6 +73,17 @@ export default function middleware(request: NextRequest) {
 
   if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
     return NextResponse.next();
+  }
+
+  // Social crawlers can retain metadata URLs after the page HTML changes.
+  // Serve the hashed paths emitted by the former metadata-file route through
+  // today's stable endpoint without exposing a redirect to the crawler.
+  const legacyOpenGraphImagePath = legacyOpenGraphImageRewritePath(pathname);
+  if (legacyOpenGraphImagePath) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyOpenGraphImagePath;
+    url.search = "";
+    return NextResponse.rewrite(url);
   }
 
   // This is a localized image endpoint, but the default-locale URL is
@@ -105,7 +120,11 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.includes(".")) {
+  const isChangelogVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
+      pathname,
+    );
+  if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
 
@@ -300,6 +319,32 @@ function setFeatureWorkflowDocLinkHeader(
 
 function requestOrigin(request: NextRequest) {
   return request.nextUrl.origin;
+}
+
+function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  let locale = routing.defaultLocale;
+  let imageSegment: string;
+
+  if (segments.length === 1) {
+    imageSegment = segments[0];
+  } else if (segments.length === 2 && localeSet.has(segments[0])) {
+    locale = segments[0] as (typeof routing.locales)[number];
+    imageSegment = segments[1];
+  } else {
+    return undefined;
+  }
+
+  if (
+    !imageSegment.startsWith("opengraph-image-") ||
+    imageSegment.length === "opengraph-image-".length
+  ) {
+    return undefined;
+  }
+
+  return locale === routing.defaultLocale
+    ? "/opengraph-image"
+    : `/${locale}/opengraph-image`;
 }
 
 export const config = {

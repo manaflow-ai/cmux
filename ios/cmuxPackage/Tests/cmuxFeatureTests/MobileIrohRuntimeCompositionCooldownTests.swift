@@ -13,19 +13,16 @@ import Testing
 @MainActor
 @Suite("Mobile Iroh runtime composition broker cooldown", .serialized)
 struct MobileIrohRuntimeCompositionCooldownTests {
-    /// Re-drives the lifecycle until the broker fake has seen activity (or the
-    /// runtime activated). Auth observation and reconcile coalesce across
-    /// main-actor tasks, so a single prepareForConnection can settle before
-    /// the first activation lands; short bounded sleeps (max ~5s) let every
-    /// executor drain between attempts.
+    /// The production readiness owner is the event-driven barrier. Tests inject
+    /// deterministic jitter and await that same barrier instead of polling the
+    /// main actor with wall-clock sleeps.
     private func settleActivation(
         _ fixture: MobileIrohCooldownFixture,
-        until condition: @escaping () async -> Bool
+        expecting condition: @escaping () async -> Bool
     ) async {
-        for _ in 0 ..< 500 {
-            if await condition() { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            await fixture.composition.prepareForConnection()
+        await fixture.composition.prepareForConnection()
+        if !(await condition()) {
+            Issue.record("Connection readiness settled before the activation outcome")
         }
     }
 
@@ -71,7 +68,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         #expect(await fixture.broker.discoveryRequestCount() == discoveryCountAtFloor)
         #expect((dialError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
-        fixture.clock.advance(by: 601)
+        fixture.clock.advance(by: 751)
         await settleActivation(fixture) {
             await fixture.broker.discoveryRequestCount() > discoveryCountAtFloor
         }
@@ -79,7 +76,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
-    func nonRateLimitedFailureKeepsInactiveDialBehavior() async throws {
+    func nonRateLimitedFailureBacksOffAcrossConnectionEntryPoints() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
             registrationError: MobileIrohCooldownTestError.unavailable
         )
@@ -100,8 +97,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             transportError = error
         }
-        #expect(transportError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((transportError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
+        #expect((transportError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
         let laneError: any Error
         do {
@@ -120,8 +116,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             laneError = error
         }
-        #expect(laneError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((laneError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
+        #expect((laneError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
         let eventStreamError: any Error
         do {
@@ -131,12 +126,11 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             eventStreamError = error
         }
-        #expect(eventStreamError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((eventStreamError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
-        // A non-rate-limited failure arms only the local client backoff: dials
-        // inside the armed window keep the plain inactive error shape (no
-        // Retry-After) and never reach the broker until the window expires.
-        #expect(await fixture.broker.totalRequestCount() == settledRequestCount)
+        #expect((eventStreamError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
+        #expect(
+            await fixture.broker.totalRequestCount() == settledRequestCount,
+            "transport, lane, and event-stream callers must share one activation backoff"
+        )
     }
 
     @Test

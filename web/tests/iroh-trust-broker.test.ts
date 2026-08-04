@@ -46,6 +46,7 @@ describe("Iroh trust broker registration", () => {
       revision: number;
       binding: { endpoint_id: string };
       relay: { status: string; token: string };
+      discovery_complete: boolean;
       discovery: {
         revision: number;
         bindings: Array<{ binding_id: string }>;
@@ -54,6 +55,7 @@ describe("Iroh trust broker registration", () => {
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
     expect(result.discovery.revision).toBe(result.revision);
+    expect(result.discovery_complete).toBe(true);
     expect(result.discovery.bindings.map((binding) => binding.binding_id))
       .toEqual([fixture.repository.bindings[0]?.id]);
     expect(fixture.repository.bindings).toHaveLength(1);
@@ -201,6 +203,32 @@ describe("Iroh trust broker registration", () => {
 
     expect(refreshed.relay.status).toBe("not_requested");
     expect(fixture.minter.calls).toBe(1);
+  });
+
+  test("marks a truncated registration discovery page incomplete", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 128; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const result = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as {
+      discovery_complete: boolean;
+      discovery: { bindings: unknown[]; next_cursor: string | null };
+    };
+
+    expect(result.discovery.bindings).toHaveLength(128);
+    expect(result.discovery.next_cursor).not.toBeNull();
+    expect(result.discovery_complete).toBe(false);
   });
 
   test("rejects the wrong key and a changed payload", async () => {
@@ -363,6 +391,26 @@ describe("Iroh discovery and grants", () => {
 
     expect(legacy.bindings).toHaveLength(256);
     expect(legacy.next_cursor).toBeUndefined();
+  });
+
+  test("returns every active binding in one complete connectivity snapshot", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const complete = await Effect.runPromise(
+      fixture.broker.discoverComplete(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+
+    expect(complete.bindings).toHaveLength(300);
+    expect(new Set(complete.bindings.map((record) => record.binding_id)).size).toBe(300);
   });
 
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
@@ -907,6 +955,19 @@ class MemoryRepository implements IrohRepositoryShape {
         nextCursor: rows.length > input.pageSize && last
           ? { generation, afterBindingId: last.id }
           : null,
+      };
+    });
+  }
+
+  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+    return Effect.promise(async () => {
+      await this.beforeDiscoverySnapshot?.();
+      return {
+        bindings: this.bindings
+          .filter((row) => row.userId === input.userId && !row.revokedAt)
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
       };
     });
   }

@@ -7,7 +7,6 @@ struct VerifiedReplayFrozenPresentation {
     let layer: CALayer
     let backgroundLayer: CALayer
     let contentLayer: CALayer?
-    let cursorLayer: CALayer?
     let image: CGImage?
     let viewportRect: CGRect
 }
