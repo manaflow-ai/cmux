@@ -205,7 +205,11 @@ public struct NotificationFeedPreviewView: View {
         // `.searchable` belongs to that not-yet-mounted destination, SwiftUI
         // may install its fallback drawer on the active primary stack.
         primarySearchCoordinator.setPresentation(true)
-        await Task.yield()
+        do {
+            try await ContinuousClock().sleep(for: .milliseconds(350))
+        } catch {
+            return
+        }
         guard !Task.isCancelled else { return }
         selectedTab = .search
     }
