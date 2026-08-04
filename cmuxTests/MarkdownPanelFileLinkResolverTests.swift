@@ -9,8 +9,8 @@ import Testing
 
 @Suite("Markdown panel file link resolver")
 struct MarkdownPanelFileLinkResolverTests {
-    @Test("WebKit-coerced relative Markdown href resolves beside its source file")
-    func webKitCoercedRelativeMarkdownHrefResolvesBesideSourceFile() throws {
+    @Test("Explicit dotless-host HTTPS href remains remote beside a matching file")
+    func explicitDotlessHostHTTPSHrefRemainsRemoteBesideMatchingFile() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-relative-link-\(UUID().uuidString)", isDirectory: true)
         let sourceFile = root.appendingPathComponent("index.md")
@@ -29,11 +29,11 @@ struct MarkdownPanelFileLinkResolverTests {
             relativeToMarkdownFile: sourceFile.path
         )
 
-        #expect(resolved == targetFile.path)
+        #expect(resolved == nil)
     }
 
-    @Test("Relative Markdown filenames containing colons resolve beside the source file")
-    func relativeMarkdownFilenameContainingColonResolvesBesideSourceFile() throws {
+    @Test("Explicitly relative Markdown filenames containing colons resolve beside the source file")
+    func explicitlyRelativeMarkdownFilenameContainingColonResolvesBesideSourceFile() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-colon-link-\(UUID().uuidString)", isDirectory: true)
         let sourceFile = root.appendingPathComponent("index.md")
@@ -45,11 +45,13 @@ struct MarkdownPanelFileLinkResolverTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let resolved = MarkdownPanelFileLinkResolver.resolve(
-            rawPath: "chapter:one.md",
+            rawPath: "./chapter:one.md",
             relativeToMarkdownFile: sourceFile.path
         )
 
         #expect(resolved == targetFile.path)
+        #expect(MarkdownPanelFileLinkResolver.isMarkdownPathLike("./chapter:one.md"))
+        #expect(!MarkdownPanelFileLinkResolver.isMarkdownPathLike("chapter:one.md"))
     }
 
     @Test("Dotted HTTPS hosts remain remote even when a matching local path exists")
@@ -104,12 +106,12 @@ struct MarkdownPanelFileLinkResolverTests {
         ) == nil)
     }
 
-    @Test("Known external schemes remain external even when a matching local path exists")
-    func knownExternalSchemeRemainsExternal() throws {
+    @Test("Custom schemes remain external even when a matching local path exists")
+    func customSchemeRemainsExternal() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-scheme-link-\(UUID().uuidString)", isDirectory: true)
         let sourceFile = root.appendingPathComponent("index.md")
-        let matchingLocalFile = root.appendingPathComponent("mailto:chapter.md")
+        let matchingLocalFile = root.appendingPathComponent("obsidian:chapter.md")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "# Index".write(to: sourceFile, atomically: true, encoding: .utf8)
@@ -117,15 +119,15 @@ struct MarkdownPanelFileLinkResolverTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let resolved = MarkdownPanelFileLinkResolver.resolve(
-            rawPath: "mailto:chapter.md",
+            rawPath: "obsidian:chapter.md",
             relativeToMarkdownFile: sourceFile.path
         )
 
         #expect(resolved == nil)
     }
 
-    @Test("WebKit-coerced relative non-Markdown href resolves only as a local file")
-    func webKitCoercedRelativeNonMarkdownHrefResolvesOnlyAsLocalFile() throws {
+    @Test("Relative non-Markdown href resolves only as a local file")
+    func relativeNonMarkdownHrefResolvesOnlyAsLocalFile() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-non-markdown-link-\(UUID().uuidString)", isDirectory: true)
         let sourceFile = root.appendingPathComponent("index.md")
@@ -140,13 +142,13 @@ struct MarkdownPanelFileLinkResolverTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let localFile = MarkdownPanelFileLinkResolver.resolveLocalFile(
-            rawPath: "https://assets/spec.txt",
+            rawPath: "assets/spec.txt",
             relativeToMarkdownFile: sourceFile.path
         )
 
         #expect(localFile == targetFile.path)
         #expect(MarkdownPanelFileLinkResolver.resolve(
-            rawPath: "https://assets/spec.txt",
+            rawPath: "assets/spec.txt",
             relativeToMarkdownFile: sourceFile.path
         ) == nil)
     }

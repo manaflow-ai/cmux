@@ -837,10 +837,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
 #endif
-            if let localPath = MarkdownPanelFileLinkResolver.resolveLocalFile(
-                rawPath: url.scheme == "file" ? url.path : url.absoluteString,
-                relativeToMarkdownFile: filePath
-            ) {
+            if url.isFileURL,
+               let localPath = MarkdownPanelFileLinkResolver.resolveLocalFile(
+                   rawPath: url.path,
+                   relativeToMarkdownFile: filePath
+               ) {
                 if MarkdownPanelFileLinkResolver.isMarkdownPathLike(localPath) {
                     openMarkdownFile(localPath)
                 } else {
