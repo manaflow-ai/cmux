@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileTerminalKit
 import UIKit
 
@@ -46,7 +47,7 @@ final class TerminalArrowNubView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
 
-        feedbackGenerator.prepare()
+        MobileHapticFeedback().prepare(feedbackGenerator)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -67,7 +68,7 @@ final class TerminalArrowNubView: UIView {
         switch gesture.state {
         case .began:
             dragOrigin = innerDot.center
-            feedbackGenerator.prepare()
+            MobileHapticFeedback().prepare(feedbackGenerator)
         case .changed:
             let maxOffset: CGFloat = nubSize / 2 - 8
             let clampedX = max(-maxOffset, min(maxOffset, translation.x))
@@ -115,7 +116,7 @@ final class TerminalArrowNubView: UIView {
         repeatTask = Task { @MainActor [weak self] in
             for await _ in stream {
                 guard let self else { return }
-                self.feedbackGenerator.impactOccurred()
+                MobileHapticFeedback().impact(self.feedbackGenerator)
                 self.onArrowKey?(direction.accessoryAction)
             }
         }

@@ -9,6 +9,9 @@ extension MobileWorkspacePreview {
             id: ID(rawValue: remote.id),
             windowID: remote.windowID,
             name: remote.title,
+            customDescription: remote.customDescription,
+            customDescriptionIsTruncated: remote.customDescriptionIsTruncated ?? false,
+            customColorHex: remote.customColorHex,
             currentDirectory: remote.currentDirectory,
             isPinned: remote.isPinned ?? false,
             groupID: remote.groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
@@ -45,6 +48,7 @@ extension MobileWorkspaceGroupPreview {
             name: remote.name,
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
+            iconSymbol: remote.iconSymbol,
             anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
         )
     }

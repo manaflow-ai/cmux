@@ -59,7 +59,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -85,7 +84,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(bottomDropIndicator)
 
         addSubview(hintPill)
-        installFocusClickRecognizer()
     }
 
     required init?(coder: NSCoder) {
@@ -94,8 +92,24 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        suspendPresentation()
         model = nil
         hintPill.resetForReuse()
+    }
+
+    func suspendPresentation() {
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+    }
+
+    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     // MARK: Configure
@@ -107,13 +121,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
-        guard previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -134,6 +149,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = .secondaryLabelColor
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 
@@ -194,9 +210,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.backgroundColor = model.isAnchorActive
-            ? NSColor.labelColor.withAlphaComponent(0.08).cgColor
-            : NSColor.clear.cgColor
+        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
+            ? 6
+            : 4
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -215,6 +232,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
         setAccessibilityLabel(model.name)
     }
+
+    /// Live drop-line painting during native reorder drags; see
+    /// `SidebarWorkspaceRowTableCellView.paintControllerDropIndicator`.
+    func paintControllerDropIndicator(top: Bool, bottom: Bool) {
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.isHidden = !top
+        bottomDropIndicator.isHidden = !bottom
+    }
+
+#if DEBUG
+    var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
+        (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+#endif
 
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
@@ -237,9 +269,33 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
         nameField.textColor = .labelColor
+    }
+
+    /// Modifier-click preview: paints the same dim membership tint as an
+    /// unfocused multi-selected workspace row.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        CATransaction.commit()
+    }
+
+    /// Plain-click counterpart: clears active and multi-selected header paint
+    /// while the authoritative single selection is applied.
+    func showOptimisticDeselection() {
+        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        CATransaction.commit()
+        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -250,6 +306,26 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func clearOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
         applyModel(model)
+    }
+
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+        if model.isAnchorActive {
+            return NSColor.labelColor.withAlphaComponent(0.08)
+        }
+        if model.isMultiSelected {
+            return headerMultiSelectionBackgroundColor(for: model)
+        }
+        return .clear
+    }
+
+    private func headerMultiSelectionBackgroundColor(
+        for model: SidebarGroupHeaderRowModel
+    ) -> NSColor {
+        let style = model.multiSelectionBackgroundStyle
+        guard let color = style.color else { return .clear }
+        return color.withAlphaComponent(
+            color.alphaComponent * style.opacity
+        )
     }
 
     /// True when a press at this view should not repaint selection (chevron
@@ -362,29 +438,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Interaction
 
-    /// Click-to-focus is a gesture recognizer, not a mouseDown override, so
-    /// the table view keeps receiving the raw mouse events it needs to start
-    /// a row drag from the header's name area (parity with the SwiftUI
-    /// header's coexisting onTapGesture + onDrag).
-    private func installFocusClickRecognizer() {
-        let recognizer = NSClickGestureRecognizer(target: self, action: #selector(didClickFocusArea(_:)))
-        recognizer.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(recognizer)
-    }
-
-    @objc private func didClickFocusArea(_ recognizer: NSClickGestureRecognizer) {
-        let point = recognizer.location(in: self)
-        // Chevron/plus are buttons and take their own hits before this runs.
-        let innerRect = NSRect(
-            x: iconImageView.frame.minX,
-            y: 0,
-            width: max(0, plusButton.frame.minX - iconImageView.frame.minX),
-            height: bounds.height
-        )
-        if innerRect.contains(point) {
-            actions?.onFocusAnchor()
-        }
-    }
+    // Selection has exactly one click owner: the table view's action
+    // (`SidebarWorkspaceTableController.didClickTableRow`), same as workspace
+    // rows. A cell-level click recognizer here would fire a second
+    // `onFocusAnchor` for the same click, which cancels a modifier-click
+    // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -414,9 +472,23 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func trackedMenu() -> NSMenu {
-        let menu = NSMenu()
+        let menu = SidebarRowTrackedMenu()
         menu.autoenablesItems = false
-        menu.delegate = self
+        // Keep the matching close callback alive if this row retires while
+        // AppKit is still tracking its menu.
+        let didOpen = contextMenuDidOpen
+        let didClose = contextMenuDidClose
+        menu.onOpen = { [weak self] in
+            self?.contextMenuVisible = true
+            self?.updatePlusVisibility()
+            didOpen?()
+        }
+        menu.onClose = { [weak self] in
+            self?.contextMenuVisible = false
+            self?.updatePlusVisibility()
+            didClose?()
+        }
+        menu.delegate = menu
         return menu
     }
 
@@ -515,20 +587,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             action: actions.onDelete
         ))
         return menu
-    }
-}
-
-extension SidebarGroupHeaderTableCellView: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        contextMenuVisible = true
-        updatePlusVisibility()
-        contextMenuDidOpen?()
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        contextMenuVisible = false
-        updatePlusVisibility()
-        contextMenuDidClose?()
     }
 }
 

@@ -57,7 +57,8 @@ struct VerifiedReplayMountedNormalizationTests {
             renderEpoch: "epoch",
             renderRevision: 1,
             expectedCursorColor: nil,
-            configuredCursorColor: "#98989D"
+            configuredCursorColor: "#98989D",
+            anchor: .viewport
         )
 
         let normalized = view.normalizedVerifiedReplayObservedFrameForSubmission(

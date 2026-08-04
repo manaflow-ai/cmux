@@ -75,7 +75,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -95,6 +95,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Provider discovery may read configuration or run `opencode models`;
+        // it must never hold the main actor while waiting for process I/O.
+        "mobile.task.models.list",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -126,6 +129,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -141,6 +151,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // DEBUG builds close the selected mobile transport through its normal
+        // connection-owned shutdown path, which awaits asynchronous writers.
+        // Keep that wait off the main actor.
+        "debug.mobile.transport.disconnect",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
@@ -265,7 +279,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -389,6 +403,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
+    /// The v1 diagnostic-read family. These commands await actor-owned
+    /// diagnostic snapshots, so they run on the socket worker and are not
+    /// callable from the main thread.
+    static let diagnosticReadV1Commands: Set<String> = [
+        "iroh_diag",
+    ]
+
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
     /// resolution reads. Nonisolated `TerminalController` bodies take one
     /// `v2MainSync` snapshot hop and format their reply lines on the worker.
@@ -417,6 +438,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_workspace",
     ]
 
+    /// Configuration commands that block their socket worker until the main
+    /// actor commits the requested runtime update.
+    static let configurationMutationV1Commands: Set<String> = [
+        "reload_config",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
     /// sidebar telemetry, notification, terminal-read, resolution-read, and
@@ -426,8 +453,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
+            .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
+            .union(configurationMutationV1Commands)
             .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main

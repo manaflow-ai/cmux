@@ -30,8 +30,16 @@ final class GhosttyCurrentDirectoryActionDispatcher {
             )
         self.replayBoundaryContinuation = replayBoundaryContinuation
         self.ordinaryContinuation = ordinaryContinuation
-        let resolvedDelivery: Delivery = delivery ?? { action in
-            Self.deliver(action)
+        let resolvedDelivery: Delivery
+        if let delivery {
+            resolvedDelivery = { action in
+                Self.recordReportedWorkingDirectory(action)
+                delivery(action)
+            }
+        } else {
+            resolvedDelivery = { action in
+                Self.deliver(action)
+            }
         }
         Task { @MainActor in
             for await action in replayBoundaryStream {
@@ -89,6 +97,7 @@ final class GhosttyCurrentDirectoryActionDispatcher {
         ) == true || action.replayBoundaryGeneration != nil {
             return
         }
+        recordReportedWorkingDirectory(action)
         guard let tabId = surfaceView.tabId,
               let surfaceId = action.terminalSurface?.id else { return }
         AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
@@ -96,6 +105,14 @@ final class GhosttyCurrentDirectoryActionDispatcher {
             surfaceId: surfaceId,
             directory: action.directory
         )
+    }
+
+    @MainActor
+    private static func recordReportedWorkingDirectory(_ action: GhosttyCurrentDirectoryAction) {
+        guard action.replayBoundaryGeneration == nil,
+              let terminalSurface = action.terminalSurface,
+              terminalSurface.focusPlacement == .rightSidebarDock else { return }
+        terminalSurface.recordReportedWorkingDirectory(action.directory)
     }
 
     private static func stableHash(_ value: String) -> UInt64 {
