@@ -148,9 +148,10 @@ impl RelayPolicyVerifier {
             &self.cache_path,
             &CachedPolicy {
                 version: 1,
-                jti: policy.jti,
                 sequence: policy.sequence,
+                issued_at: policy.issued_at,
                 expires_at: policy.expires_at,
+                relays: policy.relays.iter().map(CachedRelay::from).collect(),
                 compact: policy.compact.clone(),
             },
         )
@@ -169,8 +170,17 @@ impl RelayPolicyVerifier {
             ensure!(policy.sequence >= previous.sequence, "relay policy sequence rolled back");
             if policy.sequence == previous.sequence {
                 ensure!(
-                    policy.jti == previous.jti && policy.compact == previous.compact,
-                    "relay policy reused a sequence with different contents"
+                    policy.relays.iter().map(CachedRelay::from).collect::<Vec<_>>()
+                        == previous.relays,
+                    "relay policy changed the catalog without advancing its sequence"
+                );
+                ensure!(
+                    policy.issued_at >= previous.issued_at,
+                    "relay policy issuance rolled back"
+                );
+                ensure!(
+                    policy.expires_at >= previous.expires_at,
+                    "relay policy expiry rolled back"
                 );
             }
         }
@@ -184,6 +194,21 @@ impl RelayPolicyVerifier {
         let cache: CachedPolicy = read_owner_only_json(&self.cache_path, MAX_CACHE_BYTES)
             .context("cannot load relay-policy rollback fence")?;
         ensure!(cache.version == 1 && cache.sequence > 0, "relay-policy cache is invalid");
+        ensure!(
+            cache.issued_at >= 0 && cache.expires_at > cache.issued_at,
+            "relay-policy cache times are invalid"
+        );
+        ensure!((1..=16).contains(&cache.relays.len()), "relay-policy cache fleet is invalid");
+        let mut ids = HashSet::new();
+        let mut urls = HashSet::new();
+        for relay in &cache.relays {
+            ensure!(safe_relay_id(&relay.id), "cached relay ID is invalid");
+            ensure!(safe_relay_label(&relay.provider), "cached relay provider is invalid");
+            ensure!(safe_relay_label(&relay.region), "cached relay region is invalid");
+            validate_root_https_url(&relay.url)?;
+            ensure!(ids.insert(&relay.id), "cached relay ID is duplicated");
+            ensure!(urls.insert(&relay.url), "cached relay URL is duplicated");
+        }
         ensure!(cache.compact.len() <= MAX_POLICY_BYTES, "relay-policy cache is too large");
         Ok(Some(cache))
     }
@@ -224,10 +249,31 @@ struct RelayClaim {
 #[serde(deny_unknown_fields)]
 struct CachedPolicy {
     version: u32,
-    jti: Uuid,
     sequence: u64,
+    issued_at: i64,
     expires_at: i64,
+    relays: Vec<CachedRelay>,
     compact: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct CachedRelay {
+    id: String,
+    provider: String,
+    region: String,
+    url: String,
+}
+
+impl From<&VerifiedRelay> for CachedRelay {
+    fn from(relay: &VerifiedRelay) -> Self {
+        Self {
+            id: relay.id.clone(),
+            provider: relay.provider.clone(),
+            region: relay.region.clone(),
+            url: relay.url.clone(),
+        }
+    }
 }
 
 fn validate_claims(claims: PolicyClaims, compact: &str, now: i64) -> Result<VerifiedRelayPolicy> {
@@ -366,6 +412,12 @@ mod tests {
         );
         let first = compact(&signing, 2, 2_000, "https://relay.example.com/");
         assert_eq!(verifier.verify_and_record(&first, 1_100).unwrap().sequence, 2);
+        let renewal = compact(&signing, 2, 2_100, "https://relay.example.com/");
+        assert_eq!(verifier.verify_and_record(&renewal, 1_100).unwrap().sequence, 2);
+        let shorter = compact(&signing, 2, 2_050, "https://relay.example.com/");
+        assert!(verifier.verify_and_record(&shorter, 1_100).is_err());
+        let equivocation = compact(&signing, 2, 2_100, "https://other.example.com/");
+        assert!(verifier.verify_and_record(&equivocation, 1_100).is_err());
         let rollback = compact(&signing, 1, 2_000, "https://relay.example.com/");
         assert!(verifier.verify_and_record(&rollback, 1_100).is_err());
     }
