@@ -410,6 +410,7 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
 ";
 
 const SIDEBAR_HELP: &str = "\

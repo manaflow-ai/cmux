@@ -1936,7 +1936,7 @@ impl Surface {
 
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
-        opts: SurfaceOptions,
+        mut opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
@@ -1947,6 +1947,16 @@ impl Surface {
                 ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
                 ContentPublicId::Browser(_) => None,
             });
+        if let Some(terminal_public_id) = terminal_public_id.as_ref() {
+            set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
+        }
+        if let Some(mux) = mux.upgrade() {
+            set_surface_environment(
+                &mut opts,
+                "CMUX_TUI_SESSION_ID",
+                mux.session_public_id().as_str(),
+            );
+        }
         if resource_identity
             .as_ref()
             .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
@@ -5170,6 +5180,15 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.close_confirmed()
+    }
+}
+
+fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str) {
+    if let Some((_, current)) = options.extra_env.iter_mut().find(|(candidate, _)| candidate == key)
+    {
+        *current = value.into();
+    } else {
+        options.extra_env.push((key.into(), value.into()));
     }
 }
 

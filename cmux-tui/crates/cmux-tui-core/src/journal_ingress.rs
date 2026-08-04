@@ -94,6 +94,12 @@ pub(crate) enum JournalIngressEvent {
         occurred_at_ms: u64,
         event: FrontendJournalEvent,
     },
+    Producer {
+        ingress: crate::JournalIngress,
+        validated: crate::journal_kernel::ValidatedJournalIngress,
+        origin: String,
+        idempotency_key: String,
+    },
 }
 
 impl JournalIngressEvent {
@@ -122,9 +128,15 @@ impl JournalIngressEvent {
     }
 }
 
+#[derive(Debug)]
+enum JournalIngressCompletion {
+    Durable(SyncSender<Result<(), String>>),
+    Producer(SyncSender<Result<crate::JournalAppendCommit, String>>),
+}
+
 pub(crate) struct QueuedJournalEvent {
     event: JournalIngressEvent,
-    completion: Option<SyncSender<Result<(), String>>>,
+    completion: Option<JournalIngressCompletion>,
 }
 
 impl QueuedJournalEvent {
@@ -180,7 +192,38 @@ impl JournalIngressSender {
         let Some(sender) = &self.sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
         sender
-            .send(QueuedJournalEvent { event, completion: Some(completion) })
+            .send(QueuedJournalEvent {
+                event,
+                completion: Some(JournalIngressCompletion::Durable(completion)),
+            })
+            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
+        result
+            .recv()
+            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
+            .map_err(anyhow::Error::msg)
+    }
+
+    pub(crate) fn send_producer(
+        &self,
+        ingress: crate::JournalIngress,
+        validated: crate::journal_kernel::ValidatedJournalIngress,
+        origin: String,
+        idempotency_key: String,
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
+        let Some(sender) = &self.sender else {
+            anyhow::bail!("session journal writer is unavailable")
+        };
+        let (completion, result) = sync_channel(1);
+        sender
+            .send(QueuedJournalEvent {
+                event: JournalIngressEvent::Producer {
+                    ingress,
+                    validated,
+                    origin,
+                    idempotency_key,
+                },
+                completion: Some(JournalIngressCompletion::Producer(completion)),
+            })
             .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
         result
             .recv()
@@ -229,17 +272,17 @@ fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
             let mut reported_error = None;
             loop {
                 let Some(mux) = mux.upgrade() else {
-                    let result = Err("session journal stopped".into());
-                    complete_batch(&batch, result.clone());
+                    let error = "session journal stopped".to_string();
+                    complete_batch_error(&batch, error.clone());
                     for pending_batch in pending {
-                        complete_batch(&pending_batch, result.clone());
+                        complete_batch_error(&pending_batch, error.clone());
                     }
                     return;
                 };
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 match mux.commit_session_journal_events(&events) {
-                    Ok(()) => {
-                        complete_batch(&batch, Ok(()));
+                    Ok(commits) => {
+                        complete_batch_success(&batch, commits);
                         break;
                     }
                     Err(error) => {
@@ -261,7 +304,7 @@ fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
                             pending.push_front(later);
                             pending.push_front(batch);
                         } else {
-                            complete_batch(&batch, Err(summary));
+                            complete_batch_error(&batch, summary);
                         }
                         break;
                     }
@@ -286,10 +329,39 @@ fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
     })
 }
 
-fn complete_batch(batch: &[QueuedJournalEvent], result: Result<(), String>) {
+fn complete_batch_success(
+    batch: &[QueuedJournalEvent],
+    commits: Vec<Option<crate::JournalAppendCommit>>,
+) {
+    if commits.len() != batch.len() {
+        complete_batch_error(batch, "session journal returned an incomplete batch".into());
+        return;
+    }
+    for (queued, commit) in batch.iter().zip(commits) {
+        match &queued.completion {
+            Some(JournalIngressCompletion::Durable(completion)) => {
+                let _ = completion.send(Ok(()));
+            }
+            Some(JournalIngressCompletion::Producer(completion)) => {
+                let result = commit
+                    .ok_or_else(|| "session journal omitted a producer append receipt".into());
+                let _ = completion.send(result);
+            }
+            None => {}
+        }
+    }
+}
+
+fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) {
     for queued in batch {
-        if let Some(completion) = &queued.completion {
-            let _ = completion.send(result.clone());
+        match &queued.completion {
+            Some(JournalIngressCompletion::Durable(completion)) => {
+                let _ = completion.send(Err(error.clone()));
+            }
+            Some(JournalIngressCompletion::Producer(completion)) => {
+                let _ = completion.send(Err(error.clone()));
+            }
+            None => {}
         }
     }
 }

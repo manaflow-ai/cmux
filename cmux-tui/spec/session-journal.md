@@ -9,10 +9,11 @@ events, hook manifests and delivery outcomes, checkpoints, and sealed history
 segments. Resource mutations include workspace, screen, pane, and tab focus;
 tab selection; split ratios; viewport column widths; topology; terminal and
 browser lifecycle; continuous terminal output and geometry; frontend focus,
-viewport, and geometry observations; frontend projections; and explicit agent
-reports. A pure restoration reducer can preview the state reconstructed from a
-checkpoint and its tail. Native agent adapters, verified root ownership leases,
-and live application of a restored model remain pending.
+viewport, and geometry observations; frontend projections; explicit agent
+reports; and normalized native agent-hook observations. A pure restoration
+reducer can preview the state reconstructed from a checkpoint and its tail.
+Provider-specific hook installers, verified root ownership leases, and live
+application of a restored model remain pending.
 
 ## Invariants
 
@@ -305,7 +306,23 @@ redacted outcome needed for diagnostics.
 ## Agent adapters and ownership
 
 An agent adapter maps one agent runtime's native hooks into the semantic event
-vocabulary. Its versioned manifest declares:
+vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
+CLI, preserves the complete parsed native value under `payload.native`, and
+stores common session, turn, directory, transcript, tool, and message fields
+under `payload.normalized`. Unknown native events become
+`agent.state.changed`, so adding a provider event never discards its data:
+
+```bash
+printf '%s\n' '{"session_id":"abc","message":"done"}' | \
+  cmux --jsonl agent hook emit --source codex --event Stop
+```
+
+Terminal children inherit stable session and terminal IDs. The adapter adds
+the terminal subject, and journal ingress resolves its tab, pane, screen, and
+workspace ancestors transactionally. Agent hooks outside a TUI terminal may
+omit the terminal subject while retaining their native session identity.
+
+A provider-specific adapter manifest declares:
 
 - adapter ID and executable detection;
 - native hook installation and payload decoding;
@@ -315,11 +332,12 @@ vocabulary. Its versioned manifest declares:
 - required permissions and sensitivity;
 - root-process and child-process identification rules.
 
-The native hook will perform authenticated local ingress, wait only for the
-journal commit receipt, and exit. Schema-validated local producer ingress is
-implemented; provider-specific adapter installation and root leases remain
-pending. Feed rendering, notifications, user hooks, and indexing happen
-asynchronously from the journal cursor.
+The native hook performs authenticated local ingress, waits only for the
+journal commit receipt, and exits. Each invocation gets a fresh idempotency key
+unless the provider supplies a stable delivery identity explicitly, so two
+byte-identical turn completions remain two records. Feed rendering,
+notifications, user hooks, and indexing happen asynchronously from the journal
+cursor.
 
 The ownership flow uses one root lease per agent session and surface:
 
@@ -390,6 +408,14 @@ appends these outcomes:
 - `hook.delivery.failed`
 - `hook.delivery.abandoned`
 
+One session dispatcher schedules a fixed pool of 4 through 32 workers, derived
+from available parallelism. Each worker owns one external child process at a
+time, writes its bounded stdin without a helper thread, and returns its result
+to a batched SQLite transition. Slow hooks therefore consume bounded child and
+thread counts without running on the terminal, journal-ingress, or SQLite
+writer threads. High-volume extensions should keep one `journal subscribe`
+stream open instead of spawning one hook process per terminal-output record.
+
 The scheduling identity is `(hook_id, manifest_version, event_id)`. This gives
 exactly-once scheduling and at-least-once process execution. External effects
 must use that identity as their idempotency key if they require exactly-once
@@ -457,6 +483,10 @@ may be compacted because canonical records remain rebuildable.
 SQLite is the durable ordering boundary because the journal record, state
 projection, and idempotency receipt can commit in one transaction. WAL permits
 the shared read tailer to run concurrently with the single serialized writer.
+Concurrent durable producer requests enter that writer's bounded queue and
+share a transaction while retaining one result and idempotency receipt per
+request. Terminal output, frontend observations, and producer events therefore
+have one commit-order boundary instead of competing SQLite writers.
 The public stream is asynchronous, while blocking SQLite work stays on the
 session writer or dedicated read workers. An async SQLite wrapper would move
 the same synchronous SQLite calls onto another worker and add scheduling hops;
@@ -480,7 +510,8 @@ markers.
 | Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
-| Agent adapter manifests and root leases | Pending |
+| Built-in lossless agent-hook ingress and semantic normalization | Implemented in storage v1 |
+| Provider-specific agent hook installers and root leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |
 | Checkpoint writer and restoration preview reducer | Implemented in storage v1 |

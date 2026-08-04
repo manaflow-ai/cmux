@@ -388,6 +388,7 @@ pub(super) fn create_journal_extensions_schema(
            SELECT RAISE(ABORT, 'journal checkpoints are immutable');
          END;",
     )?;
+    ensure_built_in_agent_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
     let delivery_columns = {
         let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
@@ -400,6 +401,33 @@ pub(super) fn create_journal_extensions_schema(
             .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
     }
     session_journal::ensure_journal_event_index_schema(transaction)?;
+    Ok(())
+}
+
+fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let manifest = crate::agent_hooks::built_in_agent_producer_manifest();
+    let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO journal_producers(
+           producer_id, namespace, manifest_version, manifest_json, installed_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            manifest.producer_id,
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            i64::try_from(unix_epoch_ms()?)?,
+        ],
+    )?;
+    let installed = transaction.query_row(
+        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+        [crate::AGENT_HOOK_PRODUCER_ID],
+        |row| row.get::<_, String>(0),
+    )?;
+    anyhow::ensure!(
+        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        "reserved cmux agent producer manifest does not match this binary"
+    );
     Ok(())
 }
 
@@ -611,12 +639,12 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
 }
 
 impl WorkspaceRegistry {
-    pub(crate) fn append_internal_journal_events(
+    pub(crate) fn append_journal_ingress_events(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
-    ) -> anyhow::Result<usize> {
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
         if events.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
         let tx = self.connection.transaction()?;
         let session_id = transaction_session_id(&tx)?;
@@ -629,7 +657,8 @@ impl WorkspaceRegistry {
                 | crate::journal_ingress::JournalIngressEvent::TerminalResize {
                     terminal_id, ..
                 } => terminal_id,
-                crate::journal_ingress::JournalIngressEvent::Frontend { .. } => continue,
+                crate::journal_ingress::JournalIngressEvent::Frontend { .. }
+                | crate::journal_ingress::JournalIngressEvent::Producer { .. } => continue,
             };
             if subjects_by_terminal.contains_key(terminal_id.as_str()) {
                 continue;
@@ -643,7 +672,24 @@ impl WorkspaceRegistry {
                 .insert(terminal_id.as_str(), subjects.into_iter().collect::<Vec<_>>());
         }
         let mut terminal_offsets = HashMap::<(&str, &str), u64>::new();
+        let mut commits = Vec::with_capacity(events.len());
         for event in events {
+            if let crate::journal_ingress::JournalIngressEvent::Producer {
+                ingress,
+                validated,
+                origin,
+                idempotency_key,
+            } = *event
+            {
+                commits.push(Some(append_journal_ingress_transaction(
+                    &tx,
+                    ingress,
+                    validated,
+                    origin,
+                    idempotency_key,
+                )?));
+                continue;
+            }
             if let crate::journal_ingress::JournalIngressEvent::Frontend {
                 principal_id,
                 occurred_at_ms,
@@ -814,6 +860,7 @@ impl WorkspaceRegistry {
                             && stored_payload == canonical_json(&payload)?,
                         "frontend journal event id was reused with different content"
                     );
+                    commits.push(None);
                     continue;
                 }
                 append_journal_record(
@@ -838,6 +885,7 @@ impl WorkspaceRegistry {
                         previous_resource_revision: None,
                     },
                 )?;
+                commits.push(None);
                 continue;
             }
             let (terminal_id, generation, occurred_at_ms, kind, class, payload, content) =
@@ -913,7 +961,10 @@ impl WorkspaceRegistry {
                         }),
                         None,
                     ),
-                    crate::journal_ingress::JournalIngressEvent::Frontend { .. } => unreachable!(),
+                    crate::journal_ingress::JournalIngressEvent::Frontend { .. }
+                    | crate::journal_ingress::JournalIngressEvent::Producer { .. } => {
+                        unreachable!()
+                    }
                 };
             let subjects = subjects_by_terminal
                 .get(terminal_id.as_str())
@@ -951,6 +1002,7 @@ impl WorkspaceRegistry {
                     previous_resource_revision: None,
                 },
             )?;
+            commits.push(None);
         }
         for ((terminal_id, generation), next_offset) in terminal_offsets {
             tx.execute(
@@ -962,7 +1014,7 @@ impl WorkspaceRegistry {
             )?;
         }
         tx.commit()?;
-        Ok(events.len())
+        Ok(commits)
     }
 
     pub(crate) fn journal_producer_manifests(
@@ -983,6 +1035,10 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<JournalAppendCommit> {
+        anyhow::ensure!(
+            manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID,
+            "the cmux agent producer is built in"
+        );
         validate_journal_producer_manifest(manifest)?;
         validate_identifier("journal producer origin", origin)?;
         validate_identifier("journal producer idempotency key", idempotency_key)?;
@@ -1089,124 +1145,136 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<JournalAppendCommit> {
-        validate_identifier("journal ingress origin", origin)?;
-        validate_identifier("journal ingress idempotency key", idempotency_key)?;
-        validate_plugin_component("producer_id", &ingress.producer_id)?;
-        validate_dotted_kind(&ingress.kind)?;
-        anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
-        anyhow::ensure!(
-            serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
-            "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
-        );
-        let ingress_value = serde_json::to_value(ingress)?;
-        let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
         let tx = self.connection.transaction()?;
-        if let Some(commit) = ingress_receipt(
-            &tx,
-            &ingress.producer_id,
+        let commit =
+            append_journal_ingress_transaction(&tx, ingress, validated, origin, idempotency_key)?;
+        tx.commit()?;
+        Ok(commit)
+    }
+}
+
+fn append_journal_ingress_transaction(
+    tx: &Transaction<'_>,
+    ingress: &JournalIngress,
+    validated: &crate::journal_kernel::ValidatedJournalIngress,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<JournalAppendCommit> {
+    validate_identifier("journal ingress origin", origin)?;
+    validate_identifier("journal ingress idempotency key", idempotency_key)?;
+    validate_plugin_component("producer_id", &ingress.producer_id)?;
+    validate_dotted_kind(&ingress.kind)?;
+    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
+    anyhow::ensure!(
+        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
+        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
+    );
+    let ingress_value = serde_json::to_value(ingress)?;
+    let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
+    if let Some(commit) =
+        ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
+    {
+        return Ok(commit);
+    }
+    let installed = tx
+        .query_row(
+            "SELECT 1 FROM journal_producers
+             WHERE producer_id = ?1 AND manifest_version = ?2",
+            params![ingress.producer_id, i64::from(ingress.manifest_version)],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    anyhow::ensure!(installed, "journal producer or manifest version is not installed");
+    let causation_depth = match ingress.causation_id.as_deref() {
+        Some(causation_id) => {
+            let parent_depth = tx
+                .query_row(
+                    "SELECT causation_depth FROM journal_event_index WHERE event_id = ?1",
+                    [causation_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .context("journal causation event does not exist")?;
+            u16::try_from(parent_depth)
+                .context("journal parent causation depth is invalid")?
+                .checked_add(1)
+                .context("journal causation depth overflow")?
+        }
+        None => 0,
+    };
+    anyhow::ensure!(
+        causation_depth <= MAX_CAUSATION_DEPTH,
+        "journal causation depth exceeds {MAX_CAUSATION_DEPTH}"
+    );
+    let session_id = transaction_session_id(tx)?;
+    let mut subjects = BTreeSet::from([
+        JournalSubject { kind: "session".into(), id: session_id },
+        JournalSubject { kind: "producer".into(), id: ingress.producer_id.clone() },
+    ]);
+    for subject in &ingress.subjects {
+        validate_plugin_component("journal subject kind", &subject.kind)?;
+        validate_identifier("journal subject id", &subject.id)?;
+        subjects.insert(subject.clone());
+    }
+    expand_topology_subjects(tx, &mut subjects)?;
+    let subjects = subjects.into_iter().collect::<Vec<_>>();
+    let built_in_agent = ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID;
+    let producer = JournalProducer {
+        kind: if built_in_agent { "agent_adapter" } else { "plugin" }.into(),
+        id: ingress.producer_id.clone(),
+    };
+    let authority = JournalAuthority {
+        principal_id: origin.into(),
+        lease_id: format!("producer:{}", ingress.producer_id),
+        generation: ingress.manifest_version.to_string(),
+        role: if built_in_agent { "agent.adapter" } else { "journal.producer" }.into(),
+    };
+    let event_id = random_event_id(if built_in_agent { "agent" } else { "plugin" });
+    let occurred_at_ms = ingress.occurred_at_ms.map(WireDecimal::get).unwrap_or(unix_epoch_ms()?);
+    let sequence = append_journal_record(
+        tx,
+        &JournalAppend {
+            event_id: &event_id,
+            schema_version: ingress.schema_version,
+            kind: &ingress.kind,
+            class: validated.class,
+            replay: validated.replay,
+            occurred_at_ms,
+            producer: &producer,
+            authority: Some(&authority),
+            causation_id: ingress.causation_id.as_deref(),
+            correlation_id: ingress.correlation_id.as_deref().or(Some(idempotency_key)),
+            causation_depth,
+            subjects: &subjects,
+            sensitivity: validated.sensitivity,
+            payload: &ingress.payload,
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )?;
+    let result = json!({
+        "producer_id":ingress.producer_id,
+        "sequence":sequence.to_string(),
+        "event_id":event_id,
+    });
+    tx.execute(
+        "INSERT INTO journal_ingress_receipts(
+           producer_id, origin, idempotency_key, fingerprint, event_id,
+           journal_sequence, result_json
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            ingress.producer_id,
             origin,
             idempotency_key,
             fingerprint.as_slice(),
-        )? {
-            return Ok(commit);
-        }
-        let installed = tx
-            .query_row(
-                "SELECT 1 FROM journal_producers
-                 WHERE producer_id = ?1 AND manifest_version = ?2",
-                params![ingress.producer_id, i64::from(ingress.manifest_version)],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        anyhow::ensure!(installed, "journal producer or manifest version is not installed");
-        let causation_depth = match ingress.causation_id.as_deref() {
-            Some(causation_id) => {
-                let parent_depth = tx
-                    .query_row(
-                        "SELECT causation_depth FROM journal_event_index WHERE event_id = ?1",
-                        [causation_id],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .optional()?
-                    .context("journal causation event does not exist")?;
-                u16::try_from(parent_depth)
-                    .context("journal parent causation depth is invalid")?
-                    .checked_add(1)
-                    .context("journal causation depth overflow")?
-            }
-            None => 0,
-        };
-        anyhow::ensure!(
-            causation_depth <= MAX_CAUSATION_DEPTH,
-            "journal causation depth exceeds {MAX_CAUSATION_DEPTH}"
-        );
-        let session_id = transaction_session_id(&tx)?;
-        let mut subjects = BTreeSet::from([
-            JournalSubject { kind: "session".into(), id: session_id },
-            JournalSubject { kind: "producer".into(), id: ingress.producer_id.clone() },
-        ]);
-        for subject in &ingress.subjects {
-            validate_plugin_component("journal subject kind", &subject.kind)?;
-            validate_identifier("journal subject id", &subject.id)?;
-            subjects.insert(subject.clone());
-        }
-        let subjects = subjects.into_iter().collect::<Vec<_>>();
-        let producer = JournalProducer { kind: "plugin".into(), id: ingress.producer_id.clone() };
-        let authority = JournalAuthority {
-            principal_id: origin.into(),
-            lease_id: format!("producer:{}", ingress.producer_id),
-            generation: ingress.manifest_version.to_string(),
-            role: "journal.producer".into(),
-        };
-        let event_id = random_event_id("plugin");
-        let occurred_at_ms =
-            ingress.occurred_at_ms.map(WireDecimal::get).unwrap_or(unix_epoch_ms()?);
-        let sequence = append_journal_record(
-            &tx,
-            &JournalAppend {
-                event_id: &event_id,
-                schema_version: ingress.schema_version,
-                kind: &ingress.kind,
-                class: validated.class,
-                replay: validated.replay,
-                occurred_at_ms,
-                producer: &producer,
-                authority: Some(&authority),
-                causation_id: ingress.causation_id.as_deref(),
-                correlation_id: ingress.correlation_id.as_deref().or(Some(idempotency_key)),
-                causation_depth,
-                subjects: &subjects,
-                sensitivity: validated.sensitivity,
-                payload: &ingress.payload,
-                content: None,
-                resource_revision: None,
-                previous_resource_revision: None,
-            },
-        )?;
-        let result = json!({
-            "producer_id":ingress.producer_id,
-            "sequence":sequence.to_string(),
-            "event_id":event_id,
-        });
-        tx.execute(
-            "INSERT INTO journal_ingress_receipts(
-               producer_id, origin, idempotency_key, fingerprint, event_id,
-               journal_sequence, result_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                ingress.producer_id,
-                origin,
-                idempotency_key,
-                fingerprint.as_slice(),
-                event_id,
-                i64::try_from(sequence)?,
-                canonical_json(&result)?,
-            ],
-        )?;
-        tx.commit()?;
-        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
-    }
+            event_id,
+            i64::try_from(sequence)?,
+            canonical_json(&result)?,
+        ],
+    )?;
+    Ok(JournalAppendCommit { sequence, event_id, replayed: false })
 }
 
 impl WorkspaceRegistry {

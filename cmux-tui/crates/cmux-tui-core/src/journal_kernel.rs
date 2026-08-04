@@ -221,6 +221,7 @@ pub(crate) struct PreparedJournalProducer {
     compiled: Arc<CompiledJournalProducer>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct ValidatedJournalIngress {
     pub(crate) class: JournalClass,
     pub(crate) replay: JournalReplayPolicy,

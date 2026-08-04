@@ -4365,10 +4365,11 @@ impl Mux {
     pub(crate) fn commit_session_journal_events(
         &self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
-    ) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().append_internal_journal_events(events)?;
+    ) -> anyhow::Result<Vec<Option<crate::JournalAppendCommit>>> {
+        let commits =
+            self.workspace_registry.lock().unwrap().append_journal_ingress_events(events)?;
         self.publish_journal_event();
-        Ok(())
+        Ok(commits)
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
@@ -4473,6 +4474,14 @@ impl Mux {
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
         let validated = self.journal_kernel.validate_ingress(ingress)?;
+        if self.journal_ingress.enabled() {
+            return self.journal_ingress.send_producer(
+                ingress.clone(),
+                validated,
+                origin.into(),
+                idempotency_key.into(),
+            );
+        }
         let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
             ingress,
             &validated,
@@ -13617,7 +13626,16 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         .extra_env
         .iter()
         .map(|(key, _)| key.as_str())
-        .filter(|key| matches!(*key, "CMUX_TUI_SOCKET" | "CMUX_MUX_SOCKET" | "CMUX_SIDEBAR"))
+        .filter(|key| {
+            matches!(
+                *key,
+                "CMUX_TUI_SOCKET"
+                    | "CMUX_MUX_SOCKET"
+                    | "CMUX_TUI_SESSION_ID"
+                    | "CMUX_TUI_TERMINAL_ID"
+                    | "CMUX_SIDEBAR"
+            )
+        })
         .collect::<Vec<_>>();
     serde_json::json!({
         // This is diagnostic shape, not a respawn recipe. argv and cwd can

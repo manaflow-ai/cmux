@@ -1246,6 +1246,68 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
         }
+        ["hook", "emit"] => {
+            const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
+            let source = flags.required("source")?;
+            let native_event = flags.required("event")?;
+            let native = match flags.take("payload-json") {
+                Some(payload) => serde_json::from_str(&payload).map_err(|error| {
+                    UsageError::new(format!("invalid --payload-json JSON: {error}"))
+                })?,
+                None => {
+                    let mut bytes = Vec::new();
+                    io::stdin()
+                        .take(MAX_NATIVE_PAYLOAD_BYTES + 1)
+                        .read_to_end(&mut bytes)
+                        .map_err(|error| {
+                            UsageError::new(format!("cannot read agent hook stdin: {error}"))
+                        })?;
+                    if bytes.len() as u64 > MAX_NATIVE_PAYLOAD_BYTES {
+                        return Err(UsageError::new(
+                            "agent hook payload cannot exceed 1048576 bytes",
+                        ));
+                    }
+                    if bytes.is_empty() {
+                        json!({})
+                    } else if let Ok(value) = serde_json::from_slice(&bytes) {
+                        value
+                    } else if let Ok(text) = String::from_utf8(bytes.clone()) {
+                        json!({"encoding":"utf8","data":text})
+                    } else {
+                        json!({"encoding":"base64","data":BASE64.encode(bytes)})
+                    }
+                }
+            };
+            let terminal =
+                flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+            let ingress = cmux_tui_core::agent_hook_journal_ingress(
+                &source,
+                &native_event,
+                terminal.as_deref(),
+                native,
+            )
+            .map_err(|error| UsageError::new(error.to_string()))?;
+            if serde_json::to_vec(&ingress.payload)
+                .map_err(|error| UsageError::new(format!("encode agent hook: {error}")))?
+                .len()
+                > MAX_NATIVE_PAYLOAD_BYTES as usize
+            {
+                return Err(UsageError::new(
+                    "encoded agent hook payload cannot exceed 1048576 bytes",
+                ));
+            }
+            request(
+                ResourceOperation::SessionJournalAppend,
+                &selectors,
+                flags,
+                map_with(
+                    "event",
+                    serde_json::to_value(ingress).map_err(|error| {
+                        UsageError::new(format!("encode agent hook request: {error}"))
+                    })?,
+                ),
+            )
+        }
         ["report"] => {
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
@@ -2823,6 +2885,63 @@ mod tests {
         ]);
         assert_eq!(operation(&seal), "session.journal.segment.seal");
         assert_eq!(seal.params["through_sequence"], "42");
+    }
+
+    #[test]
+    fn agent_hook_emit_normalizes_and_preserves_the_native_payload() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let payload = r#"{"session_id":"native-session","message":"done","opaque":{"v":42}}"#;
+        let first = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        let second = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        assert_eq!(operation(&first), "session.journal.append");
+        assert_eq!(first.params["event"]["kind"], "agent.turn.completed");
+        assert_eq!(first.params["event"]["payload"]["native"]["opaque"]["v"], 42);
+        assert_eq!(
+            first.params["event"]["payload"]["normalized"]["agent_session_id"],
+            "native-session"
+        );
+        assert_eq!(first.params["event"]["subjects"][0]["id"], TERMINAL);
+        assert_eq!(first.idempotency_key, None);
+        assert_eq!(second.idempotency_key, None);
+
+        assert!(
+            parse(&strings(&[
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "Invalid Source",
+                "--event",
+                "Stop",
+                "--payload-json",
+                "{}",
+            ]))
+            .is_err()
+        );
     }
 
     #[test]

@@ -1132,4 +1132,141 @@ mod tests {
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    #[ignore = "manual release-mode multi-agent hook saturation probe"]
+    fn multi_agent_hook_saturation_does_not_stall_terminal_ingress() {
+        const AGENTS: usize = 64;
+        const EVENTS_PER_AGENT: usize = 32;
+        const TERMINAL_CHUNKS: usize = 512;
+        const TERMINAL_CHUNK_BYTES: usize = 64 * 1024;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-hook-saturation-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("hook-saturation", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+        let mut hook = manifest();
+        hook.hook_id = "agent_completion_probe".into();
+        hook.filter.kinds = vec!["agent.turn.completed".into()];
+        hook.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
+        hook.exec.argv = vec!["/bin/sleep".into(), "0.005".into()];
+        hook.exec.max_parallel = u16::try_from(MAX_DELIVERY_WORKERS).unwrap();
+        hook.permissions = vec!["journal.read.sensitive".into()];
+        mux.put_journal_hook(&hook, "client_probe", "hook_probe_v1").unwrap();
+
+        let barrier = Arc::new(std::sync::Barrier::new(AGENTS));
+        let append_started = Instant::now();
+        let handles = (0..AGENTS)
+            .map(|agent| {
+                let mux = mux.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let ingress = crate::agent_hook_journal_ingress(
+                        "codex",
+                        "Stop",
+                        None,
+                        json!({"session_id":format!("agent-{agent}"),"message":"done"}),
+                    )
+                    .unwrap();
+                    barrier.wait();
+                    (0..EVENTS_PER_AGENT)
+                        .map(|event| {
+                            let started = Instant::now();
+                            mux.append_journal_ingress(
+                                &ingress,
+                                "client_probe",
+                                &format!("agent_{agent}_{event}"),
+                            )
+                            .unwrap();
+                            started.elapsed()
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut append_latencies =
+            handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<Vec<_>>();
+        let append_elapsed = append_started.elapsed();
+        append_latencies.sort_unstable();
+        let event_count = append_latencies.len();
+
+        let terminal_id = Arc::new(
+            crate::resource::TerminalPublicId::parse("term_00000000000000000000000000000077")
+                .unwrap(),
+        );
+        let generation: Arc<str> = Arc::from("hook-saturation-generation");
+        let terminal_chunk = vec![b'x'; TERMINAL_CHUNK_BYTES];
+        let terminal_started = Instant::now();
+        let mut maximum_enqueue = Duration::ZERO;
+        for _ in 0..TERMINAL_CHUNKS {
+            let started = Instant::now();
+            mux.journal_terminal_output(
+                terminal_id.clone(),
+                generation.clone(),
+                terminal_chunk.clone(),
+            );
+            maximum_enqueue = maximum_enqueue.max(started.elapsed());
+        }
+        mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
+            event_id: "event_hook_saturation_barrier".into(),
+            generation: "hook-saturation-frontend".into(),
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        })
+        .unwrap();
+        let terminal_elapsed = terminal_started.elapsed();
+
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut cursor = 0;
+        let mut completed = 0;
+        let mut epoch = mux.journal_event_epoch();
+        while completed < event_count && Instant::now() < deadline {
+            let page = mux.session_journal_after(cursor, 1024).unwrap();
+            for record in page.records {
+                cursor = record.sequence;
+                completed += usize::from(record.kind == "hook.delivery.completed");
+            }
+            if completed < event_count {
+                epoch = mux.wait_for_journal_event(epoch, Duration::from_millis(100));
+            }
+        }
+
+        let percentile =
+            |percent: usize| append_latencies[(append_latencies.len() - 1) * percent / 100];
+        let appends_per_second = event_count as f64 / append_elapsed.as_secs_f64();
+        let terminal_mib = TERMINAL_CHUNKS * TERMINAL_CHUNK_BYTES / (1024 * 1024);
+        let terminal_mib_per_second = terminal_mib as f64 / terminal_elapsed.as_secs_f64();
+        eprintln!(
+            "multi-agent hook saturation: {event_count} events from {AGENTS} agents in \
+             {append_elapsed:?} ({appends_per_second:.0}/s), append p50={:?} p95={:?} \
+             p99={:?} max={:?}; terminal {terminal_mib} MiB durable in \
+             {terminal_elapsed:?} ({terminal_mib_per_second:.1} MiB/s), max enqueue \
+             {maximum_enqueue:?}; {completed} hook children completed",
+            percentile(50),
+            percentile(95),
+            percentile(99),
+            append_latencies.last().unwrap(),
+        );
+        assert_eq!(completed, event_count, "hook deliveries did not drain before the deadline");
+        assert!(
+            percentile(99) < Duration::from_millis(100),
+            "agent append p99 regressed to {:?}",
+            percentile(99)
+        );
+        assert!(
+            maximum_enqueue < Duration::from_millis(100),
+            "terminal enqueue stalled for {maximum_enqueue:?}"
+        );
+        assert!(
+            terminal_mib_per_second >= 10.0,
+            "terminal ingress regressed to {terminal_mib_per_second:.1} MiB/s"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

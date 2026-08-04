@@ -3114,8 +3114,8 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
         },
     ];
     let appended =
-        registry.append_internal_journal_events(&events.iter().collect::<Vec<_>>()).unwrap();
-    assert_eq!(appended, 2);
+        registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
+    assert_eq!(appended.len(), 2);
 
     let records = registry
         .session_journal_after(0, 32)
@@ -3191,7 +3191,7 @@ fn terminal_journal_writer_throughput_probe() {
             })
             .collect::<Vec<_>>();
         let references = events.iter().collect::<Vec<_>>();
-        assert_eq!(registry.append_internal_journal_events(&references).unwrap(), BATCH_SIZE);
+        assert_eq!(registry.append_journal_ingress_events(&references).unwrap().len(), BATCH_SIZE);
     }
     let elapsed = started.elapsed();
     let event_count = BATCH_SIZE * BATCHES;
@@ -3233,7 +3233,7 @@ fn terminal_output_survives_immutable_segment_round_trip() {
         occurred_at_ms: 42,
         bytes: output.to_vec(),
     }];
-    registry.append_internal_journal_events(&events.iter().collect::<Vec<_>>()).unwrap();
+    registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
     let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
     registry
         .create_journal_checkpoint(
