@@ -3694,6 +3694,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var hasCachedWordPathHoverResolution = false
     private weak var cachedTerminalLinkOpenContainer: (any TerminalLinkOpenContainer)?
     private var cachedTerminalLinkOpenContainerSurfaceID: UUID?
+    /// A surface-scoped render lease keeps a stationary Command-hover aligned
+    /// with terminal output without enabling frame notifications app-wide.
+    private var wordPathHoverRenderedFrameObserver: NSObjectProtocol?
+    private var wordPathHoverRenderedFrameDemandRelease: (() -> Void)?
+    private var wordPathHoverRefreshPoint: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -6698,6 +6703,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         suppressPathHover: Bool = false
     ) {
         let hoverWasActive = wordPathHoverActive
+        let refreshPoint = cmdHeld && !suppressPathHover && surface != nil
+            ? preferredPointerPoint(from: point)
+            : nil
+        if let refreshPoint, pointIsUsableForWordResolution(refreshPoint) {
+            wordPathHoverRefreshPoint = refreshPoint
+            startWordPathHoverRenderedFrameObservationIfNeeded()
+        } else {
+            wordPathHoverRefreshPoint = nil
+            stopWordPathHoverRenderedFrameObservation()
+        }
         guard cmdHeld, !suppressPathHover else {
             invalidateWordPathHoverResolution()
             if wordPathHoverActive {
@@ -6843,9 +6858,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cachedWordPathHoverResolution = nil
         hasCachedWordPathHoverResolution = false
         if clearContainer {
+            wordPathHoverRefreshPoint = nil
+            stopWordPathHoverRenderedFrameObservation()
             cachedTerminalLinkOpenContainer = nil
             cachedTerminalLinkOpenContainerSurfaceID = nil
         }
+    }
+
+    private func startWordPathHoverRenderedFrameObservationIfNeeded() {
+        guard wordPathHoverRenderedFrameObserver == nil else { return }
+        wordPathHoverRenderedFrameObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidRenderFrame,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshWordPathHoverAfterRenderedFrame()
+            }
+        }
+        wordPathHoverRenderedFrameDemandRelease = retainLocalRenderedFrameNotifications()
+    }
+
+    private func stopWordPathHoverRenderedFrameObservation() {
+        if let wordPathHoverRenderedFrameObserver {
+            NotificationCenter.default.removeObserver(wordPathHoverRenderedFrameObserver)
+            self.wordPathHoverRenderedFrameObserver = nil
+        }
+        wordPathHoverRenderedFrameDemandRelease?()
+        wordPathHoverRenderedFrameDemandRelease = nil
+    }
+
+    private func refreshWordPathHoverAfterRenderedFrame() {
+        guard wordPathHoverRenderedFrameObserver != nil,
+              let point = wordPathHoverRefreshPoint else { return }
+        invalidateWordPathHoverResolution()
+        let flags: NSEvent.ModifierFlags = [.command]
+        updateWordPathHover(
+            at: point,
+            cmdHeld: true,
+            suppressPathHover: shouldSuppressCommandPathHover(for: flags)
+        )
     }
 
     private func pointIsUsableForWordResolution(_ point: NSPoint) -> Bool {
@@ -7596,6 +7648,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        wordPathHoverRefreshPoint = nil
+        stopWordPathHoverRenderedFrameObservation()
         invalidateWordPathHoverResolution()
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -7694,6 +7748,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
+        stopWordPathHoverRenderedFrameObservation()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
