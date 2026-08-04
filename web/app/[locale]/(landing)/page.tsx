@@ -12,7 +12,7 @@ import {
   testimonials,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonial-data";
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
 

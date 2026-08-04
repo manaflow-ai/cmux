@@ -3,7 +3,7 @@ import {
   getTestimonialSubtitle,
   getTestimonialTranslation,
   type Testimonial,
-} from "../app/[locale]/testimonials";
+} from "../app/[locale]/testimonial-data";
 
 describe("testimonial translations", () => {
   const simplifiedChineseTestimonial = {

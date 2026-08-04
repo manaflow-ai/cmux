@@ -4,10 +4,10 @@ import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } fr
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   testimonials,
-  TestimonialCard,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonial-data";
+import { TestimonialCard } from "@/app/[locale]/testimonials";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
