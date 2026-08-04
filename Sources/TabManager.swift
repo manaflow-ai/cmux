@@ -474,10 +474,6 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
-        // Overrides repository discovery for the pull-request refresh only. The sidebar
-        // metadata service keeps using gitMetadataService directly, so injecting here
-        // does not change what the sidebar reads.
-        pullRequestRepositoryDiscovery: (any GitRepositoryDiscovering)? = nil,
         pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
@@ -532,7 +528,7 @@ class TabManager: ObservableObject {
             )
         self.pullRequestProbeService = pullRequestProbeService
         let pullRequestPollService = PullRequestPollService(
-            gitMetadataService: pullRequestRepositoryDiscovery ?? gitMetadataService,
+            gitMetadataService: gitMetadataService,
             probeService: pullRequestProbeService,
             clock: gitPollClock,
             debugLog: sidebarGitDebugLog
