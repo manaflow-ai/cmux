@@ -3680,6 +3680,28 @@ pub(super) fn test_session_with_view_attachment_leases() -> Arc<RemoteSession> {
 }
 
 #[cfg(test)]
+pub(super) fn test_unleased_view_surface(
+    surface_id: SurfaceId,
+) -> (Arc<RemoteSession>, Arc<RemoteSurface>) {
+    let session = test_session_with_view_attachment_leases();
+    let surface = Arc::new(RemoteSurface {
+        id: surface_id,
+        kind: SurfaceKind::Pty,
+        term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
+        mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        dirty: AtomicBool::new(false),
+        geometry_lifecycle: Mutex::new(()),
+        cell_pixels: Mutex::new((8, 16)),
+        geometry_test_hook: Mutex::new(None),
+        content_generation: AtomicU64::new(1),
+        reported_size: Mutex::new(None),
+        browser: Mutex::new(RemoteBrowserState::default()),
+    });
+    session.surfaces.lock().unwrap().insert(surface_id, surface.clone());
+    (session, surface)
+}
+
+#[cfg(test)]
 pub(super) fn test_session_with_live_browser(
     surface_id: SurfaceId,
     frame_seq: u64,

@@ -2462,6 +2462,12 @@ fn test_remote_session_with_view_attachment_leases() -> Session {
 }
 
 #[cfg(test)]
+fn test_remote_surface_with_missing_attachment_lease(surface_id: SurfaceId) -> SurfaceHandle {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    SurfaceHandle::Remote(surface, session)
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_live_browser(
     surface_id: SurfaceId,
     frame_seq: u64,
@@ -2538,6 +2544,7 @@ mod tests {
     use super::{
         Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
         test_remote_session_with_view_attachment_leases,
+        test_remote_surface_with_missing_attachment_lease,
         test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
         test_remote_transport_error,
     };
@@ -2549,6 +2556,24 @@ mod tests {
         session
             .release_surface_size(77)
             .expect("a missing lease is already released");
+    }
+
+    #[test]
+    fn resizing_a_surface_after_its_attachment_disappears_is_superseded() {
+        let surface = test_remote_surface_with_missing_attachment_lease(77);
+        let (report_tx, report_rx) = std::sync::mpsc::sync_channel(1);
+
+        let accepted = surface
+            .resize_reporting_acceptance(
+                100,
+                30,
+                false,
+                Box::new(move |reservation| report_tx.send(reservation).unwrap()),
+            )
+            .expect("a resize cannot fail after its attachment has already disappeared");
+
+        assert!(!accepted);
+        assert_eq!(report_rx.recv().unwrap(), None);
     }
 
     #[test]
