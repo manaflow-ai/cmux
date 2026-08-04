@@ -262593,47 +262593,55 @@
         }
       }
     },
-    "cli.events.error.timeoutPositive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--timeout must be greater than 0"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--timeout は 0 より大きい値でなければなりません"
-          }
-        }
-      }
-    },
-    "cli.events.error.timedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Timed out waiting for a matching event"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一致するイベントの待機中にタイムアウトしました"
-          }
-        }
-      }
-    },
     "cli.events.error.frameTooLarge": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاوز إطار تدفق الأحداث %lld بايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okvir toka događaja premašio je %lld bajtova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamrammen overskred %lld byte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream-Frame überschritt %lld Byte"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Event stream frame exceeded %lld bytes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El marco del flujo de eventos superó los %lld bytes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La trame du flux d’événements a dépassé %lld octets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il frame del flusso di eventi ha superato %lld byte"
           }
         },
         "ja": {
@@ -262641,16 +262649,124 @@
             "state": "translated",
             "value": "イベントストリームのフレームが %lld バイトを超えました"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស៊ុមស្ទ្រីមព្រឹត្តិការណ៍បានលើស %lld បៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임이 %lld바이트를 초과했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømrammen overskred %lld byte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramka strumienia zdarzeń przekroczyła %lld bajtów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O quadro do fluxo de eventos excedeu %lld bytes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потока событий превысил %lld байт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฟรมสตรีมเหตุการณ์มีขนาดเกิน %lld ไบต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi %lld baytı aştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потоку подій перевищив %lld байт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流帧超过了 %lld 字节"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流影格超過 %lld 位元組"
+          }
         }
       }
     },
     "cli.events.error.invalidUTF8": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إطار تدفق الأحداث ليس بترميز UTF-8 صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okvir toka događaja nije valjan UTF-8"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamrammen er ikke gyldig UTF-8"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream-Frame ist kein gültiges UTF-8"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Invalid UTF-8 event stream frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El marco del flujo de eventos no es UTF-8 válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La trame du flux d’événements n’est pas en UTF-8 valide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il frame del flusso di eventi non è UTF-8 valido"
           }
         },
         "ja": {
@@ -262658,16 +262774,124 @@
             "state": "translated",
             "value": "イベントストリームの UTF-8 フレームが無効です"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស៊ុមស្ទ្រីមព្រឹត្តិការណ៍មិនមែនជា UTF-8 ត្រឹមត្រូវទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임의 UTF-8이 올바르지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømrammen er ikke gyldig UTF-8"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramka strumienia zdarzeń nie jest prawidłowym UTF-8"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O quadro do fluxo de eventos não é UTF-8 válido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потока событий содержит недопустимую кодировку UTF-8"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฟรมสตรีมเหตุการณ์ไม่ใช่ UTF-8 ที่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi geçerli UTF-8 değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потоку подій містить неприпустиме кодування UTF-8"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流帧不是有效的 UTF-8"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流影格不是有效的 UTF-8"
+          }
         }
       }
     },
     "cli.events.error.frameTimedOut": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة انتظار إطار تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je vrijeme čekanja na okvir toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiden udløb under ventetiden på en hændelsesstreamramme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf einen Ereignisstream-Frame"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Timed out waiting for event stream frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera del marco del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai d’attente de la trame du flux d’événements a expiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo scaduto in attesa del frame del flusso di eventi"
           }
         },
         "ja": {
@@ -262675,16 +262899,124 @@
             "state": "translated",
             "value": "イベントストリームのフレーム待機中にタイムアウトしました"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់ពេលរង់ចាំស៊ុមស្ទ្រីមព្រឹត្តិការណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임을 기다리는 동안 시간이 초과되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd mens det ble ventet på en hendelsesstrømramme"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upłynął limit czasu oczekiwania na ramkę strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo de espera pelo quadro do fluxo de eventos esgotou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Истекло время ожидания кадра потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลารอเฟรมสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi beklenirken zaman aşımına uğradı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минув час очікування кадру потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待事件流帧超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待事件串流影格逾時"
+          }
         }
       }
     },
     "cli.events.error.closed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إغلاق تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tok događaja je zatvoren"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamen blev lukket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream wurde geschlossen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Event stream closed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El flujo de eventos se cerró"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le flux d’événements a été fermé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il flusso di eventi è stato chiuso"
           }
         },
         "ja": {
@@ -262692,16 +263024,124 @@
             "state": "translated",
             "value": "イベントストリームが閉じられました"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ទ្រីមព្រឹត្តិការណ៍បានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림이 닫혔습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømmen ble lukket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumień zdarzeń został zamknięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O fluxo de eventos foi fechado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поток событий закрыт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สตรีมเหตุการณ์ถูกปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı kapatıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потік подій закрито"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流已關閉"
+          }
         }
       }
     },
     "cli.events.error.deadlineExceeded": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تجاوز الموعد النهائي لتدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekoračen je rok toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deadline for hændelsesstreamen blev overskredet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Frist für den Ereignisstream wurde überschritten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Event stream deadline exceeded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se superó el plazo del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’échéance du flux d’événements a été dépassée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scadenza del flusso di eventi è stata superata"
           }
         },
         "ja": {
@@ -262709,16 +263149,124 @@
             "state": "translated",
             "value": "イベントストリームの期限を超過しました"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ទ្រីមព្រឹត្តិការណ៍បានលើសកំណត់ពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 기한을 초과했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsfristen for hendelsesstrømmen ble overskredet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekroczono termin strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O prazo do fluxo de eventos foi excedido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Превышен срок ожидания потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เกินกำหนดเวลาของสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı zaman sınırı aşıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевищено строк очікування потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流超过截止时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流超過截止時間"
+          }
         }
       }
     },
     "cli.events.error.socketRead": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في قراءة مقبس تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greška pri čitanju utičnice toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fejl ved læsning fra hændelsesstreamens socket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler beim Lesen des Ereignisstream-Sockets"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Event stream socket read error"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error al leer el socket del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur de lecture du socket du flux d’événements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errore di lettura del socket del flusso di eventi"
           }
         },
         "ja": {
@@ -262726,22 +263274,71 @@
             "state": "translated",
             "value": "イベントストリームのソケット読み取りエラー"
           }
-        }
-      }
-    },
-    "cli.events.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux events [options]\n\nStream cmux events as newline-delimited JSON.\n\nOptions:\n  --after <seq>          Replay retained events after this sequence\n  --cursor-file <path>   Read the starting sequence from a file and update it after each event\n  --name <event>         Filter by event name, repeatable\n  --category <name>      Filter by category, repeatable\n  --reconnect            Reconnect forever and resume from the last received sequence\n  --limit <n>            Exit after printing n event frames\n  --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline\n  --snapshot             Print the subscription snapshot and exit\n  --no-ack               Do not print the subscription ack frame\n  --no-heartbeat         Do not print heartbeat frames\n\nExamples:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+            "value": "កំហុសក្នុងការអាន socket ស្ទ្រីមព្រឹត្តិការណ៍"
           }
         },
-        "ja": {
+        "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux events [オプション]\n\ncmux のイベントを改行区切り JSON としてストリーム出力します。\n\nオプション:\n  --after <seq>          このシーケンス以降の保持されたイベントを再生\n  --cursor-file <path>   開始シーケンスをファイルから読み込み、イベントごとに更新\n  --name <event>         イベント名で絞り込み（複数指定可）\n  --category <name>      カテゴリで絞り込み（複数指定可）\n  --reconnect            継続的に再接続し、最後に受信したシーケンスから再開\n  --limit <n>            n 個のイベントフレームを出力したら終了\n  --timeout <seconds>    期限までに一致するイベントが届かなければ失敗して終了\n  --snapshot             購読スナップショットを出力して終了\n  --no-ack               購読確認フレームを出力しない\n  --no-heartbeat         ハートビートフレームを出力しない\n\n例:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+            "value": "이벤트 스트림 소켓 읽기 오류"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feil ved lesing av hendelsesstrømsocketen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Błąd odczytu gniazda strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erro ao ler o socket do fluxo de eventos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка чтения сокета потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อผิดพลาดในการอ่านซ็อกเก็ตสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı soketi okuma hatası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помилка читання сокета потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取事件流套接字时出错"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取事件串流通訊端時發生錯誤"
           }
         }
       }
