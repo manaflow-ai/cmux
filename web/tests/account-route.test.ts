@@ -967,10 +967,10 @@ describe("account deletion route", () => {
 
     const pending = await DELETE(accountDeletionRequest());
 
-    expect(pending.status).toBe(202);
+    expect(pending.status).toBe(503);
     expect(await pending.json()).toEqual({
-      ok: true,
-      deletionPending: true,
+      error: "account_delete_retryable",
+      retryable: true,
       destroyedVms: 2,
     });
     expect(hostedTenantDeleteRequests.map(([, init]) => ({
