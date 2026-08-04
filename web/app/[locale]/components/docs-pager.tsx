@@ -17,7 +17,11 @@ export function DocsPager() {
   const t = useTranslations("docs.navItems");
   const flat = flatNavItems(navItemsForLocale(locale, channel));
   const releasePathname = docsNavPath(pathname, locale);
-  const index = flat.findIndex((item) => item.href === releasePathname);
+  const index = flat.findIndex(
+    (item) =>
+      item.href === releasePathname ||
+      releasePathname.startsWith(`${item.href}/`),
+  );
   const prev = index > 0 ? flat[index - 1] : null;
   const next = index < flat.length - 1 ? flat[index + 1] : null;
 
