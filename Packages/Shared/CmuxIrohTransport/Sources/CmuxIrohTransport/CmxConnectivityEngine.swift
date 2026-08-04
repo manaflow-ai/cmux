@@ -254,14 +254,24 @@ public actor CmxConnectivityEngine {
     ///
     /// Peers whose material route content is unchanged keep their live
     /// sessions; every other peer is invalidated before the new revision
-    /// becomes visible.
+    /// becomes visible. Account route revisions are monotonic, so an older
+    /// completion of an overlapping reconciliation cannot roll back a newer
+    /// installed revision or its content baseline.
     public func didInstallRouteRevision(
         _ revision: UInt64,
         routes: CmxIrohDiscoveryResponse
     ) async {
+        if let routeRevision, revision < routeRevision { return }
         let content = CmxConnectivityRouteContent(snapshot: routes)
         guard routeRevision != revision else {
-            routeContent = content
+            // The recorded revision can lack a content baseline when a sync
+            // stored it from an unchanged response without a snapshot. A
+            // missing or differing baseline fails closed like any other
+            // material change before the content becomes the baseline.
+            if routeContent != content {
+                await invalidatePeersSuperseded(by: content)
+                routeContent = content
+            }
             return
         }
         await invalidatePeersSuperseded(by: content)

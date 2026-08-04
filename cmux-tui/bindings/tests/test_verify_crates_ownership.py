@@ -19,7 +19,7 @@ SPEC.loader.exec_module(ownership)
 
 
 class VerifyCratesOwnershipTests(unittest.TestCase):
-    packages = ("cmux-client", "cmux-sidebar")
+    packages = ("cmux-sdk", "cmux-sidebar")
     repository = "https://github.com/manaflow-ai/cmux"
     owner_id = 431397
     owner_login = "lawrencecchen"
@@ -142,15 +142,18 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
                 self.owner_login,
             )
 
-    def test_bootstrap_mode_accepts_the_exact_owner_before_trusted_publishing(self) -> None:
+    def test_bootstrap_mode_accepts_each_expected_crate_before_trusted_publishing(self) -> None:
         def response(request: object, **kwargs: object) -> io.BytesIO:
             payload = json.loads(self.registry_response(request, **kwargs).read())
             if not str(getattr(request, "full_url", "")).endswith("/owners"):
                 payload["crate"]["trustpub_only"] = False
             return self.response(payload)
 
-        with mock.patch.object(ownership, "urlopen", side_effect=response):
-            self.assertEqual(ownership.main(self.bootstrap_args()), 0)
+        for package in self.packages:
+            with self.subTest(package=package), mock.patch.object(
+                ownership, "urlopen", side_effect=response
+            ):
+                self.assertEqual(ownership.main(self.bootstrap_args(package)), 0)
 
     def test_bootstrap_mode_still_rejects_a_foreign_owner(self) -> None:
         def response(request: object, **kwargs: object) -> io.BytesIO:
@@ -166,9 +169,16 @@ class VerifyCratesOwnershipTests(unittest.TestCase):
         with mock.patch.object(ownership, "urlopen", side_effect=response):
             self.assertEqual(ownership.main(self.bootstrap_args()), 1)
 
-    def test_bootstrap_mode_is_restricted_to_the_sidebar_reservation(self) -> None:
+    def test_bootstrap_mode_rejects_an_unlisted_reservation(self) -> None:
         with mock.patch.object(ownership, "urlopen") as urlopen:
-            self.assertEqual(ownership.main(self.bootstrap_args("cmux-client")), 1)
+            self.assertEqual(ownership.main(self.bootstrap_args("attacker-sdk")), 1)
+        urlopen.assert_not_called()
+
+    def test_bootstrap_mode_rejects_multiple_reservations(self) -> None:
+        arguments = self.bootstrap_args("cmux-sdk")
+        arguments[0:0] = ["--package", "cmux-sidebar"]
+        with mock.patch.object(ownership, "urlopen") as urlopen:
+            self.assertEqual(ownership.main(arguments), 1)
         urlopen.assert_not_called()
 
 

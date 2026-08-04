@@ -539,7 +539,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
-name = "cmux-client"
+name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
@@ -636,7 +636,7 @@ name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-client",
+ "cmux-sdk",
  "crossterm",
  "ratatui",
  "serde_json",
