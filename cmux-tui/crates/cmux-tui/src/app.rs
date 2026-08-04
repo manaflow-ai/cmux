@@ -45,6 +45,7 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::browser_input::{
@@ -3090,6 +3091,8 @@ pub enum Hit {
         index: usize,
         id: ScreenId,
     },
+    /// Visible status text on the final row.
+    StatusMessage,
     NewScreen,
     /// Pane tab-bar entry.
     Tab {
@@ -3346,6 +3349,7 @@ pub enum MenuAction {
     RenameSurface(SurfaceId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
+    CopyStatusMessage,
     NewPaneSmart(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
@@ -3417,6 +3421,7 @@ impl MenuAction {
             }
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
+            MenuAction::CopyStatusMessage => menu.copy_message,
             MenuAction::NewPaneSmart(_) => {
                 localization::catalog().action_label(Action::NewPaneSmart)
             }
@@ -4346,6 +4351,47 @@ pub struct Selection {
     pub head: (u16, u64),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StatusMessageSelection {
+    text: String,
+    anchor: u16,
+    head: u16,
+}
+
+impl StatusMessageSelection {
+    fn range(&self) -> (u16, u16) {
+        if self.anchor <= self.head { (self.anchor, self.head) } else { (self.head, self.anchor) }
+    }
+
+    fn contains(&self, text: &str, cell: u16) -> bool {
+        self.text == text && {
+            let (start, end) = self.range();
+            cell >= start && cell <= end
+        }
+    }
+
+    fn selected_text(&self) -> String {
+        let (start, end) = self.range();
+        let mut cell = 0usize;
+        self.text
+            .graphemes(true)
+            .filter(|grapheme| {
+                let width = grapheme.width();
+                let grapheme_start = cell;
+                let grapheme_end = cell.saturating_add(width);
+                cell = grapheme_end;
+                width > 0 && grapheme_start <= usize::from(end) && grapheme_end > usize::from(start)
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenderedStatusMessage {
+    rect: Rect,
+    text: String,
+}
+
 impl Selection {
     /// Normalized (start, end) in row-major order, inclusive.
     pub fn range(&self) -> ((u16, u64), (u16, u64)) {
@@ -4427,6 +4473,8 @@ enum Drag {
     Workspace { workspace: WorkspaceId, target: Option<usize> },
     /// Text selection inside a pane's content rect.
     Select { content: Rect, source_x: u16, auto_scroll: Option<i8>, col: u16 },
+    /// Text selection inside the final-row status message.
+    StatusMessage { rect: Rect },
     /// Browser mouse drag inside a pane's content rect.
     Browser { surface: SurfaceId, content: Rect, position: (u16, u16), frame_seq: u64 },
     /// Mouse reporting owned by the PTY application in this pane.
@@ -4598,6 +4646,7 @@ impl RenderedMenuLevel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MenuActionResource {
     Surface(SurfaceId),
+    StatusMessage(String),
     MachineCreationSource(String),
     MachineConnectionTarget(String),
     ManagedWorkspace { machine: MachineKey, id: String, version: u64 },
@@ -5763,6 +5812,8 @@ pub struct App {
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
+    status_selection: Option<StatusMessageSelection>,
+    rendered_status_message: Option<RenderedStatusMessage>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -7115,6 +7166,8 @@ fn run_with_machine_updates_inner(
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
+        status_selection: None,
+        rendered_status_message: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -8872,6 +8925,7 @@ impl App {
             | Hit::RailHeader(_)
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
+            | Hit::StatusMessage
             | Hit::NewTab { .. }
             | Hit::Clients { .. }
             | Hit::Scrollbar { .. }
@@ -8886,6 +8940,9 @@ impl App {
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
             MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
+            MenuAction::CopyStatusMessage => {
+                self.status_message.clone().map(MenuActionResource::StatusMessage)
+            }
             MenuAction::BrowserBack(pane)
             | MenuAction::BrowserForward(pane)
             | MenuAction::BrowserReload(pane)
@@ -12590,6 +12647,44 @@ impl App {
         self.selection = selection;
     }
 
+    pub(crate) fn reset_rendered_status_message(&mut self) {
+        self.rendered_status_message = None;
+    }
+
+    pub(crate) fn present_status_message(&mut self, rect: Rect, text: String) {
+        if self.status_selection.as_ref().is_some_and(|selection| selection.text != text) {
+            self.status_selection = None;
+            if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
+                self.drag = None;
+            }
+        }
+        self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
+    }
+
+    pub(crate) fn hide_status_message(&mut self) {
+        self.rendered_status_message = None;
+        self.status_selection = None;
+        if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
+            self.drag = None;
+        }
+    }
+
+    pub(crate) fn status_message_cell_selected(&self, text: &str, cell: u16) -> bool {
+        self.status_selection.as_ref().is_some_and(|selection| selection.contains(text, cell))
+    }
+
+    fn begin_status_message_selection(&mut self, x: u16) -> bool {
+        let Some(rendered) = self.rendered_status_message.clone() else { return false };
+        if rendered.rect.width == 0 || !rendered.rect.contains(x, rendered.rect.y) {
+            return false;
+        }
+        let cell = x.saturating_sub(rendered.rect.x).min(rendered.rect.width - 1);
+        self.status_selection =
+            Some(StatusMessageSelection { text: rendered.text, anchor: cell, head: cell });
+        self.drag = Some(Drag::StatusMessage { rect: rendered.rect });
+        true
+    }
+
     fn selection_auto_scroll_active(&self) -> bool {
         matches!(self.drag, Some(Drag::Select { auto_scroll: Some(_), .. }))
     }
@@ -14869,6 +14964,7 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
+            MenuAction::CopyStatusMessage => self.copy_status_message(),
             MenuAction::NewPaneSmart(_)
             | MenuAction::NewTab(_)
             | MenuAction::NewBrowserTab(_)
@@ -16085,6 +16181,7 @@ impl App {
                 | Drag::WorkspaceArm { .. }
                 | Drag::Workspace { .. }
                 | Drag::Select { .. }
+                | Drag::StatusMessage { .. }
                 | Drag::Scrollbar { .. }
                 | Drag::HorizontalScrollbar { .. }
                 | Drag::WorkspaceScrollbar { .. }
@@ -16787,6 +16884,7 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.replace_selection(None);
+        self.status_selection = None;
         self.finish_active_drag();
 
         if self.pairing_dialog.is_some() {
@@ -17017,6 +17115,9 @@ impl App {
                         self.select_screen_for_client(Some(index), None);
                     }
                 }
+                Hit::StatusMessage => {
+                    self.begin_status_message_selection(x);
+                }
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
                     self.new_screen()?;
@@ -17191,6 +17292,19 @@ impl App {
                     None
                 };
                 self.drag = Some(Drag::Select { content, source_x, auto_scroll, col });
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::StatusMessage { rect }) => {
+                let rect = *rect;
+                if rect.width == 0 {
+                    self.drag = None;
+                    self.status_selection = None;
+                    return Ok(RenderAction::Draw);
+                }
+                let cell = x.clamp(rect.x, rect.x + rect.width - 1) - rect.x;
+                if let Some(selection) = self.status_selection.as_mut() {
+                    selection.head = cell;
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::Browser { surface, content, frame_seq, .. }) => {
@@ -17401,6 +17515,16 @@ impl App {
             self.session.settle_split_ratio();
             return Ok(RenderAction::Draw);
         }
+        if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
+            self.drag = None;
+            match self.status_selection.as_ref() {
+                Some(selection) if selection.anchor != selection.head => {
+                    self.copy_status_message_selection();
+                }
+                _ => self.status_selection = None,
+            }
+            return Ok(RenderAction::Draw);
+        }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
         let was_drag = self.drag.is_some();
         self.drag = None;
@@ -17436,6 +17560,25 @@ impl App {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
+        self.show_toast("Copied".to_string());
+    }
+
+    fn copy_status_message_selection(&mut self) {
+        let Some(text) = self
+            .status_selection
+            .as_ref()
+            .map(StatusMessageSelection::selected_text)
+            .filter(|text| !text.is_empty())
+        else {
+            return;
+        };
+        self.copy_text_to_clipboard(&text);
+        self.show_toast("Copied".to_string());
+    }
+
+    fn copy_status_message(&mut self) {
+        let Some(message) = self.status_message.clone() else { return };
+        self.copy_text_to_clipboard(&message);
         self.show_toast("Copied".to_string());
     }
 
@@ -17931,6 +18074,17 @@ impl App {
         self.omnibar = None;
         self.session.refresh_clients_background();
         let hit = self.hit_at(x, y);
+        if matches!(hit, Some(Hit::StatusMessage)) {
+            self.menu = Some(ContextMenu::with_groups(
+                x,
+                y,
+                vec![
+                    self.menu_group([MenuAction::CopyStatusMessage]),
+                    self.menu_group(self.global_menu_actions()),
+                ],
+            ));
+            return;
+        }
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
             match hit {
@@ -18613,6 +18767,7 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::RenameSurface(_)
             | MenuAction::CopyTabId(_)
             | MenuAction::CopyPaneId(_)
+            | MenuAction::CopyStatusMessage
             | MenuAction::SelectProviderScope(_)
             | MenuAction::InvokeProviderAction(_)
             | MenuAction::ConnectMachineTarget(_)
@@ -20749,7 +20904,8 @@ mod tests {
         let (mux, _) = test_mux("status-message-copy-menu-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
-        app.status_message = Some("attach failed with details beyond the visible label".to_string());
+        app.status_message =
+            Some("attach failed with details beyond the visible label".to_string());
         app.sync_layout((80, 25));
 
         let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
@@ -35256,6 +35412,8 @@ mod tests {
             shake_frames: 0,
             selection: None,
             selection_generation: 0,
+            status_selection: None,
+            rendered_status_message: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),

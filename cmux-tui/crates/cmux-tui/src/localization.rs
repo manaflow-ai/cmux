@@ -151,6 +151,7 @@ impl MachineAgentMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
+    pub copy_message: &'static str,
     pub maximize_pane: &'static str,
     pub restore_pane_layout: &'static str,
     pub show_sidebar: &'static str,
@@ -979,6 +980,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "Copy message",
         maximize_pane: "Maximize pane",
         restore_pane_layout: "Restore pane layout",
         show_sidebar: "Show sidebar",
@@ -1478,6 +1480,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "メッセージをコピー",
         maximize_pane: "ペインを最大化",
         restore_pane_layout: "ペイン配置を復元",
         show_sidebar: "サイドバーを表示",

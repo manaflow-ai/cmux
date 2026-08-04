@@ -3096,24 +3096,41 @@ fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> 
 fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
     let mut command = ghostty_show_config_command(installation);
     let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let status = loop {
-        match child.try_wait().ok()? {
-            Some(status) => break status,
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            None => std::thread::sleep(Duration::from_millis(10)),
+    let mut stdout = child.stdout.take()?;
+    let reader = match std::thread::Builder::new().name("ghostty-config-output".to_string()).spawn(
+        move || {
+            let mut output = String::new();
+            stdout.read_to_string(&mut output).map(|_| output)
+        },
+    ) {
+        Ok(reader) => reader,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
         }
     };
-    if !status.success() {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let output = reader.join().ok()?.ok()?;
+    if !status?.success() {
         return None;
     }
-
-    let mut output = String::new();
-    child.stdout.take()?.read_to_string(&mut output).ok()?;
     Some(output)
 }
 
@@ -3442,11 +3459,9 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
-            binary,
-            resources_dir: None,
-        })
-        .expect("a resolver must not deadlock when its output exceeds the pipe capacity");
+        let output =
+            run_ghostty_show_config(&platform::GhosttyInstallation { binary, resources_dir: None })
+                .expect("a resolver must not deadlock when its output exceeds the pipe capacity");
         assert!(output.contains("background = #272822"));
         assert!(output.contains("foreground = #fdfff1"));
         let _ = std::fs::remove_dir_all(root);

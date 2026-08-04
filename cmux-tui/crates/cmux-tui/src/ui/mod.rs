@@ -100,6 +100,7 @@ pub(crate) fn copy_buffer_row_cropped(
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
+    app.reset_rendered_status_message();
     let area = frame.area();
     if area.height == 0 {
         return;
@@ -167,6 +168,8 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
     let Some(notice) = app.durable_notice().cloned() else {
         return;
     };
+    app.hide_status_message();
+    app.hits.retain(|(_, hit)| !matches!(hit, Hit::StatusMessage));
     let (marker, color) = match notice.level {
         DurableNoticeLevel::Info => ("i ", app.config.theme.notification_info),
         DurableNoticeLevel::Warning => ("! ", app.config.theme.notification_warning),
@@ -189,19 +192,58 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
 
 /// Single-surface clients keep the full terminal grid and overlay transient
 /// notices on its last row using foreground styling only.
-fn draw_surface_status(app: &App, frame: &mut Frame) {
-    let Some(message) = app.status_message.as_deref() else { return };
+fn draw_surface_status(app: &mut App, frame: &mut Frame) {
+    let Some(message) = app.status_message.as_deref() else {
+        app.hide_status_message();
+        return;
+    };
     let area = frame.area();
     if area.width == 0 {
+        app.hide_status_message();
         return;
     }
-    frame.buffer_mut().set_stringn(
-        0,
-        area.height - 1,
-        message,
-        area.width as usize,
+    let text = status_display_text(message, area.width as usize);
+    draw_interactive_status_message(
+        app,
+        frame,
+        Rect { x: 0, y: area.height - 1, width: text.width() as u16, height: 1 },
+        text,
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     );
+}
+
+fn status_display_text(message: &str, max_width: usize) -> String {
+    let sanitized = message
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>();
+    truncate(&sanitized, max_width)
+}
+
+fn draw_interactive_status_message(
+    app: &mut App,
+    frame: &mut Frame,
+    rect: Rect,
+    text: String,
+    style: Style,
+) {
+    if rect.width == 0 || text.is_empty() {
+        app.hide_status_message();
+        return;
+    }
+    app.present_status_message(rect, text.clone());
+    app.hits.push((rect, Hit::StatusMessage));
+    frame.buffer_mut().set_stringn(rect.x, rect.y, &text, rect.width as usize, style);
+
+    let mut selected_style = style.bg(app.config.theme.selection_bg);
+    if let Some(foreground) = app.config.theme.selection_fg {
+        selected_style = selected_style.fg(foreground);
+    }
+    for cell in 0..rect.width {
+        if app.status_message_cell_selected(&text, cell) {
+            frame.buffer_mut()[(rect.x + cell, rect.y)].set_style(selected_style);
+        }
+    }
 }
 
 fn sanitize_render_buffer(buffer: &mut Buffer) {
@@ -269,13 +311,16 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
     let available_label_width = area.width.saturating_sub(x) as usize;
-    let label = app
+    let status_text = app
         .status_message
-        .as_ref()
-        .map(|msg| format!(" {} ", truncate(msg, available_label_width.saturating_sub(2))))
-        .unwrap_or_else(|| {
-            format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
-        });
+        .as_deref()
+        .map(|message| status_display_text(message, available_label_width.saturating_sub(2)));
+    if status_text.is_none() {
+        app.hide_status_message();
+    }
+    let label = status_text.as_ref().map(|message| format!(" {message} ")).unwrap_or_else(|| {
+        format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
+    });
     let label_w = label.width().min(area.width as usize) as u16;
     let track_end = area.width.saturating_sub(label_w);
     let track_start = x.saturating_add(1);
@@ -299,8 +344,9 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     app.hits.extend(hits);
 
     if x.saturating_add(label_w) <= area.width {
+        let label_x = area.width - label_w;
         frame.buffer_mut().set_stringn(
-            area.width - label_w,
+            label_x,
             status_y,
             &label,
             label_w as usize,
@@ -310,6 +356,22 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
                 base.fg(chrome.status_dim_fg)
             },
         );
+        if let Some(status_text) = status_text {
+            draw_interactive_status_message(
+                app,
+                frame,
+                Rect {
+                    x: label_x.saturating_add(1),
+                    y: status_y,
+                    width: status_text.width() as u16,
+                    height: 1,
+                },
+                status_text,
+                base.fg(Color::Red).add_modifier(Modifier::BOLD),
+            );
+        }
+    } else {
+        app.hide_status_message();
     }
     if app.prefix_armed {
         draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
