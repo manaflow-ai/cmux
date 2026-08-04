@@ -1217,7 +1217,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
     @MainActor
     @Test(.timeLimit(.minutes(1)))
-    func presentationDeadlineStopsStartingLaterBrowserCaptures() async throws {
+    func presentationDeadlineAdvancesPastUnresponsiveBrowserCaptures() async throws {
         let workspaceID = UUID()
         let firstPanel = BrowserPanel(
             workspaceId: workspaceID,
@@ -1228,20 +1228,25 @@ extension GlobalSearchShortcutBehaviorTests {
             renderInitialNavigation: false
         )
         let indexRequestStarted = GlobalSearchAsyncSignal()
-        let releaseIndexRequest = GlobalSearchAsyncSignal()
+        let secondIndexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseFirstIndexRequest = GlobalSearchAsyncSignal()
         let indexRequestCount = GlobalSearchCounter()
-        let refreshFinished = GlobalSearchCounter()
+        let firstRefreshFinished = GlobalSearchCounter()
         let captureManager = GlobalSearchPanelCaptureManager(
             indexProvider: {
                 indexRequestCount.increment()
-                indexRequestStarted.signal()
-                await releaseIndexRequest.wait()
+                if indexRequestCount.value == 1 {
+                    indexRequestStarted.signal()
+                    await releaseFirstIndexRequest.wait()
+                } else if indexRequestCount.value == 2 {
+                    secondIndexRequestStarted.signal()
+                }
                 return nil
             },
             cancelPanelPurge: { _ in }
         )
         defer {
-            releaseIndexRequest.signal()
+            releaseFirstIndexRequest.signal()
             captureManager.cancelCaptures(forPanelID: firstPanel.id)
             captureManager.cancelCaptures(forPanelID: secondPanel.id)
             firstPanel.close()
@@ -1261,12 +1266,12 @@ extension GlobalSearchShortcutBehaviorTests {
 
         let refreshTask = Task { @MainActor in
             await captureManager.refreshPanelContent(for: contexts)
-            refreshFinished.increment()
+            firstRefreshFinished.increment()
         }
         await indexRequestStarted.wait()
         #expect(
             await waitUntil(timeout: 2) {
-                refreshFinished.value == 1
+                firstRefreshFinished.value == 1
             },
             "One presentation-wide deadline must bound the complete panel refresh"
         )
@@ -1275,8 +1280,26 @@ extension GlobalSearchShortcutBehaviorTests {
             "An expired presentation budget must not start a capture for the next browser panel"
         )
 
-        releaseIndexRequest.signal()
+        let secondRefreshFinished = GlobalSearchCounter()
+        let secondRefreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: contexts)
+            secondRefreshFinished.increment()
+        }
+        await secondIndexRequestStarted.wait()
+        #expect(
+            indexRequestCount.value == 2,
+            "The next presentation must advance to the browser skipped by the prior deadline"
+        )
+        #expect(
+            await waitUntil(timeout: 2) {
+                secondRefreshFinished.value == 1
+            },
+            "The next presentation must remain bounded while revisiting the earlier in-flight capture"
+        )
+
+        releaseFirstIndexRequest.signal()
         await refreshTask.value
+        await secondRefreshTask.value
     }
 
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {

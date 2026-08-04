@@ -21,6 +21,7 @@ final class GlobalSearchPanelCaptureManager {
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
     private var markdownCaptureCompletions: [UUID: GlobalSearchPanelCaptureCompletion] = [:]
+    private var nextRefreshContextIndex = 0
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
@@ -56,9 +57,15 @@ final class GlobalSearchPanelCaptureManager {
         )
         defer { deadline.cancel() }
 
-        for context in contexts {
+        guard !contexts.isEmpty else { return }
+        let startIndex = nextRefreshContextIndex % contexts.count
+        for offset in contexts.indices {
             guard !Task.isCancelled, !deadline.hasExpired else { return }
-            await refreshPanelContent(for: context, deadline: deadline)
+            let contextIndex = (startIndex + offset) % contexts.count
+            // Advance before awaiting so a hung capture cannot become the
+            // starting point—and starve the same suffix—on every presentation.
+            nextRefreshContextIndex = (contextIndex + 1) % contexts.count
+            await refreshPanelContent(for: contexts[contextIndex], deadline: deadline)
         }
     }
 
@@ -99,6 +106,7 @@ final class GlobalSearchPanelCaptureManager {
         indexedBrowserPanelIDs.removeAll()
         indexedMarkdownPanelIDs.removeAll()
         panelContentRevisions.removeAll()
+        nextRefreshContextIndex = 0
     }
 
     func reconcileLivePanels(_ livePanelIDs: Set<UUID>) {
