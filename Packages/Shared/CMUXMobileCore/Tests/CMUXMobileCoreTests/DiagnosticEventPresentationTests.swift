@@ -47,6 +47,21 @@ import Testing
         )
         #expect(retry.fields == [.init(key: "retry_delay", value: "32.331 seconds")])
 
+        let oneSecond = DiagnosticEventPresentation().describe(
+            DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 1_000)
+        )
+        #expect(oneSecond.fields == [.init(key: "retry_delay", value: "1 second")])
+
+        let twoSeconds = DiagnosticEventPresentation().describe(
+            DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 2_000)
+        )
+        #expect(twoSeconds.fields == [.init(key: "retry_delay", value: "2 seconds")])
+
+        let subSecond = DiagnosticEventPresentation().describe(
+            DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 999)
+        )
+        #expect(subSecond.fields == [.init(key: "retry_delay", value: "999 ms")])
+
         let close = DiagnosticEventPresentation().describe(
             DiagnosticEvent(
                 code: .transportCloseAttribution,
@@ -63,6 +78,9 @@ import Testing
             .init(key: "application_error_code", value: "7"),
             .init(key: "session", value: "9"),
         ])
+        let closeSummary = DiagnosticEventPresentation().summary(close)
+        #expect(!closeSummary.contains("Session"))
+        #expect(!closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -229,5 +247,16 @@ import Testing
 
         let success = DiagnosticEvent(code: .rpcReady, tNanos: 1, b: 3)
         #expect(DiagnosticEventPresentation().failureKind(of: success) == nil)
+    }
+
+    @Test func presentsJapaneseReportCopy() {
+        let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "ja"))
+        let event = DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0)
+
+        #expect(presentation.summary(event) == "ネットワーク到達性が変更されました（ネットワーク: オフライン）")
+        let retry = presentation.describe(
+            DiagnosticEvent(code: .retryScheduled, tNanos: 2, ms: 1_000)
+        )
+        #expect(retry.fields == [.init(key: "retry_delay", value: "1秒")])
     }
 }

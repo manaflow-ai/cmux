@@ -169,6 +169,27 @@ import Testing
         #expect(last?.kind == .outage)
     }
 
+    @Test func outageTitlePluralizesFailureAndDurationCounts() {
+        var oneFailure = TransportIncidentPolicy(configuration: .init(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 30,
+            outageFailureThreshold: 1,
+            outageMinimumDuration: 0
+        ))
+        let first = oneFailure.decide(dialFailed(at: 10))
+        #expect(first?.title.contains("1 consecutive failure over 0 seconds") == true)
+
+        var oneSecond = TransportIncidentPolicy(configuration: .init(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 30,
+            outageFailureThreshold: 2,
+            outageMinimumDuration: 1
+        ))
+        _ = oneSecond.decide(dialFailed(at: 10))
+        let second = oneSecond.decide(dialFailed(at: 11))
+        #expect(second?.title.contains("2 consecutive failures over 1 second") == true)
+    }
+
     @Test func hourlyBudgetDropsAndReports() {
         var policy = TransportIncidentPolicy(
             configuration: .init(

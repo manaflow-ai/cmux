@@ -230,6 +230,25 @@ import os
         #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
     }
 
+    @Test func exportUsesJapaneseCatalogCopy() async {
+        let report = DiagnosticReport(
+            role: .macHost,
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            events: [
+                DiagnosticEvent(code: .reachabilityChanged, tNanos: 5_000, a: 0),
+            ]
+        )
+
+        let locale = Locale(identifier: "ja")
+        let text = String(
+            decoding: report.humanReadableExport(locale: locale),
+            as: UTF8.self
+        )
+        #expect(text.contains("cmux Irohとトランスポートのレポート"))
+        #expect(text.contains("+0.000 秒 | ネットワーク到達性が変更されました（ネットワーク: オフライン）"))
+        #expect(await report.humanReadableText(locale: locale) == text)
+    }
+
     @Test func transportDiagnosticCodesAreStableAndAppendOnly() {
         #expect(DiagnosticEventCode.transportDialStarted.rawValue == 25)
         #expect(DiagnosticEventCode.transportDialConnected.rawValue == 26)
