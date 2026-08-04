@@ -145678,6 +145678,23 @@
         }
       }
     },
+    "sessionIndex.agent.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.grok": {
       "extractionState": "manual",
       "localizations": {
@@ -145834,6 +145851,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "볼트가 비어 있습니다"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.cursorProjects": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor: cannot read local sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor: ローカルセッションを読み込めません"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.cursorTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor: cannot read one or more transcripts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor: 1件以上のトランスクリプトを読み込めません"
           }
         }
       }

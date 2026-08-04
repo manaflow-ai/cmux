@@ -1473,7 +1473,7 @@ enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .grok, .opencode, .rovodev, .registered:
+        case .cursor, .grok, .opencode, .rovodev, .registered:
             return parseGenericLine(
                 object,
                 agent: agent,
@@ -1807,7 +1807,7 @@ enum SessionTranscriptLoader {
                 && containsAny(data, needles: codexPreviewNeedles)
         case .grok:
             return containsAny(data, needles: grokRoleNeedles)
-        case .opencode, .rovodev:
+        case .cursor, .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
@@ -1832,7 +1832,7 @@ enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev, .registered:
+        case .codex, .cursor, .opencode, .rovodev, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

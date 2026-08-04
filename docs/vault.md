@@ -1,7 +1,8 @@
 # Vault agent registration
 
-Vault restores built-in agent sessions and can also read custom agent registrations from
-`cmux.json`. Registrations define how cmux detects a running terminal process, where the
+Vault restores and searches built-in agent sessions, including Cursor CLI transcripts stored
+under `~/.cursor/projects/*/agent-transcripts/`. It can also read custom agent registrations
+from `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
 Pi Coding Agent, OMP, and Campfire are registered by default:

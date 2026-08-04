@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case cursor
     case grok
     case opencode
     case rovodev
@@ -45,13 +46,22 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [
+        .claude,
+        .codex,
+        .cursor,
+        .grok,
+        .opencode,
+        .rovodev,
+        .hermesAgent,
+    ]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "cursor": self = .cursor
         case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
@@ -66,6 +76,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .cursor: return "cursor"
         case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
@@ -198,6 +209,7 @@ struct PullRequestLink: Hashable, Sendable {
 enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case cursor
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
@@ -361,6 +373,14 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             }
             return AgentResumeArgv.portableCodexResumeShellCommand(
                 posixCommand: parts.joined(separator: " ")
+            )
+        case .cursor:
+            return AgentResumeCommandBuilder.resumeShellCommand(
+                kind: .cursor,
+                sessionId: sessionId,
+                launchCommand: nil,
+                workingDirectory: resumeWorkingDirectory,
+                includeWorkingDirectoryPrefix: false
             )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var argv = ["grok", "-r", sessionId]

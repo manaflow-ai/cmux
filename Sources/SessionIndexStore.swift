@@ -1276,6 +1276,14 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .cursor:
+            return await loadCursorEntries(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag
+            )
         case .grok:
             return await loadGrokEntries(
                 registration: registry.registration(id: "grok") ?? .builtInGrok,
