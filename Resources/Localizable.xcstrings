@@ -36150,16 +36150,124 @@
     "cli.error.invalidColor": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون غير صالح. استخدم قيمة سداسية عشرية (#RRGGBB) أو لونًا مسمّى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća boja. Koristite heksadecimalnu vrijednost (#RRGGBB) ili imenovanu boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig farve. Brug en hexadecimal værdi (#RRGGBB) eller en navngivet farve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Farbe. Verwenden Sie einen Hexadezimalwert (#RRGGBB) oder eine benannte Farbe."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Invalid color. Use a hex value (#RRGGBB) or a named color."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color no válido. Usa un valor hexadecimal (#RRGGBB) o un color con nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur non valide. Utilisez une valeur hexadécimale (#RRGGBB) ou une couleur nommée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore non valido. Usa un valore esadecimale (#RRGGBB) o un colore con nome."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "色が無効です。16 進数（#RRGGBB）または名前付きの色を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌មិនត្រឹមត្រូវ។ ប្រើតម្លៃគោលដប់ប្រាំមួយ (#RRGGBB) ឬពណ៌ដែលមានឈ្មោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 색상입니다. 16진수 값(#RRGGBB) 또는 이름이 지정된 색상을 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig farge. Bruk en heksadesimal verdi (#RRGGBB) eller en navngitt farge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowy kolor. Użyj wartości szesnastkowej (#RRGGBB) lub nazwanego koloru."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor inválida. Use um valor hexadecimal (#RRGGBB) ou uma cor nomeada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимый цвет. Используйте шестнадцатеричное значение (#RRGGBB) или название цвета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีไม่ถูกต้อง ใช้ค่าเลขฐานสิบหก (#RRGGBB) หรือชื่อสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz renk. Onaltılık bir değer (#RRGGBB) veya adlandırılmış bir renk kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний колір. Використовуйте шістнадцяткове значення (#RRGGBB) або назву кольору."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "颜色无效。请使用十六进制值 (#RRGGBB) 或命名颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顏色無效。請使用十六進位值 (#RRGGBB) 或命名顏色。"
           }
         }
       }
@@ -36201,16 +36309,124 @@
     "cli.error.missingColor": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللون مفقود أو غير صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja nedostaje ili nije važeća"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig farve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlende oder ungültige Farbe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Missing or invalid color"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el color o no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur manquante ou non valide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore mancante o non valido"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "色が指定されていないか、無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាត់ពណ៌ ឬពណ៌មិនត្រឹមត្រូវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색상이 없거나 잘못되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig farge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brakujący lub nieprawidłowy kolor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor ausente ou inválida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет не указан или недопустим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีสีหรือสีไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renk eksik veya geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір не вказано або він недійсний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少颜色或颜色无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少顏色或顏色無效"
           }
         }
       }
@@ -36252,16 +36468,124 @@
     "cli.error.tabActionSetColorRequiresColor": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب tab-action set-color الخيار --color <name|#RRGGBB> (أو لونًا في نهاية الأمر)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color zahtijeva --color <name|#RRGGBB> (ili boju na kraju naredbe)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color kræver --color <name|#RRGGBB> (eller en afsluttende farve)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color erfordert --color <name|#RRGGBB> (oder eine nachgestellte Farbe)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "tab-action set-color requires --color <name|#RRGGBB> (or a trailing color)"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color requiere --color <name|#RRGGBB> (o un color al final)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color nécessite --color <name|#RRGGBB> (ou une couleur finale)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color richiede --color <name|#RRGGBB> (o un colore finale)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "tab-action set-color には --color <name|#RRGGBB>（または末尾の色指定）が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color ត្រូវការ --color <name|#RRGGBB> (ឬពណ៌នៅខាងចុងពាក្យបញ្ជា)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color에는 --color <name|#RRGGBB>(또는 명령 끝의 색상)가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color krever --color <name|#RRGGBB> (eller en farge til slutt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color wymaga --color <name|#RRGGBB> (lub koloru na końcu polecenia)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color requer --color <name|#RRGGBB> (ou uma cor no fim do comando)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для tab-action set-color требуется --color <name|#RRGGBB> (или цвет в конце команды)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color ต้องใช้ --color <name|#RRGGBB> (หรือระบุสีท้ายคำสั่ง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color için --color <name|#RRGGBB> (veya komutun sonunda bir renk) gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для tab-action set-color потрібен --color <name|#RRGGBB> (або колір наприкінці команди)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color 需要 --color <name|#RRGGBB>（或在命令末尾指定颜色）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color 需要 --color <name|#RRGGBB>（或在命令結尾指定顏色）"
           }
         }
       }
@@ -38101,16 +38425,124 @@
     "cli.help.tabAction": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux tab-action --action <name> [flags]\n\nتنفيذ إجراءات قائمة سياق علامات التبويب الأفقية من CLI/المقبس.\n\nالإجراءات:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nالخيارات:\n  --action <name>              اسم الإجراء (مطلوب إذا لم يُحدد كوسيط موضعي)\n  --tab <id|ref|index>         علامة التبويب المستهدفة (يقبل tab:<n> أو surface:<n>؛ الافتراضي: $CMUX_TAB_ID، ثم $CMUX_SURFACE_ID، ثم علامة التبويب المركّز عليها)\n  --surface <id|ref|index>     اسم بديل لـ --tab (للتوافق مع الإصدارات السابقة)\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/علامة التبويب\n  --title <text>               عنوان rename (أو مرّر نص العنوان في نهاية الأمر)\n  --color <name|#RRGGBB>       لون set-color (اسم أو قيمة سداسية عشرية #RRGGBB)\n  --url <url>                  عنوان URL اختياري لـ new-browser-right\n  --focus <true|false>         نقل التركيز إلى الوجهة عند دعمه (الافتراضي: false لـ move-to-new-workspace)\n\nالألوان المسماة:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nمثال:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux tab-action --action <name> [flags]\n\nPokrenite radnje kontekstnog menija horizontalnih kartica iz CLI-ja/soketa.\n\nRadnje:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOpcije:\n  --action <name>              Naziv radnje (obavezan ako nije naveden pozicijski)\n  --tab <id|ref|index>         Ciljna kartica (prihvata tab:<n> ili surface:<n>; zadano: $CMUX_TAB_ID, zatim $CMUX_SURFACE_ID, zatim kartica u fokusu)\n  --surface <id|ref|index>     Drugi naziv za --tab (radi kompatibilnosti unazad)\n  --workspace <id|ref|index>   Kontekst radnog prostora (zadano: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Kontekst prozora za reference i indekse radnog prostora/kartice\n  --title <text>               Naslov za rename (ili navedite tekst naslova na kraju)\n  --color <name|#RRGGBB>       Boja za set-color (naziv ili heksadecimalna vrijednost #RRGGBB)\n  --url <url>                  Opcionalni URL za new-browser-right\n  --focus <true|false>         Fokusiraj odredište kada je podržano (zadano: false za move-to-new-workspace)\n\nImenovane boje:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nPrimjer:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux tab-action --action <name> [flags]\n\nUdfør handlinger fra vandrette faners genvejsmenu via CLI/socket.\n\nHandlinger:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nFlag:\n  --action <name>              Handlingsnavn (påkrævet, hvis det ikke angives positionelt)\n  --tab <id|ref|index>         Målfane (accepterer tab:<n> eller surface:<n>; standard: $CMUX_TAB_ID, derefter $CMUX_SURFACE_ID, derefter fanen med fokus)\n  --surface <id|ref|index>     Alias for --tab (bagudkompatibilitet)\n  --workspace <id|ref|index>   Arbejdsområdekontekst (standard: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Vindueskontekst for arbejdsområde-/fanereferencer og -indekser\n  --title <text>               Titel til rename (eller angiv titelteksten til sidst)\n  --color <name|#RRGGBB>       Farve til set-color (navn eller hexadecimal #RRGGBB-værdi)\n  --url <url>                  Valgfri URL til new-browser-right\n  --focus <true|false>         Fokusér destinationen, når det understøttes (standard: false for move-to-new-workspace)\n\nNavngivne farver:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nEksempel:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux tab-action --action <name> [flags]\n\nFührt Aktionen aus dem Kontextmenü horizontaler Tabs über CLI/Socket aus.\n\nAktionen:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOptionen:\n  --action <name>              Aktionsname (erforderlich, wenn nicht als Positionsargument angegeben)\n  --tab <id|ref|index>         Ziel-Tab (akzeptiert tab:<n> oder surface:<n>; Standard: $CMUX_TAB_ID, dann $CMUX_SURFACE_ID, dann der fokussierte Tab)\n  --surface <id|ref|index>     Alias für --tab (Abwärtskompatibilität)\n  --workspace <id|ref|index>   Workspace-Kontext (Standard: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Tab-Referenzen und -Indizes\n  --title <text>               Titel für rename (oder Titeltext am Ende angeben)\n  --color <name|#RRGGBB>       Farbe für set-color (Name oder hexadezimaler #RRGGBB-Wert)\n  --url <url>                  Optionale URL für new-browser-right\n  --focus <true|false>         Ziel fokussieren, wenn unterstützt (Standard: false für move-to-new-workspace)\n\nBenannte Farben:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nBeispiel:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux tab-action --action <name> [flags]\n\nPerform horizontal tab context-menu actions from CLI/socket.\n\nActions:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nFlags:\n  --action <name>              Action name (required if not positional)\n  --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)\n  --surface <id|ref|index>     Alias for --tab (backward compatibility)\n  --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace/tab refs and indexes\n  --title <text>               Title for rename (or pass trailing title text)\n  --color <name|#RRGGBB>       Color for set-color (name or #RRGGBB hex)\n  --url <url>                  Optional URL for new-browser-right\n  --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)\n\nNamed colors:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nExample:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux tab-action --action <name> [flags]\n\nEjecuta acciones del menú contextual de pestañas horizontales desde la CLI o el socket.\n\nAcciones:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOpciones:\n  --action <name>              Nombre de la acción (obligatorio si no se indica como argumento posicional)\n  --tab <id|ref|index>         Pestaña de destino (acepta tab:<n> o surface:<n>; predeterminado: $CMUX_TAB_ID, luego $CMUX_SURFACE_ID y después la pestaña enfocada)\n  --surface <id|ref|index>     Alias de --tab (compatibilidad con versiones anteriores)\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacios de trabajo/pestañas\n  --title <text>               Título para rename (o pasa el texto del título al final)\n  --color <name|#RRGGBB>       Color para set-color (nombre o valor hexadecimal #RRGGBB)\n  --url <url>                  URL opcional para new-browser-right\n  --focus <true|false>         Enfoca el destino cuando sea compatible (predeterminado: false para move-to-new-workspace)\n\nColores con nombre:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nEjemplo:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux tab-action --action <name> [flags]\n\nExécute les actions du menu contextuel des onglets horizontaux depuis la CLI ou le socket.\n\nActions :\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOptions :\n  --action <name>              Nom de l’action (obligatoire s’il n’est pas indiqué comme argument positionnel)\n  --tab <id|ref|index>         Onglet cible (accepte tab:<n> ou surface:<n> ; valeur par défaut : $CMUX_TAB_ID, puis $CMUX_SURFACE_ID, puis l’onglet actif)\n  --surface <id|ref|index>     Alias de --tab (compatibilité descendante)\n  --workspace <id|ref|index>   Contexte de l’espace de travail (valeur par défaut : current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et indices d’espace de travail/d’onglet\n  --title <text>               Titre pour rename (ou indiquez le texte du titre à la fin)\n  --color <name|#RRGGBB>       Couleur pour set-color (nom ou valeur hexadécimale #RRGGBB)\n  --url <url>                  URL facultative pour new-browser-right\n  --focus <true|false>         Active la destination si cette option est prise en charge (valeur par défaut : false pour move-to-new-workspace)\n\nCouleurs nommées :\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nExemple :\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux tab-action --action <name> [flags]\n\nEsegue le azioni del menu contestuale delle schede orizzontali dalla CLI o dal socket.\n\nAzioni:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOpzioni:\n  --action <name>              Nome dell’azione (obbligatorio se non indicato come argomento posizionale)\n  --tab <id|ref|index>         Scheda di destinazione (accetta tab:<n> o surface:<n>; predefinito: $CMUX_TAB_ID, poi $CMUX_SURFACE_ID, quindi la scheda attiva)\n  --surface <id|ref|index>     Alias di --tab (compatibilità con le versioni precedenti)\n  --workspace <id|ref|index>   Contesto dell’area di lavoro (predefinito: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contesto della finestra per riferimenti e indici di aree di lavoro/schede\n  --title <text>               Titolo per rename (oppure specifica il testo del titolo alla fine)\n  --color <name|#RRGGBB>       Colore per set-color (nome o valore esadecimale #RRGGBB)\n  --url <url>                  URL facoltativo per new-browser-right\n  --focus <true|false>         Attiva la destinazione quando supportato (predefinito: false per move-to-new-workspace)\n\nColori con nome:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nEsempio:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "使用方法: cmux tab-action --action <name> [flags]\n\nCLI/ソケットから横タブのコンテキストメニュー操作を実行します。\n\nアクション:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nフラグ:\n  --action <name>              操作名（位置引数で指定しない場合は必須）\n  --tab <id|ref|index>         対象タブ（tab:<n> または surface:<n> を指定可能。デフォルト: $CMUX_TAB_ID、次に $CMUX_SURFACE_ID、次にフォーカス中のタブ）\n  --surface <id|ref|index>     --tab の別名（後方互換性のため）\n  --workspace <id|ref|index>   ワークスペースコンテキスト（デフォルト: current/$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペース/タブ参照とインデックスのウィンドウコンテキスト\n  --title <text>               rename のタイトル（または末尾にタイトルテキストを指定）\n  --color <name|#RRGGBB>       set-color の色（名前または #RRGGBB 形式の 16 進数）\n  --url <url>                  new-browser-right の任意の URL\n  --focus <true|false>         対応する操作で移動先へフォーカス（move-to-new-workspace のデフォルト: false）\n\n名前付きの色:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\n例:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់: cmux tab-action --action <name> [flags]\n\nអនុវត្តសកម្មភាពម៉ឺនុយបរិបទរបស់ផ្ទាំងផ្ដេកពី CLI/socket។\n\nសកម្មភាព:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nជម្រើស:\n  --action <name>              ឈ្មោះសកម្មភាព (ត្រូវតែមាន ប្រសិនបើមិនបានបញ្ជាក់ជាអាគុយម៉ង់តាមទីតាំង)\n  --tab <id|ref|index>         ផ្ទាំងគោលដៅ (ទទួល tab:<n> ឬ surface:<n>; លំនាំដើម: $CMUX_TAB_ID បន្ទាប់មក $CMUX_SURFACE_ID បន្ទាប់មកផ្ទាំងដែលកំពុងផ្តោត)\n  --surface <id|ref|index>     ឈ្មោះជំនួសសម្រាប់ --tab (សម្រាប់ភាពឆបគ្នាថយក្រោយ)\n  --workspace <id|ref|index>   បរិបទ workspace (លំនាំដើម: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      បរិបទបង្អួចសម្រាប់សេចក្ដីយោង និងលិបិក្រម workspace/ផ្ទាំង\n  --title <text>               ចំណងជើងសម្រាប់ rename (ឬបញ្ជាក់អត្ថបទចំណងជើងនៅខាងចុង)\n  --color <name|#RRGGBB>       ពណ៌សម្រាប់ set-color (ឈ្មោះ ឬតម្លៃគោលដប់ប្រាំមួយ #RRGGBB)\n  --url <url>                  URL ជាជម្រើសសម្រាប់ new-browser-right\n  --focus <true|false>         ផ្តោតទៅគោលដៅនៅពេលគាំទ្រ (លំនាំដើម: false សម្រាប់ move-to-new-workspace)\n\nពណ៌ដែលមានឈ្មោះ:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nឧទាហរណ៍:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux tab-action --action <name> [flags]\n\nCLI/소켓에서 가로 탭의 컨텍스트 메뉴 동작을 실행합니다.\n\n동작:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\n옵션:\n  --action <name>              동작 이름(위치 인수로 지정하지 않은 경우 필수)\n  --tab <id|ref|index>         대상 탭(tab:<n> 또는 surface:<n> 허용, 기본값: $CMUX_TAB_ID, 그다음 $CMUX_SURFACE_ID, 그다음 포커스된 탭)\n  --surface <id|ref|index>     --tab의 별칭(이전 버전과의 호환성)\n  --workspace <id|ref|index>   워크스페이스 컨텍스트(기본값: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      워크스페이스/탭 참조 및 인덱스의 창 컨텍스트\n  --title <text>               rename 제목(또는 끝에 제목 텍스트 전달)\n  --color <name|#RRGGBB>       set-color 색상(이름 또는 #RRGGBB 16진수)\n  --url <url>                  new-browser-right의 선택적 URL\n  --focus <true|false>         지원되는 경우 대상을 포커스(기본값: move-to-new-workspace는 false)\n\n이름이 지정된 색상:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\n예:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux tab-action --action <name> [flags]\n\nUtfør handlinger fra kontekstmenyen til vannrette faner via CLI/socket.\n\nHandlinger:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nAlternativer:\n  --action <name>              Handlingsnavn (påkrevd hvis det ikke angis posisjonelt)\n  --tab <id|ref|index>         Målfane (godtar tab:<n> eller surface:<n>; standard: $CMUX_TAB_ID, deretter $CMUX_SURFACE_ID, deretter fanen med fokus)\n  --surface <id|ref|index>     Alias for --tab (bakoverkompatibilitet)\n  --workspace <id|ref|index>   Arbeidsområdekontekst (standard: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde-/fanereferanser og -indekser\n  --title <text>               Tittel for rename (eller angi tittelteksten til slutt)\n  --color <name|#RRGGBB>       Farge for set-color (navn eller heksadesimal #RRGGBB-verdi)\n  --url <url>                  Valgfri URL for new-browser-right\n  --focus <true|false>         Fokuser målet når det støttes (standard: false for move-to-new-workspace)\n\nNavngitte farger:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nEksempel:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux tab-action --action <name> [flags]\n\nWykonuje akcje menu kontekstowego poziomych kart z poziomu CLI/gniazda.\n\nAkcje:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOpcje:\n  --action <name>              Nazwa akcji (wymagana, jeśli nie podano jej pozycyjnie)\n  --tab <id|ref|index>         Karta docelowa (akceptuje tab:<n> lub surface:<n>; domyślnie: $CMUX_TAB_ID, następnie $CMUX_SURFACE_ID, a potem aktywna karta)\n  --surface <id|ref|index>     Alias dla --tab (zgodność wsteczna)\n  --workspace <id|ref|index>   Kontekst przestrzeni roboczej (domyślnie: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Kontekst okna dla odwołań i indeksów przestrzeni roboczej/karty\n  --title <text>               Tytuł dla rename (lub tekst tytułu podany na końcu)\n  --color <name|#RRGGBB>       Kolor dla set-color (nazwa lub wartość szesnastkowa #RRGGBB)\n  --url <url>                  Opcjonalny adres URL dla new-browser-right\n  --focus <true|false>         Ustaw fokus na celu, jeśli jest to obsługiwane (domyślnie: false dla move-to-new-workspace)\n\nNazwane kolory:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nPrzykład:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux tab-action --action <name> [flags]\n\nExecuta ações do menu de contexto das abas horizontais pela CLI ou pelo socket.\n\nAções:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nOpções:\n  --action <name>              Nome da ação (obrigatório quando não informado como argumento posicional)\n  --tab <id|ref|index>         Aba de destino (aceita tab:<n> ou surface:<n>; padrão: $CMUX_TAB_ID, depois $CMUX_SURFACE_ID e, por fim, a aba em foco)\n  --surface <id|ref|index>     Alias de --tab (compatibilidade retroativa)\n  --workspace <id|ref|index>   Contexto do workspace (padrão: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto da janela para referências e índices de workspace/aba\n  --title <text>               Título para rename (ou informe o texto do título no final)\n  --color <name|#RRGGBB>       Cor para set-color (nome ou valor hexadecimal #RRGGBB)\n  --url <url>                  URL opcional para new-browser-right\n  --focus <true|false>         Foca o destino quando houver suporte (padrão: false para move-to-new-workspace)\n\nCores nomeadas:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nExemplo:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux tab-action --action <name> [flags]\n\nВыполняет действия контекстного меню горизонтальных вкладок через CLI/сокет.\n\nДействия:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nПараметры:\n  --action <name>              Название действия (обязательно, если не указано позиционно)\n  --tab <id|ref|index>         Целевая вкладка (принимает tab:<n> или surface:<n>; по умолчанию: $CMUX_TAB_ID, затем $CMUX_SURFACE_ID, затем активная вкладка)\n  --surface <id|ref|index>     Псевдоним для --tab (обратная совместимость)\n  --workspace <id|ref|index>   Контекст рабочего пространства (по умолчанию: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Контекст окна для ссылок и индексов рабочего пространства/вкладки\n  --title <text>               Заголовок для rename (или передайте текст заголовка в конце)\n  --color <name|#RRGGBB>       Цвет для set-color (название или шестнадцатеричное значение #RRGGBB)\n  --url <url>                  Необязательный URL для new-browser-right\n  --focus <true|false>         Перевести фокус на назначение, если поддерживается (по умолчанию: false для move-to-new-workspace)\n\nИменованные цвета:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nПример:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux tab-action --action <name> [flags]\n\nเรียกใช้การทำงานจากเมนูบริบทของแท็บแนวนอนผ่าน CLI/ซ็อกเก็ต\n\nการทำงาน:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nตัวเลือก:\n  --action <name>              ชื่อการทำงาน (จำเป็นหากไม่ได้ระบุเป็นอาร์กิวเมนต์ตำแหน่ง)\n  --tab <id|ref|index>         แท็บเป้าหมาย (รองรับ tab:<n> หรือ surface:<n>; ค่าเริ่มต้น: $CMUX_TAB_ID จากนั้น $CMUX_SURFACE_ID แล้วจึงแท็บที่โฟกัส)\n  --surface <id|ref|index>     นามแฝงของ --tab (เพื่อความเข้ากันได้ย้อนหลัง)\n  --workspace <id|ref|index>   บริบทเวิร์กสเปซ (ค่าเริ่มต้น: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      บริบทหน้าต่างสำหรับการอ้างอิงและดัชนีเวิร์กสเปซ/แท็บ\n  --title <text>               ชื่อเรื่องสำหรับ rename (หรือส่งข้อความชื่อเรื่องไว้ท้ายคำสั่ง)\n  --color <name|#RRGGBB>       สีสำหรับ set-color (ชื่อหรือค่าเลขฐานสิบหก #RRGGBB)\n  --url <url>                  URL ที่ไม่บังคับสำหรับ new-browser-right\n  --focus <true|false>         โฟกัสปลายทางเมื่อรองรับ (ค่าเริ่มต้น: false สำหรับ move-to-new-workspace)\n\nชื่อสี:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nตัวอย่าง:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux tab-action --action <name> [flags]\n\nCLI/soket üzerinden yatay sekmelerin bağlam menüsü eylemlerini gerçekleştirir.\n\nEylemler:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nSeçenekler:\n  --action <name>              Eylem adı (konumsal olarak belirtilmediyse gerekli)\n  --tab <id|ref|index>         Hedef sekme (tab:<n> veya surface:<n> kabul eder; varsayılan: $CMUX_TAB_ID, ardından $CMUX_SURFACE_ID, ardından odaklanmış sekme)\n  --surface <id|ref|index>     --tab için takma ad (geriye dönük uyumluluk)\n  --workspace <id|ref|index>   Çalışma alanı bağlamı (varsayılan: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Çalışma alanı/sekme başvuruları ve dizinleri için pencere bağlamı\n  --title <text>               rename için başlık (veya başlık metnini sona ekleyin)\n  --color <name|#RRGGBB>       set-color için renk (ad veya onaltılık #RRGGBB değeri)\n  --url <url>                  new-browser-right için isteğe bağlı URL\n  --focus <true|false>         Destekleniyorsa hedefe odaklan (varsayılan: move-to-new-workspace için false)\n\nAdlandırılmış renkler:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nÖrnek:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux tab-action --action <name> [flags]\n\nВиконує дії контекстного меню горизонтальних вкладок через CLI/сокет.\n\nДії:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nПараметри:\n  --action <name>              Назва дії (обов’язкова, якщо не вказана позиційно)\n  --tab <id|ref|index>         Цільова вкладка (приймає tab:<n> або surface:<n>; типово: $CMUX_TAB_ID, потім $CMUX_SURFACE_ID, потім активна вкладка)\n  --surface <id|ref|index>     Псевдонім для --tab (зворотна сумісність)\n  --workspace <id|ref|index>   Контекст робочого простору (типово: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Контекст вікна для посилань та індексів робочого простору/вкладки\n  --title <text>               Заголовок для rename (або передайте текст заголовка наприкінці)\n  --color <name|#RRGGBB>       Колір для set-color (назва або шістнадцяткове значення #RRGGBB)\n  --url <url>                  Необов’язковий URL для new-browser-right\n  --focus <true|false>         Перевести фокус на призначення, якщо підтримується (типово: false для move-to-new-workspace)\n\nІменовані кольори:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nПриклад:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux tab-action --action <name> [flags]\n\n通过 CLI/套接字执行水平标签页的上下文菜单操作。\n\n操作：\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\n选项：\n  --action <name>              操作名称（未作为位置参数指定时必填）\n  --tab <id|ref|index>         目标标签页（接受 tab:<n> 或 surface:<n>；默认：$CMUX_TAB_ID，然后是 $CMUX_SURFACE_ID，最后是当前聚焦的标签页）\n  --surface <id|ref|index>     --tab 的别名（向后兼容）\n  --workspace <id|ref|index>   工作区上下文（默认：current/$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作区/标签页引用和索引的窗口上下文\n  --title <text>               rename 的标题（也可在末尾传入标题文本）\n  --color <name|#RRGGBB>       set-color 的颜色（名称或 #RRGGBB 十六进制值）\n  --url <url>                  new-browser-right 的可选 URL\n  --focus <true|false>         支持时聚焦目标位置（move-to-new-workspace 默认为 false）\n\n命名颜色：\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\n示例：\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux tab-action --action <name> [flags]\n\n透過 CLI/通訊端執行水平分頁的內容選單動作。\n\n動作：\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\n選項：\n  --action <name>              動作名稱（未作為位置引數指定時為必填）\n  --tab <id|ref|index>         目標分頁（接受 tab:<n> 或 surface:<n>；預設：$CMUX_TAB_ID，接著是 $CMUX_SURFACE_ID，最後是目前聚焦的分頁）\n  --surface <id|ref|index>     --tab 的別名（向後相容）\n  --workspace <id|ref|index>   工作區內容（預設：current/$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作區/分頁參照與索引的視窗內容\n  --title <text>               rename 的標題（也可在結尾傳入標題文字）\n  --color <name|#RRGGBB>       set-color 的顏色（名稱或 #RRGGBB 十六進位值）\n  --url <url>                  new-browser-right 的選用 URL\n  --focus <true|false>         支援時聚焦目標位置（move-to-new-workspace 預設為 false）\n\n命名顏色：\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\n範例：\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
           }
         }
       }
