@@ -13,7 +13,6 @@ import func XCTest.XCTUnwrap
 import Combine
 import AppKit
 import Testing
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -3107,8 +3106,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
-        // The SwiftUI-hosted main window is registered in `NSApp.windows` on a
-        // later run-loop turn, not synchronously inside `createMainWindow()`. The
+        // The main window is registered in `NSApp.windows` on a later run-loop
+        // turn, not synchronously inside `createMainWindow()`. The
         // first tests of the suite run before the app has finished launching, so
         // poll briefly instead of racing a cold start (later tests find it on the
         // first pass because the app is already warm).
@@ -3144,8 +3143,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 #endif
     }
 
-    private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
-        if let host = root as? WebViewRepresentable.HostContainerView {
+    private func findHostContainerView(in root: NSView) -> BrowserWebViewNativeConfiguration.HostContainerView? {
+        if let host = root as? BrowserWebViewNativeConfiguration.HostContainerView {
             return host
         }
         for subview in root.subviews {
@@ -3154,6 +3153,26 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private func localWebViewConfiguration(
+        panel: BrowserPanel,
+        paneId: PaneID
+    ) -> BrowserWebViewNativeConfiguration {
+        BrowserWebViewNativeConfiguration(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
     }
 
     func waitForDetachedDeveloperToolsCloseResolutionDeadline(
@@ -3652,14 +3671,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         host.addSubview(panel.webView)
         // Intentionally not made key / ordered front: consume's attach gate only
         // needs webView.window != nil, and a key window + live WKWebView + runloop
-        // spin can recurse SwiftUI<->AppKit layout in the unit-test host.
+        // spin can recurse through nested AppKit layout in the unit-test host.
         return window
     }
 
     private func teardownWindowedPanel(_ panel: BrowserPanel, window: NSWindow) {
         // Detach the live WKWebView from the window before any teardown so the
         // window-close cascade never walks the web view's responder/layout tree
-        // (that path can recurse SwiftUI<->AppKit and overflow the stack here).
+        // (that path can recurse through nested layout and overflow the stack here).
         panel.webView.removeFromSuperview()
         BrowserWindowPortalRegistry.detach(webView: panel.webView)
         panel.webView.cmuxSetUnitTestInspector(nil)
@@ -3691,7 +3710,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let showCountAfterClose = inspector.showCount
 
         // User navigates to another page. While the DevTools intent is set the
-        // browser stays in local-inline hosting, so SwiftUI re-runs the same
+        // browser stays in local-inline hosting, so the host re-runs the same
         // host-attach + after-attach restore that BrowserPanelView performs on
         // every updateNSView.
         panel.noteDeveloperToolsHostAttached()
@@ -4004,7 +4023,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedIndependentOfDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
-        let paneId = PaneID(id: UUID())
         XCTAssertTrue(panel.showDeveloperTools())
 
         let window = NSWindow(
@@ -4026,23 +4044,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         XCTAssertNotNil(panel.webView.superview)
 
-        let representable = WebViewRepresentable(
-            panel: panel,
-            paneId: paneId,
-            shouldAttachWebView: true,
-            useLocalInlineHosting: false,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0,
-            paneDropZone: nil,
-            searchOverlay: nil,
-            designComposer: nil,
-            omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
-        )
-        let coordinator = representable.makeCoordinator()
+        let coordinator = BrowserWebViewNativeConfiguration.Coordinator()
         coordinator.webView = panel.webView
-        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
+        BrowserWebViewNativeConfiguration.dismantleNativeView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
     }
@@ -4050,7 +4054,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
-        let paneId = PaneID(id: UUID())
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4071,23 +4074,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         XCTAssertNotNil(panel.webView.superview)
 
-        let representable = WebViewRepresentable(
-            panel: panel,
-            paneId: paneId,
-            shouldAttachWebView: true,
-            useLocalInlineHosting: false,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0,
-            paneDropZone: nil,
-            searchOverlay: nil,
-            designComposer: nil,
-            omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
-        )
-        let coordinator = representable.makeCoordinator()
+        let coordinator = BrowserWebViewNativeConfiguration.Coordinator()
         coordinator.webView = panel.webView
-        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
+        BrowserWebViewNativeConfiguration.dismantleNativeView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
     }
@@ -4248,20 +4237,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
-        let representable = WebViewRepresentable(
-            panel: panel,
-            paneId: paneId,
-            shouldAttachWebView: false,
-            useLocalInlineHosting: true,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0,
-            paneDropZone: nil,
-            searchOverlay: nil,
-            designComposer: nil,
-            omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
-        )
+        let configuration = localWebViewConfiguration(panel: panel, paneId: paneId)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -4279,21 +4255,22 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let visibleHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
-        visibleHosting.frame = contentView.bounds
-        visibleHosting.autoresizingMask = [.width, .height]
-        contentView.addSubview(visibleHosting)
-        defer { visibleHosting.removeFromSuperview() }
+        let visibleHostOwner = BrowserWebViewNativeConfiguration.NativeHost()
+        visibleHostOwner.view.frame = contentView.bounds
+        visibleHostOwner.view.autoresizingMask = [.width, .height]
+        contentView.addSubview(visibleHostOwner.view)
+        visibleHostOwner.update(configuration)
+        defer {
+            visibleHostOwner.teardown()
+            visibleHostOwner.view.removeFromSuperview()
+        }
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
-        visibleHosting.layoutSubtreeIfNeeded()
+        visibleHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let visibleHost = findHostContainerView(in: visibleHosting) else {
-            XCTFail("Expected visible local host")
-            return
-        }
+        let visibleHost = visibleHostOwner.view
         guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
             XCTFail("Expected visible local inline slot")
             return
@@ -4313,17 +4290,21 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         visibleSlot.layoutSubtreeIfNeeded()
 
-        let detachedRoot = NSView(frame: visibleHosting.frame)
-        let offWindowHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
-        offWindowHosting.frame = detachedRoot.bounds
-        offWindowHosting.autoresizingMask = [.width, .height]
-        detachedRoot.addSubview(offWindowHosting)
-        defer { offWindowHosting.removeFromSuperview() }
+        let detachedRoot = NSView(frame: visibleHostOwner.view.frame)
+        let offWindowHostOwner = BrowserWebViewNativeConfiguration.NativeHost()
+        offWindowHostOwner.view.frame = detachedRoot.bounds
+        offWindowHostOwner.view.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(offWindowHostOwner.view)
+        offWindowHostOwner.update(configuration)
+        defer {
+            offWindowHostOwner.teardown()
+            offWindowHostOwner.view.removeFromSuperview()
+        }
         detachedRoot.layoutSubtreeIfNeeded()
-        offWindowHosting.layoutSubtreeIfNeeded()
+        offWindowHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertNotNil(findHostContainerView(in: offWindowHosting), "Expected off-window replacement host")
+        XCTAssertNotNil(findHostContainerView(in: offWindowHostOwner.view), "Expected off-window replacement host")
         XCTAssertTrue(visibleHost.window === window)
         XCTAssertTrue(
             panel.webView.superview === visibleSlot,
@@ -4336,29 +4317,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() throws {
-        // Headless limitation, not a product defect. Kept live (not deleted or
-        // `#if false`d) so the body stays type-checked: `XCTSkipIf` is a runtime
-        // condition, so the compiler cannot mark what follows unreachable.
-        try XCTSkipIf(true, "Requires SwiftUI NSHostingView layout (updateNSView) to migrate hosted views between slots; headless does not drive that layout.")
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
-        let representable = WebViewRepresentable(
-            panel: panel,
-            paneId: paneId,
-            shouldAttachWebView: false,
-            useLocalInlineHosting: true,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0,
-            paneDropZone: nil,
-            searchOverlay: nil,
-            designComposer: nil,
-            omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
-        )
+        let configuration = localWebViewConfiguration(panel: panel, paneId: paneId)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -4372,14 +4336,16 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let narrowHosting = NSHostingView(rootView: representable)
-        narrowHosting.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
-        contentView.addSubview(narrowHosting)
+        let narrowHostOwner = BrowserWebViewNativeConfiguration.NativeHost()
+        narrowHostOwner.view.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
+        contentView.addSubview(narrowHostOwner.view)
+        narrowHostOwner.update(configuration)
+        defer { narrowHostOwner.teardown() }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
-        narrowHosting.layoutSubtreeIfNeeded()
+        narrowHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         guard let initialSlot = panel.webView.superview as? WindowBrowserSlotView else {
@@ -4400,25 +4366,31 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         initialSlot.layoutSubtreeIfNeeded()
 
-        let replacementHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
-        replacementHosting.frame = contentView.bounds
-        replacementHosting.autoresizingMask = [.width, .height]
-        contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
+        let replacementHostOwner = BrowserWebViewNativeConfiguration.NativeHost()
+        replacementHostOwner.view.frame = contentView.bounds
+        replacementHostOwner.view.autoresizingMask = [.width, .height]
+        contentView.addSubview(
+            replacementHostOwner.view,
+            positioned: .above,
+            relativeTo: narrowHostOwner.view
+        )
+        replacementHostOwner.update(configuration)
+        defer { replacementHostOwner.teardown() }
         contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
+        replacementHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        replacementHosting.rootView = representable
+        replacementHostOwner.update(configuration)
         contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
+        replacementHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        narrowHosting.removeFromSuperview()
+        narrowHostOwner.view.removeFromSuperview()
         contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
+        replacementHostOwner.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let replacementHost = findHostContainerView(in: replacementHosting),
+        guard let replacementHost = findHostContainerView(in: replacementHostOwner.view),
               let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
             XCTFail("Expected replacement local inline host")
             return
