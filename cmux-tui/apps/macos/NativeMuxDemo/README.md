@@ -58,3 +58,21 @@ worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-
 The verifier launches the real Swift-only demo, closes the app, and fails if a
 new terminal-host process survives. The launcher also checks that macOS has the
 eight free PTYs needed by the seeded layout before it starts the daemon.
+
+To prove the daemon and PTY can live on another Apple-silicon Mac while only
+the native frontend runs locally:
+
+```bash
+worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/run-remote-demo.sh cmux-lawrence
+```
+
+The remote launcher verifies the host architecture, copies this worktree's
+exact `cmux-tui` binary into a unique `/tmp` directory, starts an Iroh daemon,
+creates one remote terminal, and transfers the single-use invitation only over
+SSH. It gives an ad-hoc-signed temporary copy of the local app a unique bundle
+identity, so an existing demo can stay open without LaunchServices mixing the
+processes. The local app claims the invitation and the remote owner socket
+approves that exact invitation. Closing the app closes the remote terminal and
+removes both sides' temporary state. Closing its last window does the same,
+even though macOS normally leaves a windowless app process alive. The launcher
+does not replace the remote host's installed `cmux-tui`.
