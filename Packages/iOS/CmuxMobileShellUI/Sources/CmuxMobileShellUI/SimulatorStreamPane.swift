@@ -30,24 +30,27 @@ struct SimulatorStreamPane: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color(red: 0.055, green: 0.063, blue: 0.075).ignoresSafeArea()
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.medium)
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .gesture(touchGesture(viewSize: proxy.size))
-                        .accessibilityIdentifier("SimulatorStreamImage")
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
+                ZStack {
+                    Color(red: 0.055, green: 0.063, blue: 0.075)
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .interpolation(.medium)
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .gesture(touchGesture(viewSize: proxy.size))
+                            .accessibilityIdentifier("SimulatorStreamImage")
+                    }
+                    paneOverlay
                 }
-                paneOverlay
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .task(id: state.latestFrame?.sequence) {
-                decodeLatestFrame()
-            }
+            bottomBar
+        }
+        .background(Color(red: 0.055, green: 0.063, blue: 0.075).ignoresSafeArea())
+        .task(id: state.latestFrame?.sequence) {
+            decodeLatestFrame()
         }
         .accessibilityIdentifier("SimulatorStreamPane")
     }
@@ -74,7 +77,11 @@ struct SimulatorStreamPane: View {
                     return
                 }
                 let mapper = SimulatorStreamCoordinateMapper(viewSize: viewSize, imageSize: imageSize)
-                sendPointer(.ended, point: value.location, mapper: mapper)
+                let endPoint = SimulatorStreamTouchPointPolicy.endPoint(
+                    start: value.startLocation,
+                    location: value.location
+                )
+                sendPointer(.ended, point: endPoint, mapper: mapper)
                 dragStarted = false
             }
     }
@@ -127,10 +134,8 @@ struct SimulatorStreamPane: View {
 
     private var ownershipPill: some View {
         Label(
-            state.isOwnedByCurrentConnection
-                ? L10n.string("mobile.simulatorStream.owned", defaultValue: "iPhone Control")
-                : L10n.string("mobile.simulatorStream.viewOnly", defaultValue: "View Only"),
-            systemImage: state.isOwnedByCurrentConnection ? "hand.tap" : "eye"
+            ownershipPillText,
+            systemImage: ownershipPillSymbol
         )
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
@@ -138,6 +143,22 @@ struct SimulatorStreamPane: View {
         .background(.ultraThinMaterial, in: Capsule())
         .foregroundStyle(.primary)
         .accessibilityIdentifier("SimulatorStreamOwnershipPill")
+    }
+
+    private var ownershipPillText: String {
+        if state.isOwnedByCurrentConnection {
+            return L10n.string("mobile.simulatorStream.owned", defaultValue: "iPhone Control")
+        }
+        if state.isControlHandshakePending {
+            return L10n.string("mobile.simulatorStream.connectingControl", defaultValue: "Connecting")
+        }
+        return L10n.string("mobile.simulatorStream.viewOnly", defaultValue: "View Only")
+    }
+
+    private var ownershipPillSymbol: String {
+        if state.isOwnedByCurrentConnection { return "hand.tap" }
+        if state.isControlHandshakePending { return "antenna.radiowaves.left.and.right" }
+        return "eye"
     }
 
     private var disconnectedOverlay: some View {

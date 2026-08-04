@@ -41,6 +41,24 @@ import Testing
         #expect(state?.isOwnedByCurrentConnection == false)
     }
 
+    @Test func pendingOwnerDescriptorIsControlHandshake() {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [
+            simulatorDescriptor(ownerConnectionID: nil, isOwnedByCurrentConnection: false),
+        ])
+
+        let state = store.activate(panelID: "sim-1", in: "workspace-1")
+        #expect(state?.streamStatus == .starting)
+        #expect(state?.isControlHandshakePending == true)
+
+        store.simulatorStreamDidStart(
+            simulatorDescriptor(ownerConnectionID: "phone", isOwnedByCurrentConnection: true)
+        )
+
+        #expect(state?.isOwnedByCurrentConnection == true)
+        #expect(state?.isControlHandshakePending == false)
+    }
+
     private func simulatorDescriptor(
         ownerConnectionID: String? = nil,
         isOwnedByCurrentConnection: Bool = true

@@ -46,6 +46,9 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
     public var connectionStatus: ConnectionStatus
     public var streamStatus: StreamStatus
     public private(set) var latestFrame: MobileSimulatorFrameEvent?
+    public var isControlHandshakePending: Bool {
+        streamStatus == .starting && ownerConnectionID == nil && !isOwnedByCurrentConnection
+    }
 
     public init(descriptor: MobileSimulatorPanelDescriptor) {
         id = descriptor.panelID
