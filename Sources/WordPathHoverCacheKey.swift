@@ -8,6 +8,7 @@ import Foundation
 struct WordPathHoverCacheKey: Equatable {
     let surfaceID: UUID
     let surfaceGeneration: UInt64
+    let renderedFrameGeneration: UInt64
     let row: Int
     let column: Int
     let rows: Int
@@ -15,5 +16,4 @@ struct WordPathHoverCacheKey: Equatable {
     let boundsSize: CGSize
     let cellSize: CGSize
     let workingDirectory: String
-    let quicklookWord: String?
 }

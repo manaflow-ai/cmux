@@ -3707,6 +3707,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// with terminal output without enabling frame notifications app-wide.
     private var wordPathHoverRenderedFrameObserver: NSObjectProtocol?
     private var wordPathHoverRenderedFrameDemandRelease: (() -> Void)?
+    private var wordPathHoverRenderedFrameRefreshTask: Task<Void, Never>?
+    private var wordPathHoverRenderedFrameGeneration: UInt64 = 0
     private var wordPathHoverRefreshPoint: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
@@ -6806,20 +6808,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return cachedWordPathHover.resolution
         }
 
-        let resolution: WordPathResolution?
-        if let quicklookWord = key.quicklookWord,
-           let path = TerminalPathResolver().resolveQuicklookPath(
-               quicklookWord,
-               cwd: key.workingDirectory
-           ) {
-            resolution = makeWordPathResolution(
-                path: path,
-                source: .quicklook,
-                rawToken: quicklookWord
-            )
-        } else {
-            resolution = nil
-        }
+        let resolution = resolveWordUnderCursorPath(
+            at: point,
+            usesHoverWorkingDirectory: true
+        )
         cachedWordPathHover = WordPathHoverCacheEntry(key: key, resolution: resolution)
         return resolution
     }
@@ -6865,14 +6857,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return WordPathHoverCacheKey(
             surfaceID: terminalSurface.id,
             surfaceGeneration: terminalSurface.runtimeSurfaceGeneration,
+            renderedFrameGeneration: wordPathHoverRenderedFrameGeneration,
             row: row,
             column: column,
             rows: rows,
             columns: columns,
             boundsSize: bounds.size,
             cellSize: resolvedCellSize,
-            workingDirectory: workingDirectory,
-            quicklookWord: wordPathQuicklookSnapshot(surface: surface)?.word
+            workingDirectory: workingDirectory
         )
     }
 
@@ -6894,7 +6886,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.revalidateWordPathHoverAfterRenderedFrame()
+                self?.noteWordPathHoverRenderedFrame()
             }
         }
         wordPathHoverRenderedFrameDemandRelease = retainLocalRenderedFrameNotifications()
@@ -6907,17 +6899,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         wordPathHoverRenderedFrameDemandRelease?()
         wordPathHoverRenderedFrameDemandRelease = nil
+        wordPathHoverRenderedFrameRefreshTask?.cancel()
+        wordPathHoverRenderedFrameRefreshTask = nil
     }
 
-    private func revalidateWordPathHoverAfterRenderedFrame() {
+    private func noteWordPathHoverRenderedFrame() {
+        wordPathHoverRenderedFrameGeneration &+= 1
+        scheduleWordPathHoverRefreshAfterRenderedFrame()
+    }
+
+    private func scheduleWordPathHoverRefreshAfterRenderedFrame() {
+        // Frame notifications can arrive at display cadence. Keep their work to
+        // a generation bump and resolve the hovered path at most five times per
+        // second while still refreshing during sustained terminal output.
+        guard wordPathHoverRenderedFrameRefreshTask == nil else { return }
+        wordPathHoverRenderedFrameRefreshTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.wordPathHoverRenderedFrameRefreshTask = nil
+            self.refreshWordPathHoverAfterRenderedFrame()
+        }
+    }
+
+    private func refreshWordPathHoverAfterRenderedFrame() {
         guard wordPathHoverRenderedFrameObserver != nil,
               let point = wordPathHoverRefreshPoint else { return }
-        let key = wordPathHoverCacheKey(at: point)
-        guard key == cachedWordPathHover?.key else {
-            invalidateWordPathHoverResolution()
-            setWordPathHoverActive(false)
-            return
-        }
+        invalidateWordPathHoverResolution()
+        let flags: NSEvent.ModifierFlags = [.command]
+        updateWordPathHover(
+            at: point,
+            cmdHeld: true,
+            suppressPathHover: shouldSuppressCommandPathHover(for: flags)
+        )
     }
 
     private func setWordPathHoverActive(_ active: Bool) {
