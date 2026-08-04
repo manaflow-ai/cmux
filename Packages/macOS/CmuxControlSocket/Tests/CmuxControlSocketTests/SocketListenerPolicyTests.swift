@@ -100,6 +100,52 @@ import Testing
         #expect(AcceptFailureRecoveryAction.resumeAfterDelay(delayMs: 1).debugLabel == "resume_after_delay")
         #expect(AcceptFailureRecoveryAction.rearmAfterDelay(delayMs: 1).debugLabel == "rearm_after_delay")
     }
+
+    @Test func startupFailurePolicyRetriesOnlyTransientFailuresWithinBudget() {
+        #expect(
+            policy.shouldRetryStartupFailure(
+                stage: "bind",
+                errnoCode: EADDRINUSE,
+                consecutiveFailures: 1
+            )
+        )
+        #expect(
+            policy.shouldRetryStartupFailure(
+                stage: "create_lock_directory",
+                errnoCode: EIO,
+                consecutiveFailures: 2
+            )
+        )
+        #expect(
+            policy.shouldRetryStartupFailure(
+                stage: "lock",
+                errnoCode: EWOULDBLOCK,
+                consecutiveFailures: 3
+            )
+        )
+        #expect(
+            !policy.shouldRetryStartupFailure(
+                stage: "bind",
+                errnoCode: EACCES,
+                consecutiveFailures: 1
+            )
+        )
+        #expect(
+            !policy.shouldRetryStartupFailure(
+                stage: "bind",
+                errnoCode: EADDRINUSE,
+                consecutiveFailures: 7
+            )
+        )
+    }
+
+    @Test func startupFailureBackoffIsExponentialAndCapped() {
+        #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 0) == 0)
+        #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 1) == 100)
+        #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 2) == 200)
+        #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 5) == 1_600)
+        #expect(policy.startupFailureRetryDelayMilliseconds(consecutiveFailures: 6) == 2_000)
+    }
 }
 
 @Suite struct SocketListenerPolicyUnlinkTests {
