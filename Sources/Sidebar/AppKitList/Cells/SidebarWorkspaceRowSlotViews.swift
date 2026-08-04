@@ -30,6 +30,7 @@ extension NSTextField {
 final class SidebarRowUnreadBadgeView: NSView {
     private var textOutline: CGPath?
     private var textInkBounds: CGRect = .zero
+    private var textHorizontalOpticalCenter: CGFloat = 0
     private var textAdvance: CGFloat = 0
     private var textLineHeight: CGFloat = 0
     private var fillColor: NSColor = .clear
@@ -76,6 +77,9 @@ final class SidebarRowUnreadBadgeView: NSView {
         textLineHeight = ascent + descent + leading
         textOutline = Self.makeTextOutline(line: line, font: font as CTFont)
         textInkBounds = textOutline?.boundingBoxOfPath ?? .zero
+        textHorizontalOpticalCenter = textOutline
+            .flatMap { Self.horizontalInkCentroid(of: $0, in: textInkBounds) }
+            ?? textInkBounds.midX
         self.fillColor = fillColor
         self.textColor = textColor
         needsDisplay = true
@@ -114,6 +118,66 @@ final class SidebarRowUnreadBadgeView: NSView {
         return appendedGlyph ? outline : nil
     }
 
+    private static func horizontalInkCentroid(
+        of outline: CGPath,
+        in inkBounds: CGRect,
+        renderingScale: CGFloat = 2
+    ) -> CGFloat? {
+        guard inkBounds.width.isFinite,
+              inkBounds.height.isFinite,
+              inkBounds.width > 0,
+              inkBounds.height > 0,
+              renderingScale > 0 else {
+            return nil
+        }
+
+        let sampleRect = inkBounds.insetBy(dx: -1, dy: -1)
+        let pixelsWide = max(1, Int(ceil(sampleRect.width * renderingScale)))
+        let pixelsHigh = max(1, Int(ceil(sampleRect.height * renderingScale)))
+        let bytesPerRow = pixelsWide
+        var bitmap = [UInt8](repeating: 0, count: pixelsHigh * bytesPerRow)
+
+        let totalWeight = bitmap.withUnsafeMutableBytes { buffer -> (weight: CGFloat, weightedX: CGFloat) in
+            let pixels = buffer.bindMemory(to: UInt8.self)
+            guard let context = CGContext(
+                data: pixels.baseAddress,
+                width: pixelsWide,
+                height: pixelsHigh,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else {
+                return (0, 0)
+            }
+
+            context.setAllowsAntialiasing(true)
+            context.setShouldAntialias(true)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.scaleBy(x: renderingScale, y: renderingScale)
+            context.translateBy(x: -sampleRect.minX, y: -sampleRect.minY)
+            context.addPath(outline)
+            context.fillPath()
+
+            var weight: CGFloat = 0
+            var weightedX: CGFloat = 0
+            for y in 0..<pixelsHigh {
+                let rowOffset = y * bytesPerRow
+                for x in 0..<pixelsWide {
+                    let pixelWeight = CGFloat(pixels[rowOffset + x])
+                    guard pixelWeight > 0 else { continue }
+                    let glyphX = sampleRect.minX + (CGFloat(x) + 0.5) / renderingScale
+                    weight += pixelWeight
+                    weightedX += glyphX * pixelWeight
+                }
+            }
+            return (weight, weightedX)
+        }
+
+        guard totalWeight.weight > 0 else { return nil }
+        return totalWeight.weightedX / totalWeight.weight
+    }
+
     func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
         let height = ceil(max(minimumHeight, textLineHeight + 2))
         return NSSize(
@@ -144,10 +208,12 @@ final class SidebarRowUnreadBadgeView: NSView {
 
         // Measure and fill the same outline. Drawing the separately hinted
         // CTLine can snap a narrow digit to a different Retina pixel than the
-        // path bounds used to center it.
+        // outline used here. Horizontally, center the rendered ink mass rather
+        // than its bounds so digits with asymmetric strokes do not read off
+        // center inside a circular badge.
         context.saveGState()
         context.translateBy(
-            x: badgeRect.midX - textInkBounds.midX,
+            x: badgeRect.midX - textHorizontalOpticalCenter,
             y: badgeRect.midY - textInkBounds.midY
         )
         textColor.setFill()
