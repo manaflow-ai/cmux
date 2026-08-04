@@ -161,6 +161,8 @@ struct ShellIntegrationSendTransportTests {
             "CMUX_SOCKET_PATH": "127.0.0.1:63135",
             "CMUX_SURFACE_ID": "stale-surface",
             "CMUX_TAB_ID": "stale-workspace",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "stale-lifecycle",
+            "CMUX_SSH_ATTEMPT_ID": "stale-attempt",
             "CMUX_WORKSPACE_ID": "stale-workspace",
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
@@ -177,6 +179,8 @@ struct ShellIntegrationSendTransportTests {
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
         #expect(output.contains("workspace=current-workspace"), Comment(rawValue: output))
         #expect(output.contains("socket=127.0.0.1:55272"), Comment(rawValue: output))
+        #expect(output.contains("lifecycle=current-lifecycle"), Comment(rawValue: output))
+        #expect(output.contains("attempt=current-attempt"), Comment(rawValue: output))
         #expect(output.contains("surface=<unset>"), Comment(rawValue: output))
         #expect(output.contains("panel=<unset>"), Comment(rawValue: output))
     }
@@ -361,15 +365,16 @@ struct ShellIntegrationSendTransportTests {
         tmux() {
           if [ "$1" = show-environment ]; then
             if [ "${2:-}" = -g ]; then
-              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_TAB_ID=stale-workspace' 'CMUX_WORKSPACE_ID=stale-workspace'
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_SSH_ATTEMPT_ID=stale-attempt' 'CMUX_TAB_ID=stale-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=stale-lifecycle' 'CMUX_WORKSPACE_ID=stale-workspace'
             else
-              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_TAB_ID=current-workspace' 'CMUX_WORKSPACE_ID=current-workspace'
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_SSH_ATTEMPT_ID=current-attempt' 'CMUX_TAB_ID=current-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=current-lifecycle' 'CMUX_WORKSPACE_ID=current-workspace'
             fi
           fi
         }
         _cmux_tmux_sync_cmux_environment
-        printf 'workspace=%s\\nsocket=%s\\nsurface=%s\\npanel=%s\\n' \
+        printf 'workspace=%s\\nsocket=%s\\nlifecycle=%s\\nattempt=%s\\nsurface=%s\\npanel=%s\\n' \
           "${CMUX_WORKSPACE_ID:-<unset>}" "${CMUX_SOCKET_PATH:-<unset>}" \
+          "${CMUX_TERMINAL_LIFECYCLE_ID:-<unset>}" "${CMUX_SSH_ATTEMPT_ID:-<unset>}" \
           "${CMUX_SURFACE_ID:-<unset>}" "${CMUX_PANEL_ID:-<unset>}"
         """
     }

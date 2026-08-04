@@ -423,7 +423,8 @@ func openStream[T any](
 		})
 	}
 	client.mu.Lock()
-	if client.closed {
+	// Preserve a complete stream when its terminal envelope raced with EOF.
+	if client.closed && !route.endedByServer() {
 		openError := client.err
 		if openError == nil {
 			openError = ErrClosed
