@@ -16,7 +16,13 @@
             "value": "いいえ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "否"
+        }
+      }}
     },
     "diagnostics.boolean.yes": {
       "extractionState": "manual",
@@ -33,7 +39,13 @@
             "value": "はい"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "是"
+        }
+      }}
     },
     "diagnostics.closeInitiator.localApp": {
       "extractionState": "manual",
@@ -50,7 +62,13 @@
             "value": "ローカルアプリ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "本地应用"
+        }
+      }}
     },
     "diagnostics.closeInitiator.remotePeer": {
       "extractionState": "manual",
@@ -67,7 +85,13 @@
             "value": "リモートピア"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "远程对端"
+        }
+      }}
     },
     "diagnostics.closeInitiator.timedOut": {
       "extractionState": "manual",
@@ -84,7 +108,13 @@
             "value": "タイムアウト"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已超时"
+        }
+      }}
     },
     "diagnostics.closeInitiator.unknown": {
       "extractionState": "manual",
@@ -101,7 +131,13 @@
             "value": "不明な開始元"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知发起方"
+        }
+      }}
     },
     "diagnostics.count.bytes": {
       "extractionState": "manual",
@@ -136,7 +172,25 @@
             }
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "variations": {
+          "plural": {
+            "one": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 字节"
+              }
+            },
+            "other": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 字节"
+              }
+            }
+          }
+        }
+      }}
     },
     "diagnostics.count.points": {
       "extractionState": "manual",
@@ -171,7 +225,25 @@
             }
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "variations": {
+          "plural": {
+            "one": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 点"
+              }
+            },
+            "other": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 点"
+              }
+            }
+          }
+        }
+      }}
     },
     "diagnostics.duration.fractionalSeconds": {
       "extractionState": "manual",
@@ -188,7 +260,13 @@
             "value": "%@秒"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ 秒"
+        }
+      }}
     },
     "diagnostics.duration.milliseconds": {
       "extractionState": "manual",
@@ -205,7 +283,13 @@
             "value": "%lldミリ秒"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%lld 毫秒"
+        }
+      }}
     },
     "diagnostics.duration.seconds": {
       "extractionState": "manual",
@@ -240,7 +324,25 @@
             }
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "variations": {
+          "plural": {
+            "one": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 秒"
+              }
+            },
+            "other": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 秒"
+              }
+            }
+          }
+        }
+      }}
     },
     "diagnostics.event.admissionFailed": {
       "extractionState": "manual",
@@ -257,7 +359,13 @@
             "value": "クライアントの受け入れに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "客户端接入失败"
+        }
+      }}
     },
     "diagnostics.event.admissionSucceeded": {
       "extractionState": "manual",
@@ -274,7 +382,13 @@
             "value": "クライアントを受け入れました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "客户端已接入"
+        }
+      }}
     },
     "diagnostics.event.appLifecycleChanged": {
       "extractionState": "manual",
@@ -291,7 +405,13 @@
             "value": "アプリのライフサイクルが変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用生命周期已更改"
+        }
+      }}
     },
     "diagnostics.event.byteGap": {
       "extractionState": "manual",
@@ -308,7 +428,13 @@
             "value": "ターミナルのバイト欠落を検出しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "检测到终端字节缺口"
+        }
+      }}
     },
     "diagnostics.event.composerActiveTransition": {
       "extractionState": "manual",
@@ -325,7 +451,13 @@
             "value": "コンポーザーのアクティブ状態が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框激活状态已更改"
+        }
+      }}
     },
     "diagnostics.event.composerFieldFocusChanged": {
       "extractionState": "manual",
@@ -342,7 +474,13 @@
             "value": "コンポーザーのフォーカスが変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框焦点已更改"
+        }
+      }}
     },
     "diagnostics.event.composerInputTextChanged": {
       "extractionState": "manual",
@@ -359,7 +497,13 @@
             "value": "コンポーザーの下書きが変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框草稿已更改"
+        }
+      }}
     },
     "diagnostics.event.composerKeyboardToggleWhilePresented": {
       "extractionState": "manual",
@@ -376,7 +520,13 @@
             "value": "コンポーザー表示中にキーボードが切り替わりました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框打开时键盘状态已切换"
+        }
+      }}
     },
     "diagnostics.event.composerPresentedChanged": {
       "extractionState": "manual",
@@ -393,7 +543,13 @@
             "value": "コンポーザーの表示状態が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框可见性已更改"
+        }
+      }}
     },
     "diagnostics.event.composerViewAppear": {
       "extractionState": "manual",
@@ -410,7 +566,13 @@
             "value": "コンポーザーが表示されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框已出现"
+        }
+      }}
     },
     "diagnostics.event.composerViewDisappear": {
       "extractionState": "manual",
@@ -427,7 +589,13 @@
             "value": "コンポーザーが閉じられました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框已消失"
+        }
+      }}
     },
     "diagnostics.event.connect": {
       "extractionState": "manual",
@@ -444,7 +612,13 @@
             "value": "接続試行を開始しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已开始尝试连接"
+        }
+      }}
     },
     "diagnostics.event.discoveryFailed": {
       "extractionState": "manual",
@@ -461,7 +635,13 @@
             "value": "Iroh経路の探索に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 路由发现失败"
+        }
+      }}
     },
     "diagnostics.event.discoveryStarted": {
       "extractionState": "manual",
@@ -478,7 +658,13 @@
             "value": "Iroh経路の探索を開始しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 路由发现已开始"
+        }
+      }}
     },
     "diagnostics.event.discoverySucceeded": {
       "extractionState": "manual",
@@ -495,7 +681,13 @@
             "value": "Iroh経路を検出しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 路由发现成功"
+        }
+      }}
     },
     "diagnostics.event.endpointActive": {
       "extractionState": "manual",
@@ -512,7 +704,13 @@
             "value": "Irohエンドポイントが稼働しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 端点已激活"
+        }
+      }}
     },
     "diagnostics.event.endpointFailed": {
       "extractionState": "manual",
@@ -529,7 +727,13 @@
             "value": "Irohエンドポイントで障害が発生しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 端点失败"
+        }
+      }}
     },
     "diagnostics.event.endpointStarting": {
       "extractionState": "manual",
@@ -546,7 +750,13 @@
             "value": "Irohエンドポイントを起動しています"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 端点正在启动"
+        }
+      }}
     },
     "diagnostics.event.endpointStopped": {
       "extractionState": "manual",
@@ -563,7 +773,13 @@
             "value": "Irohエンドポイントが停止しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 端点已停止"
+        }
+      }}
     },
     "diagnostics.event.error": {
       "extractionState": "manual",
@@ -580,7 +796,13 @@
             "value": "未分類のトランスポートエラー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未分类的传输错误"
+        }
+      }}
     },
     "diagnostics.event.hostAuthenticated": {
       "extractionState": "manual",
@@ -597,7 +819,13 @@
             "value": "ホストを認証しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "主机身份验证成功"
+        }
+      }}
     },
     "diagnostics.event.hostAuthenticationFailed": {
       "extractionState": "manual",
@@ -614,7 +842,13 @@
             "value": "ホストの認証に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "主机身份验证失败"
+        }
+      }}
     },
     "diagnostics.event.inputSeqBehind": {
       "extractionState": "manual",
@@ -631,7 +865,13 @@
             "value": "ターミナル入力の確認応答が遅れました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端输入确认已落后"
+        }
+      }}
     },
     "diagnostics.event.livenessResubscribe": {
       "extractionState": "manual",
@@ -648,7 +888,13 @@
             "value": "無通信のイベントストリームを再購読しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已重新订阅静默事件流"
+        }
+      }}
     },
     "diagnostics.event.pairFail": {
       "extractionState": "manual",
@@ -665,7 +911,13 @@
             "value": "ペアリングに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "配对失败"
+        }
+      }}
     },
     "diagnostics.event.pairOk": {
       "extractionState": "manual",
@@ -682,7 +934,13 @@
             "value": "ペアリングに成功しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "配对成功"
+        }
+      }}
     },
     "diagnostics.event.pairUnreachable": {
       "extractionState": "manual",
@@ -699,7 +957,13 @@
             "value": "オフラインのためペアリングをスキップしました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "离线时跳过配对"
+        }
+      }}
     },
     "diagnostics.event.reachabilityChanged": {
       "extractionState": "manual",
@@ -716,7 +980,13 @@
             "value": "ネットワーク到達性が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "网络可达性已更改"
+        }
+      }}
     },
     "diagnostics.event.recoveryFailed": {
       "extractionState": "manual",
@@ -733,7 +1003,13 @@
             "value": "接続の復旧に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接恢复失败"
+        }
+      }}
     },
     "diagnostics.event.recoveryStarted": {
       "extractionState": "manual",
@@ -750,7 +1026,13 @@
             "value": "接続の復旧を開始しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接恢复已开始"
+        }
+      }}
     },
     "diagnostics.event.recoverySucceeded": {
       "extractionState": "manual",
@@ -767,7 +1049,13 @@
             "value": "接続が復旧しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接恢复成功"
+        }
+      }}
     },
     "diagnostics.event.relayPolicyRefreshFailed": {
       "extractionState": "manual",
@@ -784,7 +1072,13 @@
             "value": "リレーポリシーの更新に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继策略刷新失败"
+        }
+      }}
     },
     "diagnostics.event.relayPolicyRefreshStarted": {
       "extractionState": "manual",
@@ -801,7 +1095,13 @@
             "value": "リレーポリシーの更新を開始しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继策略刷新已开始"
+        }
+      }}
     },
     "diagnostics.event.relayPolicyRefreshSucceeded": {
       "extractionState": "manual",
@@ -818,7 +1118,13 @@
             "value": "リレーポリシーを更新しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继策略已刷新"
+        }
+      }}
     },
     "diagnostics.event.renderGridLag": {
       "extractionState": "manual",
@@ -835,7 +1141,13 @@
             "value": "レンダリンググリッドが遅延しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "渲染网格延迟"
+        }
+      }}
     },
     "diagnostics.event.retryScheduled": {
       "extractionState": "manual",
@@ -852,7 +1164,13 @@
             "value": "再試行を予約しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已安排重试"
+        }
+      }}
     },
     "diagnostics.event.routeUnavailable": {
       "extractionState": "manual",
@@ -869,7 +1187,13 @@
             "value": "利用可能なトランスポート経路がありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "没有可用的传输路由"
+        }
+      }}
     },
     "diagnostics.event.rpcFailed": {
       "extractionState": "manual",
@@ -886,7 +1210,13 @@
             "value": "RPCセッションに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "RPC 会话失败"
+        }
+      }}
     },
     "diagnostics.event.rpcReady": {
       "extractionState": "manual",
@@ -903,7 +1233,13 @@
             "value": "RPCセッションの準備ができました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "RPC 会话就绪"
+        }
+      }}
     },
     "diagnostics.event.selectedPathChanged": {
       "extractionState": "manual",
@@ -920,7 +1256,13 @@
             "value": "選択中のネットワーク経路が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "所选网络路径已更改"
+        }
+      }}
     },
     "diagnostics.event.sessionClosed": {
       "extractionState": "manual",
@@ -937,7 +1279,13 @@
             "value": "トランスポートセッションが閉じました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输会话已关闭"
+        }
+      }}
     },
     "diagnostics.event.streamEnded": {
       "extractionState": "manual",
@@ -954,7 +1302,13 @@
             "value": "イベントストリームが終了しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "事件流已结束"
+        }
+      }}
     },
     "diagnostics.event.transportCloseAttribution": {
       "extractionState": "manual",
@@ -971,7 +1325,13 @@
             "value": "トランスポート切断の原因を特定しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输关闭已归因"
+        }
+      }}
     },
     "diagnostics.event.transportDialConnected": {
       "extractionState": "manual",
@@ -988,7 +1348,13 @@
             "value": "トランスポートに接続しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输已连接"
+        }
+      }}
     },
     "diagnostics.event.transportDialFailed": {
       "extractionState": "manual",
@@ -1005,7 +1371,13 @@
             "value": "トランスポートへのダイヤルに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输拨号失败"
+        }
+      }}
     },
     "diagnostics.event.transportDialStarted": {
       "extractionState": "manual",
@@ -1022,7 +1394,13 @@
             "value": "トランスポートへのダイヤルを開始しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输拨号已开始"
+        }
+      }}
     },
     "diagnostics.event.transportPathEvent": {
       "extractionState": "manual",
@@ -1039,7 +1417,13 @@
             "value": "トランスポート経路が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输路径已更改"
+        }
+      }}
     },
     "diagnostics.event.transportSessionLifecycle": {
       "extractionState": "manual",
@@ -1056,7 +1440,13 @@
             "value": "トランスポートセッションの状態が変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输会话状态已更改"
+        }
+      }}
     },
     "diagnostics.failure.accountMismatch": {
       "extractionState": "manual",
@@ -1073,7 +1463,13 @@
             "value": "アカウントが一致しません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "账户不匹配"
+        }
+      }}
     },
     "diagnostics.failure.admissionDenied": {
       "extractionState": "manual",
@@ -1090,7 +1486,13 @@
             "value": "クライアントの受け入れが拒否されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "客户端接入被拒绝"
+        }
+      }}
     },
     "diagnostics.failure.admissionLeaseExpired": {
       "extractionState": "manual",
@@ -1107,7 +1509,13 @@
             "value": "受け入れリースの有効期限が切れました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "接入租约已过期"
+        }
+      }}
     },
     "diagnostics.failure.admissionRevalidationFailed": {
       "extractionState": "manual",
@@ -1124,7 +1532,13 @@
             "value": "受け入れの再検証に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "接入重新验证失败"
+        }
+      }}
     },
     "diagnostics.failure.authorizationFailed": {
       "extractionState": "manual",
@@ -1141,7 +1555,13 @@
             "value": "認可に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "授权失败"
+        }
+      }}
     },
     "diagnostics.failure.cancelled": {
       "extractionState": "manual",
@@ -1158,7 +1578,13 @@
             "value": "キャンセルされました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已取消"
+        }
+      }}
     },
     "diagnostics.failure.connectionClosed": {
       "extractionState": "manual",
@@ -1175,7 +1601,13 @@
             "value": "接続が閉じられました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接已关闭"
+        }
+      }}
     },
     "diagnostics.failure.connectionRefused": {
       "extractionState": "manual",
@@ -1192,7 +1624,13 @@
             "value": "接続が拒否されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接被拒绝"
+        }
+      }}
     },
     "diagnostics.failure.credentialUnavailable": {
       "extractionState": "manual",
@@ -1209,7 +1647,13 @@
             "value": "認証情報を利用できません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "凭据不可用"
+        }
+      }}
     },
     "diagnostics.failure.dnsFailed": {
       "extractionState": "manual",
@@ -1226,7 +1670,13 @@
             "value": "DNS検索に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "DNS 查找失败"
+        }
+      }}
     },
     "diagnostics.failure.endpointUnavailable": {
       "extractionState": "manual",
@@ -1243,7 +1693,13 @@
             "value": "Irohエンドポイントを利用できません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh 端点不可用"
+        }
+      }}
     },
     "diagnostics.failure.hostUnreachable": {
       "extractionState": "manual",
@@ -1260,7 +1716,13 @@
             "value": "ホストに到達できません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "主机不可达"
+        }
+      }}
     },
     "diagnostics.failure.identityMismatch": {
       "extractionState": "manual",
@@ -1277,7 +1739,13 @@
             "value": "ホストIDが一致しません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "主机身份不匹配"
+        }
+      }}
     },
     "diagnostics.failure.noRoute": {
       "extractionState": "manual",
@@ -1294,7 +1762,13 @@
             "value": "利用可能な経路がありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "没有可用路由"
+        }
+      }}
     },
     "diagnostics.failure.none": {
       "extractionState": "manual",
@@ -1311,7 +1785,13 @@
             "value": "エラーなし"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无故障"
+        }
+      }}
     },
     "diagnostics.failure.offline": {
       "extractionState": "manual",
@@ -1328,7 +1808,13 @@
             "value": "オフライン"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "离线"
+        }
+      }}
     },
     "diagnostics.failure.permissionDenied": {
       "extractionState": "manual",
@@ -1345,7 +1831,13 @@
             "value": "権限がありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "权限被拒绝"
+        }
+      }}
     },
     "diagnostics.failure.policyUnavailable": {
       "extractionState": "manual",
@@ -1362,7 +1854,13 @@
             "value": "リレーポリシーを利用できません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继策略不可用"
+        }
+      }}
     },
     "diagnostics.failure.protocolViolation": {
       "extractionState": "manual",
@@ -1379,7 +1877,13 @@
             "value": "プロトコル違反"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "协议违规"
+        }
+      }}
     },
     "diagnostics.failure.routeGated": {
       "extractionState": "manual",
@@ -1396,7 +1900,13 @@
             "value": "経路はすでに接続中です"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "路由已在连接中"
+        }
+      }}
     },
     "diagnostics.failure.secureChannelFailed": {
       "extractionState": "manual",
@@ -1413,7 +1923,13 @@
             "value": "セキュアチャネルの確立に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "安全通道失败"
+        }
+      }}
     },
     "diagnostics.failure.sendQueueOverflow": {
       "extractionState": "manual",
@@ -1430,7 +1946,13 @@
             "value": "送信キューがあふれました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "发送队列溢出"
+        }
+      }}
     },
     "diagnostics.failure.superseded": {
       "extractionState": "manual",
@@ -1447,7 +1969,13 @@
             "value": "新しい試行に置き換えられました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已被更新的尝试取代"
+        }
+      }}
     },
     "diagnostics.failure.timedOut": {
       "extractionState": "manual",
@@ -1464,7 +1992,13 @@
             "value": "タイムアウト"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已超时"
+        }
+      }}
     },
     "diagnostics.failure.transportIdleTimedOut": {
       "extractionState": "manual",
@@ -1481,7 +2015,13 @@
             "value": "トランスポートのアイドルタイムアウト"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输空闲超时"
+        }
+      }}
     },
     "diagnostics.failure.unknown": {
       "extractionState": "manual",
@@ -1498,7 +2038,13 @@
             "value": "不明なエラー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知故障"
+        }
+      }}
     },
     "diagnostics.failure.unsupportedRoute": {
       "extractionState": "manual",
@@ -1515,7 +2061,13 @@
             "value": "サポートされていない経路"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "不支持的路由"
+        }
+      }}
     },
     "diagnostics.field.applicationErrorCode": {
       "extractionState": "manual",
@@ -1532,7 +2084,13 @@
             "value": "アプリケーションエラーコード"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用错误代码"
+        }
+      }}
     },
     "diagnostics.field.attempt": {
       "extractionState": "manual",
@@ -1549,7 +2107,13 @@
             "value": "試行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "尝试"
+        }
+      }}
     },
     "diagnostics.field.composerActive": {
       "extractionState": "manual",
@@ -1566,7 +2130,13 @@
             "value": "コンポーザー稼働中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框激活"
+        }
+      }}
     },
     "diagnostics.field.composerVisible": {
       "extractionState": "manual",
@@ -1583,7 +2153,13 @@
             "value": "コンポーザー表示中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入框可见"
+        }
+      }}
     },
     "diagnostics.field.deliveredSequence": {
       "extractionState": "manual",
@@ -1600,7 +2176,13 @@
             "value": "配信済みシーケンス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已送达序号"
+        }
+      }}
     },
     "diagnostics.field.detail1": {
       "extractionState": "manual",
@@ -1617,7 +2199,13 @@
             "value": "詳細1"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "详情 1"
+        }
+      }}
     },
     "diagnostics.field.detail2": {
       "extractionState": "manual",
@@ -1634,7 +2222,13 @@
             "value": "詳細2"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "详情 2"
+        }
+      }}
     },
     "diagnostics.field.detail3": {
       "extractionState": "manual",
@@ -1651,7 +2245,13 @@
             "value": "詳細3"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "详情 3"
+        }
+      }}
     },
     "diagnostics.field.draftEmpty": {
       "extractionState": "manual",
@@ -1668,7 +2268,13 @@
             "value": "下書きは空"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "草稿为空"
+        }
+      }}
     },
     "diagnostics.field.draftSize": {
       "extractionState": "manual",
@@ -1685,7 +2291,13 @@
             "value": "下書きサイズ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "草稿大小"
+        }
+      }}
     },
     "diagnostics.field.duration": {
       "extractionState": "manual",
@@ -1702,7 +2314,13 @@
             "value": "期間"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "持续时间"
+        }
+      }}
     },
     "diagnostics.field.failure": {
       "extractionState": "manual",
@@ -1719,7 +2337,13 @@
             "value": "エラー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "故障"
+        }
+      }}
     },
     "diagnostics.field.firstResponder": {
       "extractionState": "manual",
@@ -1736,7 +2360,13 @@
             "value": "ファーストレスポンダ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "第一响应者"
+        }
+      }}
     },
     "diagnostics.field.focused": {
       "extractionState": "manual",
@@ -1753,7 +2383,13 @@
             "value": "フォーカス中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已聚焦"
+        }
+      }}
     },
     "diagnostics.field.initiator": {
       "extractionState": "manual",
@@ -1770,7 +2406,13 @@
             "value": "開始元"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "发起方"
+        }
+      }}
     },
     "diagnostics.field.keyboardHeight": {
       "extractionState": "manual",
@@ -1787,7 +2429,13 @@
             "value": "キーボードの高さ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "键盘高度"
+        }
+      }}
     },
     "diagnostics.field.lag": {
       "extractionState": "manual",
@@ -1804,7 +2452,13 @@
             "value": "遅延"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "延迟"
+        }
+      }}
     },
     "diagnostics.field.localSequence": {
       "extractionState": "manual",
@@ -1821,7 +2475,13 @@
             "value": "ローカルシーケンス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "本地序号"
+        }
+      }}
     },
     "diagnostics.field.network": {
       "extractionState": "manual",
@@ -1838,7 +2498,13 @@
             "value": "ネットワーク"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "网络"
+        }
+      }}
     },
     "diagnostics.field.nextSequence": {
       "extractionState": "manual",
@@ -1855,7 +2521,13 @@
             "value": "次のシーケンス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "下一序号"
+        }
+      }}
     },
     "diagnostics.field.operation": {
       "extractionState": "manual",
@@ -1872,7 +2544,13 @@
             "value": "操作"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "操作"
+        }
+      }}
     },
     "diagnostics.field.path": {
       "extractionState": "manual",
@@ -1889,7 +2567,13 @@
             "value": "経路"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "路径"
+        }
+      }}
     },
     "diagnostics.field.phase": {
       "extractionState": "manual",
@@ -1906,7 +2590,13 @@
             "value": "フェーズ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "阶段"
+        }
+      }}
     },
     "diagnostics.field.purpose": {
       "extractionState": "manual",
@@ -1923,7 +2613,13 @@
             "value": "用途"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "用途"
+        }
+      }}
     },
     "diagnostics.field.remoteSequence": {
       "extractionState": "manual",
@@ -1940,7 +2636,13 @@
             "value": "リモートシーケンス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "远程序号"
+        }
+      }}
     },
     "diagnostics.field.retryDelay": {
       "extractionState": "manual",
@@ -1957,7 +2659,13 @@
             "value": "再試行まで"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重试延迟"
+        }
+      }}
     },
     "diagnostics.field.session": {
       "extractionState": "manual",
@@ -1974,7 +2682,13 @@
             "value": "セッション"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "会话"
+        }
+      }}
     },
     "diagnostics.field.silentFor": {
       "extractionState": "manual",
@@ -1991,7 +2705,13 @@
             "value": "無通信時間"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "静默时长"
+        }
+      }}
     },
     "diagnostics.field.state": {
       "extractionState": "manual",
@@ -2008,7 +2728,13 @@
             "value": "状態"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "状态"
+        }
+      }}
     },
     "diagnostics.field.surface": {
       "extractionState": "manual",
@@ -2025,7 +2751,13 @@
             "value": "サーフェス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "表面"
+        }
+      }}
     },
     "diagnostics.field.terminalInputFocused": {
       "extractionState": "manual",
@@ -2042,7 +2774,13 @@
             "value": "ターミナル入力にフォーカス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端输入已聚焦"
+        }
+      }}
     },
     "diagnostics.field.transport": {
       "extractionState": "manual",
@@ -2059,7 +2797,13 @@
             "value": "トランスポート"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输"
+        }
+      }}
     },
     "diagnostics.field.trigger": {
       "extractionState": "manual",
@@ -2076,7 +2820,13 @@
             "value": "トリガー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "触发条件"
+        }
+      }}
     },
     "diagnostics.incident.consecutiveFailures": {
       "extractionState": "manual",
@@ -2111,7 +2861,25 @@
             }
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "variations": {
+          "plural": {
+            "one": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 次连续失败"
+              }
+            },
+            "other": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 次连续失败"
+              }
+            }
+          }
+        }
+      }}
     },
     "diagnostics.incident.failureWithOccurrences": {
       "extractionState": "manual",
@@ -2128,7 +2896,13 @@
             "value": "%1$@（%2$@）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%1$@（%2$@）"
+        }
+      }}
     },
     "diagnostics.incident.occurrences": {
       "extractionState": "manual",
@@ -2163,7 +2937,25 @@
             }
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "variations": {
+          "plural": {
+            "one": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 次出现"
+              }
+            },
+            "other": {
+              "stringUnit": {
+                "state": "translated",
+                "value": "%lld 次出现"
+              }
+            }
+          }
+        }
+      }}
     },
     "diagnostics.incident.outage": {
       "extractionState": "manual",
@@ -2180,7 +2972,13 @@
             "value": "トランスポート障害: %1$@が%2$@にわたって発生しました。最新: %3$@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输中断：%1$@ 持续 %2$@。最近一次：%3$@"
+        }
+      }}
     },
     "diagnostics.path.direct": {
       "extractionState": "manual",
@@ -2197,7 +2995,13 @@
             "value": "直接"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "直连"
+        }
+      }}
     },
     "diagnostics.path.loopback": {
       "extractionState": "manual",
@@ -2214,7 +3018,13 @@
             "value": "ループバック"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "回环"
+        }
+      }}
     },
     "diagnostics.path.privateNetwork": {
       "extractionState": "manual",
@@ -2231,7 +3041,13 @@
             "value": "プライベートネットワーク"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "私有网络"
+        }
+      }}
     },
     "diagnostics.path.relay": {
       "extractionState": "manual",
@@ -2248,7 +3064,13 @@
             "value": "リレー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继"
+        }
+      }}
     },
     "diagnostics.path.unknown": {
       "extractionState": "manual",
@@ -2265,7 +3087,13 @@
             "value": "不明な経路"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知路径"
+        }
+      }}
     },
     "diagnostics.pathOperation.closed": {
       "extractionState": "manual",
@@ -2282,7 +3110,13 @@
             "value": "終了"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已关闭"
+        }
+      }}
     },
     "diagnostics.pathOperation.lagged": {
       "extractionState": "manual",
@@ -2299,7 +3133,13 @@
             "value": "遅延"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已延迟"
+        }
+      }}
     },
     "diagnostics.pathOperation.opened": {
       "extractionState": "manual",
@@ -2316,7 +3156,13 @@
             "value": "開始"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已打开"
+        }
+      }}
     },
     "diagnostics.pathOperation.selected": {
       "extractionState": "manual",
@@ -2333,7 +3179,13 @@
             "value": "選択"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已选中"
+        }
+      }}
     },
     "diagnostics.phase.active": {
       "extractionState": "manual",
@@ -2350,7 +3202,13 @@
             "value": "アクティブ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "活跃"
+        }
+      }}
     },
     "diagnostics.phase.background": {
       "extractionState": "manual",
@@ -2367,7 +3225,13 @@
             "value": "バックグラウンド"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "后台"
+        }
+      }}
     },
     "diagnostics.phase.inactive": {
       "extractionState": "manual",
@@ -2384,7 +3248,13 @@
             "value": "非アクティブ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "不活跃"
+        }
+      }}
     },
     "diagnostics.purpose.backgroundControl": {
       "extractionState": "manual",
@@ -2401,7 +3271,13 @@
             "value": "バックグラウンド制御"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "后台控制"
+        }
+      }}
     },
     "diagnostics.purpose.featureLane": {
       "extractionState": "manual",
@@ -2418,7 +3294,13 @@
             "value": "機能レーン"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "功能通道"
+        }
+      }}
     },
     "diagnostics.purpose.foregroundControl": {
       "extractionState": "manual",
@@ -2435,7 +3317,13 @@
             "value": "フォアグラウンド制御"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "前台控制"
+        }
+      }}
     },
     "diagnostics.purpose.probe": {
       "extractionState": "manual",
@@ -2452,7 +3340,13 @@
             "value": "接続プローブ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "连接探测"
+        }
+      }}
     },
     "diagnostics.reachability.offline": {
       "extractionState": "manual",
@@ -2469,7 +3363,13 @@
             "value": "オフライン"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "离线"
+        }
+      }}
     },
     "diagnostics.reachability.online": {
       "extractionState": "manual",
@@ -2486,7 +3386,13 @@
             "value": "オンライン"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在线"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.foreground": {
       "extractionState": "manual",
@@ -2503,7 +3409,13 @@
             "value": "アプリがフォアグラウンドに戻りました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用回到前台"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.livenessFailed": {
       "extractionState": "manual",
@@ -2520,7 +3432,13 @@
             "value": "稼働確認に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "存活检查失败"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.manualRetry": {
       "extractionState": "manual",
@@ -2537,7 +3455,13 @@
             "value": "手動再試行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "手动重试"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.networkChanged": {
       "extractionState": "manual",
@@ -2554,7 +3478,13 @@
             "value": "ネットワークが変更されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "网络已更改"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.presenceNotification": {
       "extractionState": "manual",
@@ -2571,7 +3501,13 @@
             "value": "プレゼンス通知"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在线状态通知"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.retryDelayExpired": {
       "extractionState": "manual",
@@ -2588,7 +3524,13 @@
             "value": "自動再試行の待機時間が終了しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "自动重试延迟已过期"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.streamEnded": {
       "extractionState": "manual",
@@ -2605,7 +3547,13 @@
             "value": "イベントストリームが終了しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "事件流已结束"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.subscriptionFailed": {
       "extractionState": "manual",
@@ -2622,7 +3570,13 @@
             "value": "購読を開始できませんでした"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "订阅启动失败"
+        }
+      }}
     },
     "diagnostics.recoveryTrigger.writeTimedOut": {
       "extractionState": "manual",
@@ -2639,7 +3593,13 @@
             "value": "トランスポートへの書き込みがタイムアウトしました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "传输写入超时"
+        }
+      }}
     },
     "diagnostics.report.build": {
       "extractionState": "manual",
@@ -2656,7 +3616,13 @@
             "value": "ビルド: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "构建版本：%@"
+        }
+      }}
     },
     "diagnostics.report.empty": {
       "extractionState": "manual",
@@ -2673,7 +3639,13 @@
             "value": "記録されたイベントはありません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未记录任何事件。"
+        }
+      }}
     },
     "diagnostics.report.eventCount": {
       "extractionState": "manual",
@@ -2690,7 +3662,13 @@
             "value": "イベント数: %lld"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "事件数量：%lld"
+        }
+      }}
     },
     "diagnostics.report.format": {
       "extractionState": "manual",
@@ -2707,7 +3685,13 @@
             "value": "レポート形式: %lld"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "报告格式：%lld"
+        }
+      }}
     },
     "diagnostics.report.generated": {
       "extractionState": "manual",
@@ -2724,7 +3708,13 @@
             "value": "生成日時: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "生成时间：%@"
+        }
+      }}
     },
     "diagnostics.report.relativeSecondsUnit": {
       "extractionState": "manual",
@@ -2741,7 +3731,13 @@
             "value": "秒"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "秒"
+        }
+      }}
     },
     "diagnostics.report.source": {
       "extractionState": "manual",
@@ -2758,7 +3754,13 @@
             "value": "生成元: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "来源：%@"
+        }
+      }}
     },
     "diagnostics.report.timeline": {
       "extractionState": "manual",
@@ -2775,7 +3777,13 @@
             "value": "タイムライン（古い順）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "时间线（最早的在前）"
+        }
+      }}
     },
     "diagnostics.report.title": {
       "extractionState": "manual",
@@ -2792,7 +3800,13 @@
             "value": "cmux Irohとトランスポートのレポート"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "cmux Iroh 与传输报告"
+        }
+      }}
     },
     "diagnostics.responder.none": {
       "extractionState": "manual",
@@ -2809,7 +3823,13 @@
             "value": "なし"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无"
+        }
+      }}
     },
     "diagnostics.responder.other": {
       "extractionState": "manual",
@@ -2826,7 +3846,13 @@
             "value": "その他のレスポンダ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "其他响应者"
+        }
+      }}
     },
     "diagnostics.responder.terminalInput": {
       "extractionState": "manual",
@@ -2843,7 +3869,13 @@
             "value": "ターミナル入力"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端输入"
+        }
+      }}
     },
     "diagnostics.responder.terminalSurface": {
       "extractionState": "manual",
@@ -2860,7 +3892,13 @@
             "value": "ターミナルサーフェス"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端表面"
+        }
+      }}
     },
     "diagnostics.responder.textField": {
       "extractionState": "manual",
@@ -2877,7 +3915,13 @@
             "value": "テキストフィールド"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文本字段"
+        }
+      }}
     },
     "diagnostics.responder.textView": {
       "extractionState": "manual",
@@ -2894,7 +3938,13 @@
             "value": "テキストビュー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文本视图"
+        }
+      }}
     },
     "diagnostics.role.broker": {
       "extractionState": "manual",
@@ -2911,7 +3961,13 @@
             "value": "ブローカー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中介"
+        }
+      }}
     },
     "diagnostics.role.macHost": {
       "extractionState": "manual",
@@ -2928,7 +3984,13 @@
             "value": "Macホスト"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mac 主机"
+        }
+      }}
     },
     "diagnostics.role.mobileClient": {
       "extractionState": "manual",
@@ -2945,7 +4007,13 @@
             "value": "iOSクライアント"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "iOS 客户端"
+        }
+      }}
     },
     "diagnostics.role.relay": {
       "extractionState": "manual",
@@ -2962,7 +4030,13 @@
             "value": "リレー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "中继"
+        }
+      }}
     },
     "diagnostics.role.unspecified": {
       "extractionState": "manual",
@@ -2979,7 +4053,13 @@
             "value": "未指定のランタイム"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未指定的运行时"
+        }
+      }}
     },
     "diagnostics.session.allPathsClosed": {
       "extractionState": "manual",
@@ -2996,7 +4076,13 @@
             "value": "すべての経路が閉じました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "所有路径已关闭"
+        }
+      }}
     },
     "diagnostics.session.applicationLaneFailed": {
       "extractionState": "manual",
@@ -3013,7 +4099,13 @@
             "value": "アプリケーションレーンに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用通道失败"
+        }
+      }}
     },
     "diagnostics.session.closedSessionEvicted": {
       "extractionState": "manual",
@@ -3030,7 +4122,13 @@
             "value": "終了済みセッションを破棄しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已关闭的会话被逐出"
+        }
+      }}
     },
     "diagnostics.session.controlOwnerReleased": {
       "extractionState": "manual",
@@ -3047,7 +4145,13 @@
             "value": "制御所有者が解放されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "控制方已释放"
+        }
+      }}
     },
     "diagnostics.session.controlReadFailed": {
       "extractionState": "manual",
@@ -3064,7 +4168,13 @@
             "value": "制御データの読み取りに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "控制读取失败"
+        }
+      }}
     },
     "diagnostics.session.controlWriteFailed": {
       "extractionState": "manual",
@@ -3081,7 +4191,13 @@
             "value": "制御データの書き込みに失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "控制写入失败"
+        }
+      }}
     },
     "diagnostics.session.established": {
       "extractionState": "manual",
@@ -3098,7 +4214,13 @@
             "value": "確立済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已建立"
+        }
+      }}
     },
     "diagnostics.session.explicitlyInvalidated": {
       "extractionState": "manual",
@@ -3115,7 +4237,13 @@
             "value": "明示的に無効化されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已显式失效"
+        }
+      }}
     },
     "diagnostics.session.remoteClosed": {
       "extractionState": "manual",
@@ -3132,7 +4260,13 @@
             "value": "リモート側が閉じました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "远程已关闭"
+        }
+      }}
     },
     "diagnostics.session.runtimeDeactivated": {
       "extractionState": "manual",
@@ -3149,7 +4283,13 @@
             "value": "ランタイムが無効化されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "运行时已停用"
+        }
+      }}
     },
     "diagnostics.session.runtimeReconfigured": {
       "extractionState": "manual",
@@ -3166,7 +4306,13 @@
             "value": "ランタイムが再構成されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "运行时已重新配置"
+        }
+      }}
     },
     "diagnostics.summary.details": {
       "extractionState": "manual",
@@ -3183,7 +4329,13 @@
             "value": "%1$@（%2$@）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%1$@（%2$@）"
+        }
+      }}
     },
     "diagnostics.summary.field": {
       "extractionState": "manual",
@@ -3200,7 +4352,13 @@
             "value": "%1$@: %2$@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%1$@：%2$@"
+        }
+      }}
     },
     "diagnostics.summary.separator": {
       "extractionState": "manual",
@@ -3217,7 +4375,13 @@
             "value": "、"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "，"
+        }
+      }}
     },
     "diagnostics.transport.debugLoopback": {
       "extractionState": "manual",
@@ -3234,7 +4398,13 @@
             "value": "デバッグループバック"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "调试回环"
+        }
+      }}
     },
     "diagnostics.transport.iroh": {
       "extractionState": "manual",
@@ -3251,7 +4421,13 @@
             "value": "Iroh"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Iroh"
+        }
+      }}
     },
     "diagnostics.transport.tailscale": {
       "extractionState": "manual",
@@ -3268,7 +4444,13 @@
             "value": "Tailscale"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tailscale"
+        }
+      }}
     },
     "diagnostics.transport.unknown": {
       "extractionState": "manual",
@@ -3285,7 +4467,13 @@
             "value": "不明なトランスポート"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知传输"
+        }
+      }}
     },
     "diagnostics.transport.websocket": {
       "extractionState": "manual",
@@ -3302,7 +4490,13 @@
             "value": "WebSocket"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "WebSocket"
+        }
+      }}
     },
     "diagnostics.unknown.appPhase": {
       "extractionState": "manual",
@@ -3319,7 +4513,13 @@
             "value": "不明なアプリフェーズ（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知应用阶段（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.closeInitiator": {
       "extractionState": "manual",
@@ -3336,7 +4536,13 @@
             "value": "不明な切断開始元（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知关闭发起方（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.failure": {
       "extractionState": "manual",
@@ -3353,7 +4559,13 @@
             "value": "不明なエラー（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知故障（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.networkState": {
       "extractionState": "manual",
@@ -3370,7 +4582,13 @@
             "value": "不明なネットワーク状態（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知网络状态（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.path": {
       "extractionState": "manual",
@@ -3387,7 +4605,13 @@
             "value": "不明な経路（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知路径（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.pathOperation": {
       "extractionState": "manual",
@@ -3404,7 +4628,13 @@
             "value": "不明な経路操作（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知路径操作（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.recoveryTrigger": {
       "extractionState": "manual",
@@ -3421,7 +4651,13 @@
             "value": "不明な復旧トリガー（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知恢复触发条件（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.responder": {
       "extractionState": "manual",
@@ -3438,7 +4674,13 @@
             "value": "不明なレスポンダ（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知响应者（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.sessionPurpose": {
       "extractionState": "manual",
@@ -3455,7 +4697,13 @@
             "value": "不明なセッション用途（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知会话用途（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.sessionState": {
       "extractionState": "manual",
@@ -3472,7 +4720,13 @@
             "value": "不明なセッション状態（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知会话状态（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.state": {
       "extractionState": "manual",
@@ -3489,7 +4743,13 @@
             "value": "不明な状態（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知状态（%lld）"
+        }
+      }}
     },
     "diagnostics.unknown.transport": {
       "extractionState": "manual",
@@ -3506,7 +4766,13 @@
             "value": "不明なトランスポート（%lld）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未知传输（%lld）"
+        }
+      }}
     }
   },
   "version": "1.0"

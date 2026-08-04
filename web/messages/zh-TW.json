@@ -3645,5 +3645,341 @@
         "action": "管理方案"
       }
     }
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro 已啟用",
+    "title": "cmux Pro 已啟用",
+    "body": "我們已使用 {email} 建立或升級你的帳戶。你現在可以開啟 cmux，或新增更多登入方式。",
+    "emailLabel": "購買電子郵件",
+    "whatUnlockedTitle": "已解鎖的功能",
+    "openCmux": "開啟 cmux",
+    "manageBilling": "管理帳單",
+    "manageSignInMethods": "管理登入方式",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud VM 上的雲端代理程式",
+        "body": "在隔離的遠端沙盒中執行代理程式。",
+        "action": "開啟 cmux"
+      },
+      "modelGateway": {
+        "title": "模型閘道",
+        "body": "跨供應商路由請求，並提供用量與成本分析，每月另附 20 個運算時數。",
+        "action": "開啟模型閘道"
+      },
+      "aiAccounts": {
+        "title": "連接你的 AI 帳戶",
+        "body": "新增供應商帳戶，讓 cmux 可以透過這些帳戶路由工作。",
+        "action": "連接供應商"
+      },
+      "iosApp": {
+        "title": "cmux iOS 應用程式",
+        "body": "在手機上使用 cmux。",
+        "action": "加入 iOS 測試版"
+      }
+    }
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "與 cmux 洽談 Enterprise 部署、SSO、自架 Cloud VM、稽核日誌與承諾用量。",
+    "section": "Enterprise",
+    "title": "為你的團隊導入 cmux Cloud VM、SSO 與稽核管控。",
+    "body": "告訴我們你在組織中部署 cmux 的需求。Enterprise 需求會直接轉交給創辦人處理，因此資安審查、採購與自架需求都能直接獲得處理。",
+    "points": [
+      "針對必須留在你環境內的程式碼，提供自架的雲端執行與網路環境。",
+      "SSO、SAML、稽核日誌、集中化管理與團隊共用規則。",
+      "承諾用量、大量計價，以及資安或採購審查支援。"
+    ],
+    "formAriaLabel": "Enterprise 聯絡表單",
+    "form": {
+      "firstName": "名字",
+      "lastName": "姓氏",
+      "companyName": "公司名稱",
+      "jobFunction": "職務類別",
+      "jobTitle": "職稱",
+      "businessEmail": "公司電子郵件",
+      "phoneNumber": "電話號碼",
+      "country": "國家/地區",
+      "companySize": "公司規模",
+      "deploymentNeeds": "部署需求",
+      "comments": "備註",
+      "selectPlaceholder": "請選擇",
+      "jobFunctionOptions": [
+        "工程",
+        "平台",
+        "資安",
+        "IT",
+        "採購",
+        "高階主管",
+        "其他"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO 或 SAML",
+        "自架 Cloud VM",
+        "自架模型閘道",
+        "稽核日誌與法規遵循",
+        "Cloud VM 承諾用量",
+        "資安或採購審查",
+        "其他"
+      ],
+      "privacy": "我們會使用這些資訊來回覆你的 Enterprise 需求，並將其轉交給合適的創辦人。我們不會出售聯絡資訊。",
+      "submit": "送出",
+      "submitting": "送出中...",
+      "success": "感謝您。我們已收到您的需求，將從 founders@manaflow.com 回覆您。",
+      "error": "發生錯誤。請再試一次，或寄信至 founders@manaflow.com。"
+    }
+  },
+  "ios": {
+    "metaTitle": "cmux iOS — 在 iPhone 與 iPad 上使用你的終端機",
+    "metaDescription": "cmux iOS 應用程式會透過你自己的 Tailscale 或區域網路，將 Mac 終端機即時鏡像到 iPhone 與 iPad。隨時隨地操控你的編碼代理程式。",
+    "title": "cmux iOS",
+    "tagline": "你的終端機，就放在口袋裡。",
+    "subtitle": "cmux iOS 應用程式會將 Mac 終端機即時鏡像到 iPhone 與 iPad。透過你自己的 Tailscale 或區域網路，隨時隨地操控編碼代理程式、查看建置進度並切換工作區。",
+    "ctaBeta": "從 TestFlight 下載",
+    "ctaDocs": "閱讀 iOS 說明文件",
+    "screenshotAlt": "顯示即時代理程式終端機的 cmux iOS 應用程式",
+    "features": "功能",
+    "realtimeSync": "即時同步",
+    "realtimeSyncDesc": "：你的終端機一有變化，就會立即串流到 iPhone 與 iPad。",
+    "byoNetwork": "使用自己的網路",
+    "byoNetworkDesc": "：透過你自己的 Tailscale 或區域網路連線，中間不經任何伺服器。",
+    "verticalTabs": "垂直分頁",
+    "verticalTabsDesc": "：如同桌面版，每個工作區都只需輕點一下即可開啟。",
+    "notifications": "代理程式通知",
+    "notificationsDesc": "：當 Claude、Codex 或任何代理程式需要你的輸入時，你會收到通知。",
+    "keyboard": "完整鍵盤",
+    "keyboardDesc": "：支援硬體鍵盤快速鍵，以及具備方向鍵、Tab 與修飾鍵的終端機等級輸入列。",
+    "native": "原生且快速",
+    "nativeDesc": "：使用與 Mac 應用程式相同的引擎進行 GPU 加速渲染。",
+    "howTitle": "運作方式",
+    "howBody": "從 Mobile Connect 視窗將 iPhone 與 Mac 配對，然後附加到任何工作區。連線會透過你自己的 Tailscale 或區域網路進行，因此你的終端機絕不會經過第三方伺服器。",
+    "galleryTitle": "在終端機中執行任何程式",
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "{name} 在 iPhone 的 cmux 終端機中執行"
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI：專為代理程式打造的終端機工作區",
+      "metaDescription": "透過適用於 macOS、Linux 與 Windows 的快速開放原始碼終端機介面，管理工作區、分割窗格、瀏覽器分頁與遠端機器。",
+      "eyebrow": "cmux TUI · 開放原始碼",
+      "title": "隨處可用的終端機工作區。",
+      "intro": "cmux TUI 將專為編碼代理程式打造的工作區模型帶到 macOS、Linux 與 Windows。把 shell、瀏覽器、測試與長時間執行的代理程式，集中管理在一個以鍵盤為主的樹狀結構中。",
+      "runButton": "安裝 cmux",
+      "docsButton": "閱讀說明文件",
+      "sourceButton": "檢視原始碼",
+      "screenshotAlt": "cmux TUI 在 macOS 的 cmux 內執行，TUI 工作區欄旁以三個窗格分別顯示 Neovim、OpenCode 與 Hunk。",
+      "screenshotCaption": "這是在 macOS 的 cmux 內執行的真實 cmux-tui 工作階段。可看到 TUI 工作區欄；macOS 應用程式的側邊欄已隱藏。",
+      "facts": {
+        "platforms": {
+          "label": "支援平台",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "終端機引擎",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "原始碼",
+          "value": "開放原始碼"
+        }
+      },
+      "workflowEyebrow": "整個任務收在單一樹狀結構",
+      "workflowTitle": "讓所有代理程式與工具一目了然。",
+      "workflowBody": "工作區包含畫面，畫面包含分割窗格，窗格包含終端機或瀏覽器分頁。同一個即時樹狀結構可以從本機附加、透過 SSH 連線、在網頁上呈現，或經由 socket API 控制。",
+      "features": {
+        "tree": {
+          "number": "01 / 工作區",
+          "title": "依任務組織",
+          "body": "為每個功能、調查或代理程式團隊建立專屬工作區。切換時不會遺失終端機狀態或版面配置。"
+        },
+        "agents": {
+          "number": "02 / 代理程式",
+          "title": "掌握並行工作",
+          "body": "將編碼代理程式放在測試、日誌與審查指令旁。通知與代理程式狀態會持續綁定在其所屬的表面上。"
+        },
+        "browser": {
+          "number": "03 / 瀏覽器",
+          "title": "開啟真正的瀏覽器分頁",
+          "body": "以分頁形式操作 Chrome 目標，與終端機程序並列，支援持久化設定檔、鍵盤輸入、滑鼠輸入與即時畫面。"
+        },
+        "remote": {
+          "number": "04 / 機器",
+          "title": "在機器之間移動",
+          "body": "使用選用的機器欄，在本機工作階段、Unix socket、SSH 主機與 cmux Cloud 連線之間切換。"
+        }
+      },
+      "keyboardEyebrow": "預設即快速",
+      "keyboardTitle": "沿用 tmux 肌肉記憶，但模型更豐富。",
+      "keyboardBody": "預設的 Ctrl-b 前綴保留熟悉的窗格指令，同時新增工作區、分頁、瀏覽器表面、可捲動的檢視區、版面配置復原與滑鼠操作。",
+      "keys": {
+        "split": "向右分割作用中的窗格",
+        "tab": "在窗格中開啟分頁",
+        "workspace": "建立工作區",
+        "viewport": "在右側新增可捲動的窗格"
+      },
+      "installEyebrow": "立即開始",
+      "installTitle": "一個指令。不需要應用程式視窗。",
+      "installBody": "安裝程式會為你的平台選擇對應的原生二進位檔，驗證其 SHA-256 校驗和，並將 cmux 指令加入你的 PATH。",
+      "installTabs": {
+        "label": "作業系統",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "檢視安裝腳本",
+        "copy": "複製安裝指令",
+        "copied": "已複製"
+      },
+      "installNpx": "已經有 Node.js 嗎？你也可以執行",
+      "fullDocs": "安裝、按鍵、遠端工作階段與自動化",
+      "browseSource": "在 GitHub 上瀏覽 cmux-tui"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI 說明文件",
+      "metaDescription": "安裝 cmux TUI、了解其工作區模型與鍵盤操作、附加到工作階段、連接遠端機器，並加以自動化。",
+      "title": "cmux TUI",
+      "intro": "cmux TUI 是適用於 macOS、Linux 與 Windows 的 Rust 終端機多工器。它將工作區、畫面、分割窗格、終端機分頁、瀏覽器分頁、遠端工作階段與控制 socket 整合在單一程序中。",
+      "screenshotAlt": "cmux TUI 在 macOS 的 cmux 內執行，TUI 工作區欄旁以三個窗格分別顯示 Neovim、OpenCode 與 Hunk。",
+      "screenshotCaption": "一個同時執行 Neovim、OpenCode 與 Hunk 審查 TUI 的即時工作階段。",
+      "installTitle": "安裝與執行",
+      "installIntro": "安裝腳本會依你的作業系統與架構選擇對應的原生二進位檔，驗證其 SHA-256 校驗和，並將 cmux 加入你的 PATH。",
+      "installTabs": {
+        "label": "作業系統",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "檢視安裝腳本",
+        "copy": "複製安裝指令",
+        "copied": "已複製"
+      },
+      "installNpx": "如果已安裝 Node.js，你可以直接執行 cmux，不必永久安裝：",
+      "platforms": "預建版本支援 Apple Silicon 與 Intel Mac、x64 與 Arm64 Linux，以及 x64 Windows。Windows on Arm 會透過模擬執行 x64 版本。從原始碼建置需要 Rust、Zig 0.15.2 與本儲存庫的 Ghostty 子模組。",
+      "modelTitle": "工作區模型",
+      "modelIntro": "cmux TUI 以單一持久化的樹狀結構管理一切，而不是把每個程序攤平成互不相干的終端機分頁。",
+      "modelBody": "每個工作階段擁有一個控制 socket。每個工作區可以包含多個畫面；每個畫面擁有各自的窗格版面配置；每個窗格可以包含終端機與瀏覽器分頁。只要還有其他分頁，關閉分頁就不會關閉其窗格。",
+      "keyboardTitle": "鍵盤與滑鼠",
+      "keyboardIntro": "預設前綴為 Ctrl-b。連續按兩次會將字面上的 Ctrl-b 傳送給作用中的終端機。",
+      "keyTable": {
+        "keys": "按鍵",
+        "action": "動作"
+      },
+      "keys": {
+        "splitRight": "向右分割作用中的窗格",
+        "splitDown": "向下分割作用中的窗格",
+        "newTab": "建立終端機分頁",
+        "newWorkspace": "建立工作區",
+        "sidebar": "顯示或隱藏工作區欄",
+        "detach": "在本機結束，或從伺服器卸離"
+      },
+      "mouse": "直接點擊窗格邊界、分頁、工作區與畫面。在窗格上按右鍵可開啟動作選單。當窗格內的應用程式佔用滑鼠輸入時，請按住 Shift 再按右鍵。",
+      "sessionsTitle": "無頭工作階段與附加",
+      "sessionsIntro": "無頭模式會在沒有本機介面的情況下，持續執行 mux 後端與其中的終端機。需要介面時，再從另一個終端機附加即可。",
+      "sessionsBody": "預設工作階段名稱為 main。具名工作階段使用各自的 Unix socket。卸離後無頭伺服器仍會繼續執行，因此之後附加時會還原相同的樹狀結構與終端機狀態。",
+      "remoteTitle": "遠端機器",
+      "remoteIntro": "啟用機器欄，即可在目前工作階段與已設定的 Unix socket 或 SSH 目標之間切換。",
+      "remoteBody": "遠端機器必須已經執行無頭 cmux 工作階段，且非互動式 SSH 必須能找到 cmux 二進位檔。cmux 會進行嚴格的主機金鑰檢查，並停用代理轉送與連接埠轉送。",
+      "browserTitle": "瀏覽器分頁",
+      "browserBody": "瀏覽器分頁會透過 Chrome DevTools Protocol 控制真正的 Chrome 或 Chromium 目標。設定檔會在多次工作階段之間保留，因此 Cookie 與登入狀態可以持續可用。使用下列按鍵開啟瀏覽器分頁：",
+      "automationTitle": "自動化與控制 socket",
+      "automationIntro": "TUI 使用的所有樹狀結構變更與檢視功能，都可以透過命令列與 JSON Lines 控制 socket 使用。",
+      "automationBody": "指令可以建立工作區、執行程式、分割窗格、傳送輸入、讀取可見的終端機文字、訂閱事件並回報代理程式狀態。儲存庫內含 TypeScript、Python、Go、Java 與 Rust 的型別綁定。",
+      "configTitle": "設定",
+      "configBody": "在 TUI 設定檔中設定按鍵、側邊欄寬度、機器、瀏覽器行為、啟動指令與主題值。CMUX_TUI_CONFIG 會覆寫預設路徑。",
+      "moreTitle": "更多資訊",
+      "links": {
+        "product": "cmux TUI 產品頁",
+        "sourceDocs": "完整的原始碼說明文件",
+        "source": "cmux-tui 原始碼"
+      }
+    }
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux Vault",
+      "title": "Vault 總覽",
+      "description": "已同步工作階段的儲存空間與上傳活動。",
+      "emptyTitle": "尚無已同步的工作階段",
+      "emptyBody": "請在具有本機代理程式工作階段的機器上執行 CLI 同步指令。",
+      "totalSessions": "工作階段總數",
+      "totalRawBytes": "原始位元組",
+      "totalCompressedBytes": "壓縮後位元組",
+      "latestUpload": "最近上傳",
+      "never": "從未"
+    },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "核准 CLI 存取",
+      "description": "確認 cmux-vault 顯示的代碼，以將此裝置連線到已登入的 cmux 帳戶。",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "核准 Subrouter 存取",
+      "subrouterDescription": "確認 sr 顯示的代碼，以將此裝置連線到已登入的 cmux 團隊。",
+      "codeLabel": "使用者代碼",
+      "approveButton": "核准存取",
+      "approving": "核准中...",
+      "success": "已核准存取。你可以返回終端機。",
+      "error": "無法核准此代碼。請確認代碼尚未過期。"
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "已同步的工作階段",
+      "description": "從本機機器同步的最新編碼代理程式對話記錄。",
+      "backToOverview": "返回總覽",
+      "agent": "代理程式",
+      "session": "工作階段",
+      "cwd": "工作目錄",
+      "rawSize": "原始大小",
+      "compressedSize": "壓縮後大小",
+      "snapshots": "快照",
+      "firstUploaded": "首次上傳",
+      "lastUploaded": "最後上傳",
+      "unknownCwd": "未知目錄",
+      "searchLabel": "搜尋工作階段",
+      "searchPlaceholder": "搜尋 cwd、路徑或工作階段 ID",
+      "tableLabel": "Vault 工作階段",
+      "loadingMore": "載入更多...",
+      "loadError": "無法載入更多工作階段。",
+      "scrollForMore": "向下捲動以查看更多工作階段",
+      "noResults": "沒有符合這些篩選條件的工作階段。",
+      "endOfList": "已到工作階段結尾",
+      "copySession": "複製",
+      "copiedSession": "已複製"
+    },
+    "detail": {
+      "backToSessions": "← 工作階段",
+      "detailsSummary": "詳細資料",
+      "snapshotsSummary": "快照（{count}）",
+      "cwd": "工作目錄",
+      "rawSize": "原始大小",
+      "compressedSize": "壓縮後大小",
+      "firstUploaded": "首次上傳",
+      "lastUploaded": "最後上傳",
+      "unknownCwd": "未知目錄",
+      "unknownSize": "未知大小",
+      "copyCommand": "複製指令",
+      "copiedCommand": "已複製",
+      "copySessionId": "複製工作階段 ID",
+      "copiedSessionId": "已複製",
+      "downloadLink": "下載最新的對話記錄",
+      "downloadExpires": "此預先簽署的連結即將到期。",
+      "downloadUnavailable": "目前無法下載。",
+      "loadingMessages": "載入中… {count} 則訊息",
+      "loadedMessages": "{count} 則訊息",
+      "streamError": "在 {count} 則訊息之後串流失敗",
+      "transcriptTooLarge": "在 {count} 則訊息之後停止（對話記錄過大）",
+      "emptyTranscript": "找不到可讀取的對話記錄訊息。",
+      "roles": {
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
+      }
+    }
   }
 }
