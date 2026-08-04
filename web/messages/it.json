@@ -1411,10 +1411,10 @@
       "versionTitle": "cmux {version} · Registro modifiche",
       "releaseNavLabel": "Versioni vicine a cmux {version}",
       "sections": {
-        "added": "Aggiunto",
-        "changed": "Modificato",
-        "fixed": "Corretto",
-        "removed": "Rimosso",
+        "added": "Aggiunte",
+        "changed": "Modifiche",
+        "fixed": "Correzioni",
+        "removed": "Rimozioni",
         "contributors": "Collaboratori"
       }
     },
