@@ -13,6 +13,59 @@ import CmuxSidebar
 
 @MainActor
 struct WorkspaceSidebarObservationTests {
+    @Test(arguments: [
+        ("codex.session-8160", "codex"),
+        ("claude_code", "claude"),
+    ])
+    func customSidebarSurfaceExposesTrackedAgentKind(
+        pidKey: String,
+        expectedAgent: String
+    ) throws {
+        let agentWorkspace = Workspace()
+        let agentPanelId = try #require(agentWorkspace.focusedPanelId)
+        agentWorkspace.recordAgentPID(
+            key: pidKey,
+            pid: pid_t(ProcessInfo.processInfo.processIdentifier),
+            panelId: agentPanelId,
+            refreshPorts: false
+        )
+
+        let shellWorkspace = Workspace()
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: [
+                agentWorkspace.customSidebarWorkspaceSnapshot(
+                    index: 0,
+                    selectedId: agentWorkspace.id,
+                    unreadCount: 0
+                ),
+                shellWorkspace.customSidebarWorkspaceSnapshot(
+                    index: 1,
+                    selectedId: agentWorkspace.id,
+                    unreadCount: 0
+                ),
+            ],
+            selectedWorkspaceId: agentWorkspace.id,
+            selectedWorkspaceTitle: agentWorkspace.title,
+            totalUnreadCount: 0,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let workspaces = try #require(
+            CustomSidebarDataContextBuilder()
+                .dataContext(for: snapshot)["workspaces"]?
+                .iterationValues
+        )
+        let agentSurface = try #require(
+            workspaces[0].member("tabs")?.iterationValues?.first
+        )
+        let shellSurface = try #require(
+            workspaces[1].member("tabs")?.iterationValues?.first
+        )
+
+        #expect(agentSurface.member("agent") == .string(expectedAgent))
+        #expect(shellSurface.member("agent") == nil)
+    }
+
     @Test func sidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
         workspace.statusEntries["test_probe"] = SidebarStatusEntry(
