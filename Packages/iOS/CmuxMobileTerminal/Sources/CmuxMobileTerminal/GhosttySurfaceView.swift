@@ -93,13 +93,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
-    private var cursorBlinkState = TerminalCursorBlinkState()
-    var cursorOverlayLayer: CALayer?
+    private var cursorRenderWakeState = TerminalCursorRenderWakeState()
     /// Immutable last-verified pixels retained above an in-progress replay.
     var verifiedReplayFrozenPresentationLayer: CALayer?
     var verifiedReplayFrozenBackgroundLayer: CALayer?
     var verifiedReplayFrozenContentLayer: CALayer?
-    var verifiedReplayFrozenCursorLayer: CALayer?
     var verifiedReplayFrozenImage: CGImage?
     var verifiedReplayFrozenTransactionID: UInt64?
     var verifiedReplayFrozenViewportRect: CGRect?
@@ -109,12 +107,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Set before the pre-freeze drain submission and kept set until an exact
     /// replay presentation is revealed or the surface is torn down.
     var verifiedReplayRenderSuppressed = false
-    /// Whether the host terminal currently wants the cursor shown (DECTCEM).
-    /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
-    /// the render-grid producer forwards that in the VT-patch bytes, so we track
-    /// the last applied state from the byte stream and hide the overlay to
-    /// match. Defaults to visible (a normal shell shows its cursor).
-    private var hostCursorVisible: Bool = true
     var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
@@ -1223,9 +1215,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// The cursor's bottom edge in render-local points (the coordinate space
     /// of `lastRenderRect.size`), or nil when not measurable. Reads the same
-    /// non-blocking `ghostty_surface_ime_point` the cursor overlay uses, so
-    /// the provisional shrink pin can keep the cursor row visible without
-    /// riding the screen bottom.
+    /// non-blocking `ghostty_surface_ime_point` query, so the provisional
+    /// shrink pin can keep the cursor row visible without riding the screen
+    /// bottom. Ghostty remains the sole cursor renderer.
     private func cursorBottomInRenderPoints() -> CGFloat? {
         guard let surface else { return nil }
         var x: Double = 0
@@ -1260,7 +1252,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
         )
-        updateCursorOverlay()
     }
 
     /// The bottom safe-area inset (home-indicator height) in this surface's bounds.
@@ -2474,12 +2465,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let outputConfigTheme, preparedConfigBits != nil {
             appliedTerminalConfigTheme = outputConfigTheme
         }
-        // Track the host's cursor-visible mode (DECTCEM) straight from the VT
-        // bytes the surface is about to apply, so the cursor overlay can match a
-        // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
-        // previous visibility stands.
-        let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
-
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
         // hanging the main thread (`Thread.Futex.Deadline.wait`) until the
@@ -2527,10 +2512,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
                 self.scheduleVisibleArtifactCountUpdate()
-                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
-                    self.hostCursorVisible = cursorVisibilityDelta
-                    self.updateCursorOverlay()
-                }
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
@@ -2610,15 +2591,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // exact VT stream it received so desktop and mobile render the same
         // session history and prompt state.
         data
-    }
-
-    /// The final DECTCEM cursor-visibility state in `data`, or nil if the chunk
-    /// contains no cursor show/hide. Scans for the exact sequences the
-    /// render-grid producer emits: `ESC [ ? 2 5 h` (show) / `ESC [ ? 2 5 l`
-    /// (hide). The last occurrence wins, so a delta that toggles ends on the
-    /// applied state.
-    nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
-        TerminalDECTCEMCursorScanner.lastVisibility(in: data)
     }
 
     @objc
@@ -2966,28 +2938,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
-        cursorBlinkState.start(now: CACurrentMediaTime())
+        cursorRenderWakeState.start(now: CACurrentMediaTime())
         needsDraw = true
-        updateCursorOverlay()
     }
 
     func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
-        cursorOverlayLayer?.isHidden = true
     }
 
     /// Shared reaction to user-produced terminal input (typing, backspace,
-    /// escape sequences, paste): restart the cursor blink and optimistically
-    /// snap the local mirror to the bottom of scrollback. The mirror is
-    /// display-only — the Mac echoes input at the prompt — so a user who types
+    /// escape sequences, paste): restart Ghostty's cursor frame cadence and
+    /// optimistically snap the local mirror to the bottom of scrollback. The
+    /// mirror is display-only — the Mac echoes input at the prompt — so a user who types
     /// while scrolled up would otherwise keep looking at old scrollback and
     /// read the terminal as frozen. Passive output never forces this jump;
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         bumpUserViewportInteractionGeneration()
-        resetCursorBlink()
+        restartCursorRenderWake()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap
         // below, and UIScrollView momentum keeps producing more. Drop the
@@ -2999,12 +2969,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         enqueueScrollToBottom()
     }
 
-    /// Reset cursor to visible and restart blink cycle (call on user input).
-    private func resetCursorBlink() {
+    /// Request a frame now and restart the host cadence that gives Ghostty
+    /// opportunities to advance its renderer-owned cursor blink phase.
+    private func restartCursorRenderWake() {
         guard surface != nil else { return }
-        cursorBlinkState.reset(now: CACurrentMediaTime())
+        cursorRenderWakeState.reset(now: CACurrentMediaTime())
         needsDraw = true
-        updateCursorOverlay()
     }
 
     @objc func handleDisplayLinkFire() {
@@ -3084,9 +3054,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingGeometryReassert = false
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
-        let blinkChanged = cursorBlinkState.advance(now: now)
-        // Draw on content/cursor changes, and for a short bounded burst after
-        // any geometry change. iOS has no renderer-side vsync, so a frame is
+        let cursorRenderWakeDue = cursorRenderWakeState.consumeWakeIfDue(now: now)
+        // Draw on content changes, Ghostty cursor wake-ups, and for a short
+        // bounded burst after any geometry change. iOS has no renderer-side vsync, so a frame is
         // only produced when we ask. The renderer draws at the layer size read
         // at draw time and presents a frame behind, so a single post-resize
         // draw can land while the layer is still mid-animation, leaving a
@@ -3097,10 +3067,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // blocks, which made the app unresponsive.
         let geometrySettling = pendingRenderFrames > 0
         if geometrySettling { pendingRenderFrames -= 1 }
-        if needsDraw || blinkChanged || geometrySettling {
+        if needsDraw || cursorRenderWakeDue || geometrySettling {
             needsDraw = false
             requestRender()
-            updateCursorOverlay()
         }
 
         // Report the settled natural grid to the Mac once it has stopped
@@ -3255,69 +3224,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
-    func updateCursorOverlay() {
-        guard terminalTheme.cursorColorSemantic == nil else {
-            cursorOverlayLayer?.isHidden = true
-            return
-        }
-        guard let surface,
-              hostCursorVisible,
-              verifiedReplayFrozenPresentationLayer == nil,
-              window != nil,
-              !isHidden,
-              alpha > 0.01,
-              !lastRenderRect.isEmpty,
-              cellPixelSize.width > 0,
-              cellPixelSize.height > 0 else {
-            cursorOverlayLayer?.isHidden = true
-            return
-        }
-        let overlay = ensureCursorOverlayLayer()
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = 0
-        var height: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-
-        let scale = max(preferredScreenScale, 1)
-        overlay.contentsScale = scale
-        let cellWidth = max(cellPixelSize.width / scale, 1)
-        let cellHeight = max(CGFloat(height), cellPixelSize.height / scale, 1)
-        let cursorWidth = max(1.0 / scale, min(CGFloat(1.5), cellWidth))
-        let cursorX = lastRenderRect.minX + CGFloat(x) - (cellWidth / 2)
-        let cursorY = lastRenderRect.minY + CGFloat(y) - cellHeight
-        overlay.frame = CGRect(
-            x: floor(cursorX),
-            y: floor(cursorY),
-            width: cursorWidth,
-            height: ceil(cellHeight)
-        )
-        overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? terminalTheme.terminalCursorUIColor).cgColor
-            : (configBackgroundColor ?? terminalTheme.terminalBackgroundUIColor).cgColor
-        overlay.isHidden = false
-    }
-
-    private func ensureCursorOverlayLayer() -> CALayer {
-        if let cursorOverlayLayer {
-            return cursorOverlayLayer
-        }
-        let layer = CALayer()
-        layer.name = "cmux.cursorOverlay"
-        layer.zPosition = 1001
-        layer.actions = [
-            "backgroundColor": NSNull(),
-            "bounds": NSNull(),
-            "frame": NSNull(),
-            "position": NSNull(),
-        ]
-        self.layer.addSublayer(layer)
-        cursorOverlayLayer = layer
-        return layer
-    }
-
     private(set) var configBackgroundColor: UIColor?
-    private(set) var configCursorColor: UIColor?
 
     /// Recolors the surface, fallback, cursor, and input accessory in place.
     @MainActor
@@ -3327,9 +3234,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.backgroundColor = themeBackground
         snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
-        configCursorColor = terminalTheme.terminalCursorUIColor
         inputProxy.terminalTheme = terminalTheme
-        updateCursorOverlay()
         needsDraw = true
     }
 
@@ -3356,11 +3261,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             bounds.height > 0
         MobileDebugLog.anchormux("surface.occlusion visible=\(visible) window=\(window != nil) hidden=\(isHidden) alpha=\(alpha)")
         ghostty_surface_set_occlusion(surface, visible)
-        if visible {
-            updateCursorOverlay()
-        } else {
-            cursorOverlayLayer?.isHidden = true
-        }
     }
 
     /// Require a fresh settled viewport report whenever this view mounts.
@@ -3805,7 +3705,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
         )
-        updateCursorOverlay()
         needsDraw = true
         // Keep drawing for several frames so a frame lands at the final settled
         // layer size after CoreAnimation commits the bounds change. libghostty

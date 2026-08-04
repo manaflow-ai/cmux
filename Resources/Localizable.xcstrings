@@ -35811,6 +35811,23 @@
         }
       }
     },
+    "cli.surfaceResume.set.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: 不明なフラグ '%1$@'。利用可能なフラグ: %2$@。コマンド引数には -- <argv...> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -110592,13 +110609,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+            "value": "Shows the Mobile Connect button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneペアリングワークスペースを開くMobile Connectの入口を表示します。"
+            "value": "サイドバーのフッターにMobile Connectボタンを表示します。"
           }
         }
       }
