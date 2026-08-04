@@ -162,6 +162,7 @@ final class AutomationSocketUITests: XCTestCase {
         let passwordFileURL = isolatedHome
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
             .appendingPathComponent("socket-control-password", isDirectory: false)
+        let debugLogURL = isolatedHome.appendingPathComponent("cmux-debug.log", isDirectory: false)
         let password = "launch-rewrite-secret"
         try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try """
@@ -175,18 +176,16 @@ final class AutomationSocketUITests: XCTestCase {
 
         let runningApp = try await launchBundledApp(
             mode: "password",
-            isolatedHome: isolatedHome
+            isolatedHome: isolatedHome,
+            debugLogURL: debugLogURL
         )
         defer { terminateBundledApp(runningApp) }
 
-        XCTAssertTrue(
-            !runningApp.isTerminated,
-            "Expected app process to launch for password persistence test"
-        )
         guard let resolvedPath = resolveSocketPath(timeout: 15.0, allowTmpFallback: false) else {
             XCTFail(
                 "Expected password-protected control socket to exist. "
-                    + "terminated=\(runningApp.isTerminated) diagnostics=\(loadDiagnostics())"
+                    + "terminated=\(runningApp.isTerminated) diagnostics=\(loadDiagnostics()) "
+                    + "debugLog=\(loadTextFile(at: debugLogURL))"
             )
             return
         }
@@ -465,14 +464,17 @@ final class AutomationSocketUITests: XCTestCase {
         let process = Process()
         process.executableURL = cliURL
         process.arguments = arguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["HOME"] = isolatedHome.path
-        environment["CFFIXED_USER_HOME"] = isolatedHome.path
-        environment["XDG_CONFIG_HOME"] = isolatedHome
-            .appendingPathComponent(".config", isDirectory: true).path
-        environment["CMUX_TAG"] = launchTag
-        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "10"
-        environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
+        var environment = [
+            "HOME": isolatedHome.path,
+            "CFFIXED_USER_HOME": isolatedHome.path,
+            "XDG_CONFIG_HOME": isolatedHome
+                .appendingPathComponent(".config", isDirectory: true).path,
+            "CMUX_TAG": launchTag,
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "10",
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            environment["PATH"] = path
+        }
         process.environment = environment
 
         let stdoutPipe = Pipe()
@@ -495,7 +497,8 @@ final class AutomationSocketUITests: XCTestCase {
 
     private func launchBundledApp(
         mode: String,
-        isolatedHome: URL
+        isolatedHome: URL,
+        debugLogURL: URL
     ) async throws -> NSRunningApplication {
         let cliURL = try XCTUnwrap(
             bundledCLIURL(),
@@ -516,16 +519,21 @@ final class AutomationSocketUITests: XCTestCase {
             "-\(modeKey)", mode,
             "-NSAppSleepDisabled", "YES",
         ]
-        var environment = ProcessInfo.processInfo.environment
-        environment["HOME"] = isolatedHome.path
-        environment["CFFIXED_USER_HOME"] = isolatedHome.path
-        environment["XDG_CONFIG_HOME"] = isolatedHome
-            .appendingPathComponent(".config", isDirectory: true).path
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        environment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        environment["CMUX_TAG"] = launchTag
+        var environment = [
+            "HOME": isolatedHome.path,
+            "CFFIXED_USER_HOME": isolatedHome.path,
+            "XDG_CONFIG_HOME": isolatedHome
+                .appendingPathComponent(".config", isDirectory: true).path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            "CMUX_UI_TEST_SOCKET_SANITY": "1",
+            "CMUX_UI_TEST_DIAGNOSTICS_PATH": diagnosticsPath,
+            "CMUX_DEBUG_LOG": debugLogURL.path,
+            "CMUX_TAG": launchTag,
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            environment["PATH"] = path
+        }
         configuration.environment = environment
         return try await NSWorkspace.shared.openApplication(
             at: appURL,
@@ -538,6 +546,10 @@ final class AutomationSocketUITests: XCTestCase {
         if !app.terminate() {
             app.forceTerminate()
         }
+    }
+
+    private func loadTextFile(at url: URL) -> String {
+        (try? String(contentsOf: url, encoding: .utf8)) ?? "<missing>"
     }
 
     private func bundledCLIURL() -> URL? {
