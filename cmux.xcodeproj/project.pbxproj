@@ -1827,8 +1827,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
 		9016B0000000000000000009 /* SessionTranscriptLatestCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016B000000000000000000A /* SessionTranscriptLatestCollector.swift */; };
-		9016B0000000000000000005 /* SessionTranscriptPopoverCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016B0000000000000000006 /* SessionTranscriptPopoverCoordinator.swift */; };
-		90160000000000000000000F /* SessionTranscriptPopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000010 /* SessionTranscriptPopoverHost.swift */; };
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		90160000000000000000000B /* SessionTranscriptRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90160000000000000000000C /* SessionTranscriptRetention.swift */; };
@@ -4442,8 +4440,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerLayoutCodec.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
 		9016B000000000000000000A /* SessionTranscriptLatestCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLatestCollector.swift; sourceTree = "<group>"; };
-		9016B0000000000000000006 /* SessionTranscriptPopoverCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverCoordinator.swift; sourceTree = "<group>"; };
-		901600000000000000000010 /* SessionTranscriptPopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverHost.swift; sourceTree = "<group>"; };
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		90160000000000000000000C /* SessionTranscriptRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptRetention.swift; sourceTree = "<group>"; };
@@ -5648,8 +5644,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9016B0000000000000000004 /* SelectedWorkspaceDirectorySnapshot.swift */,
 				9016B0000000000000000008 /* PopoverAnchorView.swift */,
 				9016B000000000000000000A /* SessionTranscriptLatestCollector.swift */,
-				9016B0000000000000000006 /* SessionTranscriptPopoverCoordinator.swift */,
-				901600000000000000000010 /* SessionTranscriptPopoverHost.swift */,
 				90160000000000000000000C /* SessionTranscriptRetention.swift */,
 				901600000000000000000016 /* WeakWindowReference.swift */,
 				90160000000000000000000E /* Workspace+AgentConversationForkRequest.swift */,
@@ -9581,8 +9575,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D86840000000000000000007 /* SessionSplitContainerLayoutCodec.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
 				9016B0000000000000000009 /* SessionTranscriptLatestCollector.swift in Sources */,
-				9016B0000000000000000005 /* SessionTranscriptPopoverCoordinator.swift in Sources */,
-				90160000000000000000000F /* SessionTranscriptPopoverHost.swift in Sources */,
 				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				90160000000000000000000B /* SessionTranscriptRetention.swift in Sources */,
