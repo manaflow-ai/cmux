@@ -90,19 +90,29 @@ final class MarkdownLinkBoundaryRegressionTests {
                   var anchor = document.querySelector('a');
                   var authored = anchor && anchor.getAttribute('data-cmux-file-candidate');
                   anchor.setAttribute('href', 'https://raw/plans/agent-ticket-v2/w5-runner-design.md');
-                  anchor.click();
+                  var clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  });
+                  anchor.dispatchEvent(clickEvent);
                   return {
                     authored: authored,
-                    href: anchor.getAttribute('href')
+                    href: anchor.getAttribute('href'),
+                    defaultPrevented: clickEvent.defaultPrevented
                   };
                 })();
                 """
             )
-            let relativeSnapshot = try #require(relativeResult as? [String: String])
+            let relativeSnapshot = try #require(relativeResult as? [String: Any])
             let openMessage = await bridge.nextBody(action: "openMarkdownFile")
 
-            #expect(relativeSnapshot["authored"] == relativePath)
-            #expect(relativeSnapshot["href"] == "https://raw/plans/agent-ticket-v2/w5-runner-design.md")
+            #expect(relativeSnapshot["authored"] as? String == relativePath)
+            #expect(
+                relativeSnapshot["href"] as? String
+                    == "https://raw/plans/agent-ticket-v2/w5-runner-design.md"
+            )
+            #expect(relativeSnapshot["defaultPrevented"] as? Bool == true)
             #expect(openMessage["path"] as? String == relativePath)
             #expect(navigationDelegate.activatedURLs.isEmpty)
 
