@@ -42,6 +42,7 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let userDefaults: UserDefaults
     private let passwordStore: SocketControlPasswordStore
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
@@ -68,6 +69,7 @@ final class CmuxSettingsFileStore {
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
+        userDefaults: UserDefaults = .standard,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true,
         onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
@@ -77,9 +79,10 @@ final class CmuxSettingsFileStore {
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        self.userDefaults = userDefaults
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
-        importedManagedDefaults = Self.loadImportedManagedDefaults()
+        importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
         reload(applyLiveDefaultSideEffects: false)
         guard startWatching else { return }
@@ -89,9 +92,9 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    let previousSocketAccessMode = Self.liveSocketAccessMode()
+                    let previousSocketAccessMode = Self.liveSocketAccessMode(defaults: self.userDefaults)
                     self.reload()
-                    guard Self.liveSocketAccessMode() != previousSocketAccessMode else { continue }
+                    guard Self.liveSocketAccessMode(defaults: self.userDefaults) != previousSocketAccessMode else { continue }
                     self.onWatchedFileReload("settings.file_watcher")
                 }
             }
@@ -216,7 +219,8 @@ final class CmuxSettingsFileStore {
             let template = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
             let contents = Self.materializeBootstrapSocketPolicy(
                 in: template,
-                imported: importedManagedDefaults[SocketControlSettings.appStorageKey]
+                imported: importedManagedDefaults[SocketControlSettings.appStorageKey],
+                defaults: userDefaults
             )
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
@@ -290,7 +294,7 @@ final class CmuxSettingsFileStore {
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
         let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
-        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
+        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode(defaults: userDefaults).rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot, let malformedAutomation):
             mergeFallbackSettings(into: &snapshot)
@@ -305,7 +309,8 @@ final class CmuxSettingsFileStore {
         mergeFallbackSettings(into: &fallbackSnapshot)
         fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
             Self.socketModeAfterMissingPrimary(prior: priorSocketMode,
-                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey])
+                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey],
+                defaults: userDefaults)
         return fallbackSnapshot
     }
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
@@ -837,7 +842,7 @@ final class CmuxSettingsFileStore {
             let mode = raw.flatMap { knownModes.contains(normalizedRaw ?? "") ? SocketControlSettings.migrateMode($0) : nil }
             if mode == nil { logInvalid("automation.socketControlMode", sourcePath: sourcePath) }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                (mode ?? Self.failClosedSocketMode()).rawValue
+                (mode ?? Self.failClosedSocketMode(defaults: userDefaults)).rawValue
             )
         }
         if section.keys.contains("socketPassword") {
@@ -1245,7 +1250,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func backupValueForUserDefaultsKey(_ defaultsKey: String, managedValue: ManagedSettingsValue) -> BackupValue {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         switch managedValue {
         case .bool:
             guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
@@ -1287,7 +1292,7 @@ final class CmuxSettingsFileStore {
         _ backup: BackupValue,
         for defaultsKey: String
     ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
             case .absent:
@@ -1353,7 +1358,7 @@ final class CmuxSettingsFileStore {
         isDerivedFromLegacyWarnBeforeQuit: Bool = false,
         importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue? = nil
     ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard shouldApplyManagedUserDefaultsValue(
             value,
             for: defaultsKey,
@@ -1536,6 +1541,7 @@ final class CmuxSettingsFileStore {
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
         guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
+        let userDefaults = userDefaults
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
@@ -1572,10 +1578,10 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
-                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
-                    LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
+                    let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
+                    LanguageSettingsStore(defaults: userDefaults).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: userDefaults))
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
                     notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }
@@ -1601,8 +1607,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private static func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
-        let defaults = UserDefaults.standard
+    private static func loadImportedManagedDefaults(defaults: UserDefaults) -> [String: ManagedSettingsValue] {
         var imported: [String: ManagedSettingsValue]
         if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
            let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
@@ -1627,7 +1632,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         // Only write on a real change. UserDefaults posts didChangeNotification even when the
         // value is unchanged and even when the key being removed is absent, and observers of that
         // notification registered with `queue: .main` run synchronously on the posting thread. One
@@ -1654,7 +1659,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func loadBackups() -> [String: BackupValue] {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         guard let data = defaults.data(forKey: Self.backupsDefaultsKey),
               let backups = try? JSONDecoder().decode([String: BackupValue].self, from: data) else {
             return [:]
@@ -1663,7 +1668,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveBackups(_ backups: [String: BackupValue]) {
-        let defaults = UserDefaults.standard
+        let defaults = userDefaults
         // Same rule as saveImportedManagedDefaults: an unchanged write still posts.
         if backups.isEmpty {
             if defaults.object(forKey: Self.backupsDefaultsKey) != nil {
