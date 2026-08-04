@@ -3,7 +3,17 @@
 NativeMuxDemo is a standalone SwiftUI client for the cmux remote daemon. One
 Iroh/Noise connection carries the public resource graph and multiple
 `terminal-bytes-v1` streams. Every terminal has an independent local libghostty
-parser and viewport.
+emulator, Metal renderer, scrollback, selection, input encoder, and viewport.
+
+Swift imports the `ghostty.h` C ABI from `GhosttyKit.xcframework` as the
+`GhosttyKit` module. AppKit owns each persistent `NSView`, focus, and lifecycle;
+libghostty owns terminal behavior and rendering. The upstream Ghostty Swift
+views are useful implementation references, but they depend on Ghostty's app
+delegate, configuration, menus, and controller graph, so this standalone client
+calls `GhosttyKit` directly instead of treating those app sources as a package.
+Rust owns Iroh, Noise, stream framing, and ordered renderer events. Its native
+frontend build excludes `ghostty-vt`, so PTY output is parsed exactly once by
+the Swift-hosted `GhosttyKit` surface.
 
 The demo renders workspaces as vertical tabs, screens as spaces, viewport
 columns as a horizontally scrolling niri layout, recursive splits, stacked

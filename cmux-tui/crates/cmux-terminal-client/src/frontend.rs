@@ -8,7 +8,7 @@ use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
 use cmux_remote::service::{ServiceMultiplexer, ServiceStream, StreamChunk};
 use cmux_remote_protocol::{Lane, Service, ServiceControl};
-use cmux_tui_core::terminal_host_protocol::{Frame, MessageKind};
+use cmux_terminal_host_protocol::{Frame, MessageKind};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -86,13 +86,23 @@ pub struct CmuxFrontendClient {
     generation: AtomicU64,
 }
 
-/// One terminal-bytes-v1 attachment with its own local libghostty state.
+/// One terminal-bytes-v1 attachment with its own ordered renderer event queue.
 pub struct CmuxFrontendTerminal {
     runtime: tokio::runtime::Handle,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
     active: Mutex<Option<ActiveTerminal>>,
     next_request: AtomicU64,
+}
+
+/// Metadata for one ordered event consumed by a native terminal renderer.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct CmuxFrontendRenderEvent {
+    pub kind: u32,
+    pub cols: u16,
+    pub rows: u16,
+    pub payload_length: usize,
 }
 
 async fn open_control_stream(
@@ -537,7 +547,10 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
         client.generation.load(Ordering::Acquire),
         terminal_id.clone(),
     ) {
-        Ok(state) => Arc::new(Mutex::new(state)),
+        Ok(mut state) => {
+            state.enable_native_render_events();
+            Arc::new(Mutex::new(state))
+        }
         Err(error) => {
             copy_utf8(&format!("libghostty: {error}"), error_buffer, error_capacity);
             return std::ptr::null_mut();
@@ -559,6 +572,51 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
         active: Mutex::new(Some(active)),
         next_request: AtomicU64::new(1),
     }))
+}
+
+/// Copies and consumes the next ordered native-renderer event.
+///
+/// A first call with a null/undersized payload buffer returns the event
+/// metadata without consuming a non-empty event. Allocate `payload_length`
+/// bytes and call again to copy and consume it. Empty events are consumed by
+/// the first call.
+///
+/// # Safety
+///
+/// `event` must be writable. A non-null payload buffer must be writable for
+/// `capacity` bytes. Calls for one terminal must be serialized by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
+    terminal: *const CmuxFrontendTerminal,
+    event: *mut CmuxFrontendRenderEvent,
+    buffer: *mut u8,
+    capacity: usize,
+) -> bool {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return false };
+    let Some(event_out) = (unsafe { event.as_mut() }) else { return false };
+    let mut state = terminal.state.lock().unwrap();
+    let Some(next) = state.native_render_events.as_ref().and_then(VecDeque::front) else {
+        return false;
+    };
+    *event_out = CmuxFrontendRenderEvent {
+        kind: next.kind as u32,
+        cols: next.cols,
+        rows: next.rows,
+        payload_length: next.payload.len(),
+    };
+    if next.payload.len() > capacity || (!next.payload.is_empty() && buffer.is_null()) {
+        return true;
+    }
+    if !next.payload.is_empty() {
+        // SAFETY: the caller provides a writable buffer at least payload_length bytes long.
+        unsafe { std::ptr::copy_nonoverlapping(next.payload.as_ptr(), buffer, next.payload.len()) };
+    }
+    let removed = state.native_render_events.as_mut().and_then(VecDeque::pop_front);
+    if let Some(removed) = removed {
+        state.native_render_event_bytes =
+            state.native_render_event_bytes.saturating_sub(removed.payload.len());
+    }
+    true
 }
 
 fn enqueue_terminal(terminal: &CmuxFrontendTerminal, frame: Frame) -> bool {

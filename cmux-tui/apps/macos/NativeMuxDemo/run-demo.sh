@@ -34,41 +34,50 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# shellcheck source=/dev/null
-source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
-ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
-
-for command in cargo codesign jq open openssl pgrep swift; do
+for command in jq open openssl pgrep; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "NativeMuxDemo needs $command on PATH." >&2
     exit 1
   fi
 done
 
-if [[ -z "${ZIG:-}" ]]; then
-  ZIG="$(command -v zig || true)"
-fi
-if [[ -z "${ZIG:-}" || ! -x "$ZIG" ]]; then
-  echo "Set ZIG to a Zig $ZIG_REQUIRED-compatible executable." >&2
-  exit 1
-fi
-if ! ZIG_ACTUAL="$("$ZIG" version 2>/dev/null)" \
-  || ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
-  echo "NativeMuxDemo needs Zig $ZIG_REQUIRED-compatible; $ZIG reports ${ZIG_ACTUAL:-unknown}." >&2
-  exit 1
-fi
-export ZIG
-export MACOSX_DEPLOYMENT_TARGET=14.0
-export CMUX_ALLOW_LOW_SPACE_BUILD=1
+if [[ "$REUSE_BUILD" != "1" ]]; then
+  for command in cargo codesign swift; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+      echo "NativeMuxDemo needs $command on PATH." >&2
+      exit 1
+    fi
+  done
 
-CMUX_TUI="$TUI_ROOT/target/debug/cmux-tui"
-STATIC_LIBRARY="$TUI_ROOT/target/debug/libcmux_terminal_client.a"
+  # shellcheck source=/dev/null
+  source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
+  ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
+  if [[ -z "${ZIG:-}" ]]; then
+    ZIG="$(command -v zig || true)"
+  fi
+  if [[ -z "${ZIG:-}" || ! -x "$ZIG" ]]; then
+    echo "Set ZIG to a Zig $ZIG_REQUIRED-compatible executable." >&2
+    exit 1
+  fi
+  if ! ZIG_ACTUAL="$("$ZIG" version 2>/dev/null)" \
+    || ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
+    echo "NativeMuxDemo needs Zig $ZIG_REQUIRED-compatible; $ZIG reports ${ZIG_ACTUAL:-unknown}." >&2
+    exit 1
+  fi
+  export ZIG
+  export MACOSX_DEPLOYMENT_TARGET=14.0
+  export CMUX_ALLOW_LOW_SPACE_BUILD=1
+fi
+
 TEMP_PARENT="${TMPDIR:-/tmp}"
 TEMP_PARENT="${TEMP_PARENT%/}"
 DEMO_ROOT="$(mktemp -d "$TEMP_PARENT/cmux-native-mux-demo.XXXXXX")"
 DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"
+RUST_BUILD_ROOT="$DEMO_BUILD_ROOT/rust-build"
 SWIFT_BUILD_ROOT="$DEMO_BUILD_ROOT/swift-build"
 APP_BUNDLE="$DEMO_BUILD_ROOT/NativeMuxDemo.app"
+CMUX_TUI="$RUST_BUILD_ROOT/debug/cmux-tui"
+STATIC_LIBRARY="$RUST_BUILD_ROOT/debug/libcmux_terminal_client.a"
 SESSION="native-mux-$$"
 MUX_SOCKET="$DEMO_ROOT/mux.sock"
 MUX_STATE="$DEMO_ROOT/mux-state"
@@ -119,7 +128,10 @@ if [[ "$REUSE_BUILD" == "1" ]]; then
   done
 else
   echo "Building cmux-tui and the shared native frontend library..."
-  (cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
+  (cd "$TUI_ROOT" && cargo +1.97.1 build --target-dir "$RUST_BUILD_ROOT" -p cmux-tui)
+  (cd "$TUI_ROOT" && cargo +1.97.1 build --target-dir "$RUST_BUILD_ROOT" \
+    -p cmux-terminal-client \
+    --no-default-features --features native-renderer)
 
   echo "Building NativeMuxDemo in its worktree-local SwiftPM directory..."
   swift build \
@@ -133,8 +145,7 @@ else
     --show-bin-path)"
 
   APP_BINARY="$SWIFT_BIN_PATH/NativeMuxDemo"
-  RESOURCE_BUNDLE="$SWIFT_BIN_PATH/NativeMuxDemo_NativeMuxDemo.bundle"
-  for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$RESOURCE_BUNDLE"; do
+  for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY"; do
     if [[ ! -e "$artifact" ]]; then
       echo "Expected build artifact is missing: $artifact" >&2
       exit 1
@@ -149,9 +160,11 @@ else
     "$APP_BUNDLE/Contents/Resources/en.lproj/InfoPlist.strings"
   cp "$SCRIPT_DIR/Support/ja.lproj/InfoPlist.strings" \
     "$APP_BUNDLE/Contents/Resources/ja.lproj/InfoPlist.strings"
+  cp "$SCRIPT_DIR/Sources/NativeMuxDemo/Resources/en.lproj/Localizable.strings" \
+    "$APP_BUNDLE/Contents/Resources/en.lproj/Localizable.strings"
+  cp "$SCRIPT_DIR/Sources/NativeMuxDemo/Resources/ja.lproj/Localizable.strings" \
+    "$APP_BUNDLE/Contents/Resources/ja.lproj/Localizable.strings"
   cp "$APP_BINARY" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
-  cp -R "$RESOURCE_BUNDLE" \
-    "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle"
   codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 fi
 APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
@@ -252,7 +265,7 @@ seed_terminal() {
   local terminal="$1"
   local label="$2"
   "$CMUX_TUI" --socket "$MUX_SOCKET" terminal "$terminal" write --text \
-    "printf '\\033[2J\\033[H\\033[1;36m$label\\033[0m\\nNative Swift UI · Iroh transport · local libghostty parser\\n\\n'"
+    "printf '\\033[2J\\033[H\\033[1;36m$label\\033[0m\\nNative Swift UI · Iroh transport · GhosttyKit renderer\\n\\n\\033[31mred \\033[32mgreen \\033[33myellow \\033[34mblue \\033[35mmagenta \\033[36mcyan\\033[0m\\n\\033[1mbold\\033[0m  \\033[4munderline\\033[0m  UTF-8: λ 日本語\\n\\n'"
   "$CMUX_TUI" --socket "$MUX_SOCKET" terminal "$terminal" keys enter
 }
 seed_terminal "$TERM_A" "agents / editor"

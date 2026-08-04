@@ -14,6 +14,21 @@ typedef struct CmuxFrontendClient CmuxFrontendClient;
 typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
 
+typedef enum {
+    CMUX_FRONTEND_RENDER_RESET = 1,
+    CMUX_FRONTEND_RENDER_BYTES = 2,
+    CMUX_FRONTEND_RENDER_RESIZE = 3,
+    CMUX_FRONTEND_RENDER_READY = 4,
+    CMUX_FRONTEND_RENDER_EXIT = 5,
+} CmuxFrontendRenderEventKind;
+
+typedef struct {
+    uint32_t kind;
+    uint16_t cols;
+    uint16_t rows;
+    size_t payload_length;
+} CmuxFrontendRenderEvent;
+
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before
 // disconnecting its client.
@@ -66,6 +81,11 @@ bool cmux_frontend_terminal_resize(
     CmuxFrontendTerminal *terminal,
     uint16_t cols,
     uint16_t rows);
+bool cmux_frontend_terminal_copy_next_render_event(
+    const CmuxFrontendTerminal *terminal,
+    CmuxFrontendRenderEvent *event,
+    uint8_t *buffer,
+    size_t capacity);
 size_t cmux_frontend_terminal_copy_frame(
     const CmuxFrontendTerminal *terminal,
     char *buffer,
