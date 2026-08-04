@@ -1,72 +1,122 @@
-import SwiftUI
+import AppKit
 
-struct SettingsDetailView: View {
-    let section: SettingsSection
+@MainActor
+final class SettingsDetailViewController: NSViewController {
+    var section: SettingsSection {
+        didSet { refreshSection() }
+    }
 
-    @State private var isEnabled = true
-    @State private var selectedMode = Mode.system
-    @State private var numericValue = 12.0
+    private let titleField = NSTextField(labelWithString: "")
+    private let sectionValueField = NSTextField(labelWithString: "")
+    private let enabledSwitch = NSSwitch()
+    private let modeControl = NSSegmentedControl(
+        labels: SettingsDetailMode.allCases.map(\.title),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    private let amountSlider = NSSlider(value: 12, minValue: 0, maxValue: 24, target: nil, action: nil)
 
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent(
-                    String(localized: "detail.section", defaultValue: "Section"),
-                    value: section.title
-                )
+    init(section: SettingsSection) {
+        self.section = section
+        super.init(nibName: nil, bundle: nil)
+    }
 
-                Toggle(
-                    String(localized: "detail.toggle", defaultValue: "Enable"),
-                    isOn: $isEnabled
-                )
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-                Picker(String(localized: "detail.mode", defaultValue: "Mode"), selection: $selectedMode) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
+    override func loadView() {
+        view = NSView()
 
-                Slider(
-                    value: $numericValue,
-                    in: 0...24
-                ) {
-                    Text(String(localized: "detail.slider", defaultValue: "Amount"))
-                }
-            } header: {
-                Text(section.title)
-            }
+        titleField.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleField.setAccessibilityIdentifier("settings.detail.title")
 
-            Section {
-                Button(String(localized: "detail.primaryAction", defaultValue: "Open Related File")) {
-                }
-                .disabled(true)
+        let sectionRow = labeledRow(
+            title: String(localized: "detail.section", defaultValue: "Section"),
+            control: sectionValueField
+        )
+        let toggleRow = labeledRow(
+            title: String(localized: "detail.toggle", defaultValue: "Enable"),
+            control: enabledSwitch
+        )
+        let modeRow = labeledRow(
+            title: String(localized: "detail.mode", defaultValue: "Mode"),
+            control: modeControl
+        )
+        let sliderRow = labeledRow(
+            title: String(localized: "detail.slider", defaultValue: "Amount"),
+            control: amountSlider
+        )
 
-                Button(String(localized: "detail.secondaryAction", defaultValue: "Restore Defaults")) {
-                }
-                .disabled(true)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
+        enabledSwitch.state = .on
+        modeControl.selectedSegment = SettingsDetailMode.allCases.firstIndex(of: .system) ?? 0
+        amountSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+
+        let primaryButton = NSButton(
+            title: String(localized: "detail.primaryAction", defaultValue: "Open Related File"),
+            target: nil,
+            action: nil
+        )
+        primaryButton.isEnabled = false
+        let secondaryButton = NSButton(
+            title: String(localized: "detail.secondaryAction", defaultValue: "Restore Defaults"),
+            target: nil,
+            action: nil
+        )
+        secondaryButton.isEnabled = false
+        let actions = NSStackView(views: [primaryButton, secondaryButton])
+        actions.orientation = .horizontal
+        actions.spacing = 8
+
+        let form = NSStackView(views: [titleField, sectionRow, toggleRow, modeRow, sliderRow, actions])
+        form.orientation = .vertical
+        form.alignment = .leading
+        form.spacing = 16
+        form.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(form)
+
+        NSLayoutConstraint.activate([
+            form.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
+            form.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -28),
+            form.topAnchor.constraint(equalTo: view.topAnchor, constant: 28),
+        ])
+
+        refreshSection()
+    }
+
+    private func labeledRow(title: String, control: NSView) -> NSStackView {
+        let label = NSTextField(labelWithString: title)
+        label.alignment = .right
+        label.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        let row = NSStackView(views: [label, control])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        return row
+    }
+
+    private func refreshSection() {
+        guard isViewLoaded else { return }
+        titleField.stringValue = section.title
+        sectionValueField.stringValue = section.title
     }
 }
 
-private enum Mode: String, CaseIterable, Identifiable {
+private enum SettingsDetailMode: String, CaseIterable {
     case system
     case compact
     case expanded
 
-    var id: Self { self }
-
     var title: String {
         switch self {
         case .system:
-            return String(localized: "mode.system", defaultValue: "System")
+            String(localized: "mode.system", defaultValue: "System")
         case .compact:
-            return String(localized: "mode.compact", defaultValue: "Compact")
+            String(localized: "mode.compact", defaultValue: "Compact")
         case .expanded:
-            return String(localized: "mode.expanded", defaultValue: "Expanded")
+            String(localized: "mode.expanded", defaultValue: "Expanded")
         }
     }
 }

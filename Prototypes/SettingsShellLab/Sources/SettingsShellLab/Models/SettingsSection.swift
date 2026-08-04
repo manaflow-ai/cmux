@@ -1,6 +1,6 @@
-import SwiftUI
+import Foundation
 
-enum SettingsSection: String, CaseIterable, Identifiable {
+enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case general
     case terminal
     case sidebar
@@ -14,57 +14,50 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general:
-            return String(localized: "section.general.title", defaultValue: "General")
+            String(localized: "section.general.title", defaultValue: "General")
         case .terminal:
-            return String(localized: "section.terminal.title", defaultValue: "Terminal")
+            String(localized: "section.terminal.title", defaultValue: "Terminal")
         case .sidebar:
-            return String(localized: "section.sidebar.title", defaultValue: "Sidebar")
+            String(localized: "section.sidebar.title", defaultValue: "Sidebar")
         case .browser:
-            return String(localized: "section.browser.title", defaultValue: "Browser")
+            String(localized: "section.browser.title", defaultValue: "Browser")
         case .keyboard:
-            return String(localized: "section.keyboard.title", defaultValue: "Keyboard")
+            String(localized: "section.keyboard.title", defaultValue: "Keyboard")
         case .automation:
-            return String(localized: "section.automation.title", defaultValue: "Automation")
+            String(localized: "section.automation.title", defaultValue: "Automation")
         case .advanced:
-            return String(localized: "section.advanced.title", defaultValue: "Advanced")
+            String(localized: "section.advanced.title", defaultValue: "Advanced")
         }
     }
 
     var symbolName: String {
         switch self {
-        case .general:
-            return "gearshape"
-        case .terminal:
-            return "terminal"
-        case .sidebar:
-            return "sidebar.left"
-        case .browser:
-            return "globe"
-        case .keyboard:
-            return "keyboard"
-        case .automation:
-            return "bolt.horizontal"
-        case .advanced:
-            return "wrench.and.screwdriver"
+        case .general: "gearshape"
+        case .terminal: "terminal"
+        case .sidebar: "sidebar.left"
+        case .browser: "globe"
+        case .keyboard: "keyboard"
+        case .automation: "bolt.horizontal"
+        case .advanced: "wrench.and.screwdriver"
         }
     }
 
     var detail: String {
         switch self {
         case .general:
-            return String(localized: "section.general.detail", defaultValue: "Language, appearance, updates")
+            String(localized: "section.general.detail", defaultValue: "Language, appearance, updates")
         case .terminal:
-            return String(localized: "section.terminal.detail", defaultValue: "Font, scrollback, bell")
+            String(localized: "section.terminal.detail", defaultValue: "Font, scrollback, bell")
         case .sidebar:
-            return String(localized: "section.sidebar.detail", defaultValue: "Layout, badges, metadata")
+            String(localized: "section.sidebar.detail", defaultValue: "Layout, badges, metadata")
         case .browser:
-            return String(localized: "section.browser.detail", defaultValue: "Search, links, history")
+            String(localized: "section.browser.detail", defaultValue: "Search, links, history")
         case .keyboard:
-            return String(localized: "section.keyboard.detail", defaultValue: "Shortcuts and chords")
+            String(localized: "section.keyboard.detail", defaultValue: "Shortcuts and chords")
         case .automation:
-            return String(localized: "section.automation.detail", defaultValue: "Socket, hooks, ports")
+            String(localized: "section.automation.detail", defaultValue: "Socket, hooks, ports")
         case .advanced:
-            return String(localized: "section.advanced.detail", defaultValue: "Diagnostics and reset")
+            String(localized: "section.advanced.detail", defaultValue: "Diagnostics and reset")
         }
     }
 

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -16,5 +16,6 @@ let package = Package(
             path: "Sources/SettingsShellLab",
             resources: [.process("Resources")]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )
