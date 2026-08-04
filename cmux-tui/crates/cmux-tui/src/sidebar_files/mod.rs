@@ -335,6 +335,11 @@ pub fn shell_single_quote(value: &str) -> String {
 }
 
 pub fn file_url(path: &Path) -> String {
+    #[cfg(windows)]
+    if let Ok(url) = url::Url::from_file_path(path) {
+        return url.to_string();
+    }
+
     let text = path.to_string_lossy();
     let mut url = String::from("file://");
     for byte in text.bytes() {

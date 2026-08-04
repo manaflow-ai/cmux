@@ -960,6 +960,7 @@ struct ParsedTerminalProbe {
 /// alongside the replies. The final DA1 request acts as an ordering marker:
 /// any preceding Kitty reply advertises support, while its absence does not
 /// make terminals that ignore the Kitty APC wait for the full timeout.
+#[cfg(unix)]
 fn write_terminal_probe_queries(stdout: &mut impl Write, query_window_pixels: bool) {
     if query_window_pixels {
         let _ = write!(stdout, "\x1b[14t");
@@ -967,6 +968,9 @@ fn write_terminal_probe_queries(stdout: &mut impl Write, query_window_pixels: bo
     let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
     let _ = stdout.flush();
 }
+
+#[cfg(not(unix))]
+fn write_terminal_probe_queries(_stdout: &mut impl Write, _query_window_pixels: bool) {}
 
 pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalProbe {
     let ioctl_pixels = ioctl_cell_pixels();

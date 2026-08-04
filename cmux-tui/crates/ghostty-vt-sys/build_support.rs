@@ -1,5 +1,5 @@
 pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
-    if target == host {
+    if target == host && !target.ends_with("-windows-gnu") {
         return None;
     }
     zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
