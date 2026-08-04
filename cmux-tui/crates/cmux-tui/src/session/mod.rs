@@ -2450,6 +2450,11 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
 }
 
 #[cfg(test)]
+fn test_remote_session_with_view_attachment_leases() -> Session {
+    Session::Remote(remote::test_session_with_view_attachment_leases())
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_live_browser(
     surface_id: SurfaceId,
     frame_seq: u64,
@@ -2525,9 +2530,19 @@ mod tests {
 
     use super::{
         Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
+        test_remote_session_with_view_attachment_leases,
         test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
         test_remote_transport_error,
     };
+
+    #[test]
+    fn releasing_a_missing_remote_attachment_lease_is_idempotent() {
+        let session = test_remote_session_with_view_attachment_leases();
+
+        session
+            .release_surface_size(77)
+            .expect("a missing lease is already released");
+    }
 
     #[test]
     fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {
