@@ -7768,7 +7768,7 @@ struct CMUXCLI {
         if action == "set_color", (color?.isEmpty ?? true) {
             throw CLIError(message: String(
                 localized: "cli.error.tabActionSetColorRequiresColor",
-                defaultValue: "tab-action set-color requires --color <name|#hex> (or a trailing color)"
+                defaultValue: "tab-action set-color requires --color <name|#RRGGBB> (or a trailing color)"
             ))
         }
 
@@ -16299,7 +16299,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace/tab refs and indexes
               --title <text>               Title for rename (or pass trailing title text)
-              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --color <name|#RRGGBB>       Color for set-color (name or #RRGGBB hex)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
 
@@ -36147,7 +36147,7 @@ export default CMUXSessionRestore;
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--url <url>] [--focus <true|false>]
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#RRGGBB>] [--url <url>] [--focus <true|false>]
           surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

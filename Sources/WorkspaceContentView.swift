@@ -110,6 +110,18 @@ final class TmuxWorkspacePaneOverlayModel {
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
+    var paneBordersInDrawOrder: [TmuxWorkspacePaneColorBorder] {
+        var borders = customPaneBorders
+        if let activePaneBorderRect,
+           let activePaneBorderColorHex {
+            borders.append(TmuxWorkspacePaneColorBorder(
+                rect: activePaneBorderRect,
+                colorHex: activePaneBorderColorHex
+            ))
+        }
+        return borders
+    }
+
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
         now: () -> Date = Date.init
@@ -512,20 +524,18 @@ struct WorkspaceContentView: View {
             )
             guard shouldShowUnread else { return nil }
 
-            let paneRect = pane.frame.cgRect
-            let rect: CGRect
             if includeContainerOffset {
-                rect = paneRect.offsetBy(
-                    dx: 0,
-                    dy: -CGFloat(layoutSnapshot.containerFrame.y)
+                return tmuxWorkspacePaneWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    pane: pane
                 )
             } else {
-                rect = paneRect.offsetBy(
+                let rect = pane.frame.cgRect.offsetBy(
                     dx: -CGFloat(layoutSnapshot.containerFrame.x),
                     dy: -CGFloat(layoutSnapshot.containerFrame.y)
                 )
+                return geometry.contentRect(rect)
             }
-            return geometry.contentRect(rect)
         }
     }
 
@@ -547,6 +557,17 @@ struct WorkspaceContentView: View {
             layoutSnapshot: layoutSnapshot,
             paneId: paneId
         )
+    }
+
+    static func tmuxWorkspacePaneWindowOverlayRect(
+        layoutSnapshot: LayoutSnapshot,
+        pane: PaneGeometry
+    ) -> CGRect {
+        let rect = pane.frame.cgRect.offsetBy(
+            dx: 0,
+            dy: -CGFloat(layoutSnapshot.containerFrame.y)
+        )
+        return tmuxPaneOverlayGeometry.contentRect(rect)
     }
 
     static func effectiveTmuxLayoutSnapshot(

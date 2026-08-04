@@ -4730,7 +4730,8 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                switch WorkspaceTabColorSettings.resolveColorInput(v2String(params, "color")) {
+                switch WorkspaceTabColorSettings.inputResolver(defaults: .standard)
+                    .resolve(v2String(params, "color")) {
                 case .missing:
                     result = .err(
                         code: "invalid_params",

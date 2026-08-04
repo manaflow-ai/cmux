@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+import CmuxWorkspaces
 import SwiftUI
 
 /// Workspace tab color palette: persistence, legacy migration, palette
@@ -12,12 +13,6 @@ import SwiftUI
 /// app-side until the workspace UI package exists. Moved out of
 /// `TabManager.swift` verbatim.
 enum WorkspaceTabColorSettings {
-    enum ColorInputResolution: Equatable {
-        case resolved(String)
-        case missing
-        case invalid(namedColors: [String])
-    }
-
     static let paletteKey = WorkspaceColorsCatalogSection().palette.userDefaultsKey
 
     private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
@@ -140,24 +135,11 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
-    static func resolveColorInput(
-        _ raw: String?,
-        defaults: UserDefaults = .standard
-    ) -> ColorInputResolution {
-        guard let raw else { return .missing }
-        let input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty else { return .missing }
-
-        let effectivePalette = palette(defaults: defaults)
-        if let entry = effectivePalette.first(where: {
-            $0.name.caseInsensitiveCompare(input) == .orderedSame
-        }) {
-            return .resolved(entry.hex)
-        }
-        if let normalized = normalizedHex(input) {
-            return .resolved(normalized)
-        }
-        return .invalid(namedColors: effectivePalette.map(\.name))
+    /// Builds the pure color-input resolver from the explicitly selected palette store.
+    static func inputResolver(defaults: UserDefaults) -> WorkspaceTabColorInputResolver {
+        WorkspaceTabColorInputResolver(namedColors: palette(defaults: defaults).map {
+            WorkspaceTabColorInputResolver.NamedColor(name: $0.name, hex: $0.hex)
+        })
     }
 
     static func displayColor(

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxWorkspaces
 import Foundation
 
 /// The system-domain action witnesses (`workspace.action`, `surface.action` /
@@ -160,7 +161,7 @@ extension TerminalController {
             return finish(.none)
 
         case "set_color":
-            switch WorkspaceTabColorSettings.resolveColorInput(color) {
+            switch WorkspaceTabColorSettings.inputResolver(defaults: .standard).resolve(color) {
             case .missing:
                 return .invalidColor(namedColors: nil)
             case .invalid(let namedColors):
