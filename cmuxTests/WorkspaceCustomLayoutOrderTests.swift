@@ -91,6 +91,61 @@ import Testing
         #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == layoutTabIds[1])
     }
 
+    @Test func capturedLayoutRestoresSelectedTabInBackgroundPane() throws {
+        let original = Workspace()
+        original.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background A"),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background B"),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused"),
+                    ])),
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        guard case .split(let originalRoot) = original.bonsplitController.treeSnapshot(),
+              case .pane(let originalBackground) = originalRoot.first,
+              case .pane(let originalFocused) = originalRoot.second,
+              let originalBackgroundID = UUID(uuidString: originalBackground.id),
+              let originalFocusedID = UUID(uuidString: originalFocused.id) else {
+            Issue.record("Expected a two-pane workspace")
+            return
+        }
+
+        let originalBackgroundPane = PaneID(id: originalBackgroundID)
+        let originalFocusedPane = PaneID(id: originalFocusedID)
+        let originalBackgroundTabs = original.bonsplitController.tabs(inPane: originalBackgroundPane)
+        let originalFocusedTab = try #require(original.bonsplitController.tabs(inPane: originalFocusedPane).first)
+        try #require(originalBackgroundTabs.count == 2)
+
+        original.bonsplitController.selectTab(originalBackgroundTabs[1].id)
+        let originalFocusedPanelID = try #require(original.panelIdFromSurfaceId(originalFocusedTab.id))
+        original.focusPanel(originalFocusedPanelID)
+
+        #expect(original.bonsplitController.focusedPaneId == originalFocusedPane)
+        #expect(original.bonsplitController.selectedTab(inPane: originalBackgroundPane)?.title == "Background B")
+
+        let capturedLayout = try #require(original.captureLayoutDefinition().workspace.layout)
+        let restored = Workspace()
+        restored.applyCustomLayout(capturedLayout, baseCwd: NSTemporaryDirectory())
+
+        guard case .split(let restoredRoot) = restored.bonsplitController.treeSnapshot(),
+              case .pane(let restoredBackground) = restoredRoot.first,
+              let restoredBackgroundID = UUID(uuidString: restoredBackground.id) else {
+            Issue.record("Expected the captured two-pane workspace to restore")
+            return
+        }
+
+        let restoredBackgroundPane = PaneID(id: restoredBackgroundID)
+        #expect(restored.bonsplitController.selectedTab(inPane: restoredBackgroundPane)?.title == "Background B")
+    }
+
     private static func surfaceSnapshot(in workspace: Workspace) throws -> (titles: [String], selectedTitle: String?) {
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
         let titles = workspace.bonsplitController.tabs(inPane: paneId).map(\.title)
