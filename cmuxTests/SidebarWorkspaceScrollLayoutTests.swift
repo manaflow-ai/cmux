@@ -10,6 +10,14 @@ import Testing
 @MainActor
 @Suite("Sidebar workspace scroll layout")
 struct SidebarWorkspaceScrollLayoutTests {
+    @Test func topScrimDoesNotOverlapFirstWorkspaceRow() {
+        #expect(
+            SidebarWorkspaceListMetrics.topScrimHeight
+                <= SidebarWorkspaceListMetrics.firstRowTopOffset,
+            "the top fade must end before the first workspace row begins"
+        )
+    }
+
     @Test func contentMinHeightSubtractsInsetsFromViewport() {
         let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
             viewportHeight: 720,
