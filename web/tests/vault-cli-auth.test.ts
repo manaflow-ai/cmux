@@ -174,4 +174,3 @@ describe("vault CLI auth claim", () => {
     expect(calls).toEqual([]);
   });
 });
-

@@ -109,7 +109,6 @@ export async function claimCliAuthTokens(
     refreshToken: tokens.refreshToken,
   };
 }
-
 export async function pendingCliAuthClientForUserCode(
   userCode: string,
   now: Date,
@@ -187,4 +186,3 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
 function cliAuthClient(value: unknown): CliAuthClient | null {
   return value === "cmux-vault" || value === "subrouter" ? value : null;
 }
-

@@ -59,4 +59,3 @@ export function ApproveForm({ initialCode }: { initialCode: string }) {
     </form>
   );
 }
-

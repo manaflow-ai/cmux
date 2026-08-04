@@ -59,4 +59,3 @@ export default async function VaultCliAuthPage({
     </div>
   );
 }
-
