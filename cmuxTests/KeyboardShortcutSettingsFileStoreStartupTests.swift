@@ -15,6 +15,11 @@ import struct CmuxSettings.BrowserSearchSettingsStore
 @testable import cmux
 #endif
 
+// `queue: nil` delivers these notifications synchronously on the test thread.
+private final class SettingsStoreUserDefaultsNotificationCounter: @unchecked Sendable {
+    var count = 0
+}
+
 final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -995,6 +1000,85 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             XCTAssertEqual(scrollBarNotificationCount, 1)
             XCTAssertEqual(autoResumeNotificationCount, 1)
+        }
+    }
+
+    func testSettingsFileLoadPreservesSemanticallyEqualLegacyPersistenceWithoutUserDefaultsWrites() throws {
+        let defaults = UserDefaults.standard
+        let scrollBarKey = TerminalScrollBarSettings.showScrollBarKey
+        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let legacySidebarKey = SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
+
+        try preservingDefaults(keys: [
+            scrollBarKey,
+            autoResumeKey,
+            legacySidebarKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set(false, forKey: scrollBarKey)
+            defaults.set(false, forKey: autoResumeKey)
+            defaults.removeObject(forKey: legacySidebarKey)
+
+            // Older cmux versions encoded these dictionaries without sorted keys. The whitespace
+            // and descending key order make the bytes intentionally non-canonical while preserving
+            // the same decoded values as the settings file below.
+            let legacyImportedData = Data(
+                """
+                {
+                  "\(scrollBarKey)": {"bool":{"_0":false}},
+                  "\(autoResumeKey)": {"bool":{"_0":false}}
+                }
+                """.utf8
+            )
+            let legacyBackupsData = Data(
+                """
+                {
+                  "\(scrollBarKey)": {"kind":"absent"},
+                  "\(autoResumeKey)": {"kind":"absent"}
+                }
+                """.utf8
+            )
+            defaults.set(legacyImportedData, forKey: importedManagedDefaultsKey)
+            defaults.set(legacyBackupsData, forKey: settingsFileBackupsDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "showScrollBar": false,
+                    "autoResumeAgentSessions": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let notificationCounter = SettingsStoreUserDefaultsNotificationCounter()
+            let observer = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: defaults,
+                queue: nil
+            ) { _ in
+                notificationCounter.count += 1
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                notificationCenter: NotificationCenter(),
+                startWatching: false
+            )
+
+            XCTAssertEqual(notificationCounter.count, 0)
+            XCTAssertEqual(defaults.data(forKey: importedManagedDefaultsKey), legacyImportedData)
+            XCTAssertEqual(defaults.data(forKey: settingsFileBackupsDefaultsKey), legacyBackupsData)
         }
     }
 
