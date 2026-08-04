@@ -37,5 +37,13 @@ The standalone app bundle is at
 `cmux-tui/target/native-mux-demo/NativeMuxDemo.app` inside the worktree.
 
 The launcher builds the current worktree, starts an isolated ephemeral daemon,
-seeds a representative layout, approves only its fresh enrollment invitation,
-and removes the temporary state when the app closes.
+and seeds a representative layout. It then opens two independent Iroh clients
+side by side: NativeMuxDemo uses Swift/AppKit and GhosttyKit on the left, while
+Ghostty runs the ordinary `cmux-tui connect` frontend on the right. Each client
+gets a separate one-use invitation and device identity. Type into either
+frontend to see the same PTY output in both, scroll each viewport independently,
+and close either client without terminating the shared PTY.
+
+Pass `--swift-only` to omit the Ghostty client. Either client can detach while
+the other keeps using the session. The launcher stops the isolated daemon and
+removes its temporary state after both clients close.

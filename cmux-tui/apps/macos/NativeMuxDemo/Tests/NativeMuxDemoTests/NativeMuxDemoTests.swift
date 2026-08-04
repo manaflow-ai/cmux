@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import NativeMuxDemo
@@ -83,4 +84,19 @@ func resourceParametersPreserveMixedJSONTypes() throws {
 func terminalGeometryIsBoundedAndNonzero() {
     #expect(terminalGeometry(width: 0, height: 0) == TerminalGeometry(cols: 1, rows: 1))
     #expect(terminalGeometry(width: 856, height: 424) == TerminalGeometry(cols: 100, rows: 24))
+}
+
+@Test
+func sideBySideLayoutLeavesVisibleSpaceForBothFrontends() {
+    let visibleFrame = CGRect(x: 0, y: 25, width: 1728, height: 971)
+    let layout = SideBySideWindowLayout.fit(visibleFrame: visibleFrame)
+
+    #expect(layout.nativeFrame.minX == visibleFrame.minX)
+    #expect(layout.nativeFrame.minY == visibleFrame.minY)
+    #expect(layout.nativeFrame.height == visibleFrame.height)
+    #expect(layout.nativeFrame.width > 900)
+    #expect(layout.ghosttyPositionX > Int(layout.nativeFrame.maxX))
+    #expect(layout.ghosttyPositionY == 0)
+    #expect(layout.ghosttyColumns >= 80)
+    #expect(layout.ghosttyRows >= 40)
 }
