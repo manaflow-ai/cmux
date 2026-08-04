@@ -669,6 +669,14 @@ struct ApplicationSurfaceTests {
         ) == nil)
     }
 
+    @Test func relativePointerDeltaUsesTheRenderedSourceScale() {
+        #expect(ApplicationCaptureView.normalizedMouseDelta(
+            delta: CGPoint(x: 20, y: -10),
+            in: CGRect(x: 0, y: 0, width: 200, height: 100),
+            sourceFrameSize: CGSize(width: 100, height: 100)
+        ) == CGPoint(x: 0.2, y: -0.1))
+    }
+
     @Test func applicationNamedKeysAcceptTerminalSeparators() {
         let plus = ApplicationCaptureView.parseNamedKey("ctrl+c")
         let dash = ApplicationCaptureView.parseNamedKey("ctrl-c")
@@ -794,7 +802,9 @@ struct ApplicationSurfaceTests {
             #expect(pump.enqueue(ApplicationSurfaceInputEvent(
                 kind: .mouseMoved,
                 x: Double(coordinate),
-                y: Double(coordinate)
+                y: Double(coordinate),
+                deltaX: 0.25,
+                deltaY: -0.5
             )) == .accepted)
         }
         let key = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
@@ -805,6 +815,8 @@ struct ApplicationSurfaceTests {
         #expect(delivered.count == 2)
         #expect(delivered.first?.kind == .mouseMoved)
         #expect(delivered.first?.x == 99)
+        #expect(delivered.first?.deltaX == 25)
+        #expect(delivered.first?.deltaY == -50)
         #expect(delivered.last == key)
     }
 
