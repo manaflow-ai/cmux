@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
@@ -273,6 +274,35 @@ extension CMUXCLIErrorOutputRegressionTests {
 
 @Suite("Stored shortcut physical-key matching")
 struct StoredShortcutPhysicalKeyMatchingTests {
+    @Test("Command-plane character matches on Dvorak – QWERTY Command")
+    func commandPlaneCharacterMatchesOnDvorakQwertyCommand() throws {
+        let shortcut = SimulatorStoredShortcut(
+            key: "t",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "t",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 17
+        ))
+
+        #expect(KeyboardLayout.normalizedCharacters(for: event) == "t")
+        #expect(shortcut.matches(
+            event: event,
+            layoutCharacterProvider: { _, _ in "t" }
+        ))
+    }
+
     @Test("recorded Option shortcut matches its physical key across layouts")
     func recordedOptionShortcutMatchesPhysicalKeyAcrossLayouts() {
         let shortcut = StoredShortcut(
