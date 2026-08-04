@@ -43,19 +43,33 @@ enum TmuxSessionReaper {
             .filter { !$0.isEmpty }
     }
 
-    /// Kill one session. Returns false if tmux is missing or the session is already gone.
+    /// tmux arguments for killing exactly one session.
     ///
     /// The `=` prefix forces an exact match. A bare `-t name` falls back to prefix and
-    /// then fnmatch, so killing `azdevops` could take `azdevops-40` with it.
+    /// then fnmatch, so killing `azdevops` could take `azdevops-40` with it. Split out
+    /// as a pure function so that contract is unit-testable without spawning tmux.
+    static func killArguments(for session: String) -> [String] {
+        ["kill-session", "-t", "=\(session)"]
+    }
+
+    /// Kill one session. Returns false if tmux is missing or the session is already gone.
     @discardableResult
     static func kill(_ session: String) -> Bool {
         guard let tmuxPath, !session.isEmpty else { return false }
-        return run(tmuxPath, ["kill-session", "-t", "=\(session)"]) != nil
+        return run(tmuxPath, killArguments(for: session)) != nil
+    }
+
+    /// Sessions in `live` that no open workspace has registered.
+    ///
+    /// Pure seam: the shell-free half of `orphans(ownedSessions:)`, so the ownership
+    /// rule can be tested against a fixed session list.
+    static func orphans(live: [String], ownedSessions: Set<String>) -> [String] {
+        live.filter { !ownedSessions.contains($0) }
     }
 
     /// Live sessions that no open workspace has registered.
     static func orphans(ownedSessions: Set<String>) -> [String] {
-        liveSessions().filter { !ownedSessions.contains($0) }
+        orphans(live: liveSessions(), ownedSessions: ownedSessions)
     }
 
     private static func run(_ launchPath: String, _ arguments: [String]) -> String? {
