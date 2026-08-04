@@ -181,7 +181,7 @@ enum MarkdownPanelFileLinkResolver {
 
 @MainActor
 extension MarkdownWebRenderer.Coordinator {
-    convenience init() {
+    override convenience init() {
         let fileManager = FileManager.default
         self.init(
             fileLinkResolver: CmuxPanes.MarkdownPanelFileLinkResolver(
