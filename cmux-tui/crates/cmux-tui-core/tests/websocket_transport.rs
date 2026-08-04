@@ -403,7 +403,15 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         .iter()
         .find(|client| client["client"] == ws_id)
         .unwrap();
-    assert_eq!(ws_client["sizes"], json!([{"surface": surface, "cols": 101, "rows": 37}]));
+    assert_eq!(
+        ws_client["sizes"],
+        json!([{
+            "surface": surface,
+            "cols": 101,
+            "rows": 37,
+            "size_participating": true,
+        }])
+    );
     assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
 
     writeln!(unix_writer, r#"{{"id":8,"cmd":"detach-client","client":{ws_id}}}"#).unwrap();

@@ -1,31 +1,44 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
-use cmux_tui_core::{Rect, SurfaceId};
+use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
+pub(crate) const PROCESSING_FENCE_ID_BASE: u32 = 2_000_000_001;
+const PROCESSING_FENCE_ID_COUNT: u64 = 2_000_000_000;
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
-    pub seq: u64,
-    pub data_b64: String,
+    pub pointer_frame_seq: Option<u64>,
+    pub source_crop_px: Option<(u32, u32)>,
+    pub frame: Arc<BrowserFrame>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct GraphicsState {
+    session_generation: Option<u64>,
     transmitted: HashMap<SurfaceId, u64>,
     visible: HashSet<SurfaceId>,
 }
 
 impl GraphicsState {
-    pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
+    pub fn frame_batches(
+        &mut self,
+        session_generation: u64,
+        placements: &[GraphicPlacement],
+    ) -> Vec<Vec<u8>> {
+        if self.session_generation != Some(session_generation) {
+            self.session_generation = Some(session_generation);
+            self.transmitted.clear();
+        }
         let visible_placements = placements
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
@@ -40,13 +53,19 @@ impl GraphicsState {
 
         for placement in visible_placements {
             let mut batch = Vec::new();
-            let already_sent =
-                self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
+            let already_sent = self
+                .transmitted
+                .get(&placement.surface)
+                .is_some_and(|seq| *seq == placement.frame.seq);
             if !already_sent {
-                batch.extend(transmit_png(placement.surface, &placement.data_b64));
-                self.transmitted.insert(placement.surface, placement.seq);
+                batch.extend(transmit_png(placement.surface, &placement.frame.data_b64));
+                self.transmitted.insert(placement.surface, placement.frame.seq);
             }
-            batch.extend(place_image(placement.surface, placement.rect));
+            batch.extend(place_image_cropped(
+                placement.surface,
+                placement.rect,
+                placement.source_crop_px,
+            ));
             if !batch.is_empty() {
                 out.push(batch);
             }
@@ -79,10 +98,16 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
     out
 }
 
-pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
+pub fn place_image_cropped(
+    surface: SurfaceId,
+    rect: Rect,
+    source_crop_px: Option<(u32, u32)>,
+) -> Vec<u8> {
     let id = image_id(surface);
+    let crop =
+        source_crop_px.map_or_else(String::new, |(x, width)| format!(",x={x},w={}", width.max(1)));
     format!(
-        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID},c={},r={},q=2;{ESC}\\{ESC}8",
+        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID}{crop},c={},r={},q=2;{ESC}\\{ESC}8",
         rect.y + 1,
         rect.x + 1,
         rect.width.max(1),
@@ -94,6 +119,17 @@ pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
 pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
     let id = image_id(surface);
     format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
+}
+
+pub(crate) fn processing_fence_id(submission: u64) -> u32 {
+    PROCESSING_FENCE_ID_BASE + (submission.wrapping_sub(1) % PROCESSING_FENCE_ID_COUNT) as u32
+}
+
+/// Append a side-effect-free graphics query after one submitted frame. Its
+/// immediate reply confirms that the terminal parsed every preceding Kitty
+/// graphics command. It does not report compositor presentation.
+pub(crate) fn processing_fence(id: u32) -> Vec<u8> {
+    format!("{ESC}_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA{ESC}\\").into_bytes()
 }
 
 pub fn probe_kitty_graphics() -> bool {
@@ -258,8 +294,12 @@ mod tests {
 
     #[test]
     fn places_at_cursor_rect_with_save_restore() {
-        let bytes =
-            String::from_utf8(place_image(2, Rect { x: 4, y: 6, width: 80, height: 24 })).unwrap();
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 80, height: 24 },
+            None,
+        ))
+        .unwrap();
         assert_eq!(bytes, "\x1b7\x1b[7;5H\x1b_Ga=p,i=3,p=1,c=80,r=24,q=2;\x1b\\\x1b8");
     }
 
@@ -270,18 +310,84 @@ mod tests {
     }
 
     #[test]
+    fn processing_fence_uses_reserved_query_id() {
+        let id = processing_fence_id(7);
+        assert!(id >= PROCESSING_FENCE_ID_BASE);
+        assert_eq!(
+            String::from_utf8(processing_fence(id)).unwrap(),
+            format!("\x1b_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")
+        );
+    }
+
+    #[test]
+    fn cropped_placement_selects_a_horizontal_source_slice() {
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 40, height: 24 },
+            Some((80, 320)),
+        ))
+        .unwrap();
+        assert!(bytes.contains(",x=80,w=320,c=40,r=24,"));
+    }
+
+    #[test]
     fn zero_sized_placement_hides_a_previously_visible_image() {
         let visible = GraphicPlacement {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
-            seq: 1,
-            data_b64: "frame".to_string(),
+            pointer_frame_seq: Some(1),
+            source_crop_px: None,
+            frame: Arc::new(BrowserFrame {
+                session_id: "test".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                image_width: 80,
+                image_height: 24,
+                seq: 1,
+            }),
         };
         let collapsed =
             GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
         let mut state = GraphicsState::default();
 
-        assert!(!state.frame_batches(&[visible]).is_empty());
-        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
+        assert!(!state.frame_batches(1, &[visible]).is_empty());
+        assert_eq!(state.frame_batches(1, &[collapsed]), vec![delete_image(7)]);
+    }
+
+    #[test]
+    fn replacement_session_retransmits_a_reused_surface_sequence() {
+        let old = GraphicPlacement {
+            surface: 7,
+            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            pointer_frame_seq: Some(1),
+            source_crop_px: None,
+            frame: Arc::new(BrowserFrame {
+                session_id: "old".to_string(),
+                data_b64: "old-frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                image_width: 80,
+                image_height: 24,
+                seq: 1,
+            }),
+        };
+        let replacement = GraphicPlacement {
+            frame: Arc::new(BrowserFrame {
+                session_id: "replacement".to_string(),
+                data_b64: "replacement-frame".to_string(),
+                ..(*old.frame).clone()
+            }),
+            ..old.clone()
+        };
+        let mut state = GraphicsState::default();
+
+        state.frame_batches(1, &[old]);
+        let output = state.frame_batches(2, &[replacement]).concat();
+
+        assert!(
+            output.windows(b"replacement-frame".len()).any(|bytes| bytes == b"replacement-frame"),
+            "a new machine session must retransmit even when surface and frame counters restart"
+        );
     }
 }

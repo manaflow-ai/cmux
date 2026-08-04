@@ -286,7 +286,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 
     private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
@@ -575,7 +575,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testClosingBothRightSplitsDoesNotLeaveBlankPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -621,7 +621,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproBlankAfterClosingRightSplitsViaShortcuts() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -669,7 +669,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproStretchAfterClosingSingleRightSplit() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -707,7 +707,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproBlankAfterClosingBottomSplitsViaShortcuts() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -750,7 +750,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproBlankAfterClosingRightSplitsTopFirstWithGap() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -794,7 +794,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproBlankAfterClosingRightSplitsBottomFirstViaShortcuts() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -839,7 +839,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     func testReproBlankAfterClosingRightSplitsWithoutFocusingRightPanes() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath

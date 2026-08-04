@@ -17,6 +17,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let cwd: String?
     public let toolName: String?
     public let toolInputJSON: String?
+    /// Whether a completed tool reported failure.
+    public let isError: Bool?
     public let context: WorkstreamContext?
     public let requestId: String?
     public let ppid: Int?
@@ -33,6 +35,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         cwd: String? = nil,
         toolName: String? = nil,
         toolInputJSON: String? = nil,
+        isError: Bool? = nil,
         context: WorkstreamContext? = nil,
         requestId: String? = nil,
         ppid: Int? = nil,
@@ -48,6 +51,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.cwd = cwd
         self.toolName = toolName
         self.toolInputJSON = toolInputJSON
+        self.isError = isError
         self.context = context
         self.requestId = requestId
         self.ppid = ppid
@@ -89,6 +93,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case cwd
         case toolName = "tool_name"
         case toolInputJSON = "tool_input"
+        case isError = "is_error"
         case context
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
@@ -105,6 +110,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        self.isError = try c.decodeIfPresent(Bool.self, forKey: .isError)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
@@ -137,6 +143,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
+        try c.encodeIfPresent(isError, forKey: .isError)
         try c.encodeIfPresent(context, forKey: .context)
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)

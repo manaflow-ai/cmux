@@ -222,6 +222,45 @@ struct ToastCenterTests {
         #expect(center.presented?.toast.message == "visible")
     }
 
+    @Test func dismissVisibleByCoalescingKeyAdvancesQueue() async {
+        let (center, clock) = makeCenter()
+        center.present(.info("visible", coalescingKey: "status"))
+        center.present(.success("queued", coalescingKey: "other"))
+
+        center.dismiss(coalescingKey: "status")
+
+        #expect(center.presented == nil)
+        #expect(center.queue.map(\.message) == ["queued"])
+        await yieldUntil { clock.sleeperCount == 1 }
+        clock.advance(by: ToastCenter.interToastGap)
+        await center.advanceTask?.value
+        #expect(center.presented?.toast.message == "queued")
+        #expect(center.queue.isEmpty)
+    }
+
+    @Test func dismissQueuedByCoalescingKeyDropsOnlyMatches() {
+        let (center, _) = makeCenter()
+        center.present(.info("visible", coalescingKey: "visible"))
+        center.present(.failure("drop", coalescingKey: "status"))
+        center.present(.success("keep", coalescingKey: "other"))
+
+        center.dismiss(coalescingKey: "status")
+
+        #expect(center.presented?.toast.message == "visible")
+        #expect(center.queue.map(\.message) == ["keep"])
+    }
+
+    @Test func dismissByNonMatchingCoalescingKeyIsNoOp() {
+        let (center, _) = makeCenter()
+        center.present(.info("visible", coalescingKey: "visible"))
+        center.present(.success("queued", coalescingKey: "queued"))
+
+        center.dismiss(coalescingKey: "missing")
+
+        #expect(center.presented?.toast.message == "visible")
+        #expect(center.queue.map(\.message) == ["queued"])
+    }
+
     @Test func dismissAllClearsEverything() {
         let (center, _) = makeCenter()
         center.present(.info("visible"))

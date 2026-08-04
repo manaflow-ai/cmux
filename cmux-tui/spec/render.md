@@ -1,5 +1,9 @@
 # Render-Mode Attach Contract
 
+This document specifies the private protocol-v10 render representation.
+`cmux.protocol/1` reuses its lossless styled concepts through typed terminal
+and sidebar streams without exposing private terminal identities.
+
 Protocol v7 adds a server-rendered attach mode for rich frontends. The server remains the only terminal emulator: clients draw styled runs, place the cursor, and send input. Protocol v6 byte attach remains unchanged and is still the default.
 
 The schema notation and common types in [`commands.md`](commands.md#notation) apply here.

@@ -8,7 +8,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdDConfirmsCloseWhenClosingLastWorkspaceClosesWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Force a confirmation alert when closing the current workspace so we can validate Cmd+D.
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -28,7 +28,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdWClosingLastTabKeepsWorkspaceWindowOpen() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let keyequivPath = "/tmp/cmux-ui-test-keyequiv-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: keyequivPath)
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
@@ -57,7 +57,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdNOpensNewWindowWhenNoWindowsOpen() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
         app.activate()
@@ -85,7 +85,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testChildExitInHorizontalSplitClosesOnlyExitedPane() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-split-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -123,7 +123,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCtrlDFromKeyboardInHorizontalSplitClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -179,7 +179,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-tree-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -238,7 +238,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         // any single bad close routing/focus cycle.
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -311,7 +311,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDAfterClosingBottomRowIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-bottom-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -384,7 +384,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -464,7 +464,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardInHorizontalSplitKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -544,7 +544,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-ctrl-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"

@@ -13,15 +13,21 @@ export type SubrouterAccount = {
   readonly kind: string;
   readonly label?: string | null;
   readonly createdAt?: string;
+  readonly health?: {
+    readonly ok: boolean;
+    readonly message?: string;
+  };
 };
 
 export type ClaudeAccountInput = {
   readonly provider: "claude";
   readonly label?: string;
-  readonly claudeAiOauth: Record<string, unknown> & {
+  readonly claudeAiOauth: {
     readonly accessToken: string;
     readonly refreshToken: string;
-    readonly expiresAt: unknown;
+    readonly expiresAt: number;
+    readonly subscriptionType?: string;
+    readonly rateLimitTier?: string;
   };
 };
 
@@ -34,7 +40,7 @@ export type AnthropicApiKeyAccountInput = {
 export type CodexAccountInput = {
   readonly provider: "codex";
   readonly label?: string;
-  readonly tokens: Record<string, unknown> & {
+  readonly tokens: {
     readonly accessToken: string;
     readonly refreshToken: string;
     readonly idToken: string;
@@ -54,6 +60,37 @@ export type SubrouterAccountInput =
   | CodexAccountInput
   | OpenAiApiKeyAccountInput;
 
+export type SubrouterCredentialLeaseInput = {
+  readonly provider: "codex" | "claude";
+  readonly agentType?: string;
+  readonly sessionId: string;
+  readonly userEmail?: string;
+  readonly preferAccountId?: string;
+  readonly model?: string;
+  readonly requiredAuthMode?: "oauth" | "apikey";
+};
+
+export type SubrouterCredentialLease = {
+  readonly leaseId: string;
+  readonly accountId: string;
+  readonly provider: "codex" | "claude";
+  readonly authMode: "oauth" | "apikey";
+  readonly token: string;
+  readonly providerAccountId?: string;
+  readonly label: string;
+  readonly email?: string;
+  readonly credentialGeneration: number;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  readonly credentialExpiresAt?: string;
+};
+
+export type SubrouterCredentialLeaseOutcome =
+  | "success"
+  | "unauthorized"
+  | "rate_limited"
+  | "provider_error";
+
 export type SubrouterClient = {
   readonly createTenant: (input: { readonly name: string }) => Promise<SubrouterTenant>;
   readonly rotateTenant: (tenantId: string) => Promise<{ readonly id: string; readonly key: string }>;
@@ -62,9 +99,25 @@ export type SubrouterClient = {
   readonly createAccount: (
     tenantKey: string,
     input: SubrouterAccountInput,
-    options?: { readonly validate?: boolean },
   ) => Promise<SubrouterAccount>;
   readonly deleteAccount: (tenantKey: string, accountId: string) => Promise<void>;
+  readonly repairAccount: (
+    tenantKey: string,
+    accountId: string,
+    input: SubrouterAccountInput,
+  ) => Promise<SubrouterAccount>;
+  readonly createCredentialLease: (
+    tenantKey: string,
+    input: SubrouterCredentialLeaseInput,
+  ) => Promise<SubrouterCredentialLease>;
+  readonly reportCredentialLease: (
+    tenantKey: string,
+    leaseId: string,
+    input: {
+      readonly outcome: SubrouterCredentialLeaseOutcome;
+      readonly statusCode?: number;
+    },
+  ) => Promise<{ readonly ok: true; readonly refreshState?: "refreshed" }>;
 };
 
 export type SubrouterRuntimeConfig = {
@@ -173,12 +226,10 @@ export function createSubrouterClient(options: {
         },
         parseAccountList,
       ),
-    createAccount: (tenantKey, input, createOptions = {}) => {
-      const url = new URL(`${baseUrl}/tenant/accounts`);
-      if (createOptions.validate) url.searchParams.set("validate", "1");
-      return requestJson(
+    createAccount: (tenantKey, input) =>
+      requestJson(
         fetchImpl,
-        url.toString(),
+        `${baseUrl}/tenant/accounts?adopt=1&validate=1`,
         "createAccount",
         {
           method: "POST",
@@ -186,8 +237,7 @@ export function createSubrouterClient(options: {
           body: JSON.stringify(input),
         },
         parseAccount,
-      );
-    },
+      ),
     deleteAccount: async (tenantKey, accountId) => {
       await requestNoBody(
         fetchImpl,
@@ -199,6 +249,42 @@ export function createSubrouterClient(options: {
         },
       );
     },
+    repairAccount: (tenantKey, accountId, input) =>
+      requestJson(
+        fetchImpl,
+        `${baseUrl}/tenant/accounts/${encodeURIComponent(accountId)}/repair?adopt=1&validate=1`,
+        "repairAccount",
+        {
+          method: "POST",
+          headers: tenantHeaders(tenantKey),
+          body: JSON.stringify(input),
+        },
+        parseAccount,
+      ),
+    createCredentialLease: (tenantKey, input) =>
+      requestJson(
+        fetchImpl,
+        `${baseUrl}/tenant/leases`,
+        "createCredentialLease",
+        {
+          method: "POST",
+          headers: tenantHeaders(tenantKey),
+          body: JSON.stringify(input),
+        },
+        parseCredentialLease,
+      ),
+    reportCredentialLease: (tenantKey, leaseId, input) =>
+      requestJson(
+        fetchImpl,
+        `${baseUrl}/tenant/leases/${encodeURIComponent(leaseId)}/events`,
+        "reportCredentialLease",
+        {
+          method: "POST",
+          headers: tenantHeaders(tenantKey),
+          body: JSON.stringify(input),
+        },
+        parseCredentialLeaseReport,
+      ),
   };
 }
 
@@ -293,14 +379,23 @@ function parseTenantRotation(value: unknown): { readonly id: string; readonly ke
 }
 
 function parseAccountList(value: unknown): readonly SubrouterAccount[] {
-  if (!Array.isArray(value)) throw new SubrouterClientError("parseAccountList", null);
-  return value.map(parseAccount);
+  const accounts = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.accounts)
+      ? value.accounts
+      : null;
+  if (!accounts) throw new SubrouterClientError("parseAccountList", null);
+  return accounts.map(parseAccount);
 }
 
 function parseAccount(value: unknown): SubrouterAccount {
   if (!isRecord(value)) throw new SubrouterClientError("parseAccount", null);
-  const { id, kind, label, createdAt } = value;
-  if (typeof id !== "string" || typeof kind !== "string") {
+  const { id, label } = value;
+  const createdAt = value.createdAt ?? value.created_at;
+  const kind = typeof value.kind === "string"
+    ? value.kind
+    : accountKindFromProvider(value.provider, value.auth_mode);
+  if (typeof id !== "string" || !kind) {
     throw new SubrouterClientError("parseAccount", null);
   }
   if (label !== undefined && label !== null && typeof label !== "string") {
@@ -309,6 +404,7 @@ function parseAccount(value: unknown): SubrouterAccount {
   if (createdAt !== undefined && typeof createdAt !== "string") {
     throw new SubrouterClientError("parseAccount", null);
   }
+  const health = parseAccountHealth(value.health);
   // Whitelist the browser-facing shape: never forward unknown upstream fields
   // across this trust boundary, even though the worker sanitizes accounts.
   return {
@@ -316,6 +412,103 @@ function parseAccount(value: unknown): SubrouterAccount {
     kind,
     ...(label !== undefined ? { label } : {}),
     ...(createdAt !== undefined ? { createdAt } : {}),
+    ...(health ? { health } : {}),
+  };
+}
+
+function parseAccountHealth(
+  value: unknown,
+): { readonly ok: boolean; readonly message?: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value) || typeof value.ok !== "boolean") {
+    throw new SubrouterClientError("parseAccountHealth", null);
+  }
+  if (value.message !== undefined && typeof value.message !== "string") {
+    throw new SubrouterClientError("parseAccountHealth", null);
+  }
+  return {
+    ok: value.ok,
+    ...(typeof value.message === "string" ? { message: value.message } : {}),
+  };
+}
+
+function accountKindFromProvider(provider: unknown, authMode: unknown): string | null {
+  if (provider === "codex" && authMode === "oauth") return "codex";
+  if (provider === "codex" && authMode === "apikey") return "openai-apikey";
+  if (provider === "claude" && authMode === "oauth") return "claude";
+  if (provider === "claude" && authMode === "apikey") return "anthropic-apikey";
+  return null;
+}
+
+function parseCredentialLease(value: unknown): SubrouterCredentialLease {
+  if (!isRecord(value)) {
+    throw new SubrouterClientError("parseCredentialLease", null);
+  }
+  const {
+    leaseId,
+    accountId,
+    provider,
+    authMode,
+    token,
+    providerAccountId,
+    label,
+    email,
+    credentialGeneration,
+    issuedAt,
+    expiresAt,
+    credentialExpiresAt,
+  } = value;
+  if (
+    typeof leaseId !== "string" ||
+    typeof accountId !== "string" ||
+    (provider !== "codex" && provider !== "claude") ||
+    (authMode !== "oauth" && authMode !== "apikey") ||
+    typeof token !== "string" ||
+    typeof label !== "string" ||
+    typeof credentialGeneration !== "number" ||
+    typeof issuedAt !== "string" ||
+    typeof expiresAt !== "string"
+  ) {
+    throw new SubrouterClientError("parseCredentialLease", null);
+  }
+  if (providerAccountId !== undefined && typeof providerAccountId !== "string") {
+    throw new SubrouterClientError("parseCredentialLease", null);
+  }
+  if (email !== undefined && typeof email !== "string") {
+    throw new SubrouterClientError("parseCredentialLease", null);
+  }
+  if (credentialExpiresAt !== undefined && typeof credentialExpiresAt !== "string") {
+    throw new SubrouterClientError("parseCredentialLease", null);
+  }
+  return {
+    leaseId,
+    accountId,
+    provider,
+    authMode,
+    token,
+    ...(providerAccountId ? { providerAccountId } : {}),
+    label,
+    ...(email ? { email } : {}),
+    credentialGeneration,
+    issuedAt,
+    expiresAt,
+    ...(credentialExpiresAt ? { credentialExpiresAt } : {}),
+  };
+}
+
+function parseCredentialLeaseReport(
+  value: unknown,
+): { readonly ok: true; readonly refreshState?: "refreshed" } {
+  if (!isRecord(value) || value.ok !== true) {
+    throw new SubrouterClientError("parseCredentialLeaseReport", null);
+  }
+  const refreshState = value.refreshState;
+  if (refreshState !== undefined && refreshState !== "refreshed") {
+    throw new SubrouterClientError("parseCredentialLeaseReport", null);
+  }
+  return {
+    ok: true,
+    ...(refreshState ? { refreshState } : {}),
   };
 }
 

@@ -40,6 +40,16 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// For terminal surfaces, the resume binding, else `nil`. Emitted as the
     /// `resume_binding` value (a `null` binding still emits the key).
     public let resumeBinding: ControlSurfaceResumeBinding?
+    /// Persisted Simulator identity, available without starting its worker.
+    public let simulatorDeviceID: String?
+    /// Persisted Simulator runtime identity, available without discovery.
+    public let simulatorRuntimeIdentifier: String?
+    /// Persisted Simulator device-type identity, available without discovery.
+    public let simulatorDeviceTypeIdentifier: String?
+    /// Live Simulator device name, when discovery has completed.
+    public let simulatorDeviceName: String?
+    /// Live CoreSimulator state, or booted when the pane is streaming.
+    public let simulatorDeviceState: String?
     /// The Dock container scope for Dock-hosted surfaces, else `nil`.
     public let dockScopeRawValue: String?
 
@@ -74,6 +84,11 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         tmuxStartCommand: String?,
         isTerminal: Bool,
         resumeBinding: ControlSurfaceResumeBinding?,
+        simulatorDeviceID: String? = nil,
+        simulatorRuntimeIdentifier: String? = nil,
+        simulatorDeviceTypeIdentifier: String? = nil,
+        simulatorDeviceName: String? = nil,
+        simulatorDeviceState: String? = nil,
         dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
@@ -89,6 +104,11 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.tmuxStartCommand = tmuxStartCommand
         self.isTerminal = isTerminal
         self.resumeBinding = resumeBinding
+        self.simulatorDeviceID = simulatorDeviceID
+        self.simulatorRuntimeIdentifier = simulatorRuntimeIdentifier
+        self.simulatorDeviceTypeIdentifier = simulatorDeviceTypeIdentifier
+        self.simulatorDeviceName = simulatorDeviceName
+        self.simulatorDeviceState = simulatorDeviceState
         self.dockScopeRawValue = dockScopeRawValue
     }
 }
