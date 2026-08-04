@@ -841,7 +841,8 @@ struct AgentConversationCrossHarnessForkTests {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "large-session")
-        let command = "claude " + String(repeating: "context ", count: 500)
+        let command = (["claude"] + Array(repeating: "context", count: 500))
+            .joined(separator: " ")
 
         let input = try #require(snapshot.customStartupInput(
             command: command,
