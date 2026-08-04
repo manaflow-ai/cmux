@@ -134,6 +134,7 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(notificationCenter.addedObservers.map { $0.name } == [
             CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
             CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
+            CommandPaletteInteractionMonitor.windowWillCloseNotification,
             CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
         ])
 
