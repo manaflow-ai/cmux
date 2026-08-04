@@ -74,6 +74,17 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         return (workspaceId, panelId)
     }
 
+    func useRemoteDirectoryProvenance(workspaceId: UUID, panelId: UUID) {
+        mutate(workspaceId) {
+            $0.isRemote = true
+            $0.panels[panelId]?.isRemoteTerminal = true
+        }
+    }
+
+    func setPanelDirectory(workspaceId: UUID, panelId: UUID, directory: String?) {
+        mutate(workspaceId) { $0.panels[panelId]?.directory = directory }
+    }
+
     private func state(_ id: UUID) -> WorkspaceState? {
         workspaces.first(where: { $0.id == id })?.state
     }

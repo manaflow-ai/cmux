@@ -116,6 +116,52 @@ import CmuxGit
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func remoteDirectoryProvenanceBeforeDelayedAttemptDoesNotReadLocalGitMetadata() async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "main"))
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "remoteProvenance"
+        )
+        await clock.waitForSleeper()
+        host.useRemoteDirectoryProvenance(workspaceId: workspaceId, panelId: panelId)
+        await clock.resumeNext()
+
+        #expect(await waitUntil { service.workspaceGitProbeStateByKey[key] == nil })
+        #expect(await reader.probedDirectories.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func changedDirectoryBeforeDelayedAttemptDoesNotReadLocalGitMetadata() async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "main"))
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "directoryChange"
+        )
+        await clock.waitForSleeper()
+        host.setPanelDirectory(workspaceId: workspaceId, panelId: panelId, directory: "/tmp/other-repo")
+        await clock.resumeNext()
+
+        #expect(await waitUntil { service.workspaceGitProbeStateByKey[key] == nil })
+        #expect(await reader.probedDirectories.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func filesystemEventGenerationIsPassedToMetadataReader() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
@@ -387,20 +433,22 @@ import CmuxGit
         let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         #expect(await waitUntil { service.workspaceGitProbeStateByKey[probeKey] == nil })
 
-        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
         await reader.setMetadata(.repository(branch: "main"))
-        let nextClock = ManualGitPollClock()
-        let nextService = makeService(host: host, reader: reader, clock: nextClock)
-        nextService.scheduleWorkspaceGitMetadataRefreshIfPossible(
+        host.gitMetadataActivity = .passiveReportsOnly
+        service.sidebarGitMetadataWatchSettingsDidChange()
+        host.gitMetadataActivity = .activePolling
+        let eventCountBeforeSecondProbe = host.events.count
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
             reason: "repositoryLinkRemoved"
         )
-        await nextClock.waitForSleeper()
-        await nextClock.resumeNext()
+        await clock.waitForSleeper()
+        await clock.resumeNext()
 
+        #expect(await reader.waitForProbe(count: 2))
         #expect(await waitUntil {
-            host.events.contains(.clearRepositoryLink(workspaceId, panelId))
+            host.events.dropFirst(eventCountBeforeSecondProbe).contains(.clearRepositoryLink(workspaceId, panelId))
         })
         #expect(host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)?.branch == "main")
     }
