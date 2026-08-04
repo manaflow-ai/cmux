@@ -1047,7 +1047,8 @@ import Testing
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             pairingHintDefaults: defaults,
-            multiMacAggregationDefaults: defaults
+            multiMacAggregationDefaults: defaults,
+            groupCollapseStore: MobileWorkspaceGroupCollapseStore(defaults: defaults)
         )
         await store.loadPairedMacs()
         return store

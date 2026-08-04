@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure derivations from the per-Mac state map to the flat, user-facing shapes.
+/// Pure derivations from the per-Mac state map to aggregated workspace and group shapes.
 ///
 public struct MobileWorkspaceAggregation: Sendable {
     private let rowIDSeparator = "\u{1F}"
@@ -73,6 +73,22 @@ public struct MobileWorkspaceAggregation: Sendable {
         )
     }
 
+    /// Stable display id for one Mac-local group inside an aggregated list.
+    private func groupID(
+        macDeviceID: String,
+        instanceTag: String?,
+        groupID: MobileWorkspaceGroupPreview.ID
+    ) -> MobileWorkspaceGroupPreview.ID {
+        guard let instanceTag, !instanceTag.isEmpty else {
+            return MobileWorkspaceGroupPreview.ID(
+                rawValue: "\(macDeviceID)\(rowIDSeparator)\(groupID.rawValue)"
+            )
+        }
+        return MobileWorkspaceGroupPreview.ID(
+            rawValue: "\(macDeviceID)\(rowIDSeparator)\(instanceTag)\(rowIDSeparator)\(groupID.rawValue)"
+        )
+    }
+
     /// Derive the flat, ordered workspace list across all Macs.
     public func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
@@ -102,6 +118,13 @@ public struct MobileWorkspaceAggregation: Sendable {
                         instanceTag: stamped.macInstanceTag,
                         workspaceID: remoteID
                     )
+                    if let remoteGroupID = workspace.groupID {
+                        stamped.groupID = groupID(
+                            macDeviceID: ownerID,
+                            instanceTag: stamped.macInstanceTag,
+                            groupID: remoteGroupID
+                        )
+                    }
                 }
                 result.append(stamped)
             }
@@ -109,28 +132,52 @@ public struct MobileWorkspaceAggregation: Sendable {
         return result
     }
 
-    /// Derive the group sections to show for the foreground Mac.
+    /// Derive group sections from every Mac in the same order as workspaces.
+    ///
+    /// Group ids are Mac-local, so a multi-Mac list namespaces both group ids
+    /// and anchor workspace ids. The original group id remains available through
+    /// ``MobileWorkspaceGroupPreview/rpcGroupID`` for mutations.
     public func derivedGroups(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspaceGroupPreview] {
-        guard let foregroundMacDeviceID, let state = statesByMac[foregroundMacDeviceID] else { return [] }
-        let shouldScopeRowIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
-        guard shouldScopeRowIDs, !foregroundMacDeviceID.isEmpty else { return state.groups }
-        let remoteIDByLocalID = Dictionary(
-            uniqueKeysWithValues: state.workspaces.map { workspace in
-                (workspace.id, workspace.remoteWorkspaceID ?? workspace.id)
-            }
-        )
-        return state.groups.map { group in
-            var scoped = group
-            let remoteID = remoteIDByLocalID[group.anchorWorkspaceID] ?? group.anchorWorkspaceID
-            scoped.anchorWorkspaceID = rowID(
-                macDeviceID: state.macDeviceID,
-                instanceTag: state.instanceTag,
-                workspaceID: remoteID
+        let shouldScopeIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
+        var result: [MobileWorkspaceGroupPreview] = []
+        for macID in orderedMacIDs(
+            statesByMac: statesByMac,
+            foregroundMacDeviceID: foregroundMacDeviceID
+        ) {
+            guard let state = statesByMac[macID] else { continue }
+            let remoteWorkspaceIDByLocalID = Dictionary(
+                uniqueKeysWithValues: state.workspaces.map { workspace in
+                    (workspace.id, workspace.remoteWorkspaceID ?? workspace.id)
+                }
             )
-            return scoped
+            for group in state.groups {
+                let remoteGroupID = group.remoteGroupID ?? group.id
+                var stamped = group
+                stamped.remoteGroupID = shouldScopeIDs ? remoteGroupID : group.remoteGroupID
+                stamped.macDeviceID = state.macDeviceID
+                stamped.macInstanceTag = state.instanceTag
+                guard shouldScopeIDs, !state.macDeviceID.isEmpty else {
+                    result.append(stamped)
+                    continue
+                }
+                stamped.id = groupID(
+                    macDeviceID: state.macDeviceID,
+                    instanceTag: state.instanceTag,
+                    groupID: remoteGroupID
+                )
+                let remoteAnchorID = remoteWorkspaceIDByLocalID[group.anchorWorkspaceID]
+                    ?? group.anchorWorkspaceID
+                stamped.anchorWorkspaceID = rowID(
+                    macDeviceID: state.macDeviceID,
+                    instanceTag: state.instanceTag,
+                    workspaceID: remoteAnchorID
+                )
+                result.append(stamped)
+            }
         }
+        return result
     }
 }

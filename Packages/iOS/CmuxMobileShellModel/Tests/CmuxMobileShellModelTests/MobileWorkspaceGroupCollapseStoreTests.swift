@@ -85,4 +85,23 @@ import Testing
         let reloaded = MobileWorkspaceGroupCollapseStore(defaults: defaults)
         #expect(reloaded.isCollapsed("b") == nil)
     }
+
+    @Test func sameRemoteGroupIDOnDifferentMacsKeepsIndependentDecisions() {
+        var macAGroup = group("mac-a\u{1F}shared", collapsed: false)
+        macAGroup.remoteGroupID = "shared"
+        macAGroup.macDeviceID = "mac-a"
+        var macBGroup = group("mac-b\u{1F}shared", collapsed: true)
+        macBGroup.remoteGroupID = "shared"
+        macBGroup.macDeviceID = "mac-b"
+        var store = MobileWorkspaceGroupCollapseStore(defaults: makeDefaults())
+
+        _ = store.apply(to: [macAGroup, macBGroup])
+        store.set(macAGroup.collapseStateID, collapsed: true)
+        store.set(macBGroup.collapseStateID, collapsed: false)
+        let resolved = store.apply(to: [macAGroup, macBGroup])
+
+        #expect(resolved.first { $0.id == macAGroup.id }?.isCollapsed == true)
+        #expect(resolved.first { $0.id == macBGroup.id }?.isCollapsed == false)
+        #expect(macAGroup.collapseStateID != macBGroup.collapseStateID)
+    }
 }
