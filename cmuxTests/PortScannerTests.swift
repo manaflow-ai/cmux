@@ -143,7 +143,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: false,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys002")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runPS(ttyList: "ttys001,ttys002")
 
         #expect(scan.values == [123: "ttys001"])
         #expect(scan.completeness == .incomplete)
@@ -162,7 +165,8 @@ struct PortScannerProcessCaptureTests {
             commandRunner: runner,
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
+            },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "123,456")
 
         #expect(scan.values == [123: [4200], 456: [4300]])
@@ -183,7 +187,8 @@ struct PortScannerProcessCaptureTests {
             commandRunner: runner,
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
+            },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "123")
 
         #expect(scan.values == [123: [4200]])
@@ -199,7 +204,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: false,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runLsof(pidsCsv: "123")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123")
 
         #expect(scan.values == [123: [4200]])
         #expect(scan.completeness == .incomplete)
@@ -222,7 +230,8 @@ struct PortScannerProcessCaptureTests {
         let scan = await PortScanner(
             commandRunner: runner,
             processIdentityProvider: { $0 == liveIdentity.pid ? liveIdentity : nil },
-            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent }
+            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "100,200")
 
         #expect(scan.values == [100: [4200]])
@@ -282,7 +291,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: true,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runPS(ttyList: "ttys001")
         let timeout = await runner.lastTimeout
 
         #expect(scan.values.isEmpty)
@@ -315,7 +327,8 @@ struct AgentProcessIdentityValidationTests {
                 case secondIdentity.pid: secondIdentity
                 default: nil
                 }
-            }
+            },
+            portScanningEnabledProvider: { true }
         )
 
         let scan = await scanner.expandAgentProcessTree(
@@ -367,7 +380,8 @@ struct AgentProcessIdentityValidationTests {
             let scanner = PortScanner(
                 commandRunner: runner,
                 processIdentityProvider: { _ in identity.withLock { $0 } },
-                processPresenceProvider: { _ in .present }
+                processPresenceProvider: { _ in .present },
+                portScanningEnabledProvider: { true }
             )
 
             let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
@@ -397,7 +411,8 @@ struct AgentProcessIdentityValidationTests {
         let scanner = PortScanner(
             commandRunner: runner,
             processIdentityProvider: { _ in nil },
-            processPresenceProvider: { _ in .present }
+            processPresenceProvider: { _ in .present },
+            portScanningEnabledProvider: { true }
         )
 
         let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
