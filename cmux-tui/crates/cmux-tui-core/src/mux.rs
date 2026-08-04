@@ -19241,6 +19241,17 @@ mod tests {
         assert!(mux.surface(first.id).is_some());
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
 
+        let detached_report = mux
+            .report_agent(
+                first.id,
+                AgentState::Blocked,
+                AgentSource::Hook,
+                Some("detached-hook".to_string()),
+            )
+            .expect("the terminal host identity remains valid without a view");
+        assert_eq!(detached_report.state, AgentState::Blocked);
+        assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
+
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
         assert!(mux.surface_notification(first.id).is_none());
@@ -19326,7 +19337,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_to_active_surface_does_not_set_unread() {
+    fn notification_to_shared_default_surface_waits_for_explicit_view_acknowledgement() {
         let mux = test_mux();
         let events = mux.subscribe();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -19341,7 +19352,9 @@ mod tests {
             )
             .unwrap();
 
-        assert!(mux.surface_notification(surface.id).is_none());
+        let unread = mux.surface_notification(surface.id).unwrap();
+        assert_eq!(unread.notification, notification);
+        assert!(unread.unread);
         assert!(events.try_iter().any(|event| {
             matches!(
                 event,
@@ -19349,6 +19362,9 @@ mod tests {
                     if note.notification == notification && note.surface == Some(surface.id)
             )
         }));
+
+        mux.select_tab(None, Some(0), None);
+        assert!(mux.surface_notification(surface.id).is_none());
     }
 
     #[test]

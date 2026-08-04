@@ -18101,6 +18101,9 @@ mod tests {
                 }
             })
             .unwrap();
+        let shared_scrollbar =
+            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
+        let view_scrollbar = surface.view_scrollbar().unwrap();
         let events = mux.subscribe();
 
         handle_command(
@@ -18118,6 +18121,12 @@ mod tests {
                 if id == surface.id && offset > 0
         ));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(
+            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
+            shared_scrollbar,
+            "a backend view scroll must not mutate the shared terminal runtime"
+        );
+        assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
 
         handle_command(
             &mux,
