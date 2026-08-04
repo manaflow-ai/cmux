@@ -5,6 +5,7 @@ const modifiedEnvironment = [
   "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
   "SUBROUTER_STACK_AUTH_TIMEOUT_MS",
   "SUBROUTER_HOSTED_URL",
+  "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
 ] as const;
 const originalEnvironment = Object.fromEntries(
   modifiedEnvironment.map((name) => [name, process.env[name]]),
@@ -14,6 +15,8 @@ process.env.SUBROUTER_ALLOWED_TEAM_IDS = "*";
 process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "10000";
 process.env.SUBROUTER_HOSTED_URL = "https://sr.test";
+process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
+  "0123456789abcdef0123456789abcdef-test";
 
 let currentUser: ReturnType<typeof stackUser> | null = null;
 let authJson = {
@@ -49,6 +52,7 @@ const leaseEventsRoute = await import(
 );
 const logoutRoute = await import("../app/api/subrouter/logout/route");
 const teamsRoute = await import("../app/api/subrouter/teams/route");
+const exchangeRoute = await import("../app/api/subrouter/exchange/route");
 
 const originalFetch = globalThis.fetch;
 const tenantKey = "srt_0123456789abcdef0123456789abcdef";
@@ -93,6 +97,52 @@ beforeEach(() => {
 });
 
 describe("hosted Subrouter account routes", () => {
+  test("brokers native tenant exchange only after the shared cutover gate", async () => {
+    hostedCutoverReady = false;
+    const pending = await exchangeRoute.POST(
+      request("/api/subrouter/exchange", { method: "POST", body: "{}" }),
+    );
+    expect(pending.status).toBe(503);
+    expect(await pending.json()).toEqual({
+      error: "subrouter_migration_pending",
+    });
+    expect(calls).toHaveLength(0);
+
+    hostedCutoverReady = true;
+    const response = await exchangeRoute.POST(
+      request("/api/subrouter/exchange", { method: "POST", body: "{}" }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(calls[0]?.headers.get("x-subrouter-stack-control-token")).toBe(
+      "0123456789abcdef0123456789abcdef-test",
+    );
+    expect(calls[0]?.body).toEqual({
+      teamId: "team-a",
+      teamName: "Team A",
+      capabilities: ["use", "manage_accounts"],
+    });
+    expect(await response.json()).toEqual({
+      tenantId: "team-a",
+      tenantName: "Team A",
+      tenantKey,
+      proxyUrl: `https://sr.test/t/${tenantKey}`,
+      capabilities: ["use", "manage_accounts"],
+    });
+  });
+
+  test("never returns a tenant key from ambient browser cookies", async () => {
+    const response = await exchangeRoute.POST(
+      request("/api/subrouter/exchange", {
+        auth: "cookie",
+        method: "POST",
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(calls).toHaveLength(0);
+  });
+
   test("returns 401 without a Stack user and never contacts hosted Subrouter", async () => {
     currentUser = null;
 
@@ -514,6 +564,7 @@ async function hostedFetch(
       tenantName: "Team A",
       tenantKey,
       proxyUrl: `https://sr.test/t/${tenantKey}`,
+      capabilities: body.capabilities,
     });
   }
   if (

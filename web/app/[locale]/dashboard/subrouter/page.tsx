@@ -31,6 +31,7 @@ type PageProps = {
 type DashboardTeam = {
   readonly id: string;
   readonly name: string;
+  readonly use: boolean;
   readonly manageAccounts: boolean;
 };
 
@@ -118,6 +119,7 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     .map((candidate) => ({
       id: candidate.teamId,
       name: candidate.teamName,
+      use: candidate.use,
       manageAccounts: candidate.manageAccounts,
     }));
   if (teams.length === 0) {
@@ -280,6 +282,8 @@ async function loadAccounts(
     const tenant = await client.exchangeTeam(accessToken, {
       teamId: team.id,
       teamName: team.name,
+      use: team.use,
+      manageAccounts: team.manageAccounts,
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };

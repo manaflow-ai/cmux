@@ -13,13 +13,23 @@ export type HostedTenant = {
   readonly tenantName: string;
   readonly tenantKey: string;
   readonly proxyUrl: string;
+  readonly capabilities: readonly HostedTenantCapability[];
+};
+
+export type HostedTenantCapability = "use" | "manage_accounts";
+
+export type HostedTeam = {
+  readonly teamId: string;
+  readonly teamName: string;
+  readonly use: boolean;
+  readonly manageAccounts: boolean;
 };
 
 export type HostedSubrouterClient = {
   readonly assertTenantDeletionConfigured: () => void;
   readonly exchangeTeam: (
     accessToken: string,
-    team: { readonly teamId: string; readonly teamName: string },
+    team: HostedTeam,
   ) => Promise<HostedTenant>;
   readonly deleteTenant: (accessToken: string, teamId: string) => Promise<void>;
   readonly listAccounts: (tenantKey: string) => Promise<readonly SubrouterAccount[]>;
@@ -60,10 +70,10 @@ export function createHostedSubrouterClient(options: {
     process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
     ""
   ).trim();
-  const assertTenantDeletionConfigured = (): void => {
+  const assertTenantControlConfigured = (): void => {
     if (!tenantDeleteToken) {
       throw new HostedSubrouterError(
-        "hosted Subrouter tenant deletion is not configured",
+        "hosted Subrouter tenant control is not configured",
         503,
       );
     }
@@ -118,8 +128,17 @@ export function createHostedSubrouterClient(options: {
   };
 
   return {
-    assertTenantDeletionConfigured,
+    assertTenantDeletionConfigured: assertTenantControlConfigured,
     exchangeTeam: async (accessToken, team) => {
+      assertTenantControlConfigured();
+      const capabilities = hostedTenantCapabilities(team);
+      if (capabilities.length === 0) {
+        throw new HostedSubrouterError(
+          "hosted Subrouter team has no capabilities",
+          403,
+          "caller",
+        );
+      }
       const response = await requestJson(
         fetchImpl,
         `${baseUrl}/_subrouter/auth/stack`,
@@ -128,8 +147,13 @@ export function createHostedSubrouterClient(options: {
           headers: {
             authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
+            "x-subrouter-stack-control-token": tenantDeleteToken,
           },
-          body: JSON.stringify(team),
+          body: JSON.stringify({
+            teamId: team.teamId,
+            teamName: team.teamName,
+            capabilities,
+          }),
         },
         "caller",
       );
@@ -140,10 +164,16 @@ export function createHostedSubrouterClient(options: {
           502,
         );
       }
+      if (!sameCapabilities(tenant.capabilities, capabilities)) {
+        throw new HostedSubrouterError(
+          "hosted Subrouter returned mismatched capabilities",
+          502,
+        );
+      }
       return tenant;
     },
     deleteTenant: async (accessToken, teamId) => {
-      assertTenantDeletionConfigured();
+      assertTenantControlConfigured();
       const upstreamResponse = await requestResponse(
         fetchImpl,
         `${baseUrl}/_subrouter/auth/stack/tenant`,
@@ -300,7 +330,9 @@ function parseHostedTenant(value: unknown): HostedTenant {
     !isString(value.tenantId) ||
     !isString(value.tenantName) ||
     !isString(value.tenantKey) ||
-    !isString(value.proxyUrl)
+    !isString(value.proxyUrl) ||
+    !Array.isArray(value.capabilities) ||
+    !value.capabilities.every(isHostedTenantCapability)
   ) {
     throw new HostedSubrouterError("invalid hosted tenant response", 502);
   }
@@ -309,7 +341,31 @@ function parseHostedTenant(value: unknown): HostedTenant {
     tenantName: value.tenantName,
     tenantKey: value.tenantKey,
     proxyUrl: value.proxyUrl,
+    capabilities: value.capabilities,
   };
+}
+
+function hostedTenantCapabilities(
+  team: Pick<HostedTeam, "use" | "manageAccounts">,
+): HostedTenantCapability[] {
+  return [
+    ...(team.use ? ["use" as const] : []),
+    ...(team.manageAccounts ? ["manage_accounts" as const] : []),
+  ];
+}
+
+function isHostedTenantCapability(
+  value: unknown,
+): value is HostedTenantCapability {
+  return value === "use" || value === "manage_accounts";
+}
+
+function sameCapabilities(
+  left: readonly HostedTenantCapability[],
+  right: readonly HostedTenantCapability[],
+): boolean {
+  return left.length === right.length &&
+    left.every((capability) => right.includes(capability));
 }
 
 function parseHostedAccount(value: unknown): SubrouterAccount {

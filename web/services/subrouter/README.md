@@ -2,12 +2,19 @@
 
 The dashboard and `/api/subrouter/accounts` use the signed-in Stack access
 token to exchange a Stack team for a deterministic tenant on `sr.cmux.com`.
-The Go service verifies the token and team membership. The web app stores no
-tenant keys and needs no Subrouter admin token or database row.
+The Go service verifies the token and team membership. The trusted web broker
+also enforces the team allowlist, Stack permissions, and hosted cutover gate
+before it requests a capability-scoped tenant key. Direct client exchange is
+rejected. The web app stores no tenant keys and needs no Subrouter admin token
+or database row.
 
 Production defaults to `https://sr.cmux.com`; previews and local development
 default to `https://staging.sr.cmux.com`. `SUBROUTER_HOSTED_URL` overrides the
 environment default.
+
+`/api/cli/config` publishes the same-origin `/api/subrouter/exchange` broker
+for native clients. `SUBROUTER_STACK_TENANT_DELETE_TOKEN` authenticates the
+web broker to hosted Subrouter for both exchange and tenant retirement.
 
 The legacy `subrouter_tenants` table remains a cutover gate, recovery map, and
 retirement map until every pre-hosted tenant has moved. A mapped team cannot

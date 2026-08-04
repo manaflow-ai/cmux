@@ -174,7 +174,14 @@ async function main(): Promise<void> {
       destinationUrl,
       openStackSession: (mapping) =>
         openStackMigrationSession(stackApp, mapping, runtimeEnv),
-      exchangeHostedTenant,
+      exchangeHostedTenant: (input) =>
+        exchangeHostedTenant({
+          ...input,
+          controlToken: requiredEnv(
+            runtimeEnv,
+            "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
+          ),
+        }),
       migrateLegacyTenant: async (input) =>
         await legacyClient.migrateTenant(input.legacyTenantId, {
           destinationUrl: input.destinationUrl,
@@ -346,6 +353,7 @@ async function exchangeHostedTenant(input: {
   readonly teamName: string;
   readonly accessToken: string;
   readonly destinationUrl: string;
+  readonly controlToken: string;
 }): Promise<HostedTenantExchange> {
   let response: Response;
   try {
@@ -354,10 +362,12 @@ async function exchangeHostedTenant(input: {
       headers: {
         authorization: `Bearer ${input.accessToken}`,
         "content-type": "application/json",
+        "x-subrouter-stack-control-token": input.controlToken,
       },
       body: JSON.stringify({
         teamId: input.teamId,
         teamName: input.teamName,
+        capabilities: ["manage_accounts"],
       }),
       signal: AbortSignal.timeout(30_000),
     });

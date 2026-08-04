@@ -6,6 +6,7 @@ type CliConfigEnvKey =
   | "NEXT_PUBLIC_STACK_PROJECT_ID"
   | "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"
   | "SUBROUTER_HOSTED_URL"
+  | "SUBROUTER_STACK_TENANT_DELETE_TOKEN"
   | "VERCEL_ENV";
 
 const testEnvironment = {
@@ -13,6 +14,8 @@ const testEnvironment = {
   NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
   SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
+  SUBROUTER_STACK_TENANT_DELETE_TOKEN:
+    "0123456789abcdef0123456789abcdef-test",
   VERCEL_ENV: "preview",
 } satisfies Record<CliConfigEnvKey, string>;
 
@@ -128,6 +131,7 @@ describe("CLI config route", () => {
         ...testEnvironment,
         NEXT_PUBLIC_STACK_PROJECT_ID: undefined,
         NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: undefined,
+        SUBROUTER_STACK_TENANT_DELETE_TOKEN: undefined,
       },
       async () => {
         const response = GET(new Request("https://cmux.com/api/cli/config"));

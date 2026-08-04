@@ -40,6 +40,7 @@ export async function resolveSubrouterRequestContext(
   request: Request,
   options: {
     readonly permission?: "use" | "manage" | "use-or-manage";
+    readonly allowCookie?: boolean;
   } = {},
 ): Promise<
   | { readonly ok: true; readonly value: SubrouterRequestContext }
@@ -50,7 +51,7 @@ export async function resolveSubrouterRequestContext(
       const requestedTeamId = requestedVmTeamIdFromRequest(request);
       const user = await verifySubrouterRequest(request, signal, {
         requestedTeamId,
-        allowCookie: true,
+        allowCookie: options.allowCookie ?? true,
       });
       if (!user) return { ok: false, response: unauthorized() };
 

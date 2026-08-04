@@ -14,6 +14,7 @@ describe("hosted Subrouter client", () => {
           tenantKey: "srt_0123456789abcdef0123456789abcdef",
           proxyUrl:
             "https://sr.example/t/srt_0123456789abcdef0123456789abcdef",
+          capabilities: ["use", "manage_accounts"],
         });
       }
       if (url.endsWith("/_subrouter/auth/stack/tenant")) {
@@ -40,6 +41,8 @@ describe("hosted Subrouter client", () => {
     const tenant = await client.exchangeTeam("stack-access", {
       teamId: "team-1",
       teamName: "Acme",
+      use: true,
+      manageAccounts: true,
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     await client.deleteTenant("stack-access", "team-1");
@@ -47,6 +50,8 @@ describe("hosted Subrouter client", () => {
     expect(calls[0]?.init.headers).toEqual({
       authorization: "Bearer stack-access",
       "content-type": "application/json",
+      "x-subrouter-stack-control-token":
+        "0123456789abcdef0123456789abcdef-test",
     });
     expect(calls[1]?.url).toBe(
       "https://sr.example/_subrouter/accounts",
@@ -90,6 +95,7 @@ describe("hosted Subrouter client", () => {
   test("rejects a hosted tenant credential for a different Stack team", async () => {
     const client = createHostedSubrouterClient({
       baseUrl: "https://sr.example",
+      tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
       fetch: (async () =>
         Response.json({
           tenantId: "team-other",
@@ -97,6 +103,7 @@ describe("hosted Subrouter client", () => {
           tenantKey: "srt_0123456789abcdef0123456789abcdef",
           proxyUrl:
             "https://sr.example/t/srt_0123456789abcdef0123456789abcdef",
+          capabilities: ["use"],
         })) as typeof fetch,
     });
 
@@ -104,6 +111,8 @@ describe("hosted Subrouter client", () => {
       client.exchangeTeam("stack-access", {
         teamId: "team-1",
         teamName: "Acme",
+        use: true,
+        manageAccounts: false,
       }),
     ).rejects.toMatchObject({ status: 502 });
   });
