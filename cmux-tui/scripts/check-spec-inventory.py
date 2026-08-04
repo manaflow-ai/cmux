@@ -906,7 +906,7 @@ def mux_protocol_version() -> int:
 
 def secondary_protocols() -> dict[str, object]:
     host_source = strip_rust_comments(
-        (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
+        (TUI / "crates/cmux-terminal-host-protocol/src/lib.rs").read_text()
     )
     host_body = rust_enum_body(host_source, "MessageKind")
     host_messages = {
