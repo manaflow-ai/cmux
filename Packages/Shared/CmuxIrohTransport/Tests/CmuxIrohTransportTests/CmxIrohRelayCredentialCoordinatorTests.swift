@@ -57,9 +57,21 @@ struct CmxIrohRelayCredentialCoordinatorTests {
                     .timeIntervalSince1970
             ) % 60
         }
+        let clientSlots = try (0 ..< 16).map { index in
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: String(format: "%064x", index + 1)
+            )
+            return Int(
+                CmxIrohRelayRefreshSchedule(role: .client, endpointIdentity: identity)
+                    .deadline(now: now, refreshAfter: refreshAfter)
+                    .timeIntervalSince1970
+            ) % 60
+        }
 
         #expect(Set(hostSlots).count > 1)
         #expect(hostSlots.allSatisfy { (0 ... 14).contains($0) })
+        #expect(Set(clientSlots).count > 1)
+        #expect(clientSlots.allSatisfy { (30 ... 44).contains($0) })
     }
 
     @Test
