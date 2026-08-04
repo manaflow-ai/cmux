@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "История изменений",
       "metaDescription": "Заметки о релизах cmux и история версий. Новые функции, исправления ошибок и изменения для нативного macOS-терминала.",
-      "metaTitle": "Журнал изменений"
+      "metaTitle": "Журнал изменений",
+      "versionTitle": "cmux {version} · Журнал изменений",
+      "releaseNavLabel": "Версии рядом с cmux {version}",
+      "sections": {
+        "added": "Добавлено",
+        "changed": "Изменено",
+        "fixed": "Исправлено",
+        "removed": "Удалено",
+        "contributors": "Участники"
+      }
     },
     "navItems": {
       "gettingStarted": "Начало работы",
