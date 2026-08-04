@@ -102,7 +102,7 @@ extension WorkspaceDetailView {
                 surface: macSurface,
                 path: path,
                 loader: panelArtifactLoader(
-                    workspaceID: workspace.id.rawValue,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
                 ),
                 canOpenOnMac: canOpenOnMac,
@@ -114,7 +114,7 @@ extension WorkspaceDetailView {
                 surface: macSurface,
                 path: path,
                 loader: panelArtifactLoader(
-                    workspaceID: workspace.id.rawValue,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
                 ),
                 canOpenOnMac: canOpenOnMac,
