@@ -847,7 +847,7 @@ struct AgentConversationCrossHarnessForkTests {
             command: command,
             temporaryDirectory: fixture
         ))
-        let prefix = "/bin/zsh '"
+        let prefix = " /bin/zsh '"
         #expect(input.hasPrefix(prefix))
         let path = String(input.dropFirst(prefix.count).dropLast(2))
         let contents = try String(contentsOfFile: path, encoding: .utf8)
@@ -967,7 +967,7 @@ struct AgentConversationCrossHarnessForkTests {
         from initialInput: String?
     ) throws -> (url: URL, contents: String) {
         let input = try #require(initialInput)
-        let prefix = "/bin/zsh '"
+        let prefix = " /bin/zsh '"
         let suffix = "'\n"
         guard input.hasPrefix(prefix), input.hasSuffix(suffix) else {
             throw OpenCodeFixtureError.invalidLauncherInput
