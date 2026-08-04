@@ -993,6 +993,7 @@ jobs:
           # suite passed" while two hosts had died, and job logs carrying 24 restarts. Those
           # verdicts are not green, they are absent.
           HOST_DEATHS=$(grep -c "Restarting after unexpected exit, crash, or test timeout" "$TEST_OUTPUT" || true)
+          HOST_DIED=0
           if [ "${HOST_DEATHS:-0}" -ne 0 ]; then
             echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
             echo "Tests that started but never reported (the last one named is where a host died):"
@@ -1002,7 +1003,8 @@ jobs:
             # empty for a shard of XCTest suites — which is most of them — and an empty list reads
             # as "nothing was lost" at the exact moment something was.
             python3 scripts/ci/lost_test_verdicts.py "$TEST_OUTPUT" --limit 20
-            exit 1
+            # Keep going long enough to copy any crash report into the always-uploaded evidence.
+            HOST_DIED=1
           fi
 
           # The restart line above is the runner noticing a host it has to replace, so it misses a
@@ -1041,6 +1043,9 @@ jobs:
           if [ -n "$CRASHES" ]; then
             echo "::error::a cmux process crashed during this shard, even if every verdict printed"
             echo "$CRASHES" | sed 's/^/  /'
+            exit 1
+          fi
+          if [ "$HOST_DIED" -ne 0 ]; then
             exit 1
           fi
 

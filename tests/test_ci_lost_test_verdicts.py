@@ -77,6 +77,20 @@ class LostTestVerdictsTests(unittest.TestCase):
             ["retriedTest()"],
         )
 
+    def test_one_verdict_removes_only_latest_repeated_start(self) -> None:
+        self.assertEqual(
+            self.missing(
+                "\n".join(
+                    (
+                        "◇ Test repeatedTest() started.",
+                        "◇ Test repeatedTest() started.",
+                        "✔ Test repeatedTest() passed after 0.001 seconds.",
+                    )
+                )
+            ),
+            ["repeatedTest()"],
+        )
+
     def test_limit_preserves_first_pending_log_order(self) -> None:
         self.assertEqual(
             self.missing(

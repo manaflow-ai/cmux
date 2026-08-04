@@ -20,16 +20,23 @@ EVENT_PATTERN = re.compile(
 
 def tests_without_verdict(lines: Iterable[str]) -> list[str]:
     """Track pending tests in log order with one streaming pass."""
-    pending: dict[str, None] = {}
+    pending_occurrences: list[str | None] = []
+    pending_by_name: dict[str, list[int]] = {}
     for line in lines:
         for match in EVENT_PATTERN.finditer(line):
             started = match.group("swift_started") or match.group("xctest_started")
             completed = match.group("swift_completed") or match.group("xctest_completed")
             if started:
-                pending.setdefault(started, None)
+                occurrence = len(pending_occurrences)
+                pending_occurrences.append(started)
+                pending_by_name.setdefault(started, []).append(occurrence)
             elif completed:
-                pending.pop(completed, None)
-    return list(pending)
+                occurrences = pending_by_name.get(completed)
+                if occurrences:
+                    pending_occurrences[occurrences.pop()] = None
+                    if not occurrences:
+                        del pending_by_name[completed]
+    return [name for name in pending_occurrences if name is not None]
 
 
 def parse_args() -> argparse.Namespace:
