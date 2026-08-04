@@ -682,15 +682,17 @@ struct ApplicationSurfaceTests {
     }
 
     @Test func relativePointerDeltaPreservesHostDistance() {
-        #expect(ApplicationCaptureView.normalizedMouseDelta(
-            delta: CGPoint(x: 20, y: -10),
+        #expect(ApplicationCaptureView.resolvedMouseDelta(
+            reportedDelta: CGPoint(x: 20, y: -10),
+            previousPoint: nil,
+            currentPoint: .zero,
             in: CGRect(x: 0, y: 0, width: 200, height: 100),
             sourceFrameSize: CGSize(width: 100, height: 100)
         ) == CGPoint(x: 20, y: -10))
     }
 
     @Test func relativePointerDeltaFallsBackToAbsoluteDragMotion() {
-        #expect(ApplicationCaptureView.resolvedNormalizedMouseDelta(
+        #expect(ApplicationCaptureView.resolvedMouseDelta(
             reportedDelta: .zero,
             previousPoint: CGPoint(x: 0.25, y: 0.75),
             currentPoint: CGPoint(x: 0.5, y: 0.5),

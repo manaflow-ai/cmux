@@ -715,7 +715,7 @@ final class ApplicationCaptureView: NSView {
             default:
                 previousPoint = nil
             }
-            relativeDelta = Self.resolvedNormalizedMouseDelta(
+            relativeDelta = Self.resolvedMouseDelta(
                 reportedDelta: CGPoint(x: event.deltaX, y: event.deltaY),
                 previousPoint: previousPoint,
                 currentPoint: point,
@@ -1274,54 +1274,40 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
-    static func normalizedMouseDelta(
-        delta: CGPoint,
-        in bounds: CGRect,
-        sourceFrameSize: CGSize
-    ) -> CGPoint? {
-        guard
-            delta.x.isFinite,
-            delta.y.isFinite,
-            bounds.width > 0,
-            bounds.height > 0,
-            sourceFrameSize.width > 0,
-            sourceFrameSize.height > 0
-        else {
-            return nil
-        }
-        let scale = min(
-            bounds.width / sourceFrameSize.width,
-            bounds.height / sourceFrameSize.height
-        )
-        guard scale.isFinite, scale > 0 else { return nil }
-        return CGPoint(
-            x: delta.x / (sourceFrameSize.width * scale),
-            y: delta.y / (sourceFrameSize.height * scale)
-        )
-    }
-
-    static func resolvedNormalizedMouseDelta(
+    static func resolvedMouseDelta(
         reportedDelta: CGPoint,
         previousPoint: CGPoint?,
         currentPoint: CGPoint,
         in bounds: CGRect,
         sourceFrameSize: CGSize
     ) -> CGPoint? {
-        guard let reported = normalizedMouseDelta(
-            delta: reportedDelta,
-            in: bounds,
-            sourceFrameSize: sourceFrameSize
-        ) else {
+        guard reportedDelta.x.isFinite, reportedDelta.y.isFinite else {
             return nil
         }
-        guard let previousPoint else { return reported }
-        let fallback = CGPoint(
-            x: currentPoint.x - previousPoint.x,
-            y: currentPoint.y - previousPoint.y
+        guard let previousPoint else { return reportedDelta }
+        let scale = min(
+            bounds.width / sourceFrameSize.width,
+            bounds.height / sourceFrameSize.height
         )
+        let fallback: CGPoint
+        if
+            bounds.width > 0,
+            bounds.height > 0,
+            sourceFrameSize.width > 0,
+            sourceFrameSize.height > 0,
+            scale.isFinite,
+            scale > 0
+        {
+            fallback = CGPoint(
+                x: (currentPoint.x - previousPoint.x) * sourceFrameSize.width * scale,
+                y: (currentPoint.y - previousPoint.y) * sourceFrameSize.height * scale
+            )
+        } else {
+            fallback = .zero
+        }
         return CGPoint(
-            x: reported.x == 0 ? fallback.x : reported.x,
-            y: reported.y == 0 ? fallback.y : reported.y
+            x: reportedDelta.x == 0 ? fallback.x : reportedDelta.x,
+            y: reportedDelta.y == 0 ? fallback.y : reportedDelta.y
         )
     }
 
