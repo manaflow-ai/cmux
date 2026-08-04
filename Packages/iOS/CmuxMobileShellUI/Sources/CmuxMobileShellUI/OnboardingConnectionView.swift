@@ -71,7 +71,7 @@ struct OnboardingConnectionView: View {
         if connectionMethod == .tailscale {
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
-                defaultValue: "Connect over your Tailscale network. Scan the pairing code shown on your Mac."
+                defaultValue: "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
             )
         }
         return L10n.string(

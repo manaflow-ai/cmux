@@ -4529,13 +4529,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscale Only"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscaleのみ"
           }
         }
       }
@@ -4546,13 +4546,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses your Tailscale network. Scan the pairing code on your Mac."
+            "value": "Uses only your Tailscale network. Scan the pairing code on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleネットワークを使用します。Macに表示されるペアリングコードをスキャンしてください。"
+            "value": "Tailscaleネットワークのみを使用します。Macに表示されるペアリングコードをスキャンしてください。"
           }
         }
       }
@@ -4597,13 +4597,98 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect over your Tailscale network. Scan the pairing code shown on your Mac."
+            "value": "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleネットワーク経由で接続します。Macに表示されるペアリングコードをスキャンしてください。"
+            "value": "Tailscaleネットワーク経由でのみ接続します。Macに表示されるペアリングコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active Transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の接続経路"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.websocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
           }
         }
       }
@@ -4682,13 +4767,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscale Only"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscaleのみ"
           }
         }
       }
@@ -4699,13 +4784,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connects over your Tailscale network first. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
+            "value": "Connects only over your Tailscale network. If Tailscale is unavailable, cmux stays disconnected instead of using Iroh. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まずTailscaleネットワーク経由で接続します。有効にするには、Macに表示されるTailscaleペアリングコードを一度スキャンしてください（cmux設定 → iPhoneをペアリング）。"
+            "value": "Tailscaleネットワーク経由でのみ接続します。Tailscaleを利用できない場合、Irohに切り替えず、cmuxは未接続のままになります。有効にするには、Macに表示されるTailscaleペアリングコードを一度スキャンしてください（cmux設定 → iPhoneをペアリング）。"
           }
         }
       }

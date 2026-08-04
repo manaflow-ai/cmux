@@ -1510,6 +1510,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
+        startObservingConnectionMethodChanges()
     }
 
     isolated deinit {
@@ -1517,6 +1518,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
+        connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -1973,6 +1975,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
+    var connectionMethodObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
     /// Whether the scene is in the active phase. Set by
@@ -1997,6 +2000,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case subscriptionStartFailed
         case transportWriteTimedOut
         case automaticBackoffExpired
+        case connectionMethodChanged
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
@@ -2014,6 +2018,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: 7
             case .transportWriteTimedOut: 8
             case .automaticBackoffExpired: 9
+            case .connectionMethodChanged: 10
             }
         }
 
@@ -2028,6 +2033,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
+            case .connectionMethodChanged: return "connectionMethodChanged"
             }
         }
     }
@@ -8417,10 +8423,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let irohRoutes = supportedRoutes.filter { route in
             route.kind == .iroh
         }
-        // The user's explicit Tailscale method relaxes only the Iroh pin's
-        // ORDER: authorized Tailscale routes dial first and Iroh remains the
-        // fallback. Routes without a grant or a user-entered code stay
-        // undialable regardless of the preference.
+        // The explicit Tailscale method is strict: only authorized Tailscale
+        // destinations may be dialed, and an unavailable route leaves the app
+        // disconnected instead of silently switching to Iroh.
         if connectionMethodStore?.method == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
@@ -8433,12 +8438,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         authorizations: userTailscalePairingAuthorizations
                     ) != nil
             }
-            if !authorizedTailscale.isEmpty {
-                let rest = supportedRoutes.filter { route in
-                    route.kind != .iroh && route.kind != .tailscale
-                }
-                return authorizedTailscale + irohRoutes + rest
-            }
+            return authorizedTailscale
         }
         return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
     }
