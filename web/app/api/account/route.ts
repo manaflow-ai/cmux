@@ -163,14 +163,14 @@ export async function DELETE(request: Request): Promise<Response> {
   let cmuxOwnedRowsDeleted = false;
   let analyticsCleanupStarted = false;
   let destructiveCleanupStarted = false;
-  let hostedSubrouterDeletionPending = false;
+  let hostedSubrouterDeletionCheckpointRequired = false;
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
   try {
     const tombstoneStart = await markAccountDeletionTombstonePending(userId);
     accountDeletionTombstoneStarted = tombstoneStart.kind === "started";
     if (tombstoneStart.kind === "started") {
-      hostedSubrouterDeletionPending =
+      hostedSubrouterDeletionCheckpointRequired =
         tombstoneStart.hostedSubrouterDeletionStarted;
     }
     if (tombstoneStart.kind === "pending") {
@@ -203,7 +203,7 @@ export async function DELETE(request: Request): Promise<Response> {
     );
     const hostedSubrouterDeletionRequired = shouldDeleteHostedSubrouterTenants({
       clientConfigured: hostedSubrouter.tenantControlConfigured,
-      hostedDeletionStarted: hostedSubrouterDeletionPending,
+      hostedDeletionStarted: hostedSubrouterDeletionCheckpointRequired,
       completedTeamIds: tombstoneStart.hostedSubrouterDeletedTeamIds,
       legacyTenantIds,
     });
@@ -302,8 +302,8 @@ export async function DELETE(request: Request): Promise<Response> {
       await refreshAccountDeletionTombstoneLease(userId);
     }
     if (hostedSubrouterDeletionRequired) {
-      await markAccountDeletionTombstoneHostedDeletePending(userId);
-      hostedSubrouterDeletionPending = true;
+      await refreshAccountDeletionTombstoneLease(userId);
+      hostedSubrouterDeletionCheckpointRequired = true;
       const hostedDeletion = await deleteHostedSubrouterTenantsForAccount({
         userId,
         accessToken,
@@ -315,13 +315,14 @@ export async function DELETE(request: Request): Promise<Response> {
         },
       });
       if (!hostedDeletion.complete) {
+        await markAccountDeletionTombstoneHostedDeletePending(userId);
         return jsonResponse({
           error: "account_delete_retryable",
           retryable: true,
           destroyedVms,
         }, 503);
       }
-      hostedSubrouterDeletionPending = false;
+      hostedSubrouterDeletionCheckpointRequired = false;
     }
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
@@ -338,7 +339,7 @@ export async function DELETE(request: Request): Promise<Response> {
         await markAccountDeletionFailureCheckpoint(
           userId,
           error,
-          hostedSubrouterDeletionPending,
+          hostedSubrouterDeletionCheckpointRequired,
         );
       }
       return jsonResponse({
@@ -374,7 +375,7 @@ export async function DELETE(request: Request): Promise<Response> {
         await markAccountDeletionFailureCheckpoint(
           userId,
           error,
-          hostedSubrouterDeletionPending,
+          hostedSubrouterDeletionCheckpointRequired,
         );
       }
       logAccountDeleteError("account.delete.partial_after_destructive_cleanup", error);
@@ -393,7 +394,7 @@ export async function DELETE(request: Request): Promise<Response> {
       await markAccountDeletionFailureCheckpoint(
         userId,
         error,
-        hostedSubrouterDeletionPending,
+        hostedSubrouterDeletionCheckpointRequired,
       );
     }
     logAccountDeleteError("account.delete.failed", error);
@@ -639,9 +640,9 @@ async function markAccountDeletionTombstoneFailed(userId: string, error: unknown
 async function markAccountDeletionFailureCheckpoint(
   userId: string,
   error: unknown,
-  hostedSubrouterDeletionPending: boolean,
+  hostedSubrouterDeletionCheckpointRequired: boolean,
 ): Promise<void> {
-  if (hostedSubrouterDeletionPending) {
+  if (hostedSubrouterDeletionCheckpointRequired) {
     await markAccountDeletionTombstoneHostedDeletePending(userId);
     return;
   }
