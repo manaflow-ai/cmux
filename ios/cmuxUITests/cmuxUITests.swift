@@ -668,6 +668,212 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceGroupRenameUsesAlert() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(groupHeader.waitForExistence(timeout: 8))
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 3))
+        groupName.press(forDuration: 1)
+
+        let rename = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupRenameButton-seed-group-1"
+        ]
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        guard rename.exists else { return }
+        rename.tap()
+
+        let renameAlert = app.alerts[
+            String(localized: "mobile.workspaceGroup.rename.title", defaultValue: "Rename Group")
+        ]
+        XCTAssertTrue(
+            renameAlert.waitForExistence(timeout: 3),
+            "Group rename must use a compact system alert instead of a sheet."
+        )
+        XCTAssertTrue(
+            renameAlert.textFields.firstMatch.exists,
+            "The rename alert must include an editable group-name field."
+        )
+        let renameField = renameAlert.textFields.firstMatch
+        renameField.tap()
+        renameField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
+        renameField.typeText("yu")
+        let save = renameAlert.buttons[
+            String(localized: "mobile.common.save", defaultValue: "Save")
+        ].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        save.tap()
+        XCTAssertTrue(
+            app.buttons["yu"].waitForExistence(timeout: 3),
+            "Saving Rename Group must update the visible group-row title."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-group-rename-alert"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupMenuExcludesAnchorWorkspaceActions() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Pin Group"].waitForExistence(timeout: 3))
+
+        for actionIdentifier in [
+            "MobileWorkspacePinButton-workspace-seed-4",
+            "MobileWorkspaceCustomizeButton-workspace-seed-4",
+            "MobileWorkspaceRenameButton-workspace-seed-4",
+            "MobileWorkspaceReadStateMenuButton-workspace-seed-4",
+            "MobileWorkspaceDeleteMenuButton-workspace-seed-4",
+        ] {
+            XCTAssertFalse(
+                app.descendants(matching: .any)[actionIdentifier].exists,
+                "Group context menu must not inherit anchor workspace action \(actionIdentifier)."
+            )
+        }
+    }
+
+    @MainActor
+    func testWorkspaceGroupContextMenuUsesGroupActionsOnly() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Pin Group"].waitForExistence(timeout: 3))
+
+        for actionLabel in [
+            "Pin Group",
+            "Rename Group",
+            "New Workspace in Group",
+            "Ungroup (Keep Workspaces)",
+            "Delete Group (Close Workspaces)",
+        ] {
+            XCTAssertTrue(
+                app.buttons[actionLabel].exists,
+                "Group context menu must expose action \(actionLabel)."
+            )
+        }
+    }
+
+    @MainActor
+    func testWorkspaceListNewWorkspaceMenuPreservesGroupCreation() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let newWorkspaceButton = app.buttons["MobileNewWorkspaceButton"]
+        XCTAssertTrue(newWorkspaceButton.waitForExistence(timeout: 8))
+        newWorkspaceButton.press(forDuration: 1)
+
+        XCTAssertTrue(
+            app.buttons["MobileNewWorkspaceMenuItem"].waitForExistence(timeout: 3),
+            "Holding the plus button must preserve New Workspace."
+        )
+        XCTAssertTrue(
+            app.buttons["MobileNewWorkspaceGroupMenuItem"].exists,
+            "Holding the plus button must expose New Workspace Group."
+        )
+    }
+
+    @MainActor
+    func testWorkspaceGroupFullSwipeMarksRead() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        XCTAssertEqual(groupName.value as? String, "Unread")
+
+        let swipeStart = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)
+        )
+        let swipeEnd = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)
+        )
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        let groupBecameRead = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", "Unread"),
+            object: groupName
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [groupBecameRead], timeout: 3),
+            .completed,
+            "A full leading swipe must complete the group's Mark as Read action."
+        )
+    }
+
+    @MainActor
+    func testWorkspaceGroupTrailingSwipeRequestsAnchorDelete() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(waitForHittable(groupHeader, timeout: 8))
+        groupHeader.swipeLeft()
+
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(
+            delete.waitForExistence(timeout: 3),
+            "A trailing group swipe must expose the anchor workspace's Delete action."
+        )
+        delete.tap()
+
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceDeleteConfirmButton-workspace-seed-4"]
+                .waitForExistence(timeout: 3),
+            "The group swipe Delete action must request deletion of the group's anchor workspace."
+        )
+    }
+
+    @MainActor
     func testWorkspaceSearchIsMinimizedAndPreservesQueryAcrossRefresh() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
@@ -2427,9 +2633,9 @@ final class cmuxUITests: XCTestCase {
     /// foreground (no watchdog hang), the terminal still renders its known
     /// content (not a blank/frozen grid), the dock is coherent, and once the
     /// keyboard is down the grid has returned to (near) full height, which also
-    /// guards the "terminal not full height when keyboard closed" fix
-    /// (`scheduleKeyboardHideHeightResync` + the host-tested
-    /// `TerminalLetterboxGeometry.terminalContainerSize`).
+    /// guards the "terminal not full height when keyboard closed" fix through the
+    /// system keyboard guide plus the host-tested
+    /// `TerminalLetterboxGeometry.terminalContainerSize`.
     @MainActor
     func testKeyboardLayoutFuzzDoesNotFreeze() async throws {
         let server = try MobileSyncMockHostServer()
@@ -6329,6 +6535,56 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Verify the built app's two-part keyboard contract at steady state:
+    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
+    /// visible composer/toolbar stack resolves to that same guide edge.
+    @MainActor
+    private func assertTerminalDockPinnedToSoftwareKeyboard(
+        _ dock: [String: String],
+        surface: XCUIElement,
+        keyboard: SoftwareKeyboardSnapshot,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+              let composerMinY = dock["composerMinY"].flatMap(Double.init),
+              let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
+              let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
+            XCTFail(
+                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+
+        let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        XCTAssertEqual(
+            dockEdge,
+            guideTop,
+            accuracy: 1,
+            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            Double(surface.frame.minY) + guideTop,
+            Double(keyboard.frame.minY),
+            accuracy: 2,
+            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            dock,
+            context: context,
+            file: file,
+            line: line
+        )
+    }
+
     /// Repeatedly open and close the composer via the toolbar compose button and assert
     /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
     /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
@@ -6530,12 +6786,22 @@ final class cmuxUITests: XCTestCase {
         // The composer is open by default but unfocused. Focus the terminal's hidden
         // input proxy so this covers the reported keyboard-up → attach path.
         surface.tap()
-        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        _ = waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal should show the keyboard before opening attachments"
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "terminal before photo picker"
         )
 
         let attachButton = app.buttons[Composer.attachButton]
@@ -6552,17 +6818,99 @@ final class cmuxUITests: XCTestCase {
             waitForKeyboardDismissal(in: app),
             "Cancelling the photo picker should leave the keyboard visually closed"
         )
+        waitForDock(in: app, describe: "photo picker dismissal clears modal and responder state") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
 
         // A terminal tap must create a real responder transition and re-open the
         // keyboard, rather than no-op against a stale first-responder proxy.
         surface.tap()
-        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        _ = waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first terminal tap after photo picker cancellation"
         )
+    }
+
+    /// Cancelling the picker must also leave the hosted composer able to claim
+    /// first responder on its first tap. Typing afterward proves the simultaneous
+    /// intent gesture did not replace the TextField's native editing gesture.
+    @MainActor
+    func testComposerTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(waitForHittable(field, timeout: 4))
+
+        field.tap()
+        _ = waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "composer before photo picker"
+        )
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 6))
+        cancelButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        waitForDock(in: app, describe: "picker dismissal leaves no stale composer owner") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
+
+        field.tap()
+        _ = waitForDock(in: app, describe: "first composer tap restores keyboard after picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first composer tap after photo picker cancellation"
+        )
+        field.typeText("x")
+        _ = waitForDock(in: app, describe: "composer remains editable after restored focus") { _ in
+            (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) == 1
+        }
     }
 
     /// Rapid double-toggle: two compose taps with no settle in between. This is the

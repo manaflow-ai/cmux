@@ -63,4 +63,61 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
         #expect(webView.customUserAgent == nil)
     }
+
+    @Test func sheetsDestinationTreatsEmptyReportedIdentityAsWebKitDefault() {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        // Some macOS versions report the native identity as "" instead of nil
+        // after a restart clears the custom identity; both must satisfy the
+        // webKitDefault resolution or Sheets restarts forever (issue #9462).
+        webView.customUserAgent = ""
+        let request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+
+        #expect(BrowserUserAgentPolicy.system.resolution(for: request.url) == .webKitDefault)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
+    }
+
+    @Test func sheetsDestinationRestartsAtMostOnceWhenIdentityNeverConverges() throws {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+        var decisions: [WKNavigationActionPolicy] = []
+        var replacementRequests: [URLRequest] = []
+
+        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        #expect(webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            for: request,
+            targetFrameIsMainFrame: true,
+            decisionHandler: { decisions.append($0) },
+            startReplacement: { replacementRequests.append($0) }
+        ))
+        #expect(decisions == [.cancel])
+        #expect((webView.customUserAgent ?? "").isEmpty)
+        let replacementRequest = try #require(replacementRequests.first)
+
+        // Simulate a WebKit whose reported identity never matches the resolved
+        // policy: the replacement pass must proceed instead of restarting again.
+        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        #expect(!webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            for: replacementRequest,
+            targetFrameIsMainFrame: true,
+            decisionHandler: { decisions.append($0) },
+            startReplacement: { replacementRequests.append($0) }
+        ))
+        #expect(decisions == [.cancel])
+        #expect(replacementRequests.count == 1)
+
+        // A later navigation to the same destination may restart once again.
+        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        #expect(webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            for: request,
+            targetFrameIsMainFrame: true,
+            decisionHandler: { decisions.append($0) },
+            startReplacement: { replacementRequests.append($0) }
+        ))
+        #expect(decisions == [.cancel, .cancel])
+        #expect(replacementRequests.count == 2)
+    }
 }

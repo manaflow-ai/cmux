@@ -1,6 +1,6 @@
 # Remote daemon protocol
 
-Status: implementation contract for protocol 4.
+Status: implementation contract for protocol 5.
 
 ## Authority boundary
 
@@ -28,7 +28,7 @@ Each frame declares one lane:
 - `bulk`: file contents, diffs, terminal replay, browser frames, and computer-use media.
 - `tunnel`: forwarded TCP bytes.
 
-Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 4.
+Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 5.
 
 A service declares every lane one logical stream may use. A multi-lane stream acknowledges setup on each declared lane before exposing buffered application data, and closes only after a terminal marker has arrived in order on every declared lane. This per-lane barrier prevents an isolated fast carrier from overtaking setup or teardown on another carrier. A failed terminal send retries under a bound, then closes the logical session so the peer cannot retain an unreachable stream.
 
@@ -38,7 +38,7 @@ The daemon owns a stable Noise static key. Each client generates a stable device
 
 An invitation contains the daemon public key, a random 256-bit secret, an identifier, an expiry of at most five minutes, and non-authoritative route hints. It may contain at most two relay bootstrap records, each with a normalized relay route, opaque slot, and short-lived Connect ticket. A connecting client proves the invitation secret in a PSK-authenticated Noise handshake. The daemon records a pending request containing the device name, device key fingerprint, and requested full-control authority. The owner approves it through the owner-only admin socket. Approval binds the invitation to the claiming device key and adds that key. The same key may retry failed secondary lane setup during a 60-second grace period; another key cannot reuse it. A six-digit manually entered code is insufficient by itself and must use a PAKE before this flow is exposed.
 
-The client accepts an invitation through `--invite-file PATH`, with `-` reading exactly one bounded line from stdin. A regular file must be owned by the current user and have no group or other permission bits. The input is capped at the protocol URI limit, rejects additional lines, is zeroized after parsing, and is never included in an error. Inline and positional invitation forms remain compatible, but may be visible through shell history or process arguments. Supplying more than one invitation source is an error. An explicit non-invitation route may accompany one invitation option to choose the first carrier.
+The client accepts an invitation only through `--invite-file PATH`, with `-` reading exactly one bounded line from stdin. A regular file must be owned by the current user and have no group or other permission bits. The input is capped at the protocol URI limit, rejects additional lines, is zeroized after parsing, and is never included in an error. Inline and positional invitation forms are rejected without echoing their secret. Supplying more than one invitation source is an error. An explicit non-invitation route may accompany the invitation file to choose the first carrier.
 
 Clients preserve invitation route order and may try more than one carrier. A reachable same-host Unix socket is promoted, while a remote or missing Unix path is demoted. Provider connection and provider-credential failures may fall through to the next hint. cmux Noise or device authentication failure, a pinned daemon-key mismatch, protocol incompatibility, generation exhaustion, or an explicitly closed session stops fallback.
 
@@ -85,7 +85,7 @@ Iroh supplies the same binary-link contract through authenticated QUIC, NAT trav
 
 Pipe I/O is the default and recommended mode for tool calls. Omitting `io` selects writable pipes; an explicit pipes object can start with stdin closed. PTY allocation is explicit and appropriate for interactive programs, terminal emulation, or commands that change behavior when attached to a terminal.
 
-Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 4. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
+Computer-use RPC variants are negotiation placeholders and report unavailable in protocol 5. A future executor runs on the dedicated `computer-use` service with independent action, cancellation, and bulk-media flow control; it must not share the PTY-input request stream.
 
 Request identifiers, operation identifiers, and cleanup ownership are scoped to one authenticated client session. A cancellation that overtakes request registration creates a bounded tombstone for the target UUID. Session-lifetime UUID uniqueness prevents a late cancellation from matching a later request. Session loss cancels that client's active requests, closes its routes, releases its workspace leases, and terminates its non-detached processes. The daemon keeps workspace roots in its global catalog after the last client disconnects, matching tmux-style persistence; an explicit final `close-workspace` removes a root. These scopes do not restrict authority: another authenticated client can list all workspaces and use any explicit workspace, process, or route identifier it learns.
 
@@ -101,6 +101,6 @@ Local bare `cmux-tui` retains tmux behavior and attaches to the local session wh
 
 ## Compatibility and exclusions
 
-The existing protocol-9 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
+The existing protocol-10 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
 
 This protocol does not create, destroy, snapshot, or authorize VMs. A daemon may run inside a VM supplied by another component, but VM lifecycle remains outside cmux-tui.

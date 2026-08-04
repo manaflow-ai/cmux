@@ -127,15 +127,15 @@ impl TerminalExit {
     }
 }
 
-/// Wait for the native child hidden behind portable-pty without collapsing
-/// Unix signal/core information into portable-pty's display-only status.
+/// Wait for the native child hidden behind cmux-pty without collapsing Unix
+/// signal/core information into its display-only fallback status.
 ///
-/// portable-pty's Unix backend returns `std::process::Child`, so failure to
-/// downcast is an alternate backend and becomes an explicit unknown outcome.
+/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
+/// is an alternate backend and becomes an explicit unknown outcome.
 pub(crate) fn wait_for_native_child_status(
-    child: &mut (dyn portable_pty::Child + Send + Sync),
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
-    let child: &mut dyn portable_pty::Child = child;
+    let child: &mut dyn cmux_pty::Child = child;
     if let Some(child) = child.downcast_mut::<std::process::Child>() {
         return match child.wait() {
             Ok(status) => TerminalExit::from_exit_status(&status),
@@ -795,21 +795,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn portable_pty_native_child_retains_real_exit_and_signal_status() {
+    fn cmux_pty_native_child_retains_real_exit_and_signal_status() {
         fn run(script: &str) -> TerminalExitOutcome {
-            let pty = portable_pty::native_pty_system()
-                .openpty(portable_pty::PtySize {
-                    rows: 24,
-                    cols: 80,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                })
-                .unwrap();
-            let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+            let pty = cmux_pty::open(cmux_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+            let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
-            let mut child = pty.slave.spawn_command(command).unwrap();
-            drop(pty.slave);
-            wait_for_native_child_status(child.as_mut()).outcome
+            let mut spawned = pty.spawn(command).unwrap();
+            wait_for_native_child_status(spawned.child.as_mut()).outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });

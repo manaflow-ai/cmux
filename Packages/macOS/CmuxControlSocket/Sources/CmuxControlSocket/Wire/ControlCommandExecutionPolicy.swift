@@ -148,6 +148,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // DEBUG builds close the selected mobile transport through its normal
+        // connection-owned shutdown path, which awaits asynchronous writers.
+        // Keep that wait off the main actor.
+        "debug.mobile.transport.disconnect",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

@@ -1,18 +1,19 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_remote_protocol::{
     Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
     ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
-use tokio::sync::{Mutex, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::service::{ServiceMultiplexer, ServiceStream};
 use crate::services::MessageStream;
 
 type PendingResponse = Result<RpcResponse, String>;
 type PendingRequests = Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>;
+const DROPPED_CANCELLATION_QUEUE: usize = 128;
 
 pub struct WorkspaceClient {
     multiplexer: Arc<ServiceMultiplexer>,
@@ -21,12 +22,18 @@ pub struct WorkspaceClient {
     control: WorkspaceRpcChannel,
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
+    dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
 }
 
 struct WorkspaceRpcChannel {
     messages: Arc<MessageStream>,
     pending: PendingRequests,
     shutdown: watch::Sender<bool>,
+}
+
+struct DroppedWorkspaceRequest {
+    target: RequestId,
+    origin_shutdown: watch::Sender<bool>,
 }
 
 impl Drop for WorkspaceRpcChannel {
@@ -53,6 +60,7 @@ impl WorkspaceClient {
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Cancellation),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Bulk),
         )?;
+        let dropped_cancellations = cancellation_worker(cancellation.messages.clone());
         Ok(Arc::new(Self {
             multiplexer,
             process_input,
@@ -60,6 +68,7 @@ impl WorkspaceClient {
             control,
             cancellation,
             bulk,
+            dropped_cancellations,
         }))
     }
 
@@ -126,15 +135,26 @@ impl WorkspaceClient {
         let id = self.next_request_id();
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
         let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
+        let cancellable = crate::workspace::request_supports_cancellation(&request);
         let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
             .map_err(|error| RpcError::new("protocol", error.to_string()))?;
         let (sender, receiver) = oneshot::channel();
-        channel.pending.lock().await.insert(id, sender);
+        pending_requests(&channel.pending).insert(id, sender);
+        let mut pending = PendingWorkspaceRequest {
+            id,
+            receiver: Some(receiver),
+            deadline,
+            pending: channel.pending.clone(),
+            cancellable,
+            dropped_cancellations: self.dropped_cancellations.clone(),
+            origin_shutdown: channel.shutdown.clone(),
+            armed: true,
+        };
         if let Err(error) = channel.messages.send(&encoded).await {
-            channel.pending.lock().await.remove(&id);
+            pending.disarm();
             return Err(transport_error(error));
         }
-        Ok(PendingWorkspaceRequest { id, receiver, deadline, pending: channel.pending.clone() })
+        Ok(pending)
     }
 
     fn channel(&self, class: RpcTrafficClass) -> &WorkspaceRpcChannel {
@@ -224,9 +244,13 @@ impl WorkspaceClient {
 
 pub struct PendingWorkspaceRequest {
     id: RequestId,
-    receiver: oneshot::Receiver<PendingResponse>,
+    receiver: Option<oneshot::Receiver<PendingResponse>>,
     deadline: Option<tokio::time::Instant>,
     pending: PendingRequests,
+    cancellable: bool,
+    dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
+    origin_shutdown: watch::Sender<bool>,
+    armed: bool,
 }
 
 impl PendingWorkspaceRequest {
@@ -234,22 +258,48 @@ impl PendingWorkspaceRequest {
         self.id
     }
 
-    pub async fn receive(self) -> Result<WorkspaceResponse, RpcError> {
+    pub async fn receive(mut self) -> Result<WorkspaceResponse, RpcError> {
+        let receiver = self.receiver.take().expect("pending workspace request has a receiver");
         let response = match self.deadline {
-            Some(deadline) => match tokio::time::timeout_at(deadline, self.receiver).await {
+            Some(deadline) => match tokio::time::timeout_at(deadline, receiver).await {
                 Ok(response) => response,
                 Err(_) => {
-                    self.pending.lock().await.remove(&self.id);
                     return Err(RpcError::new("deadline-exceeded", "request deadline exceeded"));
                 }
             },
-            None => self.receiver.await,
+            None => receiver.await,
         };
-        self.pending.lock().await.remove(&self.id);
+        self.disarm();
         response
             .map_err(|_| RpcError::new("transport", "workspace RPC response was canceled"))?
             .map_err(|message| RpcError::new("transport", message))?
             .result
+    }
+
+    fn disarm(&mut self) {
+        if self.armed {
+            pending_requests(&self.pending).remove(&self.id);
+            self.armed = false;
+        }
+    }
+}
+
+impl Drop for PendingWorkspaceRequest {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        if pending_requests(&self.pending).remove(&self.id).is_none() || !self.cancellable {
+            return;
+        }
+        let dropped = DroppedWorkspaceRequest {
+            target: self.id,
+            origin_shutdown: self.origin_shutdown.clone(),
+        };
+        if self.dropped_cancellations.try_send(dropped).is_err() {
+            self.origin_shutdown.send_replace(true);
+        }
     }
 }
 
@@ -314,16 +364,51 @@ async fn connect_rpc_channel(
                 Ok(response) => response,
                 Err(error) => break error.to_string(),
             };
-            if let Some(sender) = pending.lock().await.remove(&response.id) {
+            if let Some(sender) = pending_requests(&pending).remove(&response.id) {
                 let _ = sender.send(Ok(response));
             }
         };
         let _ = messages.close().await;
-        for (_, sender) in pending.lock().await.drain() {
+        for (_, sender) in pending_requests(&pending).drain() {
             let _ = sender.send(Err(failure.clone()));
         }
     });
     Ok(channel)
+}
+
+fn pending_requests(
+    pending: &PendingRequests,
+) -> std::sync::MutexGuard<'_, HashMap<RequestId, oneshot::Sender<PendingResponse>>> {
+    pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn cancellation_worker(messages: Arc<MessageStream>) -> mpsc::Sender<DroppedWorkspaceRequest> {
+    let (sender, mut receiver) =
+        mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
+    tokio::spawn(async move {
+        while let Some(dropped) = receiver.recv().await {
+            let request = RpcRequest {
+                id: RequestId::from_uuid(uuid::Uuid::new_v4()),
+                timeout_ms: None,
+                request: WorkspaceRequest::CancelRequest { request: dropped.target },
+            };
+            let encoded = match serde_json::to_vec(&request) {
+                Ok(encoded) => encoded,
+                Err(_) => {
+                    dropped.origin_shutdown.send_replace(true);
+                    continue;
+                }
+            };
+            if messages.send(&encoded).await.is_err() {
+                dropped.origin_shutdown.send_replace(true);
+                while let Ok(queued) = receiver.try_recv() {
+                    queued.origin_shutdown.send_replace(true);
+                }
+                break;
+            }
+        }
+    });
+    sender
 }
 
 fn rpc_metadata(class: RpcTrafficClass) -> BTreeMap<String, String> {
