@@ -731,16 +731,61 @@ enum TitlebarControlsLayoutMetrics {
     }
 }
 
+private enum TitlebarHeaderChromeIconStyle {
+    static let opacity = 0.86
+    static let hoveredOpacity = 0.96
+    static let pressedOpacity = 1.0
+    static let disabledOpacity = 0.34
+    static let weight: Font.Weight = .regular
+    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let sidebarGlyphStrokeWidth: CGFloat = 1
+
+    static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
+        HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)
+    }
+
+    static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
+        guard isEnabled else { return disabledOpacity }
+        if isPressed { return pressedOpacity }
+        if isHovering { return hoveredOpacity }
+        return opacity
+    }
+
+    static func backgroundOpacity(
+        hoverBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return 0 }
+        if isPressed { return 0.14 }
+        if isHovering { return hoverBackground ? 0.09 : 0.07 }
+        return 0
+    }
+
+    static func borderOpacity(
+        buttonBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return buttonBackground ? 0.04 : 0 }
+        if isPressed { return 0.11 }
+        if isHovering { return 0.07 }
+        return buttonBackground ? 0.05 : 0
+    }
+}
+
 private enum TitlebarControlIconStyle {
-    static let opacity = HeaderChromeIconStyle.opacity
-    static let hoveredOpacity = HeaderChromeIconStyle.hoveredOpacity
-    static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
-    static let weight = HeaderChromeIconStyle.weight
-    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
-    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
+    static let opacity = TitlebarHeaderChromeIconStyle.opacity
+    static let hoveredOpacity = TitlebarHeaderChromeIconStyle.hoveredOpacity
+    static let pressedOpacity = TitlebarHeaderChromeIconStyle.pressedOpacity
+    static let weight = TitlebarHeaderChromeIconStyle.weight
+    static let foregroundColor = TitlebarHeaderChromeIconStyle.foregroundColor
+    static let sidebarGlyphStrokeWidth = TitlebarHeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
+        TitlebarHeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
     }
 }
 
@@ -749,7 +794,7 @@ func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Doub
 }
 
 func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
-    HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
+    TitlebarHeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
 }
 
 func titlebarControlBackgroundOpacity(
@@ -766,7 +811,7 @@ func titlebarControlBackgroundOpacity(
     isPressed: Bool,
     isEnabled: Bool
 ) -> Double {
-    HeaderChromeIconStyle.backgroundOpacity(
+    TitlebarHeaderChromeIconStyle.backgroundOpacity(
         hoverBackground: config.hoverBackground,
         isHovering: isHovering,
         isPressed: isPressed,
@@ -788,7 +833,7 @@ func titlebarControlBorderOpacity(
     isPressed: Bool,
     isEnabled: Bool
 ) -> Double {
-    HeaderChromeIconStyle.borderOpacity(
+    TitlebarHeaderChromeIconStyle.borderOpacity(
         buttonBackground: config.buttonBackground,
         isHovering: isHovering,
         isPressed: isPressed,

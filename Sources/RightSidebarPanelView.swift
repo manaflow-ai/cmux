@@ -93,9 +93,9 @@ enum FileExplorerRootSyncPolicy {
         guard isRightSidebarVisible else { return false }
         switch mode {
         case .files, .find:
-            true
+            return true
         case .sessions, .feed, .dock, .customSidebar:
-            false
+            return false
         }
     }
 }
