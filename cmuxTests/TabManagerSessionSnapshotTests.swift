@@ -109,15 +109,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(firstPanelId)
         workspace.focusPanel(secondPanelId)
-        // Focus history is recorded from the `.ghosttyDidFocusSurface` broadcast, which
-        // `FocusSurfaceBroadcaster` always delivers on a later main-queue turn. Let it land
-        // before reading history.
-        drainMainQueue()
 
         XCTAssertTrue(manager.canNavigateBack)
 
         manager.navigateBack()
-        drainMainQueue()
 
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
         XCTAssertTrue(manager.canNavigateForward)
@@ -208,7 +203,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(closedPanelId)
         workspace.focusPanel(fallbackPanelId)
-        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0
@@ -240,7 +234,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
         workspace.focusPanel(rightPanel.id)
-        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0
