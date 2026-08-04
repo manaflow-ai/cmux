@@ -753,6 +753,33 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
+    @Test func bulkPanelTitleResolutionPreservesLocalAndRemoteTitles() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            addPeerSurface: true
+        )
+        defer { harness.tearDown() }
+        let localPanelID = try #require(harness.peerSurfaceID)
+        let customTitle = "Custom \(UUID().uuidString)"
+        #expect(
+            harness.workspace.setPanelCustomTitle(
+                panelId: localPanelID,
+                title: customTitle
+            )
+        )
+
+        let resolvedTitles = harness.workspace.resolvedPanelTitlesByPanelID()
+
+        #expect(resolvedTitles[localPanelID] == customTitle)
+        for remotePane in harness.mirror.controlPanes() {
+            #expect(resolvedTitles[remotePane.panel.id] == remotePane.title)
+            #expect(
+                resolvedTitles[remotePane.panel.id]
+                    == harness.workspace.panelTitle(panelId: remotePane.panel.id)
+            )
+        }
+    }
+
+    @MainActor
     @Test func cancelledIndexDeletionsLeaveDocumentsIntact() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-cancellation-\(UUID().uuidString)", isDirectory: true)

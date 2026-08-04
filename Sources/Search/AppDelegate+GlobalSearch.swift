@@ -38,6 +38,7 @@ extension AppDelegate {
                         : trimmed
                 }()
 
+                let panelTitlesByID = workspace.resolvedPanelTitlesByPanelID()
                 let orderedPanelIDs = workspace.sidebarOrderedPanelIds()
                 let orderedPanelIDSet = Set(orderedPanelIDs)
                 var seenPanelIDs = Set<UUID>()
@@ -49,7 +50,7 @@ extension AppDelegate {
                     guard let panel = workspace.panels[panelID] else { continue }
                     let key = "\(windowID.uuidString):\(workspace.id.uuidString):\(panel.id.uuidString)"
                     guard seenPanelKeys.insert(key).inserted else { continue }
-                    let panelTitle = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle)
+                    let panelTitle = (panelTitlesByID[panel.id] ?? panel.displayTitle)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     contexts.append(
                         GlobalSearchPanelContext(
