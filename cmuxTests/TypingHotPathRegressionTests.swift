@@ -377,6 +377,31 @@ struct GhosttyTitleUpdateIngressTests {
         ))
     }
 
+    @Test func spinnerFramesCollapseBeforeAsyncStreamEnqueue() {
+        let ingress = GhosttyTitleUpdateIngress()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let source = NSObject()
+        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+        for (index, frame) in frames.enumerated() {
+            let submitted = ingress.submit(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                sourceSurface: source,
+                title: "\(frame) pnpm install"
+            )
+            #expect(submitted == (index == 0))
+        }
+
+        #expect(ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "⠋ pnpm run build"
+        ))
+    }
+
     @Test func retiringAttachmentAllowsItsFirstRepeatedTitleAfterReattach() {
         let ingress = GhosttyTitleUpdateIngress()
         let tabId = UUID()

@@ -102,7 +102,7 @@
     "faqGhosttyQ": "Kakav je odnos cmux-a i Ghostty-ja?",
     "faqGhosttyA": "cmux nije fork Ghostty-ja. Koristi <link>libghostty</link> kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na njegovom rendering engine-u.",
     "faqPlatformQ": "Koje platforme podržava?",
-    "faqPlatformA": "Samo macOS, za sada. cmux je nativna Swift + AppKit aplikacija.",
+    "faqPlatformA": "U meniju za preuzimanje pogledaj dostupne cmux verzije. <waitlist>Pridruži se listi čekanja</waitlist> za svaku platformu koja još nije objavljena.",
     "faqAgentsQ": "Sa kojim coding agentima cmux radi?",
     "faqAgentsA": "Sa svima. cmux je terminal, tako da svaki agent koji radi u terminalu funkcioniše odmah: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i sve ostalo što možete pokrenuti iz komandne linije.",
     "faqNotificationsQ": "Kako funkcionišu notifikacije?",
@@ -867,8 +867,8 @@
       "concepts": "Koncepti",
       "anchorTitle": "Sidreni radni prostor",
       "anchorDesc": "Svaku grupu posjeduje tačno jedan radni prostor koji se naziva sidro. Zaglavlje grupe u bočnoj traci predstavlja sidro — za njega ne postoji poseban red. Klikom na područje naziva u zaglavlju fokusiraju se paneli sidra; klikom na strelicu prebacuje se sklapanje.",
-      "anchorNew": "Sidra su uvijek potpuno nova kada se grupa kreira. Nikada se ne promovišu iz postojećeg radnog prostora. Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora prilikom grupisanja odabira, ili od aktivnog radnog prostora prilikom kreiranja putem CLI bez --cwd.",
-      "anchorClose": "Zatvaranje sidrenog radnog prostora raspušta grupu: svaki drugi član postaje razgrupisani radni prostor i ostaje na listi kartica. Ništa se ne zatvara osim samog sidra. Aplikacija prije toga prikazuje dijalog za potvrdu s prekidačem \"Ne pitaj ponovo\".",
+      "anchorNew": "Sidro grupe je prilikom stvaranja uvijek potpuno novi radni prostor; grupisanje odabira ili stvaranje grupe nikada ne promovira neki od postojećih radnih prostora u sidro. (Kasnije zatvaranje sidra ipak promovira prvog preostalog člana grupe; pogledajte u nastavku.) Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora pri grupisanju odabira ili od aktivnog radnog prostora pri stvaranju putem CLI-ja bez opcije --cwd.",
+      "anchorClose": "Zatvaranjem sidrenog radnog prostora zatvara se samo taj radni prostor, a prvi preostali član grupe (prvi koji se još uvijek nalazi u redoslijedu grupe) postaje novo sidro, tako da grupa i ostali članovi ostaju netaknuti (promovisani član zatim prikazuje naziv grupe kao zaglavlje). Kada je sidro jedini radni prostor grupe, grupa se uklanja. Da biste pretvorili grupu u negrupisane radne prostore, upotrijebite Razgrupiši radne prostore; da biste zatvorili svaki radni prostor u grupi, upotrijebite Obriši grupu.",
       "identityTitle": "Identitet grupe",
       "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
       "pinningTitle": "Prikvačivanje",
@@ -995,7 +995,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },
@@ -3526,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
+    "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
+    "signedOutSignIn": "Prijavite se"
   },
   "platforms": {
     "macos": "macOS",
@@ -3539,8 +3541,8 @@
     "title": "Pridruži se listi čekanja za {platform}",
     "titleAny": "Pridruži se listi čekanja",
     "description": "Podrška za {platform} stiže. Ostavi svoj email i javit ćemo ti čim bude spremno.",
-    "descriptionAny": "cmux je trenutno prvenstveno za macOS. Ostavi svoj email i javit ćemo ti čim Linux, Windows ili Android bude spreman.",
-    "calloutText": "Uskoro za Linux, Windows i Android.",
+    "descriptionAny": "Odaberi još neobjavljenu platformu i ostavi email. Javit ćemo ti kada ta verzija bude spremna.",
+    "calloutText": "Stiže još cmux verzija.",
     "platformsLabel": "Koje platforme?",
     "selectPlatform": "Odaberi barem jednu platformu.",
     "emailLabel": "Email",
@@ -3554,5 +3556,86 @@
     "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
     "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
     "done": "Gotovo"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux preglednik",
+    "title": "cmux za {platform}",
+    "tagline": "Chromium preglednik i radni prostor za agente, izrađeni kao jedna cjelina.",
+    "logoAlt": "Ikona aplikacije cmux",
+    "portableCta": "Prijenosni ZIP",
+    "featuresTitle": "Napravljeno za rad s agentima",
+    "features": {
+      "chromium": {
+        "title": "Pravi Chromium",
+        "description": ": kartice, prikazivanje, proširenja i ponašanje adresne trake na nivou Chromea"
+      },
+      "workspaces": {
+        "title": "Radni prostori usmjereni na zadatke",
+        "description": ": organizujte web-kartice i alate oko zadatka umjesto u beskrajnoj traci kartica"
+      },
+      "terminals": {
+        "title": "Terminalske površine",
+        "description": ": koristite ljuske i kartice preglednika u istom prozoru i kompozitoru"
+      },
+      "openSource": {
+        "title": "Besplatno i otvorenog koda",
+        "description": ": pregledajte kod, prijavite probleme i napravite verziju iz izvornog koda na GitHubu"
+      }
+    },
+    "installTitle": "Instalacija",
+    "releaseTitle": "Izdanja i ažuriranja",
+    "releaseBody": "Ove poveznice uvijek vode do najnovijeg stabilnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
+    "sourceLink": "Pogledajte izvorni kod na GitHubu",
+    "otherPlatform": "cmux za {platform}",
+    "macLink": "cmux terminal za Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Preuzmite cmux za Windows",
+      "metaDescription": "Preuzmite cmux za Windows x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
+      "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i poznatim Windows prečicama na tastaturi.",
+      "primaryCta": "Preuzmite instalacijski program (.exe)",
+      "requirements": "Windows 10 ili noviji · x64",
+      "installBody": "Pokrenite instalacijski program i slijedite Windows upute. Odaberite prijenosni ZIP ako želite držati cmux u mapi bez instalacije na cijelom sistemu."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Preuzmite cmux za Linux",
+      "metaDescription": "Preuzmite cmux za Linux x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
+      "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i integriranim terminalskim površinama.",
+      "primaryCta": "Preuzmite .deb",
+      "requirements": "Debian ili Ubuntu · x64",
+      "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Dobro došli u cmux Pro 🎉",
+      "fallbackName": "prijatelju",
+      "greeting": "Zdravo {name},",
+      "thanks": "Hvala što ste se pridružili cmux Pro! Još uvijek dovršavamo cijelo Pro iskustvo, a pristup oblaku stiže uskoro.",
+      "cloudStatus": "Kada pokrenemo pristup oblaku, dodat ćemo na vaš račun kredite za korištenje prema broju mjeseci pretplate.",
+      "currentBenefit": "Do tada je vaša Pro pogodnost rani pristup cmuxu na iOS-u. Prijavite se putem poveznice ispod, a Apple će vam poslati TestFlight pozivnicu nakon registracije.",
+      "testflightLink": "Prijavite se za TestFlight: {url}",
+      "testflightLinkLabel": "Prijavite se za TestFlight",
+      "signoff": "Drago nam je što ste ovdje!\ncmux tim"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro je aktivan",
+    "title": "Dobro došli u cmux Pro",
+    "body": "Pro funkcije su još u razvoju. Pristup oblaku stiže uskoro, uz kredite za korištenje koji se prikupljaju za svaki mjesec pretplate. Pro trenutno uključuje pristup cmux iOS aplikaciji putem TestFlighta.",
+    "done": "Idi na kontrolnu ploču",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS aplikacija",
+        "body": "Koristite cmux na svom telefonu.",
+        "action": "Pridružite se iOS beti"
+      },
+      "billing": {
+        "title": "Upravljajte planom",
+        "body": "Pregledajte plan, račune i mogućnosti otkazivanja.",
+        "action": "Upravljaj planom"
+      }
+    }
   }
 }

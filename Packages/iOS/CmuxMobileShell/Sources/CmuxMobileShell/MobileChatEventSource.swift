@@ -460,9 +460,9 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         switch connectionError {
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut,
+             .transportWriteTimedOut, .connectAttemptGated,
              .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch:
+             .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
             return .macUnreachable
         case .rpcError(let code, _):
             switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

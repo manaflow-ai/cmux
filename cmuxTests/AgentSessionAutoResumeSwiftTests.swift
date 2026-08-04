@@ -194,7 +194,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: [launchCwd, "--resume", sessionId],
                 scriptDoesNotContain: [runtimeCwd]
@@ -375,7 +375,10 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
-            #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
+            let retainedBinding = try #require(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding
+            )
+            #expect(retainedBinding.autoResume == false)
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 
             var providerConsulted = false
@@ -1164,7 +1167,7 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredBinding.command.contains(freshRuntimeCwd), Comment(rawValue: restoredBinding.command))
             #expect(!restoredBinding.command.contains(staleLaunchCwd), Comment(rawValue: restoredBinding.command))
             #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: [freshRuntimeCwd, "--resume", freshSessionId],
                 scriptDoesNotContain: [staleLaunchCwd, staleSessionId]
@@ -1227,7 +1230,7 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredTerminal?.agent == nil)
             #expect(restoredBinding.kind == "codex")
             #expect(restoredBinding.checkpointId == codexSessionId)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["codex", "resume", codexSessionId],
                 scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
@@ -1293,7 +1296,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["codex", "resume", codexSessionId],
                 scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
@@ -1477,14 +1480,19 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupCommand(
+    private func assertAgentAutoResumeUsesStartupInput(
         _ panel: TerminalPanel,
         scriptContains needles: [String],
         scriptDoesNotContain excludedNeedles: [String] = []
     ) throws {
-        let command = try #require(panel.surface.debugInitialCommand())
-        #expect(command.hasPrefix("/bin/zsh '"), Comment(rawValue: command))
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        #expect(panel.surface.debugInitialCommand() == nil)
+        let input = try #require(panel.surface.debugInitialInputForTesting())
+        let launcherPrefix = "/bin/zsh '"
+        let launcherRange = try #require(input.range(of: launcherPrefix, options: .backwards))
+        let launcherSuffix = input[launcherRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(launcherSuffix.hasSuffix("'"), Comment(rawValue: input))
+        let scriptPath = String(launcherSuffix.dropLast())
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
@@ -1493,10 +1501,7 @@ struct AgentSessionAutoResumeSwiftTests {
         for needle in excludedNeedles {
             #expect(!script.contains(needle), Comment(rawValue: script))
         }
-        #expect(script.contains("CMUX_SHELL_INTEGRATION_DIR"), Comment(rawValue: script))
-        #expect(script.contains("CMUX_ZSH_ZDOTDIR"), Comment(rawValue: script))
-        #expect(script.contains("\"$_cmux_resume_shell\" -lic"), Comment(rawValue: script))
-        #expect(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), Comment(rawValue: script))
-        #expect(script.contains("exec -l \"$_cmux_resume_shell\""), Comment(rawValue: script))
+        #expect(script.contains("rm -f -- \"$0\""), Comment(rawValue: script))
+        #expect(!script.contains("exec -l"), Comment(rawValue: script))
     }
 }

@@ -127,6 +127,8 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let backup = FakeBackup()
+        // The echoed destination lets the later delete flush instead of parking.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let store = BackingUpPairedMacStore(inner: inner, backup: backup)
 
         try await store.upsert(
@@ -195,6 +197,9 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let backup = FakeBackup()
+        // The current worker echoes the verified team every upload was stored
+        // under; the delete then has a verified destination to flush to.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let store = BackingUpPairedMacStore(inner: inner, backup: backup)
 
         try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
@@ -232,9 +237,11 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         let suiteName = "paired-mac-pending-delete-\(UUID().uuidString)"
         let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
         let backup = FakeBackup(
-            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
-            failNextUploads: 99
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)]
         )
+        // The record's backup lives in the team the worker echoed at upload;
+        // its tombstone is durably keyed under THAT destination.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let firstStore = BackingUpPairedMacStore(
@@ -243,7 +250,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             pendingDeleteStore: pending
         )
 
-        try await inner.upsert(
+        try await firstStore.upsert(
             macDeviceID: "mac-a",
             displayName: "Mini",
             routes: [try route("10.0.0.1", 22)],
@@ -251,14 +258,19 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             stackUserID: "user-1",
             now: Date()
         )
+        await backup.setFailNextUploads(99)
         try await firstStore.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
 
+        // Relaunch proxy. Reads run under the tombstone's DESTINATION scope
+        // (the user working in that team), which both suppresses the restore
+        // and retries the flush.
         let (freshInner, freshDir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: freshDir) }
         let secondStore = BackingUpPairedMacStore(
             inner: freshInner,
             backup: backup,
+            teamIDProvider: { "team-resolved" },
             pendingDeleteStore: pending
         )
         let restored = try await secondStore.loadAll(stackUserID: "user-1")
@@ -317,16 +329,22 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
     @Test func durablePendingDeleteCompletesLocalDeleteBeforeRestore() async throws {
         // Simulates a crash after the delete intent was persisted but before the
-        // local row was removed. The next read must finish the local delete before
-        // flushing the server tombstone, so the stale server live record cannot
-        // restore the Mac.
+        // local row was removed — with a LEGACY-format record under the nil-team
+        // scope (a pre-destination-outbox build wrote it). The next read must
+        // finish the local delete before restoring, so the stale server live
+        // record cannot resurrect the Mac. The tombstone itself must NOT go out
+        // with a guessed nil team (the server would resolve the destination from
+        // CURRENT account state, which can differ from where the record was
+        // stored); it stays parked until the restore's echo recovers the
+        // verified destination, then flushes there.
         let suiteName = "paired-mac-crash-delete-intent-\(UUID().uuidString)"
         let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
         await pending.save(["mac-a"], scope: "user-1\u{0}")
         let backup = FakeBackup(
-            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
-            failNextUploads: 99
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)]
         )
+        // The restore's echo reports where the collection actually lives.
+        await backup.setEchoedResolvedTeamID("team-x")
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try await inner.upsert(
@@ -347,10 +365,24 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
         #expect(restored.isEmpty)
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
-        #expect(await backup.uploadedOps().contains {
-            if case .delete(let id) = $0 { return id == "mac-a" }
-            return false
-        })
+        // The first read could not have flushed (no verified destination yet)
+        // and must NOT have guessed a nil team.
+        #expect(!(await backup.uploadTeams()).contains(nil))
+        // The restore's echo recovered the mapping; the next read migrates the
+        // parked intent to its destination and flushes it there.
+        _ = try await store.loadAll(stackUserID: "user-1")
+        let batches = await backup.uploadBatches()
+        let teams = await backup.uploadTeams()
+        let deleteBatchIndex = batches.lastIndex { batch in
+            batch.contains {
+                if case .delete(let id) = $0 { return id == "mac-a" }
+                return false
+            }
+        }
+        #expect(deleteBatchIndex != nil)
+        if let deleteBatchIndex {
+            #expect(teams[deleteBatchIndex] == "team-x")
+        }
         await pending.removeAll()
     }
 

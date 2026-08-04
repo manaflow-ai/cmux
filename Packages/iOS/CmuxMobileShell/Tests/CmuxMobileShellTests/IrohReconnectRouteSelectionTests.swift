@@ -65,7 +65,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(factory.attemptedKinds() == [.iroh, .iroh])
         #expect(store.connectionState == .connected)
-        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(try await pollUntil(attempts: 1_000) {
+            store.workspaceListConnectionStatus == .connected
+        })
     }
 
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
@@ -819,6 +821,8 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.switchToMac(macDeviceID: "mac-b"))
         #expect(store.foregroundMacDeviceID == "mac-b")
         #expect(store.activeRoute?.id == macBIroh.id)
+        #expect(store.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
+        #expect(store.liveMacConnections.map(\.role) == [.focused, .control])
         #expect(await registry.counts() == .init(list: 1, fresh: 0))
     }
 
