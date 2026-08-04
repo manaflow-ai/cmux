@@ -16,7 +16,7 @@
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
   },
   "dependencies": {
-    "@pierre/diffs": "1.2.7",
+    "@pierre/diffs": "1.3.1",
     "@pierre/trees": "1.0.0-beta.4",
     "@tanstack/react-router": "1.170.11",
     "@vitejs/plugin-react": "^5.1.2",

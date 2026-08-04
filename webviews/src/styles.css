@@ -578,7 +578,7 @@ body {
   padding: 0;
   cursor: pointer;
 }
-.toolbar-icon:hover,
+.toolbar-icon:hover:not(:disabled),
 .toolbar-icon[aria-expanded="true"] {
   border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
   background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
@@ -586,6 +586,10 @@ body {
 }
 .toolbar-icon[aria-pressed="true"] {
   color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
+}
+.toolbar-icon:disabled {
+  color: color-mix(in lab, var(--cmux-diff-fg) 30%, var(--cmux-diff-bg));
+  cursor: default;
 }
 .toolbar-icon[hidden] {
   display: none;
@@ -711,6 +715,27 @@ body {
   overscroll-behavior: contain;
   contain: strict;
   background: transparent;
+}
+#edit-feedback {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  max-width: min(520px, calc(100% - 32px));
+  transform: translateX(-50%);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-accent) 40%, transparent);
+  border-radius: 7px;
+  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-accent));
+  color: var(--cmux-diff-fg);
+  box-shadow: 0 4px 16px color-mix(in lab, #000 18%, transparent);
+  z-index: 45;
+}
+#edit-feedback[data-error="true"] {
+  border-color: color-mix(in lab, #ff453a 55%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-bg) 90%, #ff453a);
 }
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;

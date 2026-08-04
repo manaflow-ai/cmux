@@ -102196,6 +102196,91 @@
         }
       }
     },
+    "diffViewer.discardEdits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard edits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を破棄"
+          }
+        }
+      }
+    },
+    "diffViewer.disableEditing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable editing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を無効にする"
+          }
+        }
+      }
+    },
+    "diffViewer.editConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file changed outside the diff editor. Refresh before saving."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは差分エディタの外部で変更されました。保存する前に更新してください。"
+          }
+        }
+      }
+    },
+    "diffViewer.editingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editing is unavailable for this diff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この差分では編集できません。"
+          }
+        }
+      }
+    },
+    "diffViewer.editLoadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load this file for editing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを編集用に読み込めませんでした。"
+          }
+        }
+      }
+    },
     "diffViewer.editComment": {
       "extractionState": "manual",
       "localizations": {
@@ -102817,6 +102902,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "No unstaged changes to diff."
+          }
+        }
+      }
+    },
+    "diffViewer.editSaveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save all edits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての編集を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "diffViewer.editsSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edits saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を保存しました"
+          }
+        }
+      }
+    },
+    "diffViewer.enableEditing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable editing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を有効にする"
           }
         }
       }
@@ -106584,6 +106720,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Repository path"
+          }
+        }
+      }
+    },
+    "diffViewer.saveEdits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save edits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を保存"
+          }
+        }
+      }
+    },
+    "diffViewer.saveOrDiscardEdits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save or discard edits before changing the diff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を変更する前に、編集を保存または破棄してください。"
           }
         }
       }

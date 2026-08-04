@@ -20,6 +20,8 @@ pub enum DiffCommand {
     ProtocolHandshake,
     SessionOpen(OpenSessionRequest),
     SessionClose(SessionRequest),
+    SessionFileLoad(SessionFileRequest),
+    SessionFileSave(SessionFileSaveRequest),
     BranchList(BranchListRequest),
     BranchChange(BranchChangeRequest),
 }
@@ -66,6 +68,47 @@ pub enum DiffSource {
 pub struct SessionRequest {
     pub session_id: String,
     pub capability_token: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub struct SessionFileRequest {
+    pub session_id: String,
+    pub capability_token: String,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub struct SessionFileSaveRequest {
+    pub session_id: String,
+    pub capability_token: String,
+    pub path: String,
+    pub expected_contents: String,
+    pub contents: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub struct SessionFileLoaded {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub previous_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub old_contents: Option<String>,
+    pub new_contents: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub struct SessionFileSaved {
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
@@ -179,6 +222,8 @@ pub enum DiffResult {
     Handshake(HandshakeResult),
     SessionOpened(SessionOpened),
     SessionClosed,
+    SessionFileLoaded(SessionFileLoaded),
+    SessionFileSaved(SessionFileSaved),
     Branches(BranchListResult),
     Navigation(NavigationResult),
 }
@@ -275,6 +320,7 @@ impl DiffResponse {
 pub fn handshake(id: String) -> DiffResponse {
     let capabilities = vec![
         "resource.stream".to_owned(),
+        "session.fileEdit".to_owned(),
         "transport.webkit".to_owned(),
         "transport.stdio".to_owned(),
     ];
