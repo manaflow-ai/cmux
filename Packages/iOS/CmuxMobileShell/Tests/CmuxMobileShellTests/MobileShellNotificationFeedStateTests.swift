@@ -8,6 +8,31 @@ import Testing
 @MainActor
 @Suite("Mobile shell notification feed state")
 struct MobileShellNotificationFeedStateTests {
+    @Test("Sibling pairings keep separate snapshots under tagged owner keys")
+    func taggedOwnerKeysStaySeparate() throws {
+        let store = MobileShellComposite()
+        let nightlyKey = "mac-a\u{1F}nightly"
+        let stableKey = "mac-a\u{1F}default"
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 3, id: "shared-id", createdAt: 100),
+            macDeviceID: nightlyKey,
+            displayName: "Desk Mac"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 5, id: "shared-id", createdAt: 200),
+            macDeviceID: stableKey,
+            displayName: "Desk Mac"
+        ))
+
+        // Equal Mac-local ids from sibling builds must not dedupe, and each
+        // owner key tracks its own revision.
+        #expect(store.notificationFeedItems.count == 2)
+        #expect(store.notificationFeedSnapshotsByMac[nightlyKey]?.revision == 3)
+        #expect(store.notificationFeedSnapshotsByMac[stableKey]?.revision == 5)
+        #expect(Set(store.notificationFeedItems.map(\.macDeviceID)) == ["mac-a"])
+    }
+
     @Test("Newer per-Mac revisions win and all Macs aggregate chronologically")
     func revisionAndAggregation() throws {
         let store = MobileShellComposite()
@@ -40,6 +65,251 @@ struct MobileShellNotificationFeedStateTests {
             displayName: "Studio"
         ))
         #expect(store.notificationFeedItems.map(\.notificationID) == ["a-current", "b-new"])
+    }
+
+    @Test("Aggregation caps the retained phone feed at newest rows")
+    func aggregationCapsRetainedFeedAtNewestRows() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let olderEntries = (0..<25).map { offset in
+            NotificationResponseEntry(
+                id: "old-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+        let newerEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "new-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: olderEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: newerEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedUnreadCount == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-b" })
+        #expect(store.notificationFeedItems.first?.notificationID == "new-\(cap - 1)")
+    }
+
+    @Test("Computer-scoped feeds aggregate before the global feed cap")
+    func computerScopedFeedsAggregateBeforeGlobalCap() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let macAEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "a-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+        let macBEntries = (0..<10).map { offset in
+            NotificationResponseEntry(
+                id: "b-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macAEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macBEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-a" })
+
+        let scopedItems = store.notificationFeedItems(scopedTo: ["mac-b"])
+        #expect(scopedItems.map(\.notificationID) == (0..<10).reversed().map { "b-\($0)" })
+        #expect(scopedItems.allSatisfy { $0.macDeviceID == "mac-b" })
+    }
+
+    @Test("Mark All targets all selected Macs before applying the visible feed cap")
+    func markAllTargetsSelectedMacsBeforeVisibleFeedCap() async throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let macAEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "a-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+        let macBEntries = (0..<3).map { offset in
+            NotificationResponseEntry(
+                id: "b-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macAEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macBEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-a" })
+
+        let macARouter = RoutingHostRouter()
+        let macBRouter = RoutingHostRouter()
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-a",
+            router: macARouter,
+            supportedHostCapabilities: [MobileShellComposite.notificationFeedCapability]
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-b",
+            router: macBRouter,
+            supportedHostCapabilities: [MobileShellComposite.notificationFeedCapability]
+        )
+
+        await store.markNotificationFeedItemsRead(scopedTo: nil)
+
+        #expect(await macARouter.recordedNotificationFeedMarkAllReadCount() == 1)
+        #expect(await macBRouter.recordedNotificationFeedMarkAllReadCount() == 1)
+    }
+
+    @Test("Source cache preserves per-Mac tails so aggregation refills after another source disappears")
+    func sourceCachePreservesPerMacTailsForAggregateRefill() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let newerCount = 25
+        let olderEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "old-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+        let newerEntries = (0..<newerCount).map { offset in
+            NotificationResponseEntry(
+                id: "new-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: olderEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: newerEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        let sourceItemCount = store.notificationFeedSnapshotsByMac.values.reduce(0) { count, snapshot in
+            count + snapshot.items.count
+        }
+        #expect(sourceItemCount == cap + newerCount)
+        #expect(store.notificationFeedSnapshotsByMac["mac-b"]?.items.count == newerCount)
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.count == cap)
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.contains {
+            $0.notificationID == "old-0"
+        } == true)
+        #expect(store.notificationFeedItems.count == cap)
+
+        store.removeNotificationFeedSnapshot(macDeviceID: "mac-b")
+
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-a" })
+        #expect(store.notificationFeedItems.contains { $0.notificationID == "old-0" })
+    }
+
+    @Test("Source cache deduplicates repeated wire notification identities")
+    func sourceCacheDeduplicatesRepeatedWireNotificationIdentities() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let duplicatedEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "duplicate",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: duplicatedEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: duplicatedEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        let sourceItemCount = store.notificationFeedSnapshotsByMac.values.reduce(0) { count, snapshot in
+            count + snapshot.items.count
+        }
+        #expect(sourceItemCount == 2)
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.count == 1)
+        #expect(store.notificationFeedSnapshotsByMac["mac-b"]?.items.count == 1)
+        #expect(store.notificationFeedItems.count == 2)
+    }
+
+    @Test("Legacy Mac payloads are bounded before phone retention")
+    func legacyMacPayloadsAreBoundedBeforeRetention() throws {
+        let store = MobileShellComposite()
+        let oversizedText = String(repeating: "x", count: 4_096)
+        let oversizedIdentifier = String(repeating: "i", count: 513)
+        let response = try MobileNotificationFeedListResponse.decode(Data(
+            """
+            {"revision":1,"notifications":[
+            {"id":"valid","workspace_id":"workspace","surface_id":"\(oversizedText)",
+            "title":"\(oversizedText)","subtitle":"\(oversizedText)",
+            "body":"\(oversizedText)","created_at":200,"is_read":false,
+            "workspace_title":"\(oversizedText)","surface_title":"\(oversizedText)"},
+            {"id":"\(oversizedIdentifier)","workspace_id":"workspace",
+            "title":"Dropped","body":"Dropped","created_at":300,"is_read":false}
+            ]}
+            """.utf8
+        ))
+
+        #expect(store.applyNotificationFeedSnapshot(
+            response,
+            macDeviceID: "mac",
+            displayName: oversizedText
+        ))
+
+        let item = try #require(store.notificationFeedItems.first)
+        #expect(store.notificationFeedItems.count == 1)
+        #expect(item.notificationID == "valid")
+        #expect(item.remoteSurfaceID == nil)
+        #expect(item.macDisplayName.utf8.count == 512)
+        #expect(item.title.utf8.count == 512)
+        #expect(item.subtitle?.utf8.count == 512)
+        #expect(item.body.utf8.count == 2_048)
+        #expect(item.workspaceTitle?.utf8.count == 512)
+        #expect(item.surfaceTitle?.utf8.count == 512)
+        #expect(store.notificationFeedSnapshotsByMac["mac"]?.items.first?.body.utf8.count == 2_048)
     }
 
     @Test("Reset drops account-scoped notification content")
@@ -333,4 +603,17 @@ struct MobileShellNotificationFeedStateTests {
             #"{"revision":\#(revision),"notifications":[{"id":"\#(id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":\#(createdAt),"is_read":false}]}"#.utf8
         ))
     }
+
+    private func response(
+        revision: Int,
+        entries: [NotificationResponseEntry]
+    ) throws -> MobileNotificationFeedListResponse {
+        let notifications = entries.map { entry in
+            #"{"id":"\#(entry.id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":\#(entry.createdAt),"is_read":\#(entry.isRead)}"#
+        }.joined(separator: ",")
+        return try MobileNotificationFeedListResponse.decode(Data(
+            #"{"revision":\#(revision),"notifications":[\#(notifications)]}"#.utf8
+        ))
+    }
+
 }

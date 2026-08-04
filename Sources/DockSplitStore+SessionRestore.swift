@@ -91,9 +91,15 @@ extension DockSplitStore {
                snapshot,
                snapshotWorkspaceId: sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities
-           ) {
+            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
-            if restoredPanelId == nil { detached.panel.close() }
+            if restoredPanelId == nil {
+                AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                    workspaceId: detached.sourceWorkspaceId,
+                    panelId: detached.panelId
+                )
+                detached.panel.close()
+            }
             return restoredPanelId
         }
         if sourceWorkspaceId != nil, snapshot.terminal?.isRemoteTerminal == true {
@@ -133,6 +139,26 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding,
             restorableAgent: restorableAgent
         )
+        let managedResumeBinding = (
+            terminalSnapshot.managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
+                ?? terminalSnapshot.resumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                }
+        ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
+            if restorableAgent != nil,
+               Workspace.restorableAgentForSessionRestore(
+                   restorableAgent,
+                   resumeBinding: candidate
+               ) == nil {
+                return nil
+            }
+            return Workspace.resumeBindingForSessionRestore(
+                candidate,
+                restorableAgent: restorableAgent
+            )
+        }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
@@ -147,22 +173,34 @@ extension DockSplitStore {
             promptForApproval: true,
             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         )
-        let bindingLaunch = approvedResumeBinding.flatMap {
-            policy.surfaceResumeStartupLaunch(
-                forApprovedBinding: $0,
-                allowLauncherScript: true
-            )
-        }
         let savedWorkingDirectory = resumeBinding?.cwd
             ?? terminalSnapshot.workingDirectory
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
+            policy.surfaceResumeStartupLaunch(
+                forApprovedBinding: $0
+            )
+        }
+        let resumeSessionWorkingDirectory: String? = {
+            if unresolvedBindingLaunch != nil {
+                return approvedResumeBinding?.cwd ?? workingDirectory
+            }
+            guard let restorableAgent else { return savedWorkingDirectory }
+            if restorableAgent.registration?.cwd == .ignore {
+                return nil
+            }
+            return restorableAgent.workingDirectory
+                ?? restorableAgent.launchCommand?.workingDirectory
+                ?? workingDirectory
+        }()
+        let bindingLaunch = unresolvedBindingLaunch
         let tmuxStartCommand = restorableAgent == nil && bindingLaunch == nil
             ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
             : nil
         let tmuxLauncher = tmuxStartCommand.flatMap {
-            SessionRestoredTerminalCommandStore.writeLauncherScript(
+            OneShotTerminalLauncherStore().writeStartupCommand(
                 command: $0,
                 workingDirectory: workingDirectory
             )
@@ -175,14 +213,19 @@ extension DockSplitStore {
         )
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
-            ? restorableAgent?.resumeStartupCommand().map(WorkspaceSurfaceResumeStartupLaunch.command)
+            ? restorableAgent?.resumeStartupInput(
+                restoringWorkingDirectory: resumeSessionWorkingDirectory
+            ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
-        let initialCommand = tmuxLauncher?.path
-            ?? bindingLaunch?.initialCommand
-            ?? agentLaunch?.initialCommand
+        let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
-        let startupHandlesWorkingDirectory = tmuxLauncher != nil || agentLaunch != nil ||
-            (bindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+        let startupHandlesWorkingDirectory =
+            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
+        let hostShellWorkingDirectory: String? = {
+            guard startupHandlesWorkingDirectory else { return workingDirectory }
+            let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
+            return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
+        }()
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,
             tmuxStartCommand: restoredTmuxStartCommand,
@@ -199,9 +242,16 @@ extension DockSplitStore {
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: TerminalFontSizeCreationPolicy.sessionRestore(
-                overrideBasePoints: terminalSnapshot.fontSize
+                overrideBasePoints: terminalSnapshot.fontSize,
+                representedChangeTokens: Set(
+                    terminalSnapshot.fontSizeChangeTokens ?? []
+                )
             ).applying(to: nil),
-            workingDirectory: startupHandlesWorkingDirectory ? nil : workingDirectory,
+            // Start the owning shell in the resume cwd when it is currently
+            // enterable so exiting the child launcher preserves #7031. The
+            // launcher still owns the authoritative guard for missing,
+            // inaccessible, or concurrently changed directories.
+            workingDirectory: hostShellWorkingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
@@ -229,19 +279,20 @@ extension DockSplitStore {
         if let resumeBinding {
             surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
         }
+        if let managedResumeBinding {
+            managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
+        }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
-        let willRunAgentCommand =
-            agentLaunch?.initialCommand != nil ||
-            (bindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
+        let willRunAgentCommand = false
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
         seedSessionRestoredAgentState(
             panelId: terminal.id,
             restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
+            resumeBinding: managedResumeBinding ?? resumeBinding,
             willRunStartupCommand: willRunAgentCommand,
             willRunStartupInput: willRunAgentInput
         )
@@ -252,9 +303,6 @@ extension DockSplitStore {
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
             )
         }
-        let resumeSessionWorkingDirectory = restorableAgent?.workingDirectory
-            ?? restorableAgent?.launchCommand?.workingDirectory
-            ?? resumeBinding?.cwd
         if willRunAgentCommand || willRunAgentInput,
            let resumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[terminal.id] = resumeSessionWorkingDirectory
@@ -320,8 +368,7 @@ extension DockSplitStore {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
@@ -404,5 +451,8 @@ extension DockSplitStore {
             workspaceID: workspaceId.uuidString,
             workingDirectory: workingDirectory
         )
+#if DEBUG
+        cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
+#endif
     }
 }

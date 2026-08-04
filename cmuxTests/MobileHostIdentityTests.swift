@@ -176,6 +176,28 @@ struct MobileHostIdentityTests {
         #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID.lowercased())
     }
 
+    @Test func canonicalEquivalentSharedDeviceIDDoesNotRewriteDefaults() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+        let sharedID = "3D56C547-271C-47D8-84F6-5C79C9394A37".lowercased()
+        try sharedID.write(to: sharedIDURL, atomically: true, encoding: .utf8)
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyStoredID = "  \(sharedID.uppercased())\n"
+        defaults.set(legacyStoredID, forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(
+            defaults: defaults,
+            sharedIDURL: sharedIDURL
+        ) == sharedID)
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == legacyStoredID)
+    }
+
     @Test func migratesExistingBundleIDToSharedFile() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

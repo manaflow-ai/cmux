@@ -70,10 +70,10 @@ extension CmxIrohClientRuntime {
         supervisorEventTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
-        await sessionPool.deactivate()
         await contextRouter.clear()
+        authoritativeDiscovery = nil
         if !preserveBinding { localBinding = nil }
-        await supervisor.deactivate()
+        await connectivityEngine.stop()
     }
 
     func validateRelayFleet(_ fleet: [String]) throws {
@@ -108,5 +108,15 @@ extension CmxIrohClientRuntime {
 
     static func isConnectivity(_ error: any Error) -> Bool {
         (error as? CmxIrohTrustBrokerClientError) == .connectivity
+    }
+
+    /// Failures that may fall back to the verified offline policy cache.
+    ///
+    /// Only transport availability qualifies. Authorization rejections fail
+    /// closed even when an older policy was previously verified: the broker
+    /// has explicitly withdrawn this session's authority after the client's
+    /// exactly-once credential recovery.
+    static func recoversWithCachedPolicy(_ error: any Error) -> Bool {
+        isConnectivity(error)
     }
 }

@@ -12,9 +12,15 @@ public struct RemoteControlMasterCleanup: Sendable {
     /// find the existing socket. `ControlMaster` and `ControlPersist` are
     /// replaced by the leading reuse-only settings.
     ///
-    /// - Parameter configuration: Native SSH workspace configuration.
+    /// - Parameters:
+    ///   - configuration: Native SSH workspace configuration.
+    ///   - sshOptionsOverride: Effective SSH options that identify the master,
+    ///     or `nil` to use the configuration's stored options.
     /// - Returns: Arguments for `/usr/bin/ssh`.
-    public func cleanupArguments(configuration: WorkspaceRemoteConfiguration) -> [String] {
+    public func cleanupArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        sshOptionsOverride: [String]? = nil
+    ) -> [String] {
         var arguments = [
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
@@ -26,7 +32,9 @@ public struct RemoteControlMasterCleanup: Sendable {
            !identityFile.isEmpty {
             arguments += ["-i", identityFile]
         }
-        for option in normalizedCleanupOptions(configuration.sshOptions) {
+        for option in normalizedCleanupOptions(
+            sshOptionsOverride ?? configuration.sshOptions
+        ) {
             arguments += ["-o", option]
         }
         arguments += ["-O", "exit", configuration.destination]
