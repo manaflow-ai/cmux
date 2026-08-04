@@ -24,6 +24,10 @@ struct HeadlessServer {
 
 impl HeadlessServer {
     fn start(name: &str) -> Self {
+        Self::start_with_config(name, None)
+    }
+
+    fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -33,6 +37,9 @@ impl HeadlessServer {
         // resources, so starting one here would outlive the terminal-only
         // cleanup below and leak a user-configured process from the test.
         let config = dir.join("config.json");
+        if let Some(contents) = config_contents {
+            fs::write(&config, contents).unwrap();
+        }
         let child = Command::new(bin())
             .args(["--headless", "--socket"])
             .arg(&socket)
@@ -157,6 +164,40 @@ impl HeadlessServer {
             std::thread::sleep(Duration::from_millis(10));
         }
         false
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn signal_test_process_group(pid: u32, signal: libc::c_int) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+    // SAFETY: the test just captured this isolated PTY process group from its
+    // private terminal-host record or process-info response.
+    unsafe {
+        libc::kill(-pid, signal);
     }
 }
 
@@ -1052,6 +1093,73 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn graceful_shutdown_stops_server_owned_sidebar_terminal_host() {
+    let mut server = HeadlessServer::start_with_config(
+        "sidebar-host-shutdown",
+        Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
+    );
+    let sidebar = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "sidebar-plugin",
+            "cols": 20,
+            "rows": 8,
+            "relaunch": true,
+        }),
+    )
+    .expect("start configured sidebar plugin");
+    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
+    let plugin_pid = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
+    )
+    .and_then(|response| response["pid"].as_u64())
+    .and_then(|pid| u32::try_from(pid).ok())
+    .expect("sidebar plugin PID");
+
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let mut records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
+        .expect("load sidebar terminal-host record");
+    assert_eq!(records.len(), 1, "sidebar plugin owns exactly one terminal host");
+    let (record_path, record) = records.pop().unwrap();
+    let host_pid = record.host_pid;
+
+    let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    // SAFETY: this PID is the live child owned by the test fixture.
+    assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
+    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
+    let owned_processes_stopped =
+        wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(5));
+
+    // Keep the intentionally red regression leak-free. The captured process
+    // groups and record all belong to this fixture's private state root.
+    if !owned_processes_stopped {
+        signal_test_process_group(plugin_pid, libc::SIGTERM);
+        signal_test_process_group(host_pid, libc::SIGTERM);
+        if !wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(2)) {
+            signal_test_process_group(plugin_pid, libc::SIGKILL);
+            signal_test_process_group(host_pid, libc::SIGKILL);
+            assert!(
+                wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(2)),
+                "fixture could not reap its isolated sidebar processes"
+            );
+        }
+        let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+            &record_path,
+            &record,
+        );
+    }
+
+    assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
+    assert!(
+        owned_processes_stopped,
+        "graceful shutdown left its server-owned sidebar terminal host alive"
+    );
 }
 
 #[cfg(unix)]
