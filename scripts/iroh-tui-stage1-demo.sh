@@ -26,6 +26,7 @@ linux_target="$build_cache_root/linux-target"
 linux_cargo_home="$build_cache_root/linux-cargo-home"
 linux_resolv_conf="$demo_root/linux-resolv.conf"
 linux_zig_cache="$build_cache_root/linux-zig-cache"
+linux_zig_pkg="$build_cache_root/linux-zig-pkg"
 runtime_context="$demo_root/runtime-context"
 build_commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then
@@ -92,6 +93,7 @@ mkdir -p \
     "$linux_cargo_home" \
     "$linux_zig_cache/global" \
     "$linux_zig_cache/local" \
+    "$linux_zig_pkg" \
     "$runtime_context/bin" \
     "$runtime_context/lib"
 record "iroh TUI Stage 1 acceptance"
@@ -124,6 +126,7 @@ docker run --rm \
     --mount "type=bind,source=$linux_resolv_conf,target=/etc/resolv.conf,readonly" \
     --mount "type=bind,source=$linux_target,target=/build/target" \
     --mount "type=bind,source=$linux_zig_cache,target=/build/zig-cache" \
+    --mount "type=bind,source=$linux_zig_pkg,target=/source/ghostty/zig-pkg" \
     --workdir /source \
     "$builder_image" \
     cargo build \
