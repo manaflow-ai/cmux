@@ -807,30 +807,34 @@ mod tests {
 
     #[test]
     fn claude_direct_children_attach_to_the_shared_session_root() {
-        let root = agent_hook_journal_ingress(
-            "claude",
-            "SessionStart",
-            None,
-            json!({"session_id":"claude-session"}),
-        )
-        .unwrap();
-        let child = agent_hook_journal_ingress(
-            "claude",
-            "SubagentStart",
-            None,
-            json!({"session_id":"claude-session","agent_id":"child-a"}),
-        )
-        .unwrap();
+        for source in ["claude", "claude-code"] {
+            let root = agent_hook_journal_ingress(
+                source,
+                "SessionStart",
+                None,
+                json!({"session_id":"claude-session"}),
+            )
+            .unwrap();
+            let child = agent_hook_journal_ingress(
+                source,
+                "SubagentStart",
+                None,
+                json!({"session_id":"claude-session","agent_id":"child-a"}),
+            )
+            .unwrap();
 
-        assert_eq!(child.payload["normalized"]["agent_relation"], "provider_root");
-        assert_eq!(
-            child.payload["normalized"]["parent_agent_node_id"],
-            root.payload["normalized"]["agent_node_id"]
-        );
-        assert_eq!(
-            child.payload["normalized"]["agent_tree_id"],
-            root.payload["normalized"]["agent_tree_id"]
-        );
+            assert_eq!(child.payload["normalized"]["agent_relation"], "provider_root", "{source}");
+            assert_eq!(
+                child.payload["normalized"]["parent_agent_node_id"],
+                root.payload["normalized"]["agent_node_id"],
+                "{source}"
+            );
+            assert_eq!(
+                child.payload["normalized"]["agent_tree_id"],
+                root.payload["normalized"]["agent_tree_id"],
+                "{source}"
+            );
+        }
     }
 
     #[test]
