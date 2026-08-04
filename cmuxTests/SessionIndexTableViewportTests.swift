@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -307,25 +306,24 @@ struct SessionIndexTableViewportTests {
             (0..<46).map(Self.makeEntry)
         )
 
-        let host = NSHostingView(
-            rootView: SessionIndexView(store: store, onResume: nil)
-                .frame(width: 320, height: 300)
-        )
+        let controller = SessionIndexNativeViewController(store: store, onResume: nil)
+        controller.view.frame = NSRect(x: 0, y: 0, width: 320, height: 300)
+        defer { controller.teardown() }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.contentView = host
-        host.frame = window.contentView?.bounds ?? .zero
-        host.layoutSubtreeIfNeeded()
+        window.contentViewController = controller
+        controller.view.frame = window.contentView?.bounds ?? .zero
+        controller.view.layoutSubtreeIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
         await flushStagedTableMutations()
-        host.layoutSubtreeIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
 
-        let table = try #require(host.firstDescendant(of: NSTableView.self))
+        let table = try #require(controller.view.firstDescendant(of: NSTableView.self))
         let visibleRows = table.rows(in: table.visibleRect)
         let realizedRows = (0..<table.numberOfRows).filter { row in
             table.view(atColumn: 0, row: row, makeIfNecessary: false) != nil

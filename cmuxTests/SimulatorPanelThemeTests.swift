@@ -1,8 +1,8 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxSimulator
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,16 +33,17 @@ struct SimulatorPanelVisibilityTests {
 
         let size = NSSize(width: 640, height: 480)
         let root = NSView(frame: NSRect(origin: .zero, size: size))
-        var firstHost: NSHostingView<PanelContentView>? = NSHostingView(
-            rootView: content(panel: panel, background: .black)
+        var firstHost: PanelContentViewController? = PanelContentViewController(
+            configuration: configuration(panel: panel, background: .black)
         )
-        let secondHost = NSHostingView(
-            rootView: content(panel: panel, background: .black)
+        let secondHost = PanelContentViewController(
+            configuration: configuration(panel: panel, background: .black)
         )
-        firstHost?.frame = root.bounds
-        secondHost.frame = root.bounds
-        root.addSubview(firstHost!)
-        root.addSubview(secondHost)
+        defer { secondHost.teardown() }
+        firstHost?.view.frame = root.bounds
+        secondHost.view.frame = root.bounds
+        root.addSubview(firstHost!.view)
+        root.addSubview(secondHost.view)
 
         let window = NSWindow(
             contentRect: root.bounds,
@@ -75,7 +76,8 @@ struct SimulatorPanelVisibilityTests {
         }
         #expect(panel.coordinator.frameTransport != nil)
 
-        firstHost?.removeFromSuperview()
+        firstHost?.teardown()
+        firstHost?.view.removeFromSuperview()
         firstHost = nil
         settle(root)
 
@@ -83,15 +85,16 @@ struct SimulatorPanelVisibilityTests {
         #expect(!(await client.messages).contains(.setFramebufferPublishing(false)))
     }
 
-    private func content(panel: SimulatorPanel, background: NSColor) -> PanelContentView {
-        PanelContentView(
+    private func configuration(panel: SimulatorPanel, background: NSColor) -> PanelContentConfiguration {
+        PanelContentConfiguration(
             panel: panel,
-            workspaceId: UUID(),
-            paneId: PaneID(),
+            workspaceID: UUID(),
+            paneID: PaneID(),
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
             allowsPointerInput: true,
+            pointerEntryEventFilter: nil,
             portalPriority: 0,
             isSplit: false,
             appearance: PanelAppearance(
@@ -104,8 +107,12 @@ struct SimulatorPanelVisibilityTests {
             ),
             windowAppearance: .rightSidebarPanelViewTestDefault,
             customSidebarTabManager: nil,
+            customSidebarUnread: SidebarUnreadModel(),
             hasUnreadNotification: false,
             terminalAgentContext: "",
+            paneOwnershipOverride: nil,
+            terminalPaneOwnershipResolver: nil,
+            paneDropZone: nil,
             onFocus: {},
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
@@ -134,8 +141,11 @@ struct SimulatorPanelThemeTests {
         defer { panel.close() }
 
         let size = NSSize(width: 360, height: 260)
-        let hostingView = NSHostingView(rootView: content(panel: panel, background: monokai))
-        hostingView.frame = NSRect(origin: .zero, size: size)
+        let contentController = PanelContentViewController(
+            configuration: configuration(panel: panel, background: monokai)
+        )
+        defer { contentController.teardown() }
+        contentController.view.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -144,25 +154,26 @@ struct SimulatorPanelThemeTests {
         )
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.contentView = hostingView
+        window.contentView = contentController.view
         window.orderBack(nil)
         defer { window.orderOut(nil) }
 
-        #expect(renderedCornerHex(hostingView) == "#272822")
+        #expect(renderedCornerHex(contentController.view) == "#272822")
 
-        hostingView.rootView = content(panel: panel, background: lightTheme)
-        #expect(renderedCornerHex(hostingView) == "#F8F8F2")
+        contentController.update(configuration: configuration(panel: panel, background: lightTheme))
+        #expect(renderedCornerHex(contentController.view) == "#F8F8F2")
     }
 
-    private func content(panel: SimulatorPanel, background: NSColor) -> PanelContentView {
-        PanelContentView(
+    private func configuration(panel: SimulatorPanel, background: NSColor) -> PanelContentConfiguration {
+        PanelContentConfiguration(
             panel: panel,
-            workspaceId: UUID(),
-            paneId: PaneID(),
+            workspaceID: UUID(),
+            paneID: PaneID(),
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
             allowsPointerInput: true,
+            pointerEntryEventFilter: nil,
             portalPriority: 0,
             isSplit: false,
             appearance: PanelAppearance(
@@ -175,8 +186,12 @@ struct SimulatorPanelThemeTests {
             ),
             windowAppearance: .rightSidebarPanelViewTestDefault,
             customSidebarTabManager: nil,
+            customSidebarUnread: SidebarUnreadModel(),
             hasUnreadNotification: false,
             terminalAgentContext: "",
+            paneOwnershipOverride: nil,
+            terminalPaneOwnershipResolver: nil,
+            paneDropZone: nil,
             onFocus: {},
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
