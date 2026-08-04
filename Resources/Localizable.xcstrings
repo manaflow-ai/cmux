@@ -53706,6 +53706,23 @@
         }
       }
     },
+    "cli.workspaceAction.tailscalePairingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Pairing is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングは利用できません"
+          }
+        }
+      }
+    },
     "cli.workspace.status.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -61345,7 +61362,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Tailscale"
           }
         },
         "es": {
@@ -61369,7 +61386,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モバイル"
+            "value": "Tailscale"
           }
         },
         "km": {
@@ -61470,7 +61487,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect iPhone/iPad"
+            "value": "Open Tailscale Pairing"
           }
         },
         "es": {
@@ -61494,7 +61511,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPadを接続"
+            "value": "Tailscaleペアリングを開く"
           }
         },
         "km": {
@@ -110779,13 +110796,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Mobile Connect button in the sidebar footer."
+            "value": "Shows the Tailscale Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにMobile Connectボタンを表示します。"
+            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
           }
         }
       }
@@ -110796,13 +110813,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connect button"
+            "value": "Tailscale Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectボタン"
+            "value": "Tailscaleペアリングボタン"
           }
         }
       }
@@ -134900,36 +134917,19 @@
         }
       }
     },
-    "mobile.pairing.codeMode.legacyDetail": {
+    "mobile.pairing.codeMode.tailscaleDetail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.codeMode.useLegacy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Tailscale Pairing Code"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleペアリングコードを使用"
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135450,13 +135450,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135467,13 +135467,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account."
+            "value": "Tailscale is not connected on this Mac. Install it on both devices and connect both to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検出されませんでした。この Mac と iPhone の両方に、同じアカウントで Tailscale をインストールしてください。"
+            "value": "この Mac で Tailscale が接続されていません。両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }
@@ -135484,13 +135484,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reachable over Tailscale."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由で接続できます。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135961,13 +135961,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap Add device, then Scan QR Code, and point the camera at the code above."
+            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「デバイスを追加」→「QR コードをスキャン」をタップし、上のコードにカメラを向けます。"
+            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
           }
         }
       }
@@ -136012,13 +136012,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your iPhone"
+            "value": "Pair your iPhone with Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "TailscaleでiPhoneをペアリング"
           }
         }
       }
@@ -136029,13 +136029,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
+            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
           }
         }
       }
@@ -136046,13 +136046,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair iPhone"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174627,13 +174627,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair a Device"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスをペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174644,13 +174644,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair…"
+            "value": "Show Tailscale QR…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング…"
+            "value": "Tailscale QRを表示…"
           }
         }
       }
@@ -174661,13 +174661,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
           }
         }
       }

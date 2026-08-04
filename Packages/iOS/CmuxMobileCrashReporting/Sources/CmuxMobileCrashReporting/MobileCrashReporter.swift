@@ -1,4 +1,4 @@
-public import CmuxMobileAnalytics
+public import CMUXMobileCore
 import CmuxSentryReporting
 import Foundation
 public import Sentry
@@ -6,7 +6,7 @@ public import Sentry
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///
 /// ``MobileCrashReporter`` intentionally reuses
-/// ``CmuxMobileAnalytics/AnalyticsConsentProviding`` so crash telemetry and
+/// ``CMUXMobileCore/AnalyticsConsentProviding`` so crash telemetry and
 /// analytics obey one opt-out source. `sendDefaultPii` is disabled and every
 /// outgoing event, breadcrumb, and structured log is redacted by the shared
 /// `SentryEventScrubber` (CmuxSentryReporting) before it leaves the device.

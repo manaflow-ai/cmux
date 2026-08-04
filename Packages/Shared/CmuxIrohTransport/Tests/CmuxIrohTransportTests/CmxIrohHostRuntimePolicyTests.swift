@@ -7,6 +7,48 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func startupFetchesAuthoritativeDiscoveryWhenRegistrationSnapshotIsIncomplete() async throws {
+        let fixture = try HostRuntimeFixture()
+        let pageOneBinding = try HostRuntimeFixture.binding(
+            endpointID: fixture.endpointID.endpointID,
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        let pageOne = try HostRuntimeFixture.discovery(
+            binding: pageOneBinding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 1
+        )
+        let completeDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 1
+        )
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: completeDiscovery,
+            embeddedRegistrationDiscovery: pageOne,
+            embeddedRegistrationDiscoveryIsComplete: false,
+            registrationRevision: 1
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func truncatedEmbeddedDiscoveryFallsBackToAuthoritativeDiscovery() async throws {
         let fixture = try HostRuntimeFixture()
         let authoritative = try HostRuntimeFixture.discovery(
