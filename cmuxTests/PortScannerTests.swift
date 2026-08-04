@@ -1038,7 +1038,8 @@ struct PortScannerPortRetirementTests {
         // The fifth scan is at 7.5 seconds in the six-scan burst. Stopping here
         // leaves only the 10-second scan in the original burst, so clearing the
         // kick at that scan strands the port after only one complete miss.
-        await runner.waitForLsofInvocation(5)
+        let reachedFifthScan = await runner.waitForLsofInvocation(5)
+        try #require(reachedFifthScan, "the scanner did not reach the fifth burst scan")
         let publicationsBeforeStop = publishedPorts.withLock { $0.count }
         await runner.stopListening()
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
@@ -1052,6 +1053,55 @@ struct PortScannerPortRetirementTests {
         )
 
         #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
+    }
+
+    /// `/bin/ps` accepts a full device path in `-t`, but reports the matching
+    /// process's TTY without `/dev/`. The scanner must still attribute the
+    /// listener to the panel that registered the full path.
+    @Test("A live full-path TTY still attributes its listener")
+    func liveFullPathTTYAttributesListener() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registeredTTYName = "/dev/ttys903"
+        let processTTYName = "ttys903"
+        let listenerPID = Int(getpid())
+        let listeningPort = 4323
+        let runner = PortLifecycleCommandRunner(
+            ttyName: registeredTTYName,
+            processTTYName: processTTYName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: listeningPort
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            ttySessionIdentityProvider: { _ in sessionIdentity }
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyName: registeredTTYName
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishListeningPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [listeningPort] },
+            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
+            timeout: .seconds(6)
+        )
+
+        #expect(didPublishListeningPort, "the full-path TTY never received its listener")
     }
 
     /// Polls rather than sleeping a fixed interval, since the scan burst runs
@@ -1090,13 +1140,13 @@ struct PortScannerPortRetirementTests {
 /// the process is still alive but owns no sockets.
 private actor PortLifecycleCommandRunner: CommandRunning {
     private let ttyName: String
+    private let processTTYName: String
     private let sessionLeaderPID: Int
     private let pid: Int
     private let port: Int
     private var isListening = true
     private(set) var lastLsofArguments: [String]?
     private var lsofInvocationCount = 0
-    private var lsofInvocationWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     private static let filesystemWarning = """
     lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/example
@@ -1105,8 +1155,15 @@ private actor PortLifecycleCommandRunner: CommandRunning {
 
     """
 
-    init(ttyName: String, sessionLeaderPID: Int, pid: Int, port: Int) {
+    init(
+        ttyName: String,
+        processTTYName: String? = nil,
+        sessionLeaderPID: Int,
+        pid: Int,
+        port: Int
+    ) {
         self.ttyName = ttyName
+        self.processTTYName = processTTYName ?? ttyName
         self.sessionLeaderPID = sessionLeaderPID
         self.pid = pid
         self.port = port
@@ -1116,11 +1173,16 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         isListening = false
     }
 
-    func waitForLsofInvocation(_ target: Int) async {
-        guard lsofInvocationCount < target else { return }
-        await withCheckedContinuation { continuation in
-            lsofInvocationWaiters[target, default: []].append(continuation)
+    func waitForLsofInvocation(_ target: Int, timeout: Duration = .seconds(15)) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while lsofInvocationCount < target, ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
         }
+        return lsofInvocationCount >= target
     }
 
     func run(
@@ -1135,16 +1197,13 @@ private actor PortLifecycleCommandRunner: CommandRunning {
             }
             // Honor the `-t` selector: a scan that asks about another terminal
             // must not be handed this panel's processes.
-            guard Self.selection(for: "-t", in: arguments).contains(ttyName) else {
+            let selectedTTYs = Self.selection(for: "-t", in: arguments)
+            guard selectedTTYs.contains(ttyName) || selectedTTYs.contains(processTTYName) else {
                 return Self.noSelectedFiles()
             }
-            return Self.output("\(sessionLeaderPID) \(ttyName)\n\(pid) \(ttyName)\n")
+            return Self.output("\(sessionLeaderPID) \(processTTYName)\n\(pid) \(processTTYName)\n")
         }
         lsofInvocationCount += 1
-        let satisfiedTargets = lsofInvocationWaiters.keys.filter { $0 <= lsofInvocationCount }
-        for target in satisfiedTargets {
-            lsofInvocationWaiters.removeValue(forKey: target)?.forEach { $0.resume() }
-        }
         lastLsofArguments = arguments
         // `lsof -w` suppresses filesystem warnings. They are unrelated to a
         // PID-scoped TCP socket query, but any stderr currently makes the
