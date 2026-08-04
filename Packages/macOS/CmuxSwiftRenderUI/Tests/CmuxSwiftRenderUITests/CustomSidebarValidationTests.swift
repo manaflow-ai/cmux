@@ -143,6 +143,31 @@ struct CustomSidebarValidationTests {
         )
     }
 
+    @Test("warns when optional-absent sample output collapses to empty")
+    func warnsWhenOptionalDataRemovalEmptiesRender() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("branch.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                if let branch = workspace.branch {
+                    Text(branch)
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(
+            entry.warningMessages
+                == [
+                    "Sidebar rendered no visible content when optional workspace data was absent.",
+                ]
+        )
+    }
+
     @Test("sample-dependent optional branches remain non-blocking")
     func acceptsOptionalBranchThatIsFalseForRepresentativeData() throws {
         let directory = try temporaryDirectory()
@@ -340,6 +365,12 @@ struct CustomSidebarValidationTests {
         #expect(
             japaneseValue(for: "sidebar.custom.validation.emptyRender")
                 == "サイドバーに表示可能な内容がレンダリングされませんでした。"
+        )
+        #expect(
+            japaneseValue(
+                for: "sidebar.custom.validation.emptyRenderWithoutOptionalData"
+            )
+                == "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。"
         )
         #expect(
             japaneseValue(for: "sidebar.custom.validation.noOptionalDataCoverage")

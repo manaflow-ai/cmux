@@ -69,6 +69,23 @@
         }
       }
     },
+    "sidebar.custom.validation.emptyRenderWithoutOptionalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar rendered no visible content when optional workspace data was absent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。"
+          }
+        }
+      }
+    },
     "sidebar.custom.validation.noOptionalDataCoverage": {
       "extractionState": "manual",
       "localizations": {

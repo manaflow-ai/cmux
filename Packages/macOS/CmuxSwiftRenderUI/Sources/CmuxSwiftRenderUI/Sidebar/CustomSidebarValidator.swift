@@ -109,7 +109,8 @@ public struct CustomSidebarValidator {
                         )
                     )
                 }
-                if !node.containsVisibleContent {
+                let rendersVisibleContent = node.containsVisibleContent
+                if !rendersVisibleContent {
                     warningMessages.append(
                         localizedEmptySidebarRenderWarning()
                     )
@@ -118,12 +119,19 @@ public struct CustomSidebarValidator {
                    let comparisonContext = fallbackComparisonDataContext,
                    !evaluation.accessedTrackedMemberNames.isDisjoint(
                        with: Self.representativeOptionalWorkspaceFields
-                   ),
-                   let comparisonNode = interpreter.evaluate(program, state: comparisonContext),
-                   node.hasSameValidationOutput(as: comparisonNode) {
-                    warningMessages.append(
-                        localizedMissingOptionalDataCoverageWarning()
-                    )
+                   ) {
+                    let comparisonNode = interpreter.evaluate(program, state: comparisonContext)
+                    if rendersVisibleContent,
+                       comparisonNode?.containsVisibleContent != true {
+                        warningMessages.append(
+                            localizedEmptySidebarRenderWithoutOptionalDataWarning()
+                        )
+                    } else if let comparisonNode,
+                              node.hasSameValidationOutput(as: comparisonNode) {
+                        warningMessages.append(
+                            localizedMissingOptionalDataCoverageWarning()
+                        )
+                    }
                 }
             case .json:
                 let data = try Data(contentsOf: fileURL)
@@ -247,6 +255,19 @@ func localizedEmptySidebarRenderWarning(locale: Locale = .current) -> String {
         localized: LocalizedStringResource(
             "sidebar.custom.validation.emptyRender",
             defaultValue: "Sidebar rendered no visible content.",
+            locale: locale,
+            bundle: .module
+        )
+    )
+}
+
+func localizedEmptySidebarRenderWithoutOptionalDataWarning(
+    locale: Locale = .current
+) -> String {
+    String(
+        localized: LocalizedStringResource(
+            "sidebar.custom.validation.emptyRenderWithoutOptionalData",
+            defaultValue: "Sidebar rendered no visible content when optional workspace data was absent.",
             locale: locale,
             bundle: .module
         )
