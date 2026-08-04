@@ -662,6 +662,18 @@ struct ApplicationSurfaceTests {
             lastRightPoint: lastRightPoint
         ) == lastRightPoint)
         #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseDragged,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastLeftPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .rightMouseDragged,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastRightPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
             kind: .leftMouseDown,
             normalizedPoint: nil,
             lastLeftPoint: lastLeftPoint,
