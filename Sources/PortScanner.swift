@@ -16,7 +16,11 @@ import Foundation
 /// 4. New kicks during burst merge into the active burst
 /// 5. After last scan, if new kicks arrived, start a new coalesce cycle
 final class PortScanner: @unchecked Sendable {
-    static let shared = PortScanner()
+    static let shared = PortScanner(portScanningEnabledProvider: {
+        SidebarWorkspaceDetailDefaults
+            .auxiliaryDetailVisibility(defaults: .standard)
+            .showsPorts
+    })
 
     let commandRunner: any CommandRunning
     let portScanningEnabledProvider: @Sendable () -> Bool
@@ -80,11 +84,7 @@ final class PortScanner: @unchecked Sendable {
         ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
             TerminalTTYSessionIdentity(ttyName: $0)
         },
-        portScanningEnabledProvider: @escaping @Sendable () -> Bool = {
-            SidebarWorkspaceDetailDefaults
-                .auxiliaryDetailVisibility(defaults: .standard)
-                .showsPorts
-        }
+        portScanningEnabledProvider: @escaping @Sendable () -> Bool = { true }
     ) {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
@@ -196,13 +196,7 @@ final class PortScanner: @unchecked Sendable {
             lastPortScanningEnabled = enabled
 
             guard enabled else {
-                coalesceTimer?.cancel()
-                coalesceTimer = nil
-                pendingKicks.removeAll()
-                burstActive = false
-                burstGeneration &+= 1
-                agentScanTimer?.cancel()
-                agentScanTimer = nil
+                suspendPortScanningLocked()
                 return
             }
 
@@ -217,6 +211,41 @@ final class PortScanner: @unchecked Sendable {
                 runTrackedAgentScan()
             }
         }
+    }
+
+    private func suspendPortScanningLocked() {
+        coalesceTimer?.cancel()
+        coalesceTimer = nil
+        pendingKicks.removeAll()
+        burstActive = false
+        burstGeneration &+= 1
+        agentScanTimer?.cancel()
+        agentScanTimer = nil
+        scanCoordination.cancelPendingScans()
+
+        let requestID = scanCoordination.makeRequestID()
+        _ = scanCoordination.shouldApplyPanelResult(requestID: requestID)
+        panelPortSnapshot.reset()
+        enqueuePanelPublication(ttyNames.keys.compactMap { key in
+            guard let revision = panelRevisionByKey[key] else { return nil }
+            return PanelPortScanPublication(key: key, ports: [], revision: revision)
+        })
+
+        let agentWorkspaceIds = trackedAgentWorkspaces
+        agentPortSnapshot.reset()
+        guard !agentWorkspaceIds.isEmpty else { return }
+        forceAgentResultWorkspaces.formUnion(agentWorkspaceIds)
+        deliverAgentResults(
+            workspaceIds: agentWorkspaceIds,
+            agentPortsByWorkspace: Dictionary(
+                uniqueKeysWithValues: agentWorkspaceIds.map { ($0, Set<Int>()) }
+            ),
+            agentRevisions: agentRevisionSnapshot(for: agentWorkspaceIds),
+            completenessByWorkspace: Dictionary(
+                uniqueKeysWithValues: agentWorkspaceIds.map { ($0, PortScanCompleteness.complete) }
+            ),
+            requestID: requestID
+        )
     }
 
     // MARK: - Coalesce + Burst

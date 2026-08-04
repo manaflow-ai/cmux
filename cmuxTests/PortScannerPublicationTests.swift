@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -207,6 +208,75 @@ struct AgentPortPublicationHistoryTests {
         #expect(newerPending)
         #expect(pendingStillPublishes)
         #expect(acknowledgedIsDeduplicated == false)
+    }
+}
+
+@MainActor
+@Suite("Port scanner visibility publication")
+struct PortScannerVisibilityPublicationTests {
+    @Test(
+        "Disabling scans clears panel and agent publications",
+        .timeLimit(.minutes(1))
+    )
+    func disablingClearsPublishedPorts() async throws {
+        let enabled = OSAllocatedUnfairLock(initialState: true)
+        let scanner = PortScanner(
+            portScanningEnabledProvider: { enabled.withLock { $0 } }
+        )
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let root = AgentPortRootIdentity(
+            pid: 100,
+            processIdentity: AgentPIDProcessIdentity(
+                pid: 100,
+                startSeconds: 1,
+                startMicroseconds: 0
+            )
+        )
+        let agentRevision = scanner.publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceID,
+            roots: [root]
+        )
+        let (panelPublications, panelContinuation) = AsyncStream<[Int]>.makeStream()
+        let (agentPublications, agentContinuation) = AsyncStream<[Int]>.makeStream()
+        var panelIterator = panelPublications.makeAsyncIterator()
+        var agentIterator = agentPublications.makeAsyncIterator()
+        scanner.onPortsUpdated = { callbackWorkspaceID, callbackPanelID, ports in
+            guard callbackWorkspaceID == workspaceID, callbackPanelID == panelID else { return }
+            panelContinuation.yield(ports)
+        }
+        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
+            guard callbackWorkspaceID == workspaceID else { return false }
+            agentContinuation.yield(ports)
+            return true
+        }
+        defer {
+            panelContinuation.finish()
+            agentContinuation.finish()
+            scanner.onPortsUpdated = nil
+            scanner.onAgentPortsUpdated = nil
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+            scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
+        }
+
+        scanner.registerTTY(
+            workspaceId: workspaceID,
+            panelId: panelID,
+            ttyName: "ttys001"
+        )
+        scanner.queue.sync {
+            scanner.trackedAgentWorkspaces.insert(workspaceID)
+            scanner.agentRevisionByWorkspace[workspaceID] = agentRevision
+        }
+
+        enabled.withLock { $0 = false }
+        scanner.portScanningSettingsDidChange()
+
+        let clearedPanelPorts = try #require(await panelIterator.next())
+        let clearedAgentPorts = try #require(await agentIterator.next())
+
+        #expect(clearedPanelPorts.isEmpty)
+        #expect(clearedAgentPorts.isEmpty)
     }
 }
 
