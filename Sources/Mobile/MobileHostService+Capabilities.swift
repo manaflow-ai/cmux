@@ -58,6 +58,8 @@ extension MobileHostService {
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
+            "workspace.surfaces.v1",
+            "surface.focus.v1",
             Self.workspaceChangesCapability,
             "workspace.metadata.v1",
             "workspace.read_state.v1",

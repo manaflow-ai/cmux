@@ -32,6 +32,15 @@ extension WorkspaceDetailView {
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if case let .macSurface(macSurface) = surface {
+                SurfaceFallbackCardView(
+                    surface: macSurface,
+                    canOpenOnMac: store.supportsSurfaceFocus(in: workspace.id),
+                    openOnMac: { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
+                        await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
+                    }
+                )
+                .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

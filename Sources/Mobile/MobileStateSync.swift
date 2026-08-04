@@ -181,7 +181,7 @@ final class MobileStateSyncHost {
         return (workspaceRows, groupRows)
     }
 
-    private func workspaceRow(
+    func workspaceRow(
         workspace: Workspace,
         windowID: UUID,
         isSelected: Bool,
@@ -226,7 +226,8 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            surfaces: controller.mobileSurfaceDescriptors(in: workspace)
         )
     }
 
