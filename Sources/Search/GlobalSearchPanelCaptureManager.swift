@@ -128,10 +128,11 @@ final class GlobalSearchPanelCaptureManager {
             task.cancel()
         }
 
-        await awaitLatestBrowserCapture(
+        await awaitDirectSuccessorCapture(
             forPanelID: panel.id,
             generation: capture.generation,
-            startingRevision: capture.panelRevision
+            startingRevision: capture.panelRevision,
+            completion: browserCaptureCompletions[panel.id]
         )
     }
 
@@ -272,10 +273,11 @@ final class GlobalSearchPanelCaptureManager {
             task.cancel()
         }
 
-        await awaitLatestMarkdownCapture(
+        await awaitDirectSuccessorCapture(
             forPanelID: panel.id,
             generation: capture.generation,
-            startingRevision: capture.panelRevision
+            startingRevision: capture.panelRevision,
+            completion: markdownCaptureCompletions[panel.id]
         )
     }
 
@@ -531,42 +533,24 @@ final class GlobalSearchPanelCaptureManager {
         return revision
     }
 
-    private func awaitLatestBrowserCapture(
+    /// A presentation refresh bridges only to the lifecycle capture that
+    /// directly superseded it. Later revisions remain owned by the lifecycle
+    /// event stream so continuous churn cannot hold the presentation open.
+    private func awaitDirectSuccessorCapture(
         forPanelID panelID: UUID,
         generation: UInt64,
-        startingRevision: UInt64
+        startingRevision: UInt64,
+        completion: GlobalSearchPanelCaptureCompletion?
     ) async {
-        var observedRevision = startingRevision
-        while !Task.isCancelled,
+        let successorRevision = startingRevision &+ 1
+        guard !Task.isCancelled,
               contentIndexGeneration == generation,
-              let currentRevision = panelContentRevisions[panelID],
-              currentRevision != observedRevision {
-            guard let completion = browserCaptureCompletions[panelID],
-                  completion.panelRevision == currentRevision else {
-                return
-            }
-            observedRevision = currentRevision
-            await completion.wait()
+              panelContentRevisions[panelID] == successorRevision,
+              let completion,
+              completion.panelRevision == successorRevision else {
+            return
         }
-    }
-
-    private func awaitLatestMarkdownCapture(
-        forPanelID panelID: UUID,
-        generation: UInt64,
-        startingRevision: UInt64
-    ) async {
-        var observedRevision = startingRevision
-        while !Task.isCancelled,
-              contentIndexGeneration == generation,
-              let currentRevision = panelContentRevisions[panelID],
-              currentRevision != observedRevision {
-            guard let completion = markdownCaptureCompletions[panelID],
-                  completion.panelRevision == currentRevision else {
-                return
-            }
-            observedRevision = currentRevision
-            await completion.wait()
-        }
+        await completion.wait()
     }
 
     private func finishBrowserCaptureCompletion(
