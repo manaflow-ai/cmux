@@ -3,7 +3,6 @@ import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
-import SwiftUI
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)

@@ -1,7 +1,6 @@
 import AppKit
 import CmuxRemoteSession
 import CmuxTerminal
-import SwiftUI
 import Testing
 @testable import Bonsplit
 
@@ -28,6 +27,72 @@ import Testing
 /// tests would stay green while the app wrapped; this catches that.
 @MainActor
 @Suite struct RemoteTmuxBonsplitImpositionRenderTests {
+    private func emptyContentController() -> NSViewController {
+        let controller = NSViewController()
+        controller.view = NSView()
+        return controller
+    }
+
+    private func mirrorController(
+        mirror: RemoteTmuxWindowMirror,
+        appearance: PanelAppearance,
+        isVisibleInUI: Bool = true
+    ) -> RemoteTmuxWindowMirrorSplitViewController {
+        RemoteTmuxWindowMirrorSplitViewController(
+            mirror: mirror,
+            appearance: appearance,
+            isOuterFocused: false,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: 0,
+            onOuterFocus: {},
+            unreadSurfaceIDs: []
+        )
+    }
+
+    private func host(
+        _ controller: NSViewController,
+        width: CGFloat,
+        height: CGFloat,
+        styleMask: NSWindow.StyleMask = [.titled, .closable]
+    ) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.makeKeyAndOrderFront(nil)
+        return window
+    }
+
+    private func leadingSidebarRoot(
+        width: CGFloat,
+        contentController: NSViewController
+    ) -> NSViewController {
+        let rootController = NSViewController()
+        let rootView = NSView()
+        let sidebar = NSView()
+        rootController.view = rootView
+        rootController.addChild(contentController)
+        let contentView = contentController.view
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(sidebar)
+        rootView.addSubview(contentView)
+        NSLayoutConstraint.activate([
+            sidebar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            sidebar.topAnchor.constraint(equalTo: rootView.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            sidebar.widthAnchor.constraint(equalToConstant: width),
+            contentView.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+        ])
+        return rootController
+    }
+
     private func firstDescendant<T: NSView>(ofType type: T.Type, in root: NSView) -> T? {
         if let match = root as? T { return match }
         for sub in root.subviews {
@@ -81,24 +146,23 @@ import Testing
         }
         let splitId = try #require(UUID(uuidString: split.id))
 
-        let hostingView = NSHostingView(
-            rootView: BonsplitView(controller: controller) { _, _ in Color.clear }
-                emptyPane: { _ in Color.clear }
+        let viewController = BonsplitViewController(
+            controller: controller,
+            content: { _, _ in emptyContentController() },
+            emptyPane: { _ in emptyContentController() }
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
+        window.contentViewController = viewController
+        let contentView = viewController.view
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         contentView.layoutSubtreeIfNeeded()
 
-        let splitView = try #require(firstDescendant(ofType: NSSplitView.self, in: hostingView))
+        let splitView = try #require(firstDescendant(ofType: NSSplitView.self, in: contentView))
         #expect(splitView.arrangedSubviews.count == 2)
         let available = max(splitView.frame.width - splitView.dividerThickness, 1)
         return (controller, window, splitView, splitId, available)
@@ -191,18 +255,17 @@ import Testing
                 kind: "terminal", inPane: rootPane
             )
         }
-        let hostingView = NSHostingView(
-            rootView: BonsplitView(controller: controller) { _, _ in Color.clear }
-                emptyPane: { _ in Color.clear }
+        let viewController = BonsplitViewController(
+            controller: controller,
+            content: { _, _ in emptyContentController() },
+            emptyPane: { _ in emptyContentController() }
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
+        window.contentViewController = viewController
+        let contentView = viewController.view
         window.makeKeyAndOrderFront(nil)
         for _ in 0..<10 {
             contentView.layoutSubtreeIfNeeded()
@@ -223,7 +286,7 @@ import Testing
             }
             for sub in view.subviews { walk(sub) }
         }
-        walk(hostingView)
+        walk(contentView)
         #expect(
             widest.0 <= 401,
             "an unclipped hosted view inflated past the 400pt window: \(widest.1) at \(widest.0)pt — space-filling siblings inherit this width"
@@ -264,32 +327,30 @@ import Testing
         // hosted by the main window's hosting view class.
         let workspaceBonsplit = BonsplitController(configuration: BonsplitConfiguration())
         let rootPane = try #require(workspaceBonsplit.allPaneIds.first)
-        _ = workspaceBonsplit.createTab(
+        let mirrorTabID = try #require(workspaceBonsplit.createTab(
             title: "mirror", icon: "terminal", kind: "terminal", inPane: rootPane
+        ))
+        let workspaceViewController = BonsplitViewController(
+            controller: workspaceBonsplit,
+            content: { tab, _ in
+                tab.id == mirrorTabID
+                    ? mirrorController(mirror: mirror, appearance: appearance)
+                    : emptyContentController()
+            },
+            emptyPane: { _ in emptyContentController() }
         )
-        let root = HStack(spacing: 0) {
-            Color.clear.frame(width: 240)
-            BonsplitView(controller: workspaceBonsplit) { _, _ in
-                RemoteTmuxWindowMirrorSplitView(
-                    mirror: mirror,
-                    appearance: appearance,
-                    isOuterFocused: false,
-                    isVisibleInUI: true,
-                    portalPriority: 0,
-                    onOuterFocus: {}
-                )
-            } emptyPane: { _ in
-                Color.clear
-            }
-        }
-        let hostingView = MainWindowHostingView(rootView: AnyView(root))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        let rootController = leadingSidebarRoot(
+            width: 240,
+            contentController: workspaceViewController
         )
-        window.contentView = hostingView
+        let hostingView = rootController.view
+        let window = host(
+            rootController,
+            width: 500,
+            height: 400,
+            styleMask: [.titled, .closable, .resizable]
+        )
         window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
-        window.makeKeyAndOrderFront(nil)
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
@@ -346,36 +407,18 @@ import Testing
             hostingSource: { CGSize(width: 800, height: 620) }
         )
 
-        final class MeasuredWidth { var value: CGFloat = 0 }
-        let measured = MeasuredWidth()
         let appearance = PanelAppearance(
             backgroundColor: .black, foregroundColor: .white,
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                measured.value = width
-            }
-        )
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
+        window.contentViewController = viewController
+        let contentView = viewController.view
         window.makeKeyAndOrderFront(nil)
         for _ in 0..<10 {
             contentView.layoutSubtreeIfNeeded()
@@ -384,12 +427,12 @@ import Testing
         defer { window.orderOut(nil) }
 
         #expect(
-            measured.value > 0,
+            contentView.frame.width > 0,
             "the geometry probe never fired — the view was not laid out"
         )
         #expect(
-            measured.value <= 401,
-            "the mirror view reported \(measured.value)pt to its ancestors inside a 400pt window — the imposed render frame leaked into the reported size"
+            contentView.frame.width <= 401,
+            "the mirror view reported \(contentView.frame.width)pt to its ancestors inside a 400pt window — the imposed render frame leaked into the reported size"
         )
         withExtendedLifetime(connection) {}
     }
@@ -569,25 +612,9 @@ import Testing
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-        window.makeKeyAndOrderFront(nil)
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
+        let window = host(viewController, width: 640, height: 480)
+        let contentView = viewController.view
         try await pumpFixture(window, 60, until: { planViewMismatch(mirror) == nil })
         try #require(
             planViewMismatch(mirror) == nil,
@@ -670,25 +697,9 @@ import Testing
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-        window.makeKeyAndOrderFront(nil)
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
+        let window = host(viewController, width: 640, height: 480)
+        let contentView = viewController.view
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
@@ -810,25 +821,9 @@ import Testing
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-        window.makeKeyAndOrderFront(nil)
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
+        let window = host(viewController, width: 640, height: 480)
+        let contentView = viewController.view
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
@@ -983,25 +978,9 @@ import Testing
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-        window.makeKeyAndOrderFront(nil)
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
+        let window = host(viewController, width: 640, height: 480)
+        let contentView = viewController.view
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
@@ -1137,25 +1116,9 @@ import Testing
             dividerColor: .gray, unfocusedOverlayNSColor: .black,
             unfocusedOverlayOpacity: 0, usesClearContentBackground: false
         )
-        let hostingView = NSHostingView(
-            rootView: RemoteTmuxWindowMirrorSplitView(
-                mirror: mirror,
-                appearance: appearance,
-                isOuterFocused: false,
-                isVisibleInUI: true,
-                portalPriority: 0,
-                onOuterFocus: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-        window.makeKeyAndOrderFront(nil)
+        let viewController = mirrorController(mirror: mirror, appearance: appearance)
+        let window = host(viewController, width: 640, height: 480)
+        let contentView = viewController.view
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
@@ -1524,37 +1487,67 @@ import Testing
         let tabB = try #require(outer.createTab(
             title: "B", icon: "terminal", kind: "terminal", inPane: rootPane
         ))
-        let root = BonsplitView(controller: outer) { tab, paneId in
-            // A fresh controller carries a default welcome tab; only the two
-            // mirror tabs render mirror views, so the census counts exactly
-            // the trees the mirrors own.
-            if tab.id == tabA || tab.id == tabB {
-                RemoteTmuxWindowMirrorSplitView(
-                    mirror: tab.id == tabA ? mirrorA : mirrorB,
-                    appearance: appearance,
-                    isOuterFocused: false,
-                    isVisibleInUI: outer.selectedTab(inPane: paneId)?.id == tab.id,
-                    portalPriority: 0,
-                    onOuterFocus: {}
-                )
-            } else {
-                Color.clear
-            }
-        } emptyPane: { _ in
-            Color.clear
-        }
-        let hostingView = MainWindowHostingView(rootView: AnyView(root))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        var mirrorControllerA: RemoteTmuxWindowMirrorSplitViewController?
+        var mirrorControllerB: RemoteTmuxWindowMirrorSplitViewController?
+        let outerViewController = BonsplitViewController(
+            controller: outer,
+            content: { tab, paneId in
+                // A fresh controller carries a default welcome tab; only the two
+                // mirror tabs render mirror views, so the census counts exactly
+                // the trees the mirrors own.
+                if tab.id == tabA {
+                    let controller = mirrorController(
+                        mirror: mirrorA,
+                        appearance: appearance,
+                        isVisibleInUI: outer.selectedTab(inPane: paneId)?.id == tab.id
+                    )
+                    mirrorControllerA = controller
+                    return controller
+                }
+                if tab.id == tabB {
+                    let controller = mirrorController(
+                        mirror: mirrorB,
+                        appearance: appearance,
+                        isVisibleInUI: outer.selectedTab(inPane: paneId)?.id == tab.id
+                    )
+                    mirrorControllerB = controller
+                    return controller
+                }
+                return emptyContentController()
+            },
+            emptyPane: { _ in emptyContentController() }
         )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
+        let window = host(
+            outerViewController,
+            width: 600,
+            height: 400,
+            styleMask: [.titled, .closable, .resizable]
+        )
+        let contentView = outerViewController.view
+
+        func syncMirrorVisibility() {
+            let selectedID = outer.selectedTab(inPane: rootPane)?.id
+            mirrorControllerA?.update(
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: selectedID == tabA,
+                portalPriority: 0,
+                onOuterFocus: {},
+                unreadSurfaceIDs: []
+            )
+            mirrorControllerB?.update(
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: selectedID == tabB,
+                portalPriority: 0,
+                onOuterFocus: {},
+                unreadSurfaceIDs: []
+            )
+        }
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        let contentView = try #require(window.contentView)
 
         // Async suspensions, not RunLoop.run: a nested runloop would pump
         // layout while starving the main queue (see the stale-bank test).
@@ -1567,6 +1560,8 @@ import Testing
         }
 
         outer.selectTab(tabA)
+        outerViewController.refreshContent()
+        syncMirrorVisibility()
         try await settle()
 
         let visibleWithASelected = effectivelyVisibleSplitViews(in: contentView)
@@ -1583,6 +1578,8 @@ import Testing
         // The other direction exercises the visibility-change edge: B's tree
         // un-hides, A's hides.
         outer.selectTab(tabB)
+        outerViewController.refreshContent()
+        syncMirrorVisibility()
         try await settle()
 
         let visibleWithBSelected = effectivelyVisibleSplitViews(in: contentView)
