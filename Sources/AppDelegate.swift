@@ -7504,14 +7504,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createdWorkspace
     }
 
-    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// Opens the Tailscale pairing flow as a dedicated workspace, reusing the
     /// existing pairing workspace in the target window when one is open.
     ///
     /// - Parameters:
     ///   - preferredTabManager: The target window's workspace manager.
     ///   - preferredWindow: The target main window, when known.
     ///   - focusWorkspace: Whether to select and focus the pairing workspace.
-    ///   - enforceFeatureFlag: Whether the Mobile Connect button flag gates the action.
+    ///   - enforceFeatureFlag: Whether the Tailscale Pairing button flag gates the action.
     ///   - bringWindowForward: Whether to activate the resolved main window.
     ///   - debugSource: The entrypoint name used in debug diagnostics.
     /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
@@ -7552,7 +7552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace
         }
 
-        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
         let workspace = manager.addWorkspace(
             title: title,
             select: focusWorkspace,
