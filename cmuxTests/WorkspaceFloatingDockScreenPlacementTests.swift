@@ -202,7 +202,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
     }
 }
 
-@Suite
+@Suite(.serialized)
 struct WorkspaceFloatingDockParkingRegressionTests {
     @Test
     func parkingKeepsARecognizableAdaptiveWindowSlice() {
