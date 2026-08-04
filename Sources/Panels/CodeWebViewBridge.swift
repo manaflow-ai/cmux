@@ -437,6 +437,8 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
             closeSocket(body: body, replyHandler: replyHandler)
         case "ready":
             signalReady(replyHandler: replyHandler)
+        case "unready":
+            signalUnready(replyHandler: replyHandler)
         default:
             replyHandler(nil, "Unknown Code bridge request")
         }
@@ -631,6 +633,14 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
         if !didSignalReady {
             didSignalReady = true
             webView?.onCodeSurfaceReady?()
+        }
+        replyHandler(["ok": true], nil)
+    }
+
+    private func signalUnready(replyHandler: @escaping (Any?, String?) -> Void) {
+        if didSignalReady {
+            didSignalReady = false
+            webView?.onCodeSurfaceUnready?()
         }
         replyHandler(["ok": true], nil)
     }

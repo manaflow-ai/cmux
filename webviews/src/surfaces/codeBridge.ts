@@ -35,6 +35,7 @@ type NativeSocketEvent =
 
 export interface CmuxCodeBridge {
   mount(): Promise<void>;
+  stopPrewarmHealthMonitoring(): void;
   __receiveSocketEvent(event: NativeSocketEvent): void;
 }
 
@@ -82,11 +83,19 @@ export function __resetCodeBridgeForTests(): void {
 }
 
 function hasRenderedActualClient(root: HTMLElement | null): boolean {
+  const hasUnavailableConnectionBanner = Array.from(
+    root?.querySelectorAll<HTMLElement>('[data-slot="alert"]') ?? [],
+  ).some((alert) => {
+    const actions =
+      alert.querySelector<HTMLElement>('[data-slot="alert-action"]')?.textContent ?? "";
+    return actions.includes("Connections") && actions.includes("Reconnect");
+  });
   return Boolean(
     root?.querySelector('[data-slot="sidebar-wrapper"]') &&
       root.querySelector(
         'textarea:not([disabled]), [contenteditable="true"][role="textbox"], [data-slot="empty"]',
-      ),
+      ) &&
+      !hasUnavailableConnectionBanner,
   );
 }
 
@@ -96,19 +105,31 @@ export function markNativeCodeSocketOpened(): void {
   window.dispatchEvent(new window.Event(NATIVE_SOCKET_OPEN_EVENT));
 }
 
+function markNativeCodeSocketClosed(): void {
+  if (Array.from(socketRegistry.values()).some((socket) => socket.readyState === WebSocket.OPEN)) {
+    return;
+  }
+  if (!nativeSocketHasOpened) return;
+  nativeSocketHasOpened = false;
+  window.dispatchEvent(new window.Event(NATIVE_SOCKET_OPEN_EVENT));
+}
+
 export function reportActualCodeSurfaceReady(): boolean {
-  if (nativeReadyReported || nativeReadyReportPending || !nativeSocketHasOpened) return false;
+  if (nativeReadyReportPending) return false;
   const root = window.document.getElementById("root");
-  if (!hasRenderedActualClient(root)) return false;
+  const isReady = nativeSocketHasOpened && hasRenderedActualClient(root);
+  if (isReady === nativeReadyReported) return false;
+  if (!isReady && !nativeReadyReported) return false;
   nativeReadyReportPending = true;
   void nativeHandler()
-    .postMessage({ type: "ready" })
+    .postMessage({ type: isReady ? "ready" : "unready" })
     .then(() => {
       nativeReadyReportPending = false;
-      nativeReadyReported = true;
-      stopReadinessWatch?.();
-      stopReadinessWatch = null;
-      window.performance?.mark?.("cmux-code-actual-ready");
+      nativeReadyReported = isReady;
+      if (isReady) {
+        window.performance?.mark?.("cmux-code-actual-ready");
+      }
+      reportActualCodeSurfaceReady();
     })
     .catch(() => {
       nativeReadyReportPending = false;
@@ -117,7 +138,7 @@ export function reportActualCodeSurfaceReady(): boolean {
 }
 
 export function watchForActualCodeSurfaceReadiness(): void {
-  if (stopReadinessWatch || nativeReadyReported) return;
+  if (stopReadinessWatch) return;
   const root = window.document.getElementById("root");
   if (!root) {
     window.document.addEventListener("DOMContentLoaded", watchForActualCodeSurfaceReadiness, {
@@ -132,7 +153,7 @@ export function watchForActualCodeSurfaceReadiness(): void {
   };
   stopReadinessWatch = cleanup;
   observer.observe(root, {
-    attributeFilter: ["disabled"],
+    attributeFilter: ["aria-disabled", "disabled"],
     attributes: true,
     childList: true,
     subtree: true,
@@ -347,6 +368,7 @@ class NativeWebSocket extends EventTarget {
         if (this.readyState === NativeWebSocket.CLOSED) return;
         this.readyState = NativeWebSocket.CLOSED;
         socketRegistry.delete(this.#id);
+        markNativeCodeSocketClosed();
         const closed = new CloseEvent("close", {
           code: event.code,
           reason: event.reason,
@@ -503,6 +525,10 @@ export function installCodeBridge(): CmuxCodeBridge {
   if (installedBridge) return installedBridge;
   const bridge: CmuxCodeBridge = {
     mount: ensureCodeMounted,
+    stopPrewarmHealthMonitoring() {
+      stopReadinessWatch?.();
+      stopReadinessWatch = null;
+    },
     __receiveSocketEvent(event) {
       socketRegistry.get(event.id)?.receive(event);
     },

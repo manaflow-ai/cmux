@@ -179,6 +179,10 @@ final class CodeWebViewWarmer: NSObject {
             guard let self, let webView else { return }
             self.markReady(webView)
         }
+        webView.onCodeSurfaceUnready = { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            self.markUnready(webView)
+        }
         webView.onCodeSurfaceFailed = { [weak self, weak webView] in
             guard let self, let webView else { return }
             self.discard(webView: webView, reason: "runtime-failed")
@@ -241,7 +245,12 @@ final class CodeWebViewWarmer: NSObject {
         let webView = entry.webView
         webView.navigationDelegate = nil
         webView.onCodeSurfaceReady = nil
+        webView.onCodeSurfaceUnready = nil
         webView.onCodeSurfaceFailed = nil
+        webView.evaluateJavaScript(
+            "window.cmuxCode?.stopPrewarmHealthMonitoring?.();",
+            completionHandler: nil
+        )
         if entry.host.preservesRenderingOnClaim {
             // Present the already-connected client in the old surface's exact
             // rectangle while SwiftUI creates the destination pane. The portal
@@ -562,6 +571,7 @@ final class CodeWebViewWarmer: NSObject {
         let webView = entry.webView
         webView.navigationDelegate = nil
         webView.onCodeSurfaceReady = nil
+        webView.onCodeSurfaceUnready = nil
         webView.onCodeSurfaceFailed = nil
         webView.codeSurfaceMessageHandler?.closeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(
@@ -598,6 +608,19 @@ final class CodeWebViewWarmer: NSObject {
             workingDirectory: entry.workingDirectory,
             targetWindow: entry.host.preservesRenderingOnClaim ? entry.host.window : nil
         )
+    }
+
+    func markUnready(_ webView: WKWebView) {
+        guard let index = entries.firstIndex(where: { $0.webView === webView }) else { return }
+        var entry = entries[index]
+        guard case .finished = entry.loadState else { return }
+        entry.loadState = .loading
+        entries[index] = entry
+#if DEBUG
+        cmuxDebugLog(
+            "code.warmer.actualUnready ready=\(readyCount)/\(entries.count)"
+        )
+#endif
     }
 }
 

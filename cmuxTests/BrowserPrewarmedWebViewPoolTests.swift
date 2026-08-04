@@ -404,6 +404,11 @@ struct CodeWebViewWarmerTests {
         harness.madeWebViews[0].onCodeSurfaceReady?()
         #expect(harness.warmer.readyCount == 1)
 
+        harness.madeWebViews[0].onCodeSurfaceUnready?()
+        #expect(harness.warmer.readyCount == 0)
+        harness.madeWebViews[0].onCodeSurfaceReady?()
+        #expect(harness.warmer.readyCount == 1)
+
         let claimed = harness.warmer.claim(
             profileID: profileID,
             websiteDataStore: harness.dataStore

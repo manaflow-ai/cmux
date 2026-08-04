@@ -5239,6 +5239,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let codeWebView = webView as? CmuxWebView {
             codeWebView.codeSurfaceMessageHandler = nil
             codeWebView.onCodeSurfaceReady = nil
+            codeWebView.onCodeSurfaceUnready = nil
             codeWebView.onCodeSurfaceFailed = nil
         }
         codeSurfaceMessageHandler = nil

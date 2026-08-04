@@ -15,6 +15,7 @@ final class CmuxWebView: WKWebView {
     var onBrowserPortalPresentationSettled: (() -> Void)?
     var codeSurfaceMessageHandler: CodeSurfaceMessageHandler?
     var onCodeSurfaceReady: (() -> Void)?
+    var onCodeSurfaceUnready: (() -> Void)?
     var onCodeSurfaceFailed: (() -> Void)?
     weak var codePrewarmHostView: NSView?
     var isCodePrewarmAccessibilitySuppressed = false {

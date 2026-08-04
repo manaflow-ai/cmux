@@ -21,6 +21,7 @@ extension CmuxWebView {
         onSubframeDownloadIntent = nil
         onBrowserPortalPresentationSettled = nil
         onCodeSurfaceReady = nil
+        onCodeSurfaceUnready = nil
         onCodeSurfaceFailed = nil
         codePrewarmHostView?.removeFromSuperview()
         codePrewarmHostView = nil
