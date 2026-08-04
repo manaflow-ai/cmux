@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import AppKit
 import Darwin
 
 final class AutomationSocketUITests: XCTestCase {
@@ -148,7 +149,7 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
-    func testLaunchRewritePreservesSocketPasswordForCLIAuthentication() throws {
+    func testLaunchRewritePreservesSocketPasswordForCLIAuthentication() async throws {
         let fileManager = FileManager.default
         let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-ui-test-password-launch-\(UUID().uuidString)",
@@ -172,18 +173,21 @@ final class AutomationSocketUITests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let appProcess = try launchBundledAppProcess(
+        let runningApp = try await launchBundledApp(
             mode: "password",
             isolatedHome: isolatedHome
         )
-        defer { terminateBundledAppProcess(appProcess) }
+        defer { terminateBundledApp(runningApp) }
 
         XCTAssertTrue(
-            appProcess.isRunning,
+            !runningApp.isTerminated,
             "Expected app process to launch for password persistence test"
         )
         guard let resolvedPath = resolveSocketPath(timeout: 15.0, allowTmpFallback: false) else {
-            XCTFail("Expected password-protected control socket to exist")
+            XCTFail(
+                "Expected password-protected control socket to exist. "
+                    + "terminated=\(runningApp.isTerminated) diagnostics=\(loadDiagnostics())"
+            )
             return
         }
         socketPath = resolvedPath
@@ -489,10 +493,10 @@ final class AutomationSocketUITests: XCTestCase {
         return (process.terminationStatus, stdout, stderr)
     }
 
-    private func launchBundledAppProcess(
+    private func launchBundledApp(
         mode: String,
         isolatedHome: URL
-    ) throws -> Process {
+    ) async throws -> NSRunningApplication {
         let cliURL = try XCTUnwrap(
             bundledCLIURL(),
             "Expected the UI test host's bundled cmux CLI"
@@ -502,14 +506,13 @@ final class AutomationSocketUITests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let executableURL = try XCTUnwrap(
-            Bundle(url: appURL)?.executableURL,
-            "Expected a runnable app bundle at \(appURL.path)"
-        )
-
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = [
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        configuration.createsNewApplicationInstance = true
+        configuration.allowsRunningApplicationSubstitution = false
+        configuration.promptsUserIfNeeded = false
+        configuration.arguments = [
             "-\(modeKey)", mode,
             "-NSAppSleepDisabled", "YES",
         ]
@@ -523,17 +526,18 @@ final class AutomationSocketUITests: XCTestCase {
         environment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         environment["CMUX_TAG"] = launchTag
-        process.environment = environment
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        return process
+        configuration.environment = environment
+        return try await NSWorkspace.shared.openApplication(
+            at: appURL,
+            configuration: configuration
+        )
     }
 
-    private func terminateBundledAppProcess(_ process: Process) {
-        guard process.isRunning else { return }
-        process.terminate()
-        process.waitUntilExit()
+    private func terminateBundledApp(_ app: NSRunningApplication) {
+        guard !app.isTerminated else { return }
+        if !app.terminate() {
+            app.forceTerminate()
+        }
     }
 
     private func bundledCLIURL() -> URL? {
