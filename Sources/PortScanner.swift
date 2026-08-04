@@ -188,8 +188,8 @@ final class PortScanner: @unchecked Sendable {
     }
 
     func portScanningSettingsDidChange() {
+        let enabled = portScanningEnabledProvider()
         queue.async { [self] in
-            let enabled = portScanningEnabledProvider()
             guard enabled != lastPortScanningEnabled else { return }
             lastPortScanningEnabled = enabled
 

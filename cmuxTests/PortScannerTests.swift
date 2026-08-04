@@ -77,6 +77,49 @@ struct PortScannerProcessCaptureTests {
         #expect(await runner.recordedInvocations().isEmpty)
     }
 
+    @Test("Rapid port visibility transitions preserve the final enabled state")
+    func rapidPortVisibilityTransitionsRestoreScanning() async {
+        let enabled = OSAllocatedUnfairLock(initialState: true)
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { enabled.withLock { $0 } }
+        )
+        let releaseQueue = DispatchSemaphore(value: 0)
+        scanner.queue.async {
+            releaseQueue.wait()
+        }
+
+        await MainActor.run {
+            scanner.registerTTY(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                ttyName: "ttys001"
+            )
+        }
+        enabled.withLock { $0 = false }
+        scanner.portScanningSettingsDidChange()
+        enabled.withLock { $0 = true }
+        scanner.portScanningSettingsDidChange()
+        releaseQueue.signal()
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await runner.recordedInvocations().isEmpty,
+              ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(await runner.recordedInvocations().contains {
+            $0.executable == "/bin/ps"
+        })
+    }
+
     @Test("Malformed ps rows preserve valid mappings but make the scan incomplete")
     func malformedPSRowsAreIncomplete() async {
         let runner = StubCommandRunner(result: CommandResult(
