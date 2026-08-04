@@ -4068,6 +4068,59 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1)
     }
 
+    func testVisiblePortalEntryHidesWhenAnchorMovesToAnotherWindow() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { sourceWindow.orderOut(nil) }
+        realizeWindowLayout(sourceWindow)
+
+        let destinationWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { destinationWindow.orderOut(nil) }
+        realizeWindowLayout(destinationWindow)
+
+        let portal = WindowBrowserPortal(window: sourceWindow)
+        guard let sourceContentView = sourceWindow.contentView,
+              let destinationContentView = destinationWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        sourceContentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+
+        anchor.removeFromSuperview()
+        destinationContentView.addSubview(anchor)
+        XCTAssertTrue(anchor.window === destinationWindow, "Precondition: anchor moved to the destination window")
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertTrue(webView.superview === slot, "Wrong-window recovery should preserve the hosted web view")
+        XCTAssertTrue(
+            slot.isHidden,
+            "An anchor owned by another window must hide the stale slot instead of rendering over the old pane"
+        )
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Recovery keeps the entry available for an eventual rebind")
+    }
+
     func testRegistryDetachRemovesPortalHostedWebView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),

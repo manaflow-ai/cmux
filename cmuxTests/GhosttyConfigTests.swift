@@ -2259,6 +2259,27 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
 @MainActor
 final class BrowserDefaultsNormalizationTests: XCTestCase {
+    /// The legacy forced-dark-mode migration must run through the same defaults
+    /// normalization entry point used at app startup. Registering a fallback for
+    /// `modeKey` before reading the legacy value makes an unset key look like an
+    /// explicit `.system` choice and silently skips the migration.
+    func testNormalizeMigratesLegacyForcedDarkModeBeforeDefaultFallbackRegistration() throws {
+        let suiteName = "cmux.browserDefaultsLegacyThemeMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: BrowserThemeSettings.modeKey)
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserThemeSettings.modeKey),
+            BrowserThemeMode.dark.rawValue
+        )
+    }
+
     /// Moving default registration + settings normalization out of
     /// `BrowserPanelView.onAppear` into the model bootstrap (issue #5303) keeps the
     /// canonicalization behavior: an out-of-range or legacy raw value stored in
