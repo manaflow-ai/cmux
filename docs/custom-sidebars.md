@@ -145,7 +145,9 @@ with:
   `childColumn` (`{ id, rendererId }`). Route ids are parent-specific; the
   built-in `cmux.workspaces` renderer resolves each context's `workspaceIds`
   against the shared `workspaces` snapshot. Remote rows can include
-  `subtitle` and `connectionState`. `selectedCreationContextId` is the active
+  `subtitle` and `connectionState`. Machine rows include `focusedWorkspaceId`
+  after a child has been focused. `capabilities` lists optional native actions,
+  currently `attachRemoteCmuxTUI` for SSH machines. `selectedCreationContextId` is the active
   id. A context stays available with zero open workspaces. Membership controls
   navigation only; workspaces and surfaces can still mix local and remote runtimes.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
@@ -255,6 +257,12 @@ Use real method and parameter names. Common ones: `workspace.select`
 Move a workspace between machine child columns with
 `sidebar.workspace.move_to_context` (`workspace_id` + `context_id`). This only
 changes sidebar membership; local and remote surfaces keep their transports.
+Add a zero-workspace SSH machine with `sidebar.machine.add_ssh` (`host`, plus
+optional `port`, `identity_file`, `ssh_options`, and `select`). Attach its
+remote `cmux-tui` session into any workspace with
+`sidebar.machine.attach_cmux_tui` (`context_id`, optional `session`,
+`workspace_id`, and `focus`). Socket calls create in the background unless
+`focus` is explicitly allowed.
 Render one machine's children with
 `workspaces.filter { machine.workspaceIds.contains($0.id) }`; Automatic's
 `workspaceIds` contains the aggregate list.

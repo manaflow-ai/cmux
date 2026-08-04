@@ -10887,6 +10887,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     kind: context.kind.rawValue,
                     workspaceCount: context.workspaceCount,
                     workspaceIDs: context.workspaceIDs,
+                    focusedWorkspaceID: context.focusedWorkspaceID,
+                    capabilities: context.capabilities.map(\.rawValue).sorted(),
                     connectionState: context.connectionState?.rawValue,
                     childColumn: context.childColumn
                 )
@@ -12538,6 +12540,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     isSelected: context.isSelected,
                     workspaceCount: context.workspaceCount,
                     workspaceIDs: context.workspaceIDs,
+                    focusedWorkspaceID: context.focusedWorkspaceID,
+                    capabilities: context.capabilities,
                     connectionState: context.connectionState?.rawValue,
                     childColumn: context.childColumn
                 )
@@ -12631,6 +12635,49 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
             return .accepted
+
+        case .addSSHMachine(let destination, let select):
+            guard let contextID = tabManager.addSidebarSSHMachine(
+                destination: destination,
+                select: select
+            ) else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.invalidSSHHost",
+                        defaultValue: "SSH host is invalid"
+                    )
+                )
+            }
+            return CmuxSidebarActionResult(accepted: true, message: contextID)
+
+        case .attachRemoteCmuxTUI(let contextID, let sessionName, let workspaceID):
+            guard let workspace = workspaceID.flatMap({ id in
+                tabManager.tabs.first(where: { $0.id == id })
+            }) ?? tabManager.selectedWorkspace else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.workspaceNotFound",
+                        defaultValue: "Workspace not found"
+                    )
+                )
+            }
+            if tabManager.selectedTabId != workspace.id {
+                tabManager.selectWorkspace(workspace)
+            }
+            guard let panel = tabManager.attachRemoteCmuxTUI(
+                contextID: contextID,
+                sessionName: sessionName,
+                workspaceID: workspace.id,
+                focus: true
+            ) else {
+                return .rejected(
+                    String(
+                        localized: "sidebar.extensions.action.remoteAttachRejected",
+                        defaultValue: "Remote cmux TUI could not be attached"
+                    )
+                )
+            }
+            return CmuxSidebarActionResult(accepted: true, message: panel.id.uuidString)
 
         case .createWorkspace(let title, let workingDirectory, let select):
             let workspace = tabManager.addWorkspace(

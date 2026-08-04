@@ -262671,6 +262671,97 @@
         "ja": { "stringUnit": { "state": "translated", "value": "再接続が必要" } }
       }
     },
+    "sidebar.extensions.action.invalidSSHHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SSH host is invalid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH ホストが無効です" } }
+      }
+    },
+    "sidebar.extensions.action.remoteAttachRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote cmux TUI could not be attached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモート cmux TUI に接続できませんでした" } }
+      }
+    },
+    "sidebar.extensions.actionScope.addSSHMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add SSH machines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH マシンを追加" } }
+      }
+    },
+    "sidebar.extensions.actionScope.attachRemoteSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach remote sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートセッションに接続" } }
+      }
+    },
+    "sidebar.extensions.permission.addSSHMachine.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add machines using SSH destinations" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH 接続先を使ってマシンを追加します" } }
+      }
+    },
+    "sidebar.extensions.permission.attachRemoteSession.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach remote cmux sessions as terminal surfaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモート cmux セッションをターミナルサーフェスとして接続します" } }
+      }
+    },
+    "sidebar.machine.addSSH": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Machine via SSH…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH でマシンを追加…" } }
+      }
+    },
+    "sidebar.machine.addSSH.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを追加" } }
+      }
+    },
+    "sidebar.machine.addSSH.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Uses your SSH config. New workspaces and terminal tabs use this machine when it is selected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH 設定を使用します。このマシンを選択すると、新しいワークスペースとターミナルタブで使用されます。" } }
+      }
+    },
+    "sidebar.machine.addSSH.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Host or user@host" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホストまたは user@host" } }
+      }
+    },
+    "sidebar.machine.addSSH.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Machine via SSH" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH でマシンを追加" } }
+      }
+    },
+    "sidebar.machine.attachCmuxTUI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach cmux TUI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux TUI に接続" } }
+      }
+    },
+    "sidebar.machine.cmuxTUI.surfaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux · %@" } }
+      }
+    },
     "socket.sidebar.context.invalidIndex": {
       "extractionState": "manual",
       "localizations": {
@@ -262697,6 +262788,41 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Creation context not found." } },
         "ja": { "stringUnit": { "state": "translated", "value": "作成コンテキストが見つかりません。" } }
+      }
+    },
+    "socket.sidebar.machine.attachFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to attach the remote cmux TUI." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモート cmux TUI に接続できません。" } }
+      }
+    },
+    "socket.sidebar.machine.hostRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "host is required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "host が必要です。" } }
+      }
+    },
+    "socket.sidebar.machine.invalidHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The SSH host is invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SSH ホストが無効です。" } }
+      }
+    },
+    "socket.sidebar.machine.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "port must be an integer from 1 through 65535." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "port は 1 から 65535 までの整数である必要があります。" } }
+      }
+    },
+    "socket.sidebar.machine.invalidSSHOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ssh_options must be an array of strings." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ssh_options は文字列の配列である必要があります。" } }
       }
     }
   },

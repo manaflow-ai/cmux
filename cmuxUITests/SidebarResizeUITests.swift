@@ -197,6 +197,39 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertTrue(footer.waitForExistence(timeout: 5.0))
     }
 
+    func testSidebarMachineContextMenuAddsSSHMachineAndOffersRemoteAttach() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_MACHINE_SCOPES"] = "1"
+        launchAllowingBackgroundActivation(app)
+
+        let localContext = app.descendants(matching: .any)["SidebarContextRow.local"]
+        XCTAssertTrue(localContext.waitForExistence(timeout: 5.0))
+
+        localContext.rightClick()
+        let addSSHMachine = app.menuItems["Add Machine via SSH…"]
+        XCTAssertTrue(addSSHMachine.waitForExistence(timeout: 5.0))
+        addSSHMachine.click()
+
+        let alert = app.alerts["Add Machine via SSH"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5.0))
+        let destination = alert.textFields["SidebarAddSSHMachineDestination"]
+        XCTAssertTrue(destination.waitForExistence(timeout: 5.0))
+        destination.typeText("builder@example.test")
+        alert.buttons["Add Machine"].click()
+
+        let addedMachine = app.buttons["builder@example.test"]
+        XCTAssertTrue(
+            addedMachine.waitForExistence(timeout: 5.0),
+            "A durable machine should render before it owns any workspace children"
+        )
+
+        addedMachine.rightClick()
+        XCTAssertTrue(
+            app.menuItems["Attach cmux TUI"].waitForExistence(timeout: 5.0),
+            "SSH machines should advertise their remote-session capability on the shared row UI"
+        )
+    }
+
     func testSidebarResizerHasMaximumWidthCap() {
         let app = XCUIApplication.cmuxTestApplication()
         app.launch()

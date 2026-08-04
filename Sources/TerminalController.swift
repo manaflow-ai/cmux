@@ -2341,6 +2341,10 @@ class TerminalController {
             return v2Result(id: id, self.v2SidebarCreationContextSelect(params: params))
         case "sidebar.creation_context.reorder":
             return v2Result(id: id, self.v2SidebarCreationContextReorder(params: params))
+        case "sidebar.machine.add_ssh":
+            return v2Result(id: id, self.v2SidebarMachineAddSSH(params: params))
+        case "sidebar.machine.attach_cmux_tui":
+            return v2Result(id: id, self.v2SidebarMachineAttachCmuxTUI(params: params))
         case "sidebar.workspace.move_to_context":
             return v2Result(id: id, self.v2SidebarWorkspaceMoveToContext(params: params))
 
@@ -2475,6 +2479,8 @@ class TerminalController {
             "sidebar.creation_context.list",
             "sidebar.creation_context.select",
             "sidebar.creation_context.reorder",
+            "sidebar.machine.add_ssh",
+            "sidebar.machine.attach_cmux_tui",
             "sidebar.workspace.move_to_context",
             "system.top",
             "system.memory",

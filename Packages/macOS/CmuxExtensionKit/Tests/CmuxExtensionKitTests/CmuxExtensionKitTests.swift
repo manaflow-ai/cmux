@@ -16,6 +16,8 @@ struct CMUXExtensionKitTests {
             isSelected: true,
             workspaceCount: 1,
             workspaceIDs: [workspaceID],
+            focusedWorkspaceID: workspaceID,
+            capabilities: [.attachRemoteCmuxTUI],
             childColumn: CmuxSidebarChildColumn(
                 id: "local.children",
                 rendererID: "dev.example.projects"
@@ -54,6 +56,8 @@ struct CMUXExtensionKitTests {
         #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
         #expect(decoded.creationContexts == [creationContext])
+        #expect(decoded.creationContexts.first?.focusedWorkspaceID == workspaceID)
+        #expect(decoded.creationContexts.first?.capabilities == [.attachRemoteCmuxTUI])
         #expect(decoded.selectedCreationContextID == creationContext.id)
         #expect(decoded.selectedChildColumn == creationContext.childColumn)
     }
@@ -74,6 +78,8 @@ struct CMUXExtensionKitTests {
         let context = try JSONDecoder().decode(CmuxSidebarCreationContext.self, from: payload)
 
         #expect(context.childColumn == .sharedWorkspaces(parentID: "remote-a"))
+        #expect(context.focusedWorkspaceID == nil)
+        #expect(context.capabilities.isEmpty)
     }
 
     @Test
@@ -335,6 +341,12 @@ struct CMUXExtensionKitTests {
 
         host.refresh()
         try await host.moveWorkspaces([workspaceID], toCreationContext: "remote-a")
+        try await host.addSSHMachine("builder@example.test", select: false)
+        try await host.attachRemoteCmuxTUI(
+            contextID: "remote-a",
+            sessionName: "agents",
+            in: workspaceID
+        )
         try await host.selectWorkspace(workspaceID)
         try await host.closeWorkspace(workspaceID)
         try await host.createWorkspace(title: "Scratch", select: false)
@@ -350,6 +362,12 @@ struct CMUXExtensionKitTests {
             .moveWorkspacesToCreationContext(
                 workspaceIDs: [workspaceID],
                 contextID: "remote-a"
+            ),
+            .addSSHMachine(destination: "builder@example.test", select: false),
+            .attachRemoteCmuxTUI(
+                contextID: "remote-a",
+                sessionName: "agents",
+                workspaceID: workspaceID
             ),
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
@@ -441,6 +459,19 @@ struct CMUXExtensionKitTests {
                 workspaceIDs: [UUID()],
                 contextID: "local"
             ).requiredScopes == [.reorderCreationContexts]
+        )
+        #expect(
+            CmuxSidebarAction.addSSHMachine(
+                destination: "builder@example.test",
+                select: true
+            ).requiredScopes == [.addSSHMachine]
+        )
+        #expect(
+            CmuxSidebarAction.attachRemoteCmuxTUI(
+                contextID: "remote-a",
+                sessionName: "main",
+                workspaceID: nil
+            ).requiredScopes == [.attachRemoteSession]
         )
     }
 

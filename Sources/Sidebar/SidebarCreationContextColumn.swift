@@ -17,6 +17,8 @@ struct SidebarCreationContextColumn: View {
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     @State private var observationRevision: UInt64 = 0
+    @State private var isAddingSSHMachine = false
+    @State private var sshDestination = ""
 
     var body: some View {
         let _ = observationRevision
@@ -67,6 +69,38 @@ struct SidebarCreationContextColumn: View {
         .modifier(ClearScrollBackground())
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityIdentifier("SidebarContextColumn")
+        .contextMenu {
+            addSSHMachineButton
+        }
+        .alert(
+            String(
+                localized: "sidebar.machine.addSSH.title",
+                defaultValue: "Add Machine via SSH"
+            ),
+            isPresented: $isAddingSSHMachine
+        ) {
+            TextField(
+                String(
+                    localized: "sidebar.machine.addSSH.placeholder",
+                    defaultValue: "Host or user@host"
+                ),
+                text: $sshDestination
+            )
+            .accessibilityIdentifier("SidebarAddSSHMachineDestination")
+
+            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+            Button(String(localized: "sidebar.machine.addSSH.confirm", defaultValue: "Add Machine")) {
+                _ = tabManager.addSidebarSSHMachine(destination: sshDestination)
+            }
+            .disabled(!tabManager.canAddSidebarSSHMachine(destination: sshDestination))
+        } message: {
+            Text(
+                String(
+                    localized: "sidebar.machine.addSSH.message",
+                    defaultValue: "Uses your SSH config. New workspaces and terminal tabs use this machine when it is selected."
+                )
+            )
+        }
         .onReceive(remoteObservationPublisher) { _ in
             observationRevision &+= 1
         }
@@ -137,6 +171,9 @@ struct SidebarCreationContextColumn: View {
         .accessibilityIdentifier("SidebarContextRow.\(context.id)")
         .accessibilityLabel(context.title)
         .help(context.subtitle)
+        .contextMenu {
+            addSSHMachineButton
+        }
     }
 
     private func machineRow(
@@ -147,6 +184,10 @@ struct SidebarCreationContextColumn: View {
     ) -> some View {
         let moveUpLabel = String(localized: "contextMenu.moveUp", defaultValue: "Move Up")
         let moveDownLabel = String(localized: "contextMenu.moveDown", defaultValue: "Move Down")
+        let attachLabel = String(
+            localized: "sidebar.machine.attachCmuxTUI",
+            defaultValue: "Attach cmux TUI"
+        )
 
         return contextRow(context, settings: settings)
             .draggable(Self.machineDragPayload(for: context.id))
@@ -165,6 +206,16 @@ struct SidebarCreationContextColumn: View {
                 moveDraggedWorkspaces(to: context.id)
             }
             .contextMenu {
+                addSSHMachineButton
+
+                if tabManager.canAttachRemoteCmuxTUI(contextID: context.id) {
+                    Button(attachLabel) {
+                        _ = tabManager.attachRemoteCmuxTUI(contextID: context.id)
+                    }
+
+                    Divider()
+                }
+
                 Button(moveUpLabel) {
                     _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: -1)
                 }
@@ -181,6 +232,18 @@ struct SidebarCreationContextColumn: View {
             .accessibilityAction(named: Text(moveDownLabel)) {
                 _ = tabManager.moveSidebarMachineCreationContext(id: context.id, by: 1)
             }
+    }
+
+    private var addSSHMachineButton: some View {
+        Button(
+            String(
+                localized: "sidebar.machine.addSSH",
+                defaultValue: "Add Machine via SSH…"
+            )
+        ) {
+            sshDestination = ""
+            isAddingSSHMachine = true
+        }
     }
 
     private static func machineDragPayload(for contextID: String) -> String {

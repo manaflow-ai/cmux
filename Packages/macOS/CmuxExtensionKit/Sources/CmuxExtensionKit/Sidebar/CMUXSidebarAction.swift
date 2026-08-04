@@ -12,6 +12,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case selectCreationContext(String)
     case reorderCreationContext(id: String, toIndex: Int)
     case moveWorkspacesToCreationContext(workspaceIDs: [UUID], contextID: String)
+    case addSSHMachine(destination: String, select: Bool)
+    case attachRemoteCmuxTUI(contextID: String, sessionName: String, workspaceID: UUID?)
     case createWorkspace(title: String?, workingDirectory: String?, select: Bool)
     case selectWorkspace(UUID)
     case closeWorkspace(UUID)
@@ -34,6 +36,10 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.selectCreationContext]
         case .reorderCreationContext, .moveWorkspacesToCreationContext:
             return [.reorderCreationContexts]
+        case .addSSHMachine:
+            return [.addSSHMachine]
+        case .attachRemoteCmuxTUI:
+            return [.attachRemoteSession]
         case .createWorkspace(_, let workingDirectory, _):
             return workingDirectory == nil ? [.createWorkspace] : [.createWorkspace, .createWorkspaceWithPath]
         case .selectWorkspace:

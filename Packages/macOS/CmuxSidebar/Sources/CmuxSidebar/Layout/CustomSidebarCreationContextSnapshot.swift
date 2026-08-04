@@ -22,6 +22,10 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
     public let workspaceCount: Int
     /// Ordered workspace children owned by this context.
     public let workspaceIDs: [UUID]
+    /// Last focused child for this context in the containing cmux window.
+    public let focusedWorkspaceID: UUID?
+    /// Host actions supported by this context.
+    public let capabilities: [String]
     /// Remote connection state, when the context represents a remote.
     public let connectionState: String?
     /// Parent-owned route to the column rendered after this context.
@@ -37,6 +41,8 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
         kind: String,
         workspaceCount: Int = 0,
         workspaceIDs: [UUID] = [],
+        focusedWorkspaceID: UUID? = nil,
+        capabilities: [String] = [],
         connectionState: String? = nil,
         childColumn: CmuxSidebarChildColumn? = nil
     ) {
@@ -48,6 +54,8 @@ public struct CustomSidebarCreationContextSnapshot: Sendable, Equatable {
         self.kind = kind
         self.workspaceCount = workspaceCount
         self.workspaceIDs = workspaceIDs
+        self.focusedWorkspaceID = focusedWorkspaceID
+        self.capabilities = capabilities
         self.connectionState = connectionState
         self.childColumn = childColumn ?? .sharedWorkspaces(parentID: id)
     }

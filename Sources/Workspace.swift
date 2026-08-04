@@ -10186,6 +10186,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         initialInput: String? = nil,
         initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
@@ -10198,6 +10199,7 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: focusedPaneId,
             focus: focus,
             initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             startupEnvironment: startupEnvironment,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,

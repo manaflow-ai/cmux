@@ -189,6 +189,182 @@ extension TerminalController {
         }
     }
 
+    nonisolated func v2SidebarMachineAddSSH(params: [String: Any]) -> V2CallResult {
+        guard let rawDestination = params["host"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.machine.hostRequired",
+                    defaultValue: "host is required."
+                ),
+                data: nil
+            )
+        }
+        if v2HasNonNullParam(params, "port"), v2Int(params, "port") == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.machine.invalidPort",
+                    defaultValue: "port must be an integer from 1 through 65535."
+                ),
+                data: nil
+            )
+        }
+        let port = v2Int(params, "port")
+        guard port.map({ (1...65535).contains($0) }) ?? true else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.machine.invalidPort",
+                    defaultValue: "port must be an integer from 1 through 65535."
+                ),
+                data: nil
+            )
+        }
+        let identityFile = params["identity_file"] as? String
+        let sshOptions: [String]
+        if let rawOptions = params["ssh_options"] {
+            guard let options = rawOptions as? [String] else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.sidebar.machine.invalidSSHOptions",
+                        defaultValue: "ssh_options must be an array of strings."
+                    ),
+                    data: nil
+                )
+            }
+            sshOptions = options
+        } else {
+            sshOptions = []
+        }
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params) else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            let shouldSelect = v2Bool(params, "select") ?? false
+            guard let contextID = tabManager.addSidebarSSHMachine(
+                destination: rawDestination,
+                port: port,
+                identityFile: identityFile,
+                sshOptions: sshOptions,
+                select: shouldSelect
+            ) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.sidebar.machine.invalidHost",
+                        defaultValue: "The SSH host is invalid."
+                    ),
+                    data: nil
+                )
+            }
+            var payload = v2SidebarCreationContextPayload(tabManager: tabManager)
+            payload["added_context_id"] = contextID
+            return .ok(payload)
+        }
+    }
+
+    nonisolated func v2SidebarMachineAttachCmuxTUI(params: [String: Any]) -> V2CallResult {
+        guard let rawContextID = params["context_id"] as? String,
+              !rawContextID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.context.missingId",
+                    defaultValue: "context_id is required."
+                ),
+                data: nil
+            )
+        }
+        let contextID = rawContextID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionName = (params["session"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty ?? SidebarRemoteCmuxTUIAttachCommand.defaultSessionName
+        if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.openInvalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
+        return v2MainSync {
+            guard let tabManager = v2CustomSidebarTabManager(params: params) else {
+                return .err(
+                    code: "tab_manager_unavailable",
+                    message: String(
+                        localized: "socket.sidebar.context.noWindow",
+                        defaultValue: "Unable to access the target window."
+                    ),
+                    data: nil
+                )
+            }
+            let workspaceID = v2UUID(params, "workspace_id")
+            let workspace = workspaceID.flatMap { id in tabManager.tabs.first { $0.id == id } }
+                ?? tabManager.selectedWorkspace
+            guard let workspace else {
+                return .err(
+                    code: "workspace_not_found",
+                    message: String(
+                        localized: "socket.sidebar.custom.openNoWorkspace",
+                        defaultValue: "Workspace not found."
+                    ),
+                    data: nil
+                )
+            }
+            if let workspaceID, workspace.id != workspaceID {
+                return .err(
+                    code: "workspace_not_found",
+                    message: String(
+                        localized: "socket.sidebar.custom.openNoWorkspace",
+                        defaultValue: "Workspace not found."
+                    ),
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+            }
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            if focus {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            }
+            guard let panel = tabManager.attachRemoteCmuxTUI(
+                contextID: contextID,
+                sessionName: sessionName,
+                workspaceID: workspace.id,
+                focus: focus
+            ) else {
+                return .err(
+                    code: "surface_create_failed",
+                    message: String(
+                        localized: "socket.sidebar.machine.attachFailed",
+                        defaultValue: "Unable to attach the remote cmux TUI."
+                    ),
+                    data: ["context_id": contextID]
+                )
+            }
+            return .ok([
+                "context_id": contextID,
+                "session": sessionName,
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "tab_ref": v2TabRef(uuid: panel.id),
+            ])
+        }
+    }
+
     nonisolated func v2SidebarCreationContextSelect(params: [String: Any]) -> V2CallResult {
         guard let rawID = params["context_id"] as? String else {
             return .err(
@@ -380,6 +556,8 @@ extension TerminalController {
                     "kind": context.kind.rawValue,
                     "workspace_count": context.workspaceCount,
                     "workspace_ids": context.workspaceIDs.map(\.uuidString),
+                    "focused_workspace_id": context.focusedWorkspaceID?.uuidString ?? NSNull(),
+                    "capabilities": context.capabilities.map(\.rawValue).sorted(),
                     "connection_state": context.connectionState?.rawValue ?? NSNull(),
                     "child_column": [
                         "id": context.childColumn.id,

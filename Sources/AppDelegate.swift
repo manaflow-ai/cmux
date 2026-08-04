@@ -3700,7 +3700,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.tabManager.restoreSidebarCreationContexts(
             snapshot.sidebar.creationContexts ?? [],
             selectedContextID: snapshot.sidebar.selectedCreationContextID,
-            machineOrder: snapshot.sidebar.creationContextOrder
+            machineOrder: snapshot.sidebar.creationContextOrder,
+            focusedWorkspaceStableIDs: snapshot.sidebar.focusedWorkspaceStableIDsByCreationContextID
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
 
@@ -4693,7 +4694,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 selectedCreationContextID: context.tabManager.selectedSidebarCreationContextID,
                 creationContexts: context.tabManager.sidebarCreationContextSessionSnapshots(),
-                creationContextOrder: context.tabManager.sidebarMachineCreationContextOrderIDs()
+                creationContextOrder: context.tabManager.sidebarMachineCreationContextOrderIDs(),
+                focusedWorkspaceStableIDsByCreationContextID:
+                    context.tabManager.sidebarFocusedWorkspaceSessionSnapshot()
             ),
             configFrames: windowConfigFrames[context.windowId]?.entries,
             dock: context.windowDockSessionSnapshot(includeScrollback: includeScrollback, restorableAgentIndex: restorableAgentIndex, surfaceResumeBindingIndex: surfaceResumeBindingIndex)
@@ -9034,7 +9037,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.restoreSidebarCreationContexts(
                 sessionWindowSnapshot.sidebar.creationContexts ?? [],
                 selectedContextID: sessionWindowSnapshot.sidebar.selectedCreationContextID,
-                machineOrder: sessionWindowSnapshot.sidebar.creationContextOrder
+                machineOrder: sessionWindowSnapshot.sidebar.creationContextOrder,
+                focusedWorkspaceStableIDs:
+                    sessionWindowSnapshot.sidebar.focusedWorkspaceStableIDsByCreationContextID
             )
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }

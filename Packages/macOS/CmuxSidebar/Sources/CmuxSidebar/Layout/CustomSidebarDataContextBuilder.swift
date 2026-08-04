@@ -72,6 +72,7 @@ public struct CustomSidebarDataContextBuilder {
             "kind": .string(context.kind),
             "workspaceCount": .int(context.workspaceCount),
             "workspaceIds": .array(context.workspaceIDs.map { .string($0.uuidString) }),
+            "capabilities": .array(context.capabilities.map { .string($0) }),
             "childColumn": .object([
                 "id": .string(context.childColumn.id),
                 "rendererId": .string(context.childColumn.rendererID),
@@ -82,6 +83,9 @@ public struct CustomSidebarDataContextBuilder {
         }
         if let connectionState = context.connectionState, !connectionState.isEmpty {
             fields["connectionState"] = .string(connectionState)
+        }
+        if let focusedWorkspaceID = context.focusedWorkspaceID {
+            fields["focusedWorkspaceId"] = .string(focusedWorkspaceID.uuidString)
         }
         return .object(fields)
     }

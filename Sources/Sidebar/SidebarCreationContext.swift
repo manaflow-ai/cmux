@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxExtensionKit
+import CmuxFoundation
 import Foundation
 
 /// A machine-level identity used for creation defaults.
@@ -75,6 +76,9 @@ struct SidebarCreationContextSnapshot: Identifiable, Equatable, Sendable {
     /// Ordered children rendered for this parent. `Automatic` is the aggregate
     /// route and contains every workspace.
     let workspaceIDs: [UUID]
+    /// The last focused child for this route in this cmux window.
+    let focusedWorkspaceID: UUID?
+    let capabilities: Set<CmuxSidebarCreationContextCapability>
     let connectionState: WorkspaceRemoteConnectionState?
     /// Stable parent-owned route to the column rendered after this row.
     let childColumn: CmuxSidebarChildColumn
@@ -105,8 +109,208 @@ struct SidebarRegisteredRemoteCreationContext: Sendable {
     var durableConfiguration: SessionRemoteWorkspaceSnapshot?
 }
 
+/// Builds the durable terminal bridge used to attach the Rust cmux TUI over
+/// SSH. The sidebar action owns intent; this builder owns transport quoting.
+struct SidebarRemoteCmuxTUIAttachCommand: Equatable, Sendable {
+    static let defaultSessionName = "main"
+    static let defaultRemoteBinary = "cmux-tui"
+
+    let arguments: [String]
+    let command: String
+    let sessionName: String
+
+    init?(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionName rawSessionName: String = defaultSessionName,
+        remoteBinary: String = defaultRemoteBinary
+    ) {
+        guard configuration.transport == .ssh else { return nil }
+        let destination = configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionName = rawSessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SidebarSSHMachineInput.isValidDestination(destination),
+              !sessionName.isEmpty,
+              sessionName.count <= 128,
+              !SidebarSSHMachineInput.hasHiddenCharacter(sessionName),
+              !remoteBinary.isEmpty,
+              !SidebarSSHMachineInput.hasHiddenCharacter(remoteBinary)
+        else {
+            return nil
+        }
+
+        var arguments = ["/usr/bin/ssh"]
+        arguments += SSHHostConfiguredRemoteCommand().overrideArguments
+        arguments += [
+            "-o", "ClearAllForwardings=yes",
+            "-o", "ForwardAgent=no",
+            "-o", "ForwardX11=no",
+            "-tt",
+        ]
+        if let port = configuration.port {
+            guard (1...65535).contains(port) else { return nil }
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !identityFile.isEmpty
+        {
+            guard !identityFile.hasPrefix("-"),
+                  !SidebarSSHMachineInput.hasHiddenCharacter(identityFile)
+            else {
+                return nil
+            }
+            arguments += ["-i", identityFile]
+        }
+        for option in WorkspaceRemoteConfiguration.trimmedSSHOptions(configuration.sshOptions) {
+            arguments += ["-o", option]
+        }
+        let remoteCommand = [
+            Self.shellQuote(remoteBinary),
+            "attach",
+            "--session",
+            Self.shellQuote(sessionName),
+        ].joined(separator: " ")
+        arguments += ["--", destination, remoteCommand]
+
+        self.arguments = arguments
+        self.command = arguments.map(Self.shellQuote).joined(separator: " ")
+        self.sessionName = sessionName
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private enum SidebarSSHMachineInput {
+    static func isValidDestination(_ value: String) -> Bool {
+        !value.isEmpty &&
+            !value.hasPrefix("-") &&
+            !hasHiddenCharacter(value) &&
+            !value.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    static func hasHiddenCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
 @MainActor
 extension TabManager {
+    func canAddSidebarSSHMachine(destination: String) -> Bool {
+        SidebarSSHMachineInput.isValidDestination(
+            destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    func canAttachRemoteCmuxTUI(contextID: String) -> Bool {
+        sidebarRemoteContext(forID: contextID)?.configuration.transport == .ssh
+    }
+
+    /// Adds a durable SSH machine even when it has no workspace children yet.
+    /// Cmd+N and Cmd+T subsequently consume the same registered defaults.
+    @discardableResult
+    func addSidebarSSHMachine(
+        destination rawDestination: String,
+        port: Int? = nil,
+        identityFile rawIdentityFile: String? = nil,
+        sshOptions: [String] = [],
+        select: Bool = true
+    ) -> String? {
+        let destination = rawDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SidebarSSHMachineInput.isValidDestination(destination) else { return nil }
+        if let port, !(1...65535).contains(port) { return nil }
+        let identityFile = rawIdentityFile?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        if let identityFile,
+           identityFile.hasPrefix("-") || SidebarSSHMachineInput.hasHiddenCharacter(identityFile)
+        {
+            return nil
+        }
+        let durable = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: WorkspaceRemoteConfiguration.trimmedSSHOptions(sshOptions)
+        )
+        guard let configuration = durable.workspaceConfiguration(
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
+            allowPersistentPTYRestore: false,
+            preserveSSHOptions: true
+        ) else {
+            return nil
+        }
+        rememberSidebarRemoteCreationContext(
+            configuration: configuration,
+            title: configuration.displayTarget
+        )
+        let contextID = SidebarRemoteCreationContextKey(configuration: configuration).id
+        if select {
+            _ = selectSidebarCreationContext(id: contextID)
+        }
+        return contextID
+    }
+
+    /// Attaches a remote cmux-TUI session as one terminal surface. The target
+    /// workspace remains an independent navigation child, so local and remote
+    /// surfaces can be mixed freely.
+    @discardableResult
+    func attachRemoteCmuxTUI(
+        contextID: String,
+        sessionName: String = SidebarRemoteCmuxTUIAttachCommand.defaultSessionName,
+        workspaceID: UUID? = nil,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        guard let context = sidebarRemoteContext(forID: contextID),
+              let launch = SidebarRemoteCmuxTUIAttachCommand(
+                configuration: context.configuration,
+                sessionName: sessionName
+              )
+        else {
+            return nil
+        }
+        let workspace: Workspace?
+        if let workspaceID {
+            workspace = tabs.first { $0.id == workspaceID }
+        } else {
+            workspace = selectedWorkspace ?? tabs.first
+        }
+        guard let workspace, !workspace.isRemoteTmuxMirror else { return nil }
+        if focus {
+            workspace.clearSplitZoom()
+        }
+        guard let panel = workspace.newTerminalSurfaceInFocusedPane(
+            focus: focus,
+            initialCommand: launch.command,
+            tmuxStartCommand: launch.command,
+            suppressWorkspaceRemoteStartupCommand: true
+        ) else {
+            return nil
+        }
+        _ = workspace.setPanelCustomTitle(
+            panelId: panel.id,
+            title: String(
+                format: String(
+                    localized: "sidebar.machine.cmuxTUI.surfaceTitle",
+                    defaultValue: "cmux · %@"
+                ),
+                context.configuration.displayTarget
+            ),
+            source: .auto
+        )
+        return panel
+    }
+
     /// The context rows available in this window. Live remote configurations
     /// are grouped by machine identity, while workspace membership is an
     /// independent persisted relationship.
@@ -119,6 +323,7 @@ extension TabManager {
         }
 
         rememberLiveSidebarRemoteCreationContexts()
+        rememberSelectedSidebarWorkspaceFocus()
         let remoteOrder = sidebarRemoteCreationContextOrder
         var remotes: [SidebarRemoteCreationContextKey: RemoteAggregate] = Dictionary(
             uniqueKeysWithValues: remoteOrder.compactMap { key in
@@ -193,6 +398,8 @@ extension TabManager {
             kind: .automatic,
             workspaceCount: allWorkspaceIDs.count,
             workspaceIDs: allWorkspaceIDs,
+            focusedWorkspaceID: selectedTabId,
+            capabilities: [],
             connectionState: nil,
             childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.automaticID)
         )
@@ -205,6 +412,10 @@ extension TabManager {
             kind: .local,
             workspaceCount: localWorkspaceIDs.count,
             workspaceIDs: localWorkspaceIDs,
+            focusedWorkspaceID: focusedSidebarWorkspaceID(
+                forCreationContextID: SidebarCreationContextSelection.localID
+            ),
+            capabilities: [],
             connectionState: nil,
             childColumn: .sharedWorkspaces(parentID: SidebarCreationContextSelection.localID)
         )
@@ -229,6 +440,10 @@ extension TabManager {
                         ? workspace.id
                         : nil
                 },
+                focusedWorkspaceID: focusedSidebarWorkspaceID(forCreationContextID: key.id),
+                capabilities: aggregate.configuration.transport == .ssh
+                    ? [.attachRemoteCmuxTUI]
+                    : [],
                 connectionState: aggregate.connectionState,
                 childColumn: .sharedWorkspaces(parentID: key.id)
             )
@@ -300,6 +515,10 @@ extension TabManager {
             }
             workspace.sidebarCreationContextID = contextID
         }
+        reconcileSidebarFocusedWorkspaceState()
+        if let selectedWorkspace, requestedIDs.contains(selectedWorkspace.id) {
+            rememberSelectedSidebarWorkspaceFocus()
+        }
         return true
     }
 
@@ -329,8 +548,16 @@ extension TabManager {
         } else {
             return false
         }
-        guard sidebarCreationContextSelection != nextSelection else { return true }
-        sidebarCreationContextSelection = nextSelection
+        rememberSelectedSidebarWorkspaceFocus()
+        if sidebarCreationContextSelection != nextSelection {
+            sidebarCreationContextSelection = nextSelection
+        }
+        if id != SidebarCreationContextSelection.automaticID,
+           let workspace = preferredSidebarWorkspace(forCreationContextID: id),
+           workspace.id != selectedTabId
+        {
+            selectWorkspace(workspace)
+        }
         return true
     }
 
@@ -388,6 +615,13 @@ extension TabManager {
         return reconciledSidebarMachineCreationContextOrder()
     }
 
+    /// Stable per-machine navigation state persisted with this window.
+    func sidebarFocusedWorkspaceSessionSnapshot() -> [String: UUID] {
+        rememberSelectedSidebarWorkspaceFocus()
+        reconcileSidebarFocusedWorkspaceState()
+        return sidebarFocusedWorkspaceStableIDByCreationContextID
+    }
+
     /// Moves one machine row to a final index in the machine-only collection.
     /// `Automatic` remains fixed above the collection because it is a mode.
     @discardableResult
@@ -415,7 +649,8 @@ extension TabManager {
     func restoreSidebarCreationContexts(
         _ snapshots: [SessionSidebarCreationContextSnapshot],
         selectedContextID: String?,
-        machineOrder: [String]? = nil
+        machineOrder: [String]? = nil,
+        focusedWorkspaceStableIDs: [String: UUID]? = nil
     ) {
         for snapshot in snapshots {
             guard let configuration = snapshot.remote.workspaceConfiguration(
@@ -433,9 +668,32 @@ extension TabManager {
                 preferredOrder: machineOrder
             )
         }
+        if let focusedWorkspaceStableIDs {
+            sidebarFocusedWorkspaceStableIDByCreationContextID = focusedWorkspaceStableIDs
+            reconcileSidebarFocusedWorkspaceState()
+        } else {
+            rememberSelectedSidebarWorkspaceFocus()
+        }
         if let selectedContextID {
             _ = selectSidebarCreationContext(id: selectedContextID)
         }
+    }
+
+    /// Records workspace focus in the workspace's navigation parent. This is
+    /// called from the shared selection hook, so keyboard, menu, socket, and
+    /// sidebar selection all update the same per-window cursor.
+    func rememberSelectedSidebarWorkspaceFocus() {
+        guard let selectedWorkspace else { return }
+        let contextID = resolvedSidebarCreationContextID(for: selectedWorkspace)
+        guard isValidSidebarWorkspaceParentContextID(contextID) else { return }
+        sidebarFocusedWorkspaceStableIDByCreationContextID[contextID] = selectedWorkspace.stableId
+    }
+
+    func focusedSidebarWorkspaceID(forCreationContextID contextID: String) -> UUID? {
+        if contextID == SidebarCreationContextSelection.automaticID {
+            return selectedTabId
+        }
+        return preferredSidebarWorkspace(forCreationContextID: contextID)?.id
     }
 
     /// Shared Cmd+T implementation. Explicit local and remote contexts can be
@@ -500,6 +758,34 @@ extension TabManager {
             return sidebarCreationContextSelection
         }
         return availableRemoteKeys.contains(key) ? .remote(key) : .automatic
+    }
+
+    private func preferredSidebarWorkspace(forCreationContextID contextID: String) -> Workspace? {
+        let children = tabs.filter { resolvedSidebarCreationContextID(for: $0) == contextID }
+        guard !children.isEmpty else { return nil }
+        if let selectedWorkspace,
+           children.contains(where: { $0.id == selectedWorkspace.id })
+        {
+            return selectedWorkspace
+        }
+        if let stableID = sidebarFocusedWorkspaceStableIDByCreationContextID[contextID],
+           let remembered = children.first(where: { $0.stableId == stableID })
+        {
+            return remembered
+        }
+        return children.first
+    }
+
+    private func reconcileSidebarFocusedWorkspaceState() {
+        sidebarFocusedWorkspaceStableIDByCreationContextID =
+            sidebarFocusedWorkspaceStableIDByCreationContextID.filter { contextID, stableID in
+                contextID != SidebarCreationContextSelection.automaticID &&
+                    isValidSidebarWorkspaceParentContextID(contextID) &&
+                    tabs.contains { workspace in
+                        workspace.stableId == stableID &&
+                            resolvedSidebarCreationContextID(for: workspace) == contextID
+                    }
+            }
     }
 
     private func sidebarRemoteContext(

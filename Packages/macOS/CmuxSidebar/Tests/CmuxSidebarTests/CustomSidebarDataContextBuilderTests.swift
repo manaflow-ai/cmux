@@ -99,6 +99,10 @@ struct CustomSidebarDataContextBuilderTests {
                         UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
                         UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
                     ],
+                    focusedWorkspaceID: UUID(
+                        uuidString: "22222222-2222-2222-2222-222222222222"
+                    ),
+                    capabilities: ["attachRemoteCmuxTUI"],
                     connectionState: "connected",
                     childColumn: .init(
                         id: "remote-deadbeef.children",
@@ -122,6 +126,13 @@ struct CustomSidebarDataContextBuilderTests {
             .string("22222222-2222-2222-2222-222222222222"),
         ])
         #expect(remote?.member("connectionState") == .string("connected"))
+        #expect(
+            remote?.member("focusedWorkspaceId")
+                == .string("22222222-2222-2222-2222-222222222222")
+        )
+        #expect(remote?.member("capabilities")?.iterationValues == [
+            .string("attachRemoteCmuxTUI"),
+        ])
         #expect(remote?.member("childColumn")?.member("id") == .string("remote-deadbeef.children"))
         #expect(remote?.member("childColumn")?.member("rendererId") == .string("dev.example.projects"))
     }

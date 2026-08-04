@@ -240,6 +240,9 @@ class TabManager: ObservableObject {
     var sidebarRemoteCreationContexts: [
         SidebarRemoteCreationContextKey: SidebarRegisteredRemoteCreationContext
     ] = [:]
+    /// Per-machine navigation cursors for this cmux window. Stable workspace
+    /// identities survive session restore even though live workspace UUIDs do not.
+    var sidebarFocusedWorkspaceStableIDByCreationContextID: [String: UUID] = [:]
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -301,6 +304,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            rememberSelectedSidebarWorkspaceFocus()
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()

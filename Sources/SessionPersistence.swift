@@ -245,6 +245,7 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var selectedCreationContextID: String?
     var creationContexts: [SessionSidebarCreationContextSnapshot]?
     var creationContextOrder: [String]?
+    var focusedWorkspaceStableIDsByCreationContextID: [String: UUID]?
 
     init(
         isVisible: Bool,
@@ -253,7 +254,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         leadingColumnWidth: Double? = nil,
         selectedCreationContextID: String? = nil,
         creationContexts: [SessionSidebarCreationContextSnapshot]? = nil,
-        creationContextOrder: [String]? = nil
+        creationContextOrder: [String]? = nil,
+        focusedWorkspaceStableIDsByCreationContextID: [String: UUID]? = nil
     ) {
         self.isVisible = isVisible
         self.selection = selection
@@ -262,6 +264,7 @@ struct SessionSidebarSnapshot: Codable, Sendable {
         self.selectedCreationContextID = selectedCreationContextID
         self.creationContexts = creationContexts
         self.creationContextOrder = creationContextOrder
+        self.focusedWorkspaceStableIDsByCreationContextID = focusedWorkspaceStableIDsByCreationContextID
     }
 }
 

@@ -120,6 +120,11 @@ same renderer. Call
 changes creation defaults and the active child route atomically. Workspace
 membership does not constrain runtime locality, so one context can contain
 local workspaces, remote workspaces, and workspaces with mixed surfaces. A
+context's `focusedWorkspaceID` is its per-window navigation cursor. Check
+`capabilities` before offering optional actions such as `attachRemoteCmuxTUI`.
+Extensions can add an SSH-backed context with
+`context.host.addSSHMachine(_:)` and attach an existing remote session with
+`context.host.attachRemoteCmuxTUI(contextID:sessionName:in:)`.
 child can nest another
 `CmuxSidebarColumns` for deeper navigation. Each container owns only its
 internal divider, so the host still resizes and hides the complete sidebar
@@ -141,6 +146,8 @@ snapshot and rejects actions that have not been granted:
 - `createWorkspace`: create workspaces
 - `selectCreationContext`: select the defaults used by shared creation actions
 - `reorderCreationContexts`: reorder machines or move workspace children between them
+- `addSSHMachine`: add a durable SSH machine
+- `attachRemoteSession`: attach a remote cmux session as a terminal surface
 - `selectWorkspace`: select a workspace from your UI
 - `closeWorkspace`: close workspaces from your UI
 - `createSurface`: create terminal and browser surfaces

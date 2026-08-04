@@ -989,6 +989,16 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 localized: "sidebar.extensions.permission.reorderCreationContexts.detail",
                 defaultValue: "Reorder machines in the creation-context sidebar"
             )
+        case .addSSHMachine:
+            return String(
+                localized: "sidebar.extensions.permission.addSSHMachine.detail",
+                defaultValue: "Add machines using SSH destinations"
+            )
+        case .attachRemoteSession:
+            return String(
+                localized: "sidebar.extensions.permission.attachRemoteSession.detail",
+                defaultValue: "Attach remote cmux sessions as terminal surfaces"
+            )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
         case .selectWorkspace:
@@ -1128,6 +1138,16 @@ private extension CmuxExtensionActionScope {
             return String(
                 localized: "sidebar.extensions.actionScope.reorderCreationContexts",
                 defaultValue: "Reorder creation contexts"
+            )
+        case .addSSHMachine:
+            return String(
+                localized: "sidebar.extensions.actionScope.addSSHMachine",
+                defaultValue: "Add SSH machines"
+            )
+        case .attachRemoteSession:
+            return String(
+                localized: "sidebar.extensions.actionScope.attachRemoteSession",
+                defaultValue: "Attach remote sessions"
             )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.actionScope.createWorkspace", defaultValue: "Create workspaces")

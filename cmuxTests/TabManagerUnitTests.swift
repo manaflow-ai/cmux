@@ -4037,6 +4037,106 @@ final class SidebarCreationContextTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondRemote.id)
     }
 
+    func testMachineFocusStateIsIndependentAcrossWindows() throws {
+        let firstWindow = TabManager()
+        let firstWindowSecondWorkspace = firstWindow.addWorkspace(select: false)
+        firstWindow.selectWorkspace(firstWindowSecondWorkspace)
+
+        let secondWindow = TabManager()
+        let secondWindowFirstWorkspace = try XCTUnwrap(secondWindow.tabs.first)
+
+        XCTAssertEqual(
+            firstWindow.focusedSidebarWorkspaceID(
+                forCreationContextID: SidebarCreationContextSelection.localID
+            ),
+            firstWindowSecondWorkspace.id
+        )
+        XCTAssertEqual(
+            secondWindow.focusedSidebarWorkspaceID(
+                forCreationContextID: SidebarCreationContextSelection.localID
+            ),
+            secondWindowFirstWorkspace.id
+        )
+    }
+
+    func testSSHMachineCanExistWithoutOwningAWorkspace() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = manager.tabs.map(\.id)
+
+        let contextID = try XCTUnwrap(
+            manager.addSidebarSSHMachine(
+                destination: "builder@example.test",
+                port: 2222,
+                select: true
+            )
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), initialWorkspaceIDs)
+        XCTAssertEqual(manager.selectedSidebarCreationContextID, contextID)
+        let context = try XCTUnwrap(
+            manager.sidebarCreationContextSnapshots().first { $0.id == contextID }
+        )
+        XCTAssertEqual(context.workspaceCount, 0)
+        XCTAssertEqual(context.workspaceIDs, [])
+        XCTAssertEqual(context.capabilities, [.attachRemoteCmuxTUI])
+        XCTAssertEqual(
+            manager.selectedSidebarRemoteCreationDefaults()?.configuration.destination,
+            "builder@example.test"
+        )
+        XCTAssertEqual(manager.sidebarCreationContextSessionSnapshots().count, 1)
+    }
+
+    func testRemoteCmuxTUIAttachCommandUsesSafeSSHArgumentBoundaries() throws {
+        let configuration = makeRemoteConfiguration(destination: "builder@example.test")
+        let launch = try XCTUnwrap(
+            SidebarRemoteCmuxTUIAttachCommand(
+                configuration: configuration,
+                sessionName: "agent's work"
+            )
+        )
+
+        XCTAssertEqual(launch.arguments.first, "/usr/bin/ssh")
+        XCTAssertEqual(Array(launch.arguments[1...2]), ["-o", "RemoteCommand=none"])
+        XCTAssertTrue(launch.arguments.contains("-tt"))
+        XCTAssertEqual(
+            Array(launch.arguments.suffix(3)),
+            ["--", "builder@example.test", "'cmux-tui' attach --session 'agent'\\''s work'"]
+        )
+        XCTAssertEqual(launch.sessionName, "agent's work")
+        XCTAssertNil(
+            SidebarRemoteCmuxTUIAttachCommand(
+                configuration: configuration,
+                sessionName: "bad\nsession"
+            )
+        )
+    }
+
+    func testMachineFocusStableIDsRoundTripThroughSidebarSessionState() throws {
+        let manager = TabManager()
+        let secondLocal = manager.addWorkspace(select: false)
+        manager.selectWorkspace(secondLocal)
+
+        let persisted = manager.sidebarFocusedWorkspaceSessionSnapshot()
+        XCTAssertEqual(
+            persisted[SidebarCreationContextSelection.localID],
+            secondLocal.stableId
+        )
+
+        let encoded = try JSONEncoder().encode(
+            SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: nil,
+                focusedWorkspaceStableIDsByCreationContextID: persisted
+            )
+        )
+        let decoded = try JSONDecoder().decode(SessionSidebarSnapshot.self, from: encoded)
+        XCTAssertEqual(
+            decoded.focusedWorkspaceStableIDsByCreationContextID,
+            persisted
+        )
+    }
+
     func testRemoteContextIdentityExcludesWorkspaceRuntimeOwnership() {
         let first = makeRemoteConfiguration(
             ownerWorkspaceID: UUID(),

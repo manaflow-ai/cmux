@@ -10,6 +10,11 @@ public enum CmuxSidebarCreationContextKind: String, Codable, Equatable, Sendable
     case remote
 }
 
+/// Optional actions the host can perform for one creation context.
+public enum CmuxSidebarCreationContextCapability: String, Codable, Equatable, Hashable, Sendable {
+    case attachRemoteCmuxTUI
+}
+
 /// A source of defaults for shared creation actions such as New Workspace and
 /// New Terminal Surface.
 ///
@@ -28,6 +33,8 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         case isSelected
         case workspaceCount
         case workspaceIDs
+        case focusedWorkspaceID
+        case capabilities
         case connectionState
         case childColumn
     }
@@ -42,6 +49,9 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
     /// Ordered workspace children owned by this route. Automatic contains the
     /// aggregate list.
     public var workspaceIDs: [UUID]
+    /// Last focused child for this context in the containing cmux window.
+    public var focusedWorkspaceID: UUID?
+    public var capabilities: Set<CmuxSidebarCreationContextCapability>
     public var connectionState: String?
     /// The parent-specific route rendered in the column after this context.
     public var childColumn: CmuxSidebarChildColumn
@@ -55,6 +65,8 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         isSelected: Bool,
         workspaceCount: Int = 0,
         workspaceIDs: [UUID] = [],
+        focusedWorkspaceID: UUID? = nil,
+        capabilities: Set<CmuxSidebarCreationContextCapability> = [],
         connectionState: String? = nil,
         childColumn: CmuxSidebarChildColumn? = nil
     ) {
@@ -66,6 +78,8 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         self.isSelected = isSelected
         self.workspaceCount = workspaceCount
         self.workspaceIDs = workspaceIDs
+        self.focusedWorkspaceID = focusedWorkspaceID
+        self.capabilities = capabilities
         self.connectionState = connectionState
         self.childColumn = childColumn ?? .sharedWorkspaces(parentID: id)
     }
@@ -80,6 +94,11 @@ public struct CmuxSidebarCreationContext: Codable, Equatable, Identifiable, Send
         isSelected = try container.decode(Bool.self, forKey: .isSelected)
         workspaceCount = try container.decodeIfPresent(Int.self, forKey: .workspaceCount) ?? 0
         workspaceIDs = try container.decodeIfPresent([UUID].self, forKey: .workspaceIDs) ?? []
+        focusedWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .focusedWorkspaceID)
+        capabilities = try container.decodeIfPresent(
+            Set<CmuxSidebarCreationContextCapability>.self,
+            forKey: .capabilities
+        ) ?? []
         connectionState = try container.decodeIfPresent(String.self, forKey: .connectionState)
         childColumn = try container.decodeIfPresent(
             CmuxSidebarChildColumn.self,

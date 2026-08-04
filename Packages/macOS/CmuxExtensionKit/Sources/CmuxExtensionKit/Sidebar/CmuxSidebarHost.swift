@@ -59,6 +59,24 @@ public struct CmuxSidebarHost {
         ))
     }
 
+    /// Adds a durable machine from an SSH config alias or `user@host`.
+    public func addSSHMachine(_ destination: String, select: Bool = true) async throws {
+        try await send(.addSSHMachine(destination: destination, select: select))
+    }
+
+    /// Attaches an existing remote cmux-TUI session as a terminal surface.
+    public func attachRemoteCmuxTUI(
+        contextID: String,
+        sessionName: String = "main",
+        in workspaceID: UUID? = nil
+    ) async throws {
+        try await send(.attachRemoteCmuxTUI(
+            contextID: contextID,
+            sessionName: sessionName,
+            workspaceID: workspaceID
+        ))
+    }
+
     /// Requests that CMUX create a workspace.
     public func createWorkspace(
         title: String? = nil,
