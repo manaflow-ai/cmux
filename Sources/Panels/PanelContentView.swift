@@ -210,13 +210,14 @@ struct PanelContentView: View {
 
     @ViewBuilder
     private var paneDropTargetOverlay: some View {
-        if shouldInstallPaneDropTarget {
-            PaneDropTargetRepresentable(dropContext: PaneDropContext(
+        PaneDropTargetOverlaySnapshot(
+            dropContext: shouldInstallPaneDropTarget ? PaneDropContext(
                 workspaceId: workspaceId,
                 panelId: panel.id,
                 paneId: paneId
-            ))
-        }
+            ) : nil
+        )
+        .equatable()
     }
 
     private var shouldInstallPaneDropTarget: Bool {
