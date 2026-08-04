@@ -434,6 +434,66 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .pending)
     }
 
+    /// Rewording an id-less task must keep its row, or the checklist merge
+    /// mints a new one and drops the attachments bound to the old id.
+    @Test("An unambiguous reword keeps the id-less task's identity")
+    func idlessRewordKeepsIdentity() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"alpha"},{"content":"beta"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        let betaId = latestTodos(store)?.first { $0.content == "beta" }?.id
+
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"alpha"},{"content":"beta, revised"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.first { $0.content == "beta, revised" }?.id == betaId)
+    }
+
+    /// A removal is not an unambiguous reword, so identity must not be
+    /// transplanted onto a surviving task.
+    @Test("A removal does not transplant an id-less identity")
+    func idlessRemovalDoesNotTransplantIdentity() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"alpha"},{"content":"beta"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        let alphaId = latestTodos(store)?.first { $0.content == "alpha" }?.id
+
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"beta"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.map(\.content) == ["beta"])
+        #expect(latestTodos(store)?.first?.id != alphaId)
+    }
+
+    /// Seeding must respect the workstream cap on its own: a seeded entry
+    /// whose next delta is ignored never reaches the eviction in apply.
+    @Test("Seeded workstreams respect the retention bound")
+    func seedingEnforcesTheWorkstreamCap() {
+        let store = WorkstreamStore(ringCapacity: 5_000)
+        for index in 0..<200 {
+            store.seedTaskTodos(
+                forWorkstream: "restored-\(index)",
+                todos: [WorkstreamTaskTodo(id: "1", content: "task", state: .pending)]
+            )
+        }
+        #expect(store.ownedTaskIds(forWorkstream: "restored-0").isEmpty)
+        #expect(!store.ownedTaskIds(forWorkstream: "restored-199").isEmpty)
+    }
+
     @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

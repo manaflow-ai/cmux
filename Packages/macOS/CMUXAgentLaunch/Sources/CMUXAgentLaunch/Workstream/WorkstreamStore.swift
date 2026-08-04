@@ -177,12 +177,7 @@ public final class WorkstreamStore {
         )
         guard case .list = outcome else { return outcome }
         taskToolTodosByWorkstream[workstreamId] = accumulator
-        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
-        taskToolWorkstreamsByRecency.append(workstreamId)
-        while taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams {
-            let evicted = taskToolWorkstreamsByRecency.removeFirst()
-            taskToolTodosByWorkstream[evicted] = nil
-        }
+        touchTaskToolWorkstream(workstreamId)
         return outcome
     }
 
@@ -222,8 +217,21 @@ public final class WorkstreamStore {
         guard accumulator.isEmpty else { return }
         accumulator.seed(with: todos)
         taskToolTodosByWorkstream[workstreamId] = accumulator
+        touchTaskToolWorkstream(workstreamId)
+    }
+
+    /// Marks a workstream most-recently-used and evicts past the bound.
+    ///
+    /// Shared by seeding and by applied deltas: seeding alone used to skip
+    /// eviction, so a restored workstream whose next delta was ignored stayed
+    /// retained outside the documented cap.
+    private func touchTaskToolWorkstream(_ workstreamId: String) {
         taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
         taskToolWorkstreamsByRecency.append(workstreamId)
+        while taskToolWorkstreamsByRecency.count > Self.maxTrackedTaskToolWorkstreams {
+            let evicted = taskToolWorkstreamsByRecency.removeFirst()
+            taskToolTodosByWorkstream[evicted] = nil
+        }
     }
 
     // MARK: - Actions

@@ -106,7 +106,7 @@ struct WorkstreamTaskToolTodos: Sendable {
             guard let parsed = parseWorkstreamTodoWriteSnapshot(toolInputJSON) else {
                 return .ignored
             }
-            todos = parsed
+            todos = reconcilingIdlessRewordings(parsed)
             // Ids accumulate across snapshots: a task dropped from a later
             // whole-list report must stay owned so its row can be retired.
             for todo in parsed { claimId(todo.id) }
@@ -167,6 +167,34 @@ struct WorkstreamTaskToolTodos: Sendable {
 
         default:
             return .ignored
+        }
+    }
+
+    /// Carries an id-less task's identity across a reword.
+    ///
+    /// Producers with no ids of their own (OpenCode) get ids derived from
+    /// their text, so editing a task's wording would otherwise mint a new
+    /// checklist row and lose the attachments bound to the old one. When the
+    /// snapshot differs from the previous one by exactly one entry on each
+    /// side, that pairing is unambiguous and the old identity is reused.
+    /// Anything less certain keeps the derived id rather than guessing.
+    private func reconcilingIdlessRewordings(
+        _ parsed: [WorkstreamTaskTodo]
+    ) -> [WorkstreamTaskTodo] {
+        guard parsed.count == todos.count else { return parsed }
+        let previousIds = Set(todos.map(\.id))
+        let parsedIds = Set(parsed.map(\.id))
+        let departed = previousIds.subtracting(parsedIds)
+        let arrived = parsedIds.subtracting(previousIds)
+        guard departed.count == 1, arrived.count == 1,
+              let oldId = departed.first, let newId = arrived.first,
+              // Only for derived ids: a producer that reports its own ids has
+              // already told us the identity, and must be taken at its word.
+              oldId.hasPrefix("content-"), newId.hasPrefix("content-")
+        else { return parsed }
+        return parsed.map { todo in
+            guard todo.id == newId else { return todo }
+            return WorkstreamTaskTodo(id: oldId, content: todo.content, state: todo.state)
         }
     }
 
