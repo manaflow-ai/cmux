@@ -1061,22 +1061,14 @@ pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect) {
             let (first_width, second_width) = split_extent(area.width, ratio);
             (
                 Rect { width: first_width, ..area },
-                Rect {
-                    x: area.x.saturating_add(first_width),
-                    width: second_width,
-                    ..area
-                },
+                Rect { x: area.x.saturating_add(first_width), width: second_width, ..area },
             )
         }
         SplitDir::Down => {
             let (first_height, second_height) = split_extent(area.height, ratio);
             (
                 Rect { height: first_height, ..area },
-                Rect {
-                    y: area.y.saturating_add(first_height),
-                    height: second_height,
-                    ..area
-                },
+                Rect { y: area.y.saturating_add(first_height), height: second_height, ..area },
             )
         }
     }
@@ -1106,11 +1098,7 @@ fn split_virtual_sides(area: VirtualRect, dir: SplitDir, ratio: f32) -> (Virtual
             let (first_width, second_width) = split_virtual_extent(area.width, ratio);
             (
                 VirtualRect { width: first_width, ..area },
-                VirtualRect {
-                    x: area.x.saturating_add(first_width),
-                    width: second_width,
-                    ..area
-                },
+                VirtualRect { x: area.x.saturating_add(first_width), width: second_width, ..area },
             )
         }
         SplitDir::Down => {
