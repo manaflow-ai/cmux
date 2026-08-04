@@ -8,7 +8,6 @@ extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
-        let focusedPaneIdBeforeLayout = bonsplitController.focusedPaneId
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
@@ -33,10 +32,6 @@ extension Workspace {
 
         if let focusPanelId {
             focusPanel(focusPanelId)
-        } else if let focusedPaneIdBeforeLayout,
-                  bonsplitController.focusedPaneId != focusedPaneIdBeforeLayout,
-                  bonsplitController.allPaneIds.contains(focusedPaneIdBeforeLayout) {
-            bonsplitController.focusPane(focusedPaneIdBeforeLayout)
         }
     }
 
@@ -116,6 +111,7 @@ extension Workspace {
         guard !surfaces.isEmpty else { return }
 
         let firstSurface = surfaces[0]
+        var selectedPanelId: UUID?
         if let placeholderPanelId = existingPanelIds.first {
             let configuredPanelId = configureExistingSurface(
                 panelId: placeholderPanelId,
@@ -125,10 +121,8 @@ extension Workspace {
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
-            if firstSurface.selected == true,
-               let configuredPanelId,
-               let tabId = surfaceIdFromPanelId(configuredPanelId) {
-                bonsplitController.selectTab(tabId)
+            if firstSurface.selected == true {
+                selectedPanelId = configuredPanelId
             }
         }
 
@@ -139,7 +133,6 @@ extension Workspace {
         bonsplitController.configuration.newTabPosition = .end
         defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
 
-        var selectedPanelId: UUID?
         for surfaceIndex in 1..<surfaces.count {
             let createdPanelId = createNewSurface(
                 inPane: paneId,
@@ -154,8 +147,23 @@ extension Workspace {
         }
         if let selectedPanelId,
            let tabId = surfaceIdFromPanelId(selectedPanelId) {
-            bonsplitController.selectTab(tabId)
+            restoreCustomLayoutSelection(tabId)
         }
+    }
+
+    private func restoreCustomLayoutSelection(_ tabId: TabID) {
+        let focusedPaneId = bonsplitController.focusedPaneId
+        let wasSuppressingSelectionActivation = suppressesCustomLayoutSelectionActivation
+        suppressesCustomLayoutSelectionActivation = true
+        defer {
+            if let focusedPaneId,
+               bonsplitController.focusedPaneId != focusedPaneId,
+               bonsplitController.allPaneIds.contains(focusedPaneId) {
+                bonsplitController.focusPane(focusedPaneId)
+            }
+            suppressesCustomLayoutSelectionActivation = wasSuppressingSelectionActivation
+        }
+        bonsplitController.selectTab(tabId)
     }
 
     /// Consumes the workspace-level setup command on the first terminal surface it

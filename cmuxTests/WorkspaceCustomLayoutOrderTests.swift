@@ -131,6 +131,8 @@ import Testing
         let workspace = Workspace()
         let focusedPaneBefore = try #require(workspace.bonsplitController.focusedPaneId)
         let focusedPanelBefore = try #require(workspace.focusedPanelId)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
 
         workspace.applyCustomLayout(
             .split(CmuxSplitDefinition(
@@ -154,6 +156,21 @@ import Testing
         #expect(workspace.bonsplitController.selectedTab(inPane: panes.second)?.title == "Background A")
         #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
         #expect(workspace.focusedPanelId == focusedPanelBefore)
+
+        let backgroundPaneId = panes.second.id.uuidString
+        let falseBackgroundFocusEvents = CmuxEventBus.shared.retainedSnapshot().filter { event in
+            guard event["pane_id"] as? String == backgroundPaneId else { return false }
+            switch event["name"] as? String {
+            case "pane.focused", "surface.focused":
+                return true
+            case "surface.selected":
+                let payload = event["payload"] as? [String: Any]
+                return payload?["focused"] as? Bool == true
+            default:
+                return false
+            }
+        }
+        #expect(falseBackgroundFocusEvents.isEmpty)
     }
 
     @Test(arguments: [CapturePath.savedLayout, .configAction])
