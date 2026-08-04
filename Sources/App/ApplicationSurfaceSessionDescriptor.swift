@@ -1,11 +1,6 @@
 import CmuxSimulator
 import Darwin
 
-struct ApplicationSurfaceProcessIdentity: Equatable, Sendable {
-    let startSeconds: Int64
-    let startMicroseconds: Int64
-}
-
 struct ApplicationSurfaceSessionDescriptor: Equatable, Sendable {
     private static let frameHeaderByteCount = 64
     private static let framePixelByteCount = 4

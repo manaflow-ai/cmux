@@ -267,6 +267,7 @@
 		A8850000000000000000001E /* ApplicationSurfacePickerPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000001D /* ApplicationSurfacePickerPhase.swift */; };
 		A88500000000000000000020 /* ApplicationSurfacePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000001F /* ApplicationSurfacePickerRow.swift */; };
 		A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000003 /* ApplicationSurfacePickerView.swift */; };
+		A89000000000000000000002 /* ApplicationSurfaceProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89000000000000000000001 /* ApplicationSurfaceProcessIdentity.swift */; };
 		A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */; };
 		A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */; };
 		A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */; };
@@ -3019,6 +3020,7 @@
 		A8850000000000000000001D /* ApplicationSurfacePickerPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerPhase.swift; sourceTree = "<group>"; };
 		A8850000000000000000001F /* ApplicationSurfacePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerRow.swift; sourceTree = "<group>"; };
 		A88300000000000000000003 /* ApplicationSurfacePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerView.swift; sourceTree = "<group>"; };
+		A89000000000000000000001 /* ApplicationSurfaceProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceProcessIdentity.swift; sourceTree = "<group>"; };
 		A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntime.swift; sourceTree = "<group>"; };
 		A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeError.swift; sourceTree = "<group>"; };
 		A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeLease.swift; sourceTree = "<group>"; };
@@ -6076,6 +6078,7 @@
 					A88500000000000000000003 /* ApplicationSurfaceInputEventKind.swift */,
 					A88C00000000000000000005 /* ApplicationSurfaceFailureEventRegistry.swift */,
 					A88C00000000000000000001 /* ApplicationSurfaceInputConnectionRegistry.swift */,
+					A89000000000000000000001 /* ApplicationSurfaceProcessIdentity.swift */,
 					A88500000000000000000005 /* ApplicationSurfacePendingStop.swift */,
 					A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */,
 					A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */,
@@ -8833,6 +8836,7 @@
 				A8850000000000000000001E /* ApplicationSurfacePickerPhase.swift in Sources */,
 				A88500000000000000000020 /* ApplicationSurfacePickerRow.swift in Sources */,
 				A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */,
+				A89000000000000000000002 /* ApplicationSurfaceProcessIdentity.swift in Sources */,
 				A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */,
 				A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */,
 				A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */,
