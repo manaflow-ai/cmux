@@ -494,14 +494,17 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func openCodeTargetUsesPromptFlag() throws {
+    func openCodeTargetCreatesFreshSessionBeforeOpeningTUI() throws {
         let command = try #require(
             AgentConversationForkRequest.TargetHarness.opencode.startupCommand(
                 handoffMessage: "User:\nContinue this work"
             )
         )
 
-        #expect(command.hasPrefix("opencode --prompt "))
+        #expect(command.contains("opencode run --format json -- "))
+        #expect(command.contains(#""sessionID":""#))
+        #expect(command.contains(#"exec opencode --session "$opencode_session""#))
+        #expect(!command.contains("opencode --prompt"))
         #expect(command.contains("Continue this work"))
     }
 
