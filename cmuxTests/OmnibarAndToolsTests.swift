@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -860,9 +859,7 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
         )
         slot.layoutSubtreeIfNeeded()
 
-        let overlay = slot.subviews.first {
-            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
-        }
+        let overlay = slot.subviews.first { $0 is BrowserPortalOmnibarSuggestionsOverlayView }
         XCTAssertNotNil(overlay)
         guard let overlay else { return }
 
@@ -933,22 +930,18 @@ private final class OmnibarInlineDeletionHarness {
         }
     }
 
-    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
-        OmnibarTextFieldRepresentable.Coordinator(
-            parent: OmnibarTextFieldRepresentable(
+    private func makeCoordinator() -> OmnibarTextFieldNativeHost.Coordinator {
+        OmnibarTextFieldNativeHost.Coordinator(
+            configuration: OmnibarTextFieldNativeConfiguration(
                 panelId: UUID(),
                 fontSize: 12,
-                text: Binding(
-                    get: { self.state.buffer },
-                    set: { self.state.buffer = $0 }
-                ),
-                isFocused: Binding(
-                    get: { self.state.isFocused },
-                    set: { self.state.isFocused = $0 }
-                ),
+                text: state.buffer,
+                isFocused: state.isFocused,
                 selectAllRequestId: 0,
                 inlineCompletion: inlineCompletion,
                 placeholder: "",
+                onTextChange: { self.state.buffer = $0 },
+                onFocusChange: { self.state.isFocused = $0 },
                 onTap: {},
                 onSubmit: { _ in },
                 onEscape: {},

@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -3305,7 +3304,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let clipView = NSView(frame: NSRect(x: 60, y: 40, width: 150, height: 120))
         contentView.addSubview(clipView)
 
-        // Simulate SwiftUI/AppKit reporting an anchor wider than the actual visible pane.
+        // Simulate the host reporting an anchor wider than the actual visible pane.
         let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
         clipView.addSubview(anchor)
 
@@ -4126,7 +4125,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertTrue(
             webView.superview === slot,
-            "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
+            "Hidden workspace browsers should stay attached while their anchor is temporarily unmounted"
         )
         XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
         XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
@@ -4191,24 +4190,20 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
     private func makeCoordinator(
         panelId: UUID = UUID(),
         isFocused: Bool = true
-    ) -> OmnibarTextFieldRepresentable.Coordinator {
+    ) -> OmnibarTextFieldNativeHost.Coordinator {
         var text = ""
         var focused = isFocused
-        return OmnibarTextFieldRepresentable.Coordinator(
-            parent: OmnibarTextFieldRepresentable(
+        return OmnibarTextFieldNativeHost.Coordinator(
+            configuration: OmnibarTextFieldNativeConfiguration(
                 panelId: panelId,
                 fontSize: 12,
-                text: Binding(
-                    get: { text },
-                    set: { text = $0 }
-                ),
-                isFocused: Binding(
-                    get: { focused },
-                    set: { focused = $0 }
-                ),
+                text: text,
+                isFocused: focused,
                 selectAllRequestId: 0,
                 inlineCompletion: nil,
                 placeholder: "",
+                onTextChange: { text = $0 },
+                onFocusChange: { focused = $0 },
                 onTap: {},
                 onSubmit: { _ in },
                 onEscape: {},
@@ -4292,9 +4287,9 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
     }
 
     /// The native single-click path can place a caret correctly and still be
-    /// clobbered later by the SwiftUI focus-gained effect. This exercises that
+    /// clobbered later by the host focus-gained update. This exercises that
     /// full behavior path instead of only checking the field's mouse handlers.
-    func testSwiftUIFocusGainedEffectDoesNotClobberSingleClickCaret() {
+    func testFocusGainedUpdateDoesNotClobberSingleClickCaret() {
         let window = makeCaretProbeWindow()
         let field = installOmnibarField(in: window)
         window.makeKeyAndOrderFront(nil)
