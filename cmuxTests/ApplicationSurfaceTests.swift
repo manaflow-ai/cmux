@@ -543,6 +543,39 @@ struct ApplicationSurfaceTests {
             keyCode: UInt16(kVK_Shift),
             keyDown: true
         ))
+
+        window.reportsKeyWindow = false
+        NotificationCenter.default.post(
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+        await view.waitUntilForwardedInputReleased()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        #expect(runtime.sentEvents.count == 4)
+        #expect(runtime.sentEvents[3] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: false
+        ))
+
+        window.reportsKeyWindow = true
+        NotificationCenter.default.post(
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        let keyWindowPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 5,
+              ContinuousClock.now < keyWindowPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 5)
+        #expect(runtime.sentEvents[4] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
     }
 
     @Test func frameTransportFailuresResolveThroughTheAppStringCatalog() {
@@ -2849,7 +2882,13 @@ private final class ApplicationSurfaceFrameRingFixture {
 }
 
 private final class ApplicationSurfaceVisibleTestWindow: NSWindow {
+    var reportsKeyWindow: Bool?
+
     override var isVisible: Bool { true }
+
+    override var isKeyWindow: Bool {
+        reportsKeyWindow ?? super.isKeyWindow
+    }
 
     override var occlusionState: NSWindow.OcclusionState { [.visible] }
 }
