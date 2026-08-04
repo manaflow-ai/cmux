@@ -16745,6 +16745,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
+        // The "Don't warn again for Cmd+Q" preference does not apply here:
+        // Ctrl+D has already exited the sole shell, so this decision must offer
+        // Cancel as the only way to recover a terminal instead of quitting cmux.
         _ = handleQuitShortcutWarning(
             onCancel: onCancel,
             forceConfirmation: onCancel != nil
