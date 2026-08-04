@@ -2864,13 +2864,21 @@ import Testing
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + budget) == .timedOut
+        let initialWait = exitSignal.wait(timeout: .now() + budget)
+        let timedOut = initialWait == .timedOut
+        var reaped = initialWait == .success
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
-               process.isRunning {
+            let terminationWait = exitSignal.wait(timeout: .now() + 1)
+            if terminationWait == .success {
+                reaped = true
+            } else if process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                reaped = exitSignal.wait(timeout: .now() + 1) == .success
+            } else {
+                // `isRunning == false` means Foundation has observed termination even if
+                // the background waiter was delayed before signalling the semaphore.
+                reaped = true
             }
         }
 
@@ -2879,6 +2887,20 @@ import Testing
         // outlived its parent: report what was read rather than block the suite on it.
         let stdoutText = stdoutDrain.text(waitingUpTo: 5)
         let stderrText = stderrDrain.text(waitingUpTo: 5)
+
+        guard reaped else {
+            // Foundation raises NSInvalidArgumentException if either termination property
+            // is read before the child exits. Keep an unkillable child from taking down the
+            // shared test host: return a failing sentinel without touching those properties.
+            let message = "test runner could not reap the process after SIGKILL"
+            let diagnostics = stderrText.isEmpty ? message : "\(stderrText)\n\(message)"
+            return ProcessRunResult(
+                status: -1,
+                stdout: stdoutText,
+                stderr: diagnostics,
+                timedOut: true
+            )
+        }
 
         return ProcessRunResult(
             status: process.terminationStatus,

@@ -1499,6 +1499,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         remoteWorkspace.configureRemoteConnection(config, autoConnect: false)
         manager.closeWorkspace(remoteWorkspace)
 
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == remoteWorkspace.id }))
         wait(for: [cleanupRequested], timeout: 1.0)
         XCTAssertTrue(cleanup.arguments.isEmpty, "expected no cleanup for an unresolved control template, got \(cleanup.arguments)")
     }
@@ -2005,7 +2006,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let lock = NSLock()
         var uploadCommand: String?
         var uploadDestination: String?
-        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
+        var uploadPayload: Data?
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, stdin, _ in
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
@@ -2030,6 +2032,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     lock.lock()
                     uploadCommand = command
                     uploadDestination = arguments.dropLast().last
+                    uploadPayload = stdin
                     lock.unlock()
                     uploadInvoked.fulfill()
                     return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
@@ -2070,6 +2073,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         lock.lock()
         let capturedCommand = uploadCommand
         let capturedDestination = uploadDestination
+        let capturedPayload = uploadPayload
         lock.unlock()
         // The property under test is unchanged — the daemon lands on an absolute path under the
         // remote HOME rather than a relative one — but it now lives in the remote command instead
@@ -2084,6 +2088,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             "expected daemon platform temp path in \(command)"
         )
         XCTAssertEqual(try XCTUnwrap(capturedDestination), "test@hpc.example")
+        XCTAssertEqual(try XCTUnwrap(capturedPayload), Data("fake daemon".utf8))
     }
 
     @MainActor
@@ -2109,11 +2114,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         // actor would starve the session transition this test is waiting on.
         let uploadInvoked = expectation(description: "daemon upload invoked")
         uploadInvoked.assertForOverFulfill = false
+        let fakeDaemonData = Data("fake daemon".utf8)
         let lock = NSLock()
         var uploadCommand: String?
+        var uploadPayload: Data?
         var helloCountBeforeUpload = 0
         var helloCount = 0
-        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, stdin, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
@@ -2149,6 +2156,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("cat > ") {
                     lock.lock()
                     uploadCommand = command
+                    uploadPayload = stdin
                     helloCountBeforeUpload = helloCount
                     lock.unlock()
                     uploadInvoked.fulfill()
@@ -2168,7 +2176,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         at: outputURL.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
-                    try Data("fake daemon".utf8).write(to: outputURL)
+                    try fakeDaemonData.write(to: outputURL)
                     try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputURL.path)
                 }
                 return (status: 0, stdout: "", stderr: "")
@@ -2200,6 +2208,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [uploadInvoked], timeout: 2.0)
         lock.lock()
         let capturedCommand = uploadCommand
+        let capturedPayload = uploadPayload
         let capturedHelloCount = helloCountBeforeUpload
         lock.unlock()
         let command = try XCTUnwrap(capturedCommand)
@@ -2207,6 +2216,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
             "expected missing pty.session to reinstall the old daemon, got \(command)"
         )
+        XCTAssertEqual(try XCTUnwrap(capturedPayload), fakeDaemonData)
         // Without this the test would also pass on a plain first install, which is not what it is
         // named for: the reinstall is only meaningful once a hello has reported the old capabilities.
         XCTAssertGreaterThan(
