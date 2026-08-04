@@ -84,6 +84,23 @@ struct WorkspaceRepositorySidebarTests {
     }
 
     @Test
+    func snapshotHidesRepositoryLinkForRemoteTmuxMirror() throws {
+        let workspace = Workspace(title: "Remote tmux repository workspace")
+        workspace.isRemoteTmuxMirror = true
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        workspace.updatePanelRepositoryLink(
+            panelId: focusedPanelId,
+            link: try Self.repositoryLink(
+                remoteName: "origin",
+                displayName: "manaflow-ai/cmux",
+                destination: "https://github.com/manaflow-ai/cmux"
+            )
+        )
+
+        #expect(Self.snapshot(for: workspace).repositoryLink == nil)
+    }
+
+    @Test
     func repositoryActionTargetsClickedWorkspaceBrowserBeforeFallback() throws {
         let clickedWorkspaceId = UUID()
         let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux"))
