@@ -363,6 +363,32 @@ extension AuthCoordinator {
     ///   `false` and the root scene routes to the sign-in page instead of
     ///   showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
+        let generation = sessionGeneration
+        if let activeForcedAccessTokenRefresh,
+           activeForcedAccessTokenRefresh.generation == generation {
+            return try await activeForcedAccessTokenRefresh.task.value
+        }
+
+        let refreshID = UUID()
+        let refreshTask = Task { @MainActor [weak self] () throws -> String in
+            guard let self else { throw CancellationError() }
+            defer { self.finishForcedAccessTokenRefresh(id: refreshID) }
+            return try await self.performForcedAccessTokenRefresh()
+        }
+        activeForcedAccessTokenRefresh = (
+            id: refreshID,
+            generation: generation,
+            task: refreshTask
+        )
+        return try await refreshTask.value
+    }
+
+    private func finishForcedAccessTokenRefresh(id: UUID) {
+        guard activeForcedAccessTokenRefresh?.id == id else { return }
+        activeForcedAccessTokenRefresh = nil
+    }
+
+    private func performForcedAccessTokenRefresh() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {
                 try await self.forceRefreshAccessTokenWithoutStateClear()

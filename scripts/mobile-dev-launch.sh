@@ -30,7 +30,8 @@
 #              When attach flags are repeated, the last flag wins.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
-#              running after this script exits.
+#              running after this script exits. Auto-paired launches also omit
+#              stdio attachment so readiness can complete while the app runs.
 #   --iroh-release-gate <automatic|relayOnly|directOnly>
 #              simulator only: run the credential-free Iroh release-gate probe
 #              after sign-in and attach.
@@ -211,9 +212,6 @@ if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
 fi
 echo "==> launching $BUNDLE_ID on $TARGET (signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 READINESS_STARTED_MS=""
-if [[ -n "$READINESS_CURSOR" ]]; then
-  READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
-fi
 
 if [[ "$TARGET" == "simulator" ]]; then
   if [[ -n "$SIMULATOR_ID" ]]; then
@@ -233,8 +231,14 @@ if [[ "$TARGET" == "simulator" ]]; then
     cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
   )"
   launch_args=(launch)
-  if [[ "$DETACH" -ne 1 ]]; then
+  # `--console-pty` stays attached until the app exits. An attached dogfood
+  # launch must instead return to its replayable readiness cursor while the app
+  # is alive, so only intentionally unpaired interactive launches attach stdio.
+  if [[ "$DETACH" -ne 1 && -z "$READINESS_CURSOR" ]]; then
     launch_args+=(--console-pty)
+  fi
+  if [[ -n "$READINESS_CURSOR" ]]; then
+    READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
   fi
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
@@ -261,6 +265,9 @@ else
   # --help` (518.31): "set them in the calling environment with a DEVICECTL_CHILD_
   # prefix", and the -e note "Using the environment-variables flag will override
   # the caller environment variables prefixed with DEVICECTL_CHILD_".
+  if [[ -n "$READINESS_CURSOR" ]]; then
+    READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
+  fi
   DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
