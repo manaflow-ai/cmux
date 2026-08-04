@@ -967,8 +967,15 @@ struct RestorableAgentSessionIndexTests {
             workspaceId: restoredWorkspaceId,
             panelId: panelId
         )
+        // FileManager's directory enumerator canonicalizes the existing temp path from
+        // /var/... to /private/var/..., while the fixture URL retains its /var/... spelling.
+        // Resolve both URLs so this assertion checks the selected file, not that lexical alias.
+        let expectedLatestSessionURL = detectedLatestFile.resolvingSymlinksInPath()
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestFile.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: detected.snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -979,7 +986,10 @@ struct RestorableAgentSessionIndexTests {
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestFile.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
     }
 
     @Test
