@@ -124,6 +124,105 @@ extension View {
     }
 }
 
+// MARK: - Transitional SwiftUI settings adapter
+
+private struct SettingsRuntimeEnvironmentKey: EnvironmentKey {
+    static let defaultValue: SettingsRuntime? = nil
+}
+
+extension EnvironmentValues {
+    var settingsRuntime: SettingsRuntime? {
+        get { self[SettingsRuntimeEnvironmentKey.self] }
+        set { self[SettingsRuntimeEnvironmentKey.self] = newValue }
+    }
+}
+
+extension View {
+    func settingsRuntime(_ runtime: SettingsRuntime) -> some View {
+        environment(\.settingsRuntime, runtime)
+    }
+}
+
+@propertyWrapper
+struct LiveSetting<Value: SettingCodable>: DynamicProperty {
+    @Environment(\.settingsRuntime) private var runtime
+    @State private var value: Value
+    @State private var driver = SettingReadDriver<Value>()
+
+    private let makeStream: @Sendable (SettingsRuntime) -> AsyncStream<Value>
+    private let persist: @Sendable (SettingsRuntime, Value) -> Void
+
+    init(_ keyPath: KeyPath<SettingCatalog, DefaultsKey<Value>>) {
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
+        makeStream = { runtime in
+            runtime.userDefaultsStore.values(for: key)
+        }
+        persist = { runtime, newValue in
+            Task { @MainActor in
+                await runtime.userDefaultsStore.set(newValue, for: key)
+            }
+        }
+    }
+
+    init(_ keyPath: KeyPath<SettingCatalog, JSONKey<Value>>) {
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
+        makeStream = { runtime in
+            runtime.jsonStore.values(for: key)
+        }
+        persist = { runtime, newValue in
+            let errorLog = runtime.errorLog
+            Task { @MainActor in
+                do {
+                    try await runtime.jsonStore.set(newValue, for: key)
+                } catch {
+                    errorLog.record(error, keyID: key.id)
+                }
+            }
+        }
+    }
+
+    init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
+        makeStream = { runtime in
+            runtime.secretStore.values(for: key)
+        }
+        persist = { runtime, newValue in
+            let errorLog = runtime.errorLog
+            Task { @MainActor in
+                do {
+                    try await runtime.secretStore.set(newValue, for: key)
+                } catch {
+                    errorLog.record(error, keyID: key.id)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    var wrappedValue: Value {
+        get { value }
+        nonmutating set {
+            if let runtime {
+                persist(runtime, newValue)
+            }
+        }
+    }
+
+    @MainActor
+    var projectedValue: Binding<Value> {
+        Binding(get: { value }, set: { wrappedValue = $0 })
+    }
+
+    func update() {
+        guard let runtime else { return }
+        let binding = $value
+        driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
+    }
+}
+
 extension View {
     @ViewBuilder
     func safeHelp(_ text: String) -> some View {

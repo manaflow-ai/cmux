@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Implementations must be `@MainActor`-safe because the package reads
 /// `currentIdentity` / `availableTeams` / `selectedTeamID` from view
-/// bodies. Use `@Observable` so SwiftUI tracks changes.
+/// controllers. Use `@Observable` so native observers track changes.
 @MainActor
 public protocol AccountFlow: AnyObject {
     /// The currently signed-in user, or `nil` if signed out.

@@ -31,7 +31,7 @@ public struct SettingsSearchIndex: Sendable {
             case setting(parent: SettingsSectionID)
         }
 
-        /// Stable identifier used by SwiftUI list selection and search-result diffing.
+        /// Stable identifier used by list selection and search-result diffing.
         public let id: String
         /// Whether the result selects a section or a setting row inside a section.
         public let kind: Kind

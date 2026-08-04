@@ -29,7 +29,7 @@ struct SettingsRowAnchorResolutionTests {
     /// parent (Socket Control Mode / Default Search Engine) instead.
     ///
     /// This is a deliberately hand-maintained contract list: the rows live
-    /// in SwiftUI view bodies (`Sections/*.swift`) that can't be reflected
+    /// in settings controller code that cannot be reflected
     /// from a test, so there's no `Mirror`-style seam to derive it. Adding
     /// a settings row means adding its path here. Two companion tests bound
     /// the drift this can't catch on its own: ``everyCuratedSettingEntryIsReachable``

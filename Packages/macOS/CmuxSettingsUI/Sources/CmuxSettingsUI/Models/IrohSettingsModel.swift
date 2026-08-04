@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import Observation
 
-/// Main-actor projection of the app's Iroh settings controller for SwiftUI.
+/// Main-actor projection of the app's Iroh settings controller for native UI.
 @MainActor
 @Observable
 final class IrohSettingsModel {

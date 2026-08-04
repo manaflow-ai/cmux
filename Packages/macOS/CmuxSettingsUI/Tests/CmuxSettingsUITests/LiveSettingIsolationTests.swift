@@ -1,26 +1,10 @@
 import CmuxSettings
 import os
-import SwiftUI
 import Testing
 
 @testable import CmuxSettingsUI
 
-@Suite struct LiveSettingIsolationTests {
-    @MainActor
-    @Test func dynamicPropertyWitnessRunsWithoutMainActorExecutor() async {
-        // The lock exclusively owns the non-Sendable property after construction;
-        // every detached access occurs synchronously under that same lock.
-        let box = OSAllocatedUnfairLock(
-            uncheckedState: (LiveSetting(\.betaFeatures.extensions) as any DynamicProperty)
-        )
-        let didUpdate = await Task.detached {
-            box.withLock { $0.update() }
-            return true
-        }.value
-
-        #expect(didUpdate)
-    }
-
+@Suite struct SettingReadDriverIsolationTests {
     @Test func readDriverActivatesExactlyOnceAcrossConcurrentUpdates() async {
         let driver = SettingReadDriver<Int>()
         let activationCount = OSAllocatedUnfairLock(initialState: 0)

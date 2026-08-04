@@ -79638,13 +79638,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renders as native SwiftUI inside cmux with hover, focus, and typing. A faulty sidebar shares the app process."
+            "value": "Renders as native AppKit inside cmux with hover, focus, and typing. A faulty sidebar shares the app process."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内でネイティブ SwiftUI として描画し、ホバー・フォーカス・入力に対応します。サイドバーに問題があるとアプリプロセスに影響します。"
+            "value": "cmux 内でネイティブ AppKit として描画し、ホバー・フォーカス・入力に対応します。サイドバーに問題があるとアプリプロセスに影響します。"
           }
         }
       }

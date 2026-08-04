@@ -3,20 +3,20 @@ import Foundation
 import Observation
 
 /// `@Observable` view-model that projects one ``DefaultsKey`` value into
-/// SwiftUI-bindable state.
+/// Main-actor state for native controls.
 ///
-/// SwiftUI views need synchronous reads against a `Binding<Value>` in
+/// Native controls need synchronous reads in
 /// their body. The ``UserDefaultsSettingsStore`` API is `async`, so we
 /// can't bind directly. ``DefaultsValueModel`` is the bridge:
 ///
 /// 1. On construction it seeds ``current`` from the synchronous
 ///    `UserDefaults` value, but does not subscribe yet. ``startObserving()``
 ///    subscribes to
-///    ``UserDefaultsSettingsStore/valueEvents(for:)`` once the owning SwiftUI view
+///    ``UserDefaultsSettingsStore/valueEvents(for:)`` once the owning controller
 ///    is mounted. That stream is `.bufferingNewest(1)`, so a burst of writes
 ///    (e.g. a `ColorPicker` drag) coalesces to the latest value instead of
 ///    replaying every intermediate back through ``current``.
-/// 2. SwiftUI views read ``current`` synchronously and write via ``set(_:)``.
+/// 2. Native controls read ``current`` synchronously and write via ``set(_:)``.
 /// 3. ``set(_:)`` updates ``current`` optimistically (immediate UI) and
 ///    persists the write in a fire-and-forget `Task`. ``set(_:afterCommit:)``
 ///    uses the same store path, then runs a main-actor side effect after the
@@ -32,7 +32,7 @@ import Observation
 @MainActor
 @Observable
 public final class DefaultsValueModel<Value: SettingCodable> {
-    /// The most recently observed value. SwiftUI views read this synchronously.
+    /// The most recently observed value. Native controls read this synchronously.
     public private(set) var current: Value
     private(set) var revision = 0
 
@@ -89,7 +89,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         self.store = store
         self.key = key
         self.makeStream = makeStream
-        // Keep init side-effect-light. SwiftUI may evaluate
+        // Keep init side-effect-light. UI composition may evaluate
         // `State(initialValue:)` for throwaway view values during layout, so
         // observing starts only after the retained view appears.
         let resolvedInitialValue = initialValue ?? key.defaultValue
@@ -118,7 +118,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// Persists the value. The observation stream is the single writer of
     /// ``current`` for external changes, but direct UI writes update it
     /// optimistically before the async storage write. Synchronous because
-    /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
+    /// Control callbacks cannot `await`; the write itself runs in a
     /// fire-and-forget `Task`.
     @discardableResult
     public func set(_ value: Value) -> UserDefaultsSettingsMutationSource {

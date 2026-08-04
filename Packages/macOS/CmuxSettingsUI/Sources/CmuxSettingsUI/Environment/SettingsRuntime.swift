@@ -1,16 +1,12 @@
 import CmuxSettings
-import SwiftUI
 
 /// The app-side bundle of catalog + stores + error log + account
-/// flow delegate, injected into the SwiftUI environment so views can
-/// resolve settings dependencies without threading each piece through
-/// every `init`.
+/// flow delegate used by native settings controllers.
 ///
 /// `SettingsRuntime` is a value-typed handle: the stores are actors,
 /// the error log is a `@MainActor` class, the account flow is a
 /// `@MainActor` protocol existential — the bundle itself is
-/// `Sendable`. Construct one at app startup and pass it via
-/// ``View/settingsRuntime(_:)``.
+/// `Sendable`. Construct one at app startup and pass it to each controller.
 public struct SettingsRuntime: @unchecked Sendable {
     /// Immutable setting declarations used by stores and section views.
     public let catalog: SettingCatalog
@@ -60,28 +56,5 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.errorLog = errorLog
         self.accountFlow = accountFlow
         self.hostActions = hostActions
-    }
-}
-
-private struct SettingsRuntimeKey: EnvironmentKey {
-    static let defaultValue: SettingsRuntime? = nil
-}
-
-extension EnvironmentValues {
-    /// The settings runtime visible to views via `@Environment`. `nil`
-    /// when no runtime has been injected — typically only during
-    /// previews and unit tests that don't exercise settings code paths.
-    public var settingsRuntime: SettingsRuntime? {
-        get { self[SettingsRuntimeKey.self] }
-        set { self[SettingsRuntimeKey.self] = newValue }
-    }
-}
-
-extension View {
-    /// Injects ``runtime`` into the view tree so any descendant
-    /// `@LiveSetting` property wrapper or settings section can resolve its
-    /// store, catalog, and account flow.
-    public func settingsRuntime(_ runtime: SettingsRuntime) -> some View {
-        environment(\.settingsRuntime, runtime)
     }
 }

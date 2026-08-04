@@ -7,7 +7,7 @@ import Testing
 ///
 /// The index is the seam between the catalog (data) and the settings
 /// window sidebar (UI). It is fully pure — no view-model, no actor — so
-/// it can be tested without touching SwiftUI or AppKit.
+/// it can be tested without touching AppKit.
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
     @MainActor

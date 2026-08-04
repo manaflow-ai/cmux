@@ -25,7 +25,7 @@ extension CustomSidebarRendererMode {
         case .remote:
             return String(localized: "customSidebarRenderer.remote.description", defaultValue: "Renders in a crash-isolated helper process. Clicks only: no hover, focus, or typing.")
         case .inProcess:
-            return String(localized: "customSidebarRenderer.inProcess.description", defaultValue: "Renders as native SwiftUI inside cmux with hover, focus, and typing. A faulty sidebar shares the app process.")
+            return String(localized: "customSidebarRenderer.inProcess.description", defaultValue: "Renders as native AppKit inside cmux with hover, focus, and typing. A faulty sidebar shares the app process.")
         }
     }
 }

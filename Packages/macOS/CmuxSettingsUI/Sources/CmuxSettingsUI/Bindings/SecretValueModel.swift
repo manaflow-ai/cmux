@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// `@Observable` view-model that projects one ``SecretFileKey`` value into
-/// SwiftUI-bindable state.
+/// Main-actor state for native controls.
 ///
 /// Same shape as ``DefaultsValueModel`` and ``JSONValueModel`` but bound to a
 /// ``SecretFileStore``. The secret lives in its own `0600` file, never in the
@@ -20,7 +20,7 @@ import Observation
 @MainActor
 @Observable
 public final class SecretValueModel {
-    /// The most recently observed secret. SwiftUI views read this synchronously.
+    /// The most recently observed secret. Native controls read this synchronously.
     public private(set) var current: String
 
     /// Error from the most recent set/reset attempt, or `nil`.

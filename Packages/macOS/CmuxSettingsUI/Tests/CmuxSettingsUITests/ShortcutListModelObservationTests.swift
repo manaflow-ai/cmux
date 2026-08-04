@@ -39,7 +39,7 @@ private final class ShortcutListObservationRenderer {
     }
 
     @Test func failedWriteRollbackInvalidatesPendingRenderGeneration() async throws {
-        // WHY: SwiftUI can re-install row tracking while an optimistic write is
+        // WHY: Native row tracking can be reinstalled while an optimistic write is
         // pending; rollback must invalidate that generation so rows show committed state.
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("shortcut-list-model-observation-\(UUID().uuidString)", isDirectory: true)

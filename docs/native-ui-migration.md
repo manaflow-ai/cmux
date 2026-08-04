@@ -52,8 +52,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] Modernize its concurrency and prove the fork branch is reachable on
     `manaflow-ai/bonsplit` before updating cmux's pointer.
 - [ ] macOS packages
-  - [ ] `CmuxSettingsUI` (2 temporary bridge import files remain; native
-    settings root, navigation, editors, account, and Sleepy controls complete)
+  - [x] `CmuxSettingsUI` (0; native settings root, navigation, editors,
+    account, and Sleepy controls complete)
   - [x] `CmuxSimulator` (0)
   - [x] `CmuxSwiftRenderUI` (0)
   - [x] `CmuxLiveEval` (0)

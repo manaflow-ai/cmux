@@ -19,7 +19,7 @@ import CmuxFoundation
 /// The driver is store-agnostic — it only needs an `AsyncStream<Value>` — so
 /// the same path works for every key kind (UserDefaults, JSON, secret) and
 /// for every settings consumer.
-final class SettingReadDriver<Value: Sendable>: Sendable {
+public final class SettingReadDriver<Value: Sendable>: Sendable {
     /// The atomic claim keeps activation synchronous and safe no matter which
     /// executor invokes the activation callback.
     private let isActivated = AtomicBooleanGate(false)
@@ -28,7 +28,7 @@ final class SettingReadDriver<Value: Sendable>: Sendable {
     private let lifetime: AsyncStream<Void>
     private let lifetimeContinuation: AsyncStream<Void>.Continuation
 
-    init() {
+    public init() {
         (lifetime, lifetimeContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
@@ -42,7 +42,7 @@ final class SettingReadDriver<Value: Sendable>: Sendable {
     ///   - makeStream: Builds the store change stream. Called at most once.
     ///   - sink: Receives each value on the main actor. Capture the consumer
     ///     weakly here so the forwarding task does not retain it.
-    func activate(
+    public func activate(
         _ makeStream: () -> AsyncStream<Value>,
         sink: @escaping @MainActor @Sendable (Value) -> Void
     ) {
@@ -60,7 +60,7 @@ final class SettingReadDriver<Value: Sendable>: Sendable {
     ///   - makeStream: Builds the store change stream. Called at most once.
     ///   - sink: Receives each value on the main actor. Capture the consumer
     ///     weakly here so the forwarding task does not retain it.
-    func activateAsync(
+    public func activateAsync(
         _ makeStream: @escaping @MainActor @Sendable () async -> AsyncStream<Value>,
         sink: @escaping @MainActor @Sendable (Value) -> Void
     ) {

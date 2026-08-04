@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// `@Observable` view-model that projects one ``JSONKey`` value into
-/// SwiftUI-bindable state.
+/// Main-actor state for native controls.
 ///
 /// Same shape as ``DefaultsValueModel`` but bound to a ``JSONConfigStore``.
 /// Set / reset failures populate the model's ``lastWriteError`` *and* are
@@ -94,7 +94,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// Persists the value. The observation stream is the single writer of
     /// ``current``, which updates once the write lands and the store
     /// yields it back. On failure ``lastWriteError`` is populated and
-    /// recorded in the error log. Synchronous because SwiftUI `Binding`
+    /// recorded in the error log. Synchronous because control callbacks
     /// setters can't `await`.
     public func set(_ value: Value) {
         let keyID = key.id

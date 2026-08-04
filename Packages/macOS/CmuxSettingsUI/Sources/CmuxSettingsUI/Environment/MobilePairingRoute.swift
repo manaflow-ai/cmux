@@ -11,7 +11,7 @@ import Foundation
 /// types.
 public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     /// Stable identifier for the route (e.g. `"tailscale"`, `"tailscale_2"`,
-    /// `"debug_loopback"`), used as the SwiftUI list identity.
+    /// `"debug_loopback"`), used as the list identity.
     public let id: String
 
     /// Human-readable transport label, already localized by the host

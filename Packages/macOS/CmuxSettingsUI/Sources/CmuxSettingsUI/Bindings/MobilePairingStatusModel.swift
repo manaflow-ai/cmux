@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// `@Observable` view-model that projects the host's live iOS pairing status
-/// into SwiftUI-readable state for the Mobile settings section.
+/// into observable state for the Mobile settings section.
 ///
 /// The status (actual bound port, ephemeral-fallback flag, connection count,
 /// routes) is host-app runtime state, not a catalog setting, so it arrives
@@ -22,7 +22,7 @@ import Observation
 @Observable
 final class MobilePairingStatusModel {
     /// The most recent pairing status, or `nil` when the host has no mobile
-    /// service running (or in previews/tests). SwiftUI views read this
+    /// service running (or in previews/tests). Native views read this
     /// synchronously.
     private(set) var current: MobilePairingStatusSnapshot?
 
