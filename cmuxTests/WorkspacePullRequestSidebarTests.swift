@@ -2,6 +2,8 @@ import XCTest
 import Darwin
 import CmuxFoundation
 import CmuxGit
+import CmuxSettings
+import CmuxSidebarGit
 
 import CmuxSidebar
 
@@ -25,20 +27,70 @@ private struct StubCommandRunner: CommandRunning {
     }
 }
 
-private final class RepositoryDiscoveryInvocationCounter: @unchecked Sendable {
+private final class BlockingRepositoryDiscovery: GitRepositoryDiscovering, @unchecked Sendable {
     private let lock = NSLock()
-    private var storedValue = 0
+    private let releaseGate = DispatchSemaphore(value: 0)
+    private let startedExpectation: XCTestExpectation
+    private let finishedExpectation: XCTestExpectation
+    private var storedInvocationCount = 0
+    private var storedReachedCleanupDeadline = false
+    private var storedReleased = false
 
-    func increment() {
-        lock.lock()
-        storedValue += 1
-        lock.unlock()
+    init(
+        startedExpectation: XCTestExpectation,
+        finishedExpectation: XCTestExpectation
+    ) {
+        self.startedExpectation = startedExpectation
+        self.finishedExpectation = finishedExpectation
     }
 
-    var value: Int {
+    func repositorySlugs(forDirectory directory: String) async -> [String] {
+        recordInvocationAndBlockUntilReleased()
+        return []
+    }
+
+    func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
+        .notARepository
+    }
+
+    private func recordInvocationAndBlockUntilReleased() {
+        lock.lock()
+        storedInvocationCount += 1
+        lock.unlock()
+
+        startedExpectation.fulfill()
+        // This deadline is only deadlock cleanup. The test releases the gate
+        // after it observes a queued main-run-loop turn; reaching the deadline
+        // is itself a failure signal.
+        if releaseGate.wait(timeout: .now() + 5) == .timedOut {
+            lock.lock()
+            storedReachedCleanupDeadline = true
+            storedReleased = true
+            lock.unlock()
+        }
+        finishedExpectation.fulfill()
+    }
+
+    func release() {
+        lock.lock()
+        let shouldSignal = !storedReleased
+        storedReleased = true
+        lock.unlock()
+        if shouldSignal {
+            releaseGate.signal()
+        }
+    }
+
+    var invocationCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return storedValue
+        return storedInvocationCount
+    }
+
+    var reachedCleanupDeadline: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedReachedCleanupDeadline
     }
 }
 
@@ -528,105 +580,89 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
-        let invocationCounter = RepositoryDiscoveryInvocationCounter()
-        let discoveryDelay: TimeInterval = 0.03
-        // Repository discovery reads git config in process; it has not shelled out
-        // to `git remote -v` since #2797, so stubbing a command runner observes
-        // nothing and leaves every assertion below vacuous. Stand in for the
-        // discovery seam instead. Resolving no slugs also keeps the refresh away
-        // from the GitHub transport and from `gh auth token`, because the fetch
-        // returns before it asks for an auth header when the slug map is empty.
-        struct BlockingRepositoryDiscovery: GitRepositoryDiscovering {
-            let counter: RepositoryDiscoveryInvocationCounter
-            let delay: TimeInterval
-
-            func repositorySlugs(forDirectory directory: String) async -> [String] {
-                counter.increment()
-                Thread.sleep(forTimeInterval: delay)
-                return []
-            }
-
-            func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
-                .notARepository
-            }
+        let defaults = UserDefaults.standard
+        let sidebarSettings = SidebarCatalogSection()
+        let hideAllDetailsKey = sidebarSettings.hideAllDetails.userDefaultsKey
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        let previousHideAllDetails = defaults.object(forKey: hideAllDetailsKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+            restoreUserDefault(previousShowPullRequests, key: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+            restoreUserDefault(previousHideAllDetails, key: hideAllDetailsKey)
         }
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defaults.set(false, forKey: hideAllDetailsKey)
 
-        let manager = TabManager(
-            pullRequestRepositoryDiscovery: BlockingRepositoryDiscovery(
-                counter: invocationCounter,
-                delay: discoveryDelay
-            )
+        let discoveryStarted = expectation(description: "repository discovery started")
+        discoveryStarted.assertForOverFulfill = true
+        let discoveryFinished = expectation(description: "repository discovery finished")
+        discoveryFinished.assertForOverFulfill = true
+        let discovery = BlockingRepositoryDiscovery(
+            startedExpectation: discoveryStarted,
+            finishedExpectation: discoveryFinished
         )
-        var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
-        let workspaceCount = 45
-        var workspaces = manager.tabs
-        while workspaces.count < workspaceCount {
-            workspaces.append(manager.addWorkspace(select: false, eagerLoadTerminal: false))
+        defer {
+            discovery.release()
         }
 
-        for (index, workspace) in workspaces.enumerated() {
-            let panelId = try XCTUnwrap(workspace.focusedPanelId)
-            workspace.updatePanelDirectory(
-                panelId: panelId,
-                directory: "/tmp/cmux-pr-refresh-main-thread-\(index)"
-            )
-            workspace.updatePanelGitBranch(
-                panelId: panelId,
-                branch: "issue-3033-\(index)",
-                isDirty: false
-            )
-            seededPanels.append((workspace.id, panelId))
-        }
-
-        let monitorDuration: TimeInterval = 0.7
-        // Generous bound far above macOS CI scheduling noise (GC, unrelated test
-        // work, run-loop jitter can stall the main thread well past a few hundred
-        // ms on a loaded shared runner). This catches gross main-thread blocking
-        // without failing on routine host jitter; the invocation count below is the
-        // assertion that can fail for a product reason.
-        let allowedMainThreadGap: TimeInterval = 2.0
-        let finishedMonitoring = expectation(description: "main run loop remained responsive")
-        let monitorStartedAt = Date()
-        var lastTickAt = monitorStartedAt
-        var maxTickGap: TimeInterval = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { timer in
-            let now = Date()
-            maxTickGap = max(maxTickGap, now.timeIntervalSince(lastTickAt))
-            lastTickAt = now
-            if now.timeIntervalSince(monitorStartedAt) >= monitorDuration {
-                timer.invalidate()
-                finishedMonitoring.fulfill()
-            }
-        }
-
-        let triggerPanel = try XCTUnwrap(seededPanels.first)
-        manager.updateSurfaceShellActivity(
-            tabId: triggerPanel.workspaceId,
-            surfaceId: triggerPanel.panelId,
-            state: .promptIdle
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(
+            panelId: panelId,
+            directory: "/tmp/cmux-pr-refresh-main-run-loop"
+        )
+        workspace.updatePanelGitBranch(
+            panelId: panelId,
+            branch: "issue-3033-main-run-loop",
+            isDirty: false
         )
 
-        let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
-        timer.invalidate()
-        XCTAssertEqual(result, .completed)
-        // The load-bearing assertion. Before the discovery seam existed this test
-        // watched a `git remote -v` subprocess that the refresh stopped spawning in
-        // #2797, so the counter sat at zero and the checks below it held whether or
-        // not anything ran at all.
-        XCTAssertGreaterThan(
-            invocationCounter.value,
-            0,
-            "Pull request refresh never resolved repository slugs for any seeded panel"
+        let pollService = PullRequestPollService(
+            gitMetadataService: discovery,
+            probeService: manager.pullRequestProbeService
         )
-        // Coarse guard only, and deliberately loose: 45 seeds x 30ms of injected
-        // blocking is 1.35s, under the 2.0s ceiling, so this test's own work cannot
-        // trip it. It fires only if the product adds a multi-second main-thread stall
-        // on top, which is the gross regression worth catching here. The invocation
-        // count above is the assertion that fails for an ordinary product change.
-        XCTAssertLessThan(
-            maxTickGap,
-            allowedMainThreadGap,
-            "Pull request refresh blocked the main run loop for \(maxTickGap) seconds"
+        pollService.attach(host: manager)
+
+        pollService.scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            reason: "testMainRunLoopResponsiveness"
+        )
+
+        // The test releases discovery only after this queued main-run-loop turn
+        // executes. If discovery occupies the main thread, its cleanup deadline
+        // opens the gate instead and the assertions below fail.
+        let mainRunLoopTurnCompleted = expectation(description: "main run loop completed a queued turn")
+        DispatchQueue.main.async {
+            mainRunLoopTurnCompleted.fulfill()
+        }
+
+        let responsivenessResult = XCTWaiter().wait(
+            for: [discoveryStarted, mainRunLoopTurnCompleted],
+            timeout: 5
+        )
+        guard responsivenessResult == .completed else {
+            XCTFail("Repository discovery did not start while the main run loop remained responsive")
+            return
+        }
+        XCTAssertEqual(
+            discovery.invocationCount,
+            1,
+            "Pull request refresh should resolve repository slugs once for the tracked directory"
+        )
+        XCTAssertFalse(
+            discovery.reachedCleanupDeadline,
+            "Pull request repository discovery blocked the main run loop"
+        )
+
+        discovery.release()
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [discoveryFinished], timeout: 5),
+            .completed,
+            "Repository discovery did not finish after the test released it"
         )
     }
 
