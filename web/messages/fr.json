@@ -867,6 +867,8 @@
       "concepts": "Concepts",
       "anchorTitle": "Espace de travail d'ancrage",
       "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
+      "anchorNew": "L'ancrage d'un groupe est toujours un espace de travail entièrement nouveau au moment de la création ; ni le regroupement d'une sélection ni la création d'un groupe ne promeuvent jamais l'un de vos espaces de travail existants au rôle d'ancrage. (La fermeture ultérieure d'un ancrage promeut toutefois le premier membre restant du groupe ; voir ci-dessous.) Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via la CLI sans --cwd.",
+      "anchorClose": "La fermeture de l'espace de travail d'ancrage ferme uniquement cet espace de travail et promeut le premier membre restant du groupe (le premier encore présent dans l'ordre du groupe) comme nouvel ancrage. Le groupe et ses autres membres restent ainsi intacts (le membre promu affiche alors le nom du groupe comme en-tête). Lorsque l'ancrage est le seul espace de travail du groupe, le groupe est supprimé. Pour transformer un groupe en espaces de travail non groupés, utilisez Dissocier les espaces de travail ; pour fermer tous les espaces de travail d'un groupe, utilisez Supprimer le groupe.",
       "identityTitle": "Identité du groupe",
       "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
       "pinningTitle": "Épinglage",
@@ -3526,7 +3528,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
+    "signedOutSignIn": "Se connecter"
   },
   "platforms": {
     "macos": "macOS",
@@ -3603,6 +3607,37 @@
       "primaryCta": "Télécharger le .deb",
       "requirements": "Debian ou Ubuntu · x64",
       "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Bienvenue dans cmux Pro 🎉",
+      "fallbackName": "ami",
+      "greeting": "Bonjour {name},",
+      "thanks": "Merci d’avoir rejoint cmux Pro ! Nous peaufinons encore l’expérience Pro complète. L’accès au cloud arrive bientôt.",
+      "cloudStatus": "Lors du lancement de l’accès au cloud, nous ajouterons à votre compte des crédits d’utilisation calculés selon votre nombre de mois d’abonnement.",
+      "currentBenefit": "En attendant, votre avantage Pro est l’accès anticipé à cmux sur iOS. Inscrivez-vous avec le lien ci-dessous, puis Apple vous enverra votre invitation TestFlight une fois l’inscription terminée.",
+      "testflightLink": "S’inscrire à TestFlight : {url}",
+      "testflightLinkLabel": "S’inscrire à TestFlight",
+      "signoff": "Ravis de vous compter parmi nous !\nL’équipe cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro est actif",
+    "title": "Bienvenue dans cmux Pro",
+    "body": "Les fonctionnalités Pro sont encore en cours de développement. L’accès au cloud arrive bientôt, avec des crédits d’utilisation cumulés pour chaque mois d’abonnement. Aujourd’hui, Pro inclut l’accès à cmux iOS via TestFlight.",
+    "done": "Accéder au tableau de bord",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux pour iOS",
+        "body": "Utilisez cmux sur votre téléphone.",
+        "action": "Rejoindre la bêta iOS"
+      },
+      "billing": {
+        "title": "Gérer votre abonnement",
+        "body": "Consultez votre abonnement, vos factures et les options de résiliation.",
+        "action": "Gérer l’abonnement"
+      }
     }
   }
 }

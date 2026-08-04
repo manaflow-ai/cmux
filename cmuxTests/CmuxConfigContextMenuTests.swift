@@ -59,6 +59,19 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         return store
     }
 
+    func testMobilePairingActionMetadataNamesTailscale() {
+        let metadata = CmuxSurfaceTabBarBuiltInAction.mobileConnect.resolvedConfigMetadata
+
+        XCTAssertTrue(
+            metadata.title.localizedCaseInsensitiveContains("tailscale"),
+            "The configurable action title should identify the Tailscale pairing flow"
+        )
+        XCTAssertTrue(
+            metadata.keywords.contains("tailscale"),
+            "The configurable action should be discoverable by searching for Tailscale"
+        )
+    }
+
     func testDecodeNewWorkspaceContextMenuPreservesOrder() throws {
         let json = """
         {

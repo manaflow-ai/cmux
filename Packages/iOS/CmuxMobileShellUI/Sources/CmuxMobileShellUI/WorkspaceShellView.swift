@@ -21,6 +21,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     let title: String
     let visibleSelection: WorkspaceMacSelection
     let machines: [WorkspaceFilterMachine]
+    var statusLine: WorkspaceConnectionStatusLine?
 
     static let fallback = WorkspaceRootToolbarRenderContext(
         title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
@@ -72,6 +73,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    var statusLine: WorkspaceConnectionStatusLine?
+    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -89,11 +92,13 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     selection: selection,
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
-                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
                     select: select,
-                    addDevice: showAddDevice
+                    addDevice: showAddDevice,
+                    reconnect: reconnect
                 )
             )
             .equatable()
@@ -116,6 +121,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
+    var reconnect: (() -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -126,7 +132,9 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             selection: pendingSelection ?? renderContext.visibleSelection,
             select: select,
             machines: renderContext.machines,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            statusLine: renderContext.statusLine,
+            reconnect: reconnect
         )
     }
 }
@@ -320,17 +328,11 @@ struct WorkspaceShellView: View {
                 )
             }
         }
-        // Root-mounted on purpose (the presenter's contract): layoutContent
-        // lives inside the workspaces tab, so a presenter mounted there is
-        // unmounted while the user sits on another tab and misses every
-        // status transition that happens in the meantime.
-        .connectionStatusToastPresenter(store: store)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
-        .connectionStatusToastPresenter(store: store)
         #endif
     }
 
@@ -656,8 +658,25 @@ struct WorkspaceShellView: View {
             openDevices: { showingRootDeviceTree = true },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
-            showAddDevice: showAddDevice
+            showAddDevice: showAddDevice,
+            reconnect: reconnectClosure
         )
+    }
+
+    /// The Mail-style status line under the computers picker. Derived through
+    /// the same chrome policy as the list rows so exactly one surface owns the
+    /// connection story: reauth and initial restore render their own chrome,
+    /// transient degradation renders only this line.
+    private var toolbarConnectionStatusLine: WorkspaceConnectionStatusLine? {
+        WorkspaceListConnectionChrome(
+            hasStore: true,
+            connectionRequiresReauth: store.connectionRequiresReauth,
+            connectionRecoveryFailed: store.connectionRecoveryFailed,
+            isRecoveringConnection: store.isRecoveringConnection,
+            connectionStatus: listConnectionStatus,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut
+        ).statusLine
     }
 
     private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
@@ -732,7 +751,8 @@ struct WorkspaceShellView: View {
         return WorkspaceRootToolbarRenderContext(
             title: title,
             visibleSelection: visibleSelection,
-            machines: machineSnapshots.macPickerMachines
+            machines: machineSnapshots.macPickerMachines,
+            statusLine: toolbarConnectionStatusLine
         )
     }
 
@@ -1058,20 +1078,23 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             (navigationController?.viewControllers.count ?? 0) > 1
         }
 
-        // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers: the terminal's full-bounds scroll-mechanics
-        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
-        // the navigation controller's `interactivePopGestureRecognizer` delegate
-        // (above, so the custom back button can re-enable the swipe) drops
-        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
-        // views, so the swipe stopped popping back to the workspace list over a
-        // terminal or browser (issue #6634). Allow the pop gesture to recognize
-        // simultaneously with those surface gestures to restore it.
+        // The terminal and browser both cover the pushed workspace detail with
+        // scroll views. Letting their pans recognize alongside the pop gesture
+        // makes a diagonal back swipe scroll the surface while navigation moves.
+        // The dynamic failure rule below restores the system ownership order:
+        // off-edge touches fail the edge recognizer and then scroll normally,
+        // while an edge touch lets navigation win without dual recognition.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+            guard gestureRecognizer === navigationController?.interactivePopGestureRecognizer,
+                  otherGestureRecognizer is UIPanGestureRecognizer,
+                  let navigationView = navigationController?.view,
+                  let otherView = otherGestureRecognizer.view else {
+                return false
+            }
+            return otherView.isDescendant(of: navigationView)
         }
     }
 }

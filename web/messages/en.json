@@ -99,7 +99,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "overview",
       "accountGroup": "account",
@@ -136,20 +135,24 @@
         "upsellTitle": "Upgrade when you need cloud agents or team billing.",
         "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
         "testflightTitle": "Get the cmux iOS app",
-        "testflightBody": "The iOS beta is available through TestFlight for active Pro users and Team members.",
+        "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
       },
       "pro": {
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
-        "pendingBody": "Your plan is scheduled to end on {date}."
+        "pendingBody": "Your plan is scheduled to end on {date}.",
+        "monthlyPrice": "$30/mo",
+        "annualPrice": "$24/mo, billed annually",
+        "legacyAnnualPrice": "$20/mo, billed annually"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/month"
+        "price": "$35/seat/mo",
+        "annualPrice": "$28/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -187,13 +190,13 @@
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
         "error": "TestFlight could not be updated. Try again shortly.",
-        "ineligible": "An active Pro or Team subscription is required for iOS TestFlight.",
+        "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
         "unavailable": "TestFlight enrollment is not available right now."
       },
       "notEligible": {
         "title": "Subscription required",
-        "body": "iOS TestFlight access is available to active Pro users and members of a Team subscription."
+        "body": "iOS TestFlight access is available to active personal Pro subscribers."
       },
       "needsEmail": {
         "title": "Verified email required",
@@ -233,6 +236,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "migrationPendingTitle": "Account migration in progress",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",
@@ -399,8 +404,17 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
-    "perMonth": "/month",
-    "perUserMonth": "/user/month",
+    "perMonth": "/mo",
+    "perMonthBilledYearly": "/mo, billed yearly",
+    "perUserMonth": "/user/mo",
+    "perUserMonthBilledYearly": "/user/mo, billed yearly",
+    "billingPeriod": "Billing period",
+    "monthly": "Monthly",
+    "annual": "Annual",
+    "saveAnnual": "Save {discount}%",
+    "annualComparePrice": "${monthly}/mo",
+    "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -658,7 +672,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30 per month, or $240 per year (about $20 per month billed annually) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -666,7 +680,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
         }
       ]
     },
@@ -678,6 +692,9 @@
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
+    "signedOutSignIn": "Sign in",
+    "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
     "welcomeTeam": "Your cmux Team purchase is complete."
   },
   "home": {
@@ -4822,6 +4839,19 @@
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "Welcome to cmux Pro 🎉",
+      "fallbackName": "there",
+      "greeting": "Hey {name},",
+      "thanks": "Thanks for joining cmux Pro! We’re still putting the full Pro experience together, and cloud access is on the way.",
+      "cloudStatus": "When cloud access launches, we’ll add usage credits to your account based on how many months you’ve been subscribed.",
+      "currentBenefit": "In the meantime, your Pro benefit is early access to cmux on iOS. Sign up through the link below, and Apple will send your TestFlight invitation once you’re registered.",
+      "testflightLink": "Sign up for TestFlight: {url}",
+      "testflightLinkLabel": "Sign up for TestFlight",
+      "signoff": "Glad to have you here!\nThe cmux team"
+    }
+  },
   "tui": {
     "marketing": {
       "sectionLabel": "TUI",
@@ -4959,19 +4989,9 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
+    "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
-      "modelGateway": {
-        "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics.",
-        "action": "Open model gateway"
-      },
-      "aiAccounts": {
-        "title": "Connect your AI accounts",
-        "body": "Add provider accounts so cmux can route work through them.",
-        "action": "Connect providers"
-      },
       "iosApp": {
         "title": "cmux iOS app",
         "body": "Use cmux on your phone.",

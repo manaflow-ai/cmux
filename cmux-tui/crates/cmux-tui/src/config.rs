@@ -905,6 +905,203 @@ pub enum Action {
     Detach,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) enum ActionExecution {
+    SendPrefix,
+    NewTab,
+    NewBrowserTab,
+    NewPaneSmart,
+    NextTab,
+    PrevTab,
+    SelectTab(ActionIndex),
+    SplitRight,
+    SplitDown,
+    CloseTab,
+    ClosePane,
+    RenameTab,
+    RenameScreen,
+    RenameWorkspace,
+    CloseScreen,
+    PrevScreen,
+    NextScreen,
+    SelectScreen(ActionIndex),
+    NewScreen,
+    PrevWorkspace,
+    NextWorkspace,
+    NewWorkspace,
+    CloseWorkspace,
+    ToggleSidebar,
+    ToggleSidebarCompact,
+    ToggleSidebarView,
+    FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
+    ResizeGrow,
+    ResizeShrink,
+    ScrollUp,
+    ScrollDown,
+    ClearHistory,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
+    ShowShortcuts,
+    Detach,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+}
+
+#[cfg(test)]
+impl ActionClassification {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum WorkspaceOwnershipSource {
+    ActiveWorkspaceSession,
+}
+
+#[cfg(test)]
+impl WorkspaceOwnershipSource {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::ActiveWorkspaceSession => "active-workspace-session",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRouteTarget {
+    MuxCommand(&'static str),
+    MachineProviderRequest(&'static str),
+}
+
+#[cfg(test)]
+impl ActionRouteTarget {
+    const fn inventory_kind(self) -> &'static str {
+        match self {
+            Self::MuxCommand(_) => "mux-command",
+            Self::MachineProviderRequest(_) => "machine-provider-request",
+        }
+    }
+
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::MuxCommand(operation) | Self::MachineProviderRequest(operation) => operation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum UnknownOwnership {
+    Reject,
+}
+
+#[cfg(test)]
+impl UnknownOwnership {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRoute {
+    Static(&'static str),
+    WorkspaceOwnership {
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) struct ActionMetadata {
+    key: &'static str,
+    classification: ActionClassification,
+    route: ActionRoute,
+    execution: ActionExecution,
+}
+
+#[cfg(test)]
+impl ActionMetadata {
+    const fn new(
+        key: &'static str,
+        classification: ActionClassification,
+        route: &'static str,
+        execution: ActionExecution,
+    ) -> Self {
+        Self { key, classification, route: ActionRoute::Static(route), execution }
+    }
+
+    const fn workspace_ownership(
+        key: &'static str,
+        classification: ActionClassification,
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+        execution: ActionExecution,
+    ) -> Self {
+        Self {
+            key,
+            classification,
+            route: ActionRoute::WorkspaceOwnership {
+                source,
+                session_owned,
+                provider_owned,
+                unknown,
+            },
+            execution,
+        }
+    }
+
+    pub(crate) fn execution(self) -> ActionExecution {
+        debug_assert!(!self.key.is_empty());
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        match self.route {
+            ActionRoute::Static(route) => debug_assert!(!route.is_empty()),
+            ActionRoute::WorkspaceOwnership { source, session_owned, provider_owned, unknown } => {
+                debug_assert!(!source.inventory_name().is_empty());
+                debug_assert_eq!(session_owned.inventory_kind(), "mux-command");
+                debug_assert!(!session_owned.operation().is_empty());
+                debug_assert_eq!(provider_owned.inventory_kind(), "machine-provider-request");
+                debug_assert!(!provider_owned.operation().is_empty());
+                debug_assert_eq!(unknown.inventory_name(), "reject");
+            }
+        }
+        self.execution
+    }
+}
+
 /// One executable TUI action and the metadata shared by key configuration,
 /// context menus, shortcut help, and future command surfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1182,6 +1379,311 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &DETACH_DEFINITION,
     ];
     &DEFINITIONS
+}
+
+impl Action {
+    /// Compiled source of truth for programmability classification and
+    /// execution routing. The specification inventory checker reads this
+    /// exhaustive catalog.
+    #[cfg(test)]
+    pub(crate) fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::SendPrefix => ActionMetadata::new(
+                "send-prefix",
+                ActionClassification::Composite,
+                "frontend prefix config + active surface + send-key",
+                ActionExecution::SendPrefix,
+            ),
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::NewTab,
+            ),
+            Action::NewBrowserTab => ActionMetadata::new(
+                "new-browser-tab",
+                ActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
+                ActionExecution::NewBrowserTab,
+            ),
+            Action::NewPaneSmart => ActionMetadata::new(
+                "new-pane-smart",
+                ActionClassification::Composite,
+                "list-workspaces + new-pane",
+                ActionExecution::NewPaneSmart,
+            ),
+            Action::NextTab => ActionMetadata::new(
+                "next-tab",
+                ActionClassification::Direct,
+                "select-tab delta:+1",
+                ActionExecution::NextTab,
+            ),
+            Action::PrevTab => ActionMetadata::new(
+                "prev-tab",
+                ActionClassification::Direct,
+                "select-tab delta:-1",
+                ActionExecution::PrevTab,
+            ),
+            Action::SelectTab(index) => ActionMetadata::new(
+                "select-tab-{number}",
+                ActionClassification::Direct,
+                "select-tab index",
+                ActionExecution::SelectTab(*index),
+            ),
+            Action::SplitRight => ActionMetadata::new(
+                "split-right",
+                ActionClassification::Direct,
+                "split dir:right",
+                ActionExecution::SplitRight,
+            ),
+            Action::SplitDown => ActionMetadata::new(
+                "split-down",
+                ActionClassification::Direct,
+                "split dir:down",
+                ActionExecution::SplitDown,
+            ),
+            Action::CloseTab => ActionMetadata::new(
+                "close-tab",
+                ActionClassification::Direct,
+                "close-surface",
+                ActionExecution::CloseTab,
+            ),
+            Action::ClosePane => ActionMetadata::new(
+                "close-pane",
+                ActionClassification::Direct,
+                "close-pane",
+                ActionExecution::ClosePane,
+            ),
+            Action::RenameTab => ActionMetadata::new(
+                "rename-tab",
+                ActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                ActionExecution::RenameTab,
+            ),
+            Action::RenameScreen => ActionMetadata::new(
+                "rename-screen",
+                ActionClassification::Composite,
+                "frontend prompt + rename-screen",
+                ActionExecution::RenameScreen,
+            ),
+            Action::RenameWorkspace => ActionMetadata::new(
+                "rename-workspace",
+                ActionClassification::Composite,
+                "frontend prompt + rename-workspace",
+                ActionExecution::RenameWorkspace,
+            ),
+            Action::CloseScreen => ActionMetadata::new(
+                "close-screen",
+                ActionClassification::Direct,
+                "close-screen",
+                ActionExecution::CloseScreen,
+            ),
+            Action::PrevScreen => ActionMetadata::new(
+                "prev-screen",
+                ActionClassification::Direct,
+                "select-screen delta:-1",
+                ActionExecution::PrevScreen,
+            ),
+            Action::NextScreen => ActionMetadata::new(
+                "next-screen",
+                ActionClassification::Direct,
+                "select-screen delta:+1",
+                ActionExecution::NextScreen,
+            ),
+            Action::SelectScreen(index) => ActionMetadata::new(
+                "select-screen-{number}",
+                ActionClassification::Direct,
+                "select-screen index",
+                ActionExecution::SelectScreen(*index),
+            ),
+            Action::NewScreen => ActionMetadata::new(
+                "new-screen",
+                ActionClassification::Direct,
+                "new-screen",
+                ActionExecution::NewScreen,
+            ),
+            Action::PrevWorkspace => ActionMetadata::new(
+                "prev-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:-1",
+                ActionExecution::PrevWorkspace,
+            ),
+            Action::NextWorkspace => ActionMetadata::new(
+                "next-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:+1",
+                ActionExecution::NextWorkspace,
+            ),
+            Action::NewWorkspace => ActionMetadata::workspace_ownership(
+                "new-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("new-workspace"),
+                ActionRouteTarget::MachineProviderRequest("create_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::NewWorkspace,
+            ),
+            Action::CloseWorkspace => ActionMetadata::workspace_ownership(
+                "close-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("close-workspace"),
+                ActionRouteTarget::MachineProviderRequest("delete_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::CloseWorkspace,
+            ),
+            Action::ToggleSidebar => ActionMetadata::new(
+                "toggle-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebar,
+            ),
+            Action::ToggleSidebarCompact => ActionMetadata::new(
+                "toggle-sidebar-compact",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarCompact,
+            ),
+            Action::ToggleSidebarView => ActionMetadata::new(
+                "toggle-sidebar-view",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarView,
+            ),
+            Action::FocusSidebar => ActionMetadata::new(
+                "focus-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::FocusSidebar,
+            ),
+            Action::NewPaneRight => ActionMetadata::new(
+                "new-pane-right",
+                ActionClassification::Direct,
+                "new-pane-right",
+                ActionExecution::NewPaneRight,
+            ),
+            Action::UndoLayout => ActionMetadata::new(
+                "undo-layout",
+                ActionClassification::Direct,
+                "undo-layout",
+                ActionExecution::UndoLayout,
+            ),
+            Action::FocusLeft => ActionMetadata::new(
+                "focus-left",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusLeft,
+            ),
+            Action::FocusRight => ActionMetadata::new(
+                "focus-right",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusRight,
+            ),
+            Action::FocusUp => ActionMetadata::new(
+                "focus-up",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusUp,
+            ),
+            Action::FocusDown => ActionMetadata::new(
+                "focus-down",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusDown,
+            ),
+            Action::FocusNextPane => ActionMetadata::new(
+                "focus-next-pane",
+                ActionClassification::Composite,
+                "list-workspaces + focus-pane",
+                ActionExecution::FocusNextPane,
+            ),
+            Action::SwapPanePrev => ActionMetadata::new(
+                "swap-pane-prev",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPanePrev,
+            ),
+            Action::SwapPaneNext => ActionMetadata::new(
+                "swap-pane-next",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPaneNext,
+            ),
+            Action::ZoomPane => ActionMetadata::new(
+                "zoom-pane",
+                ActionClassification::Direct,
+                "zoom-pane",
+                ActionExecution::ZoomPane,
+            ),
+            Action::ResizeGrow => ActionMetadata::new(
+                "resize-grow",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeGrow,
+            ),
+            Action::ResizeShrink => ActionMetadata::new(
+                "resize-shrink",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeShrink,
+            ),
+            Action::ScrollUp => ActionMetadata::new(
+                "scroll-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollUp,
+            ),
+            Action::ScrollDown => ActionMetadata::new(
+                "scroll-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollDown,
+            ),
+            Action::ClearHistory => ActionMetadata::new(
+                "clear-history",
+                ActionClassification::Direct,
+                "clear-history",
+                ActionExecution::ClearHistory,
+            ),
+            Action::BrowserBack => ActionMetadata::new(
+                "browser-back",
+                ActionClassification::Direct,
+                "browser-back",
+                ActionExecution::BrowserBack,
+            ),
+            Action::BrowserForward => ActionMetadata::new(
+                "browser-forward",
+                ActionClassification::Direct,
+                "browser-forward",
+                ActionExecution::BrowserForward,
+            ),
+            Action::BrowserReload => ActionMetadata::new(
+                "browser-reload",
+                ActionClassification::Direct,
+                "browser-reload",
+                ActionExecution::BrowserReload,
+            ),
+            Action::BrowserEditUrl => ActionMetadata::new(
+                "browser-edit-url",
+                ActionClassification::Composite,
+                "frontend prompt + browser-navigate",
+                ActionExecution::BrowserEditUrl,
+            ),
+            Action::ShowShortcuts => ActionMetadata::new(
+                "show-shortcuts",
+                ActionClassification::PresentationOnly,
+                "frontend shortcut overlay",
+                ActionExecution::ShowShortcuts,
+            ),
+            Action::Detach => ActionMetadata::new(
+                "detach",
+                ActionClassification::PresentationOnly,
+                "close frontend transport",
+                ActionExecution::Detach,
+            ),
+        }
+    }
 }
 
 impl Action {
@@ -2157,8 +2659,15 @@ fn resolved_ghostty_defaults() -> Option<DefaultColors> {
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
 ) -> Option<DefaultColors> {
+    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
+}
+
+fn resolved_ghostty_defaults_from_with(
+    installations: &[platform::GhosttyInstallation],
+    mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
+) -> Option<DefaultColors> {
     installations.iter().find_map(|installation| {
-        let text = run_ghostty_show_config(installation)?;
+        let text = resolve(installation)?;
         let defaults = parse_resolved_ghostty_defaults(&text);
         // `+show-config` serializes Ghostty's effective application defaults,
         // including both colors. An executable that exits successfully but
@@ -2168,7 +2677,7 @@ fn resolved_ghostty_defaults_from(
     })
 }
 
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
     let mut command = Command::new(&installation.binary);
     command
         .args(["+show-config", "--no-pager"])
@@ -2178,6 +2687,11 @@ fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Opti
     if let Some(resources_dir) = installation.resources_dir.as_deref() {
         command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
     }
+    command
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = ghostty_show_config_command(installation);
     let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
@@ -2485,11 +2999,14 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+        let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
             resources_dir: Some(resources.clone()),
         })
+        .output()
         .unwrap();
+        assert!(output.status.success());
+        let output = String::from_utf8(output.stdout).unwrap();
         assert!(output.contains(&format!("resource-path = {}", resources.display())));
         let defaults = parse_resolved_ghostty_defaults(&output);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
@@ -2497,36 +3014,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn unusable_packaged_ghostty_resolver_falls_through() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-fallback-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let broken = root.join("copied-app-binary");
-        let working = root.join("standalone-cli-helper");
-        std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(
-            &working,
-            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
-        )
+        let broken = PathBuf::from("/cmux-test/copied-app-binary");
+        let working = PathBuf::from("/cmux-test/standalone-cli-helper");
+        let installations = [
+            platform::GhosttyInstallation { binary: broken.clone(), resources_dir: None },
+            platform::GhosttyInstallation { binary: working.clone(), resources_dir: None },
+        ];
+        let mut visited = Vec::new();
+        let defaults = resolved_ghostty_defaults_from_with(&installations, |installation| {
+            visited.push(installation.binary.clone());
+            if installation.binary == broken {
+                Some(String::new())
+            } else {
+                Some("background = #272822\nforeground = #fdfff1\n".to_owned())
+            }
+        })
         .unwrap();
-        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let defaults = resolved_ghostty_defaults_from(&[
-            platform::GhosttyInstallation { binary: broken, resources_dir: None },
-            platform::GhosttyInstallation { binary: working, resources_dir: None },
-        ])
-        .unwrap();
+        assert_eq!(visited, vec![broken, working]);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2591,7 +3100,12 @@ mod tests {
         );
         mux.set_default_colors(defaults);
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
-        surface.try_with_terminal(|term| term.vt_write(b"\x1b[31mR")).unwrap();
+        surface
+            .try_with_terminal(|term| {
+                term.vt_write(b"\x1b[31mR");
+                term.vt_write(b"\x1b_Ga=T,t=d,f=32,i=75,p=1,s=1,v=1,c=1,r=1,q=2;/wAAfw==\x1b\\");
+            })
+            .unwrap();
         // Re-applying through the mux exercises the existing-surface path and
         // publishes a fresh immutable render frame for the protocol server.
         mux.set_default_colors(defaults);
@@ -2625,6 +3139,10 @@ mod tests {
             .find(|run| run["text"].as_str().is_some_and(|text| text.contains('R')))
             .expect("configured palette run");
         assert_eq!(red_run["fg"], "#445566");
+        assert_eq!(state["graphics"]["images"][0]["id"], 75);
+        assert_eq!(state["graphics"]["images"][0]["format"], "rgba");
+        assert_eq!(state["graphics"]["images"][0]["data"], "/wAAfw==");
+        assert_eq!(state["graphics"]["placements"][0]["image_id"], 75);
 
         let colors = surface.attach_stream().unwrap().colors;
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
@@ -3473,6 +3991,20 @@ mod tests {
             assert!(!definition.label_en.is_empty());
             assert!(!definition.label_ja.is_empty());
             assert_eq!(definition.action.definition(), definition);
+            let metadata = definition.action.metadata();
+            let metadata_key = metadata.key;
+            let _execution = metadata.execution();
+            let resolved_metadata_key = match definition.action {
+                Action::SelectTab(index) | Action::SelectScreen(index) => {
+                    metadata_key.replace("{number}", &index.get().to_string())
+                }
+                _ => metadata_key.to_string(),
+            };
+            assert_eq!(
+                resolved_metadata_key, definition.config_key,
+                "action catalog and programmability metadata disagree for {:?}",
+                definition.action
+            );
         }
         for (_, action) in Keys::default().bindings {
             assert!(actions.contains(&action), "default binding is not registered: {action:?}");

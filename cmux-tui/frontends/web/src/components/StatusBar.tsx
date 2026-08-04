@@ -1,5 +1,5 @@
 import { useReducer } from "react";
-import type { Id } from "cmux/browser";
+import type { Id } from "cmux/raw";
 import { t } from "../i18n";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { contextMenuReducer } from "../lib/contextMenu";
