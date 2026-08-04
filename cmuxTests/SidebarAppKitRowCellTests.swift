@@ -10,6 +10,7 @@ import Testing
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
+        customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -19,7 +20,7 @@ struct SidebarAppKitRowCellTests {
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
@@ -58,6 +59,7 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
@@ -66,7 +68,11 @@ struct SidebarAppKitRowCellTests {
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(isPinned: isPinned, metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                customDescription: customDescription,
+                isPinned: isPinned,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -155,6 +161,7 @@ struct SidebarAppKitRowCellTests {
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
+        onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let resolvedTab = tab ?? Workspace()
@@ -180,6 +187,7 @@ struct SidebarAppKitRowCellTests {
         return SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: onOpenStatusURL,
+            onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -208,6 +216,7 @@ struct SidebarAppKitRowCellTests {
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
+        onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarWorkspaceRowTableCellView {
         let cell = SidebarWorkspaceRowTableCellView()
@@ -217,6 +226,7 @@ struct SidebarAppKitRowCellTests {
                 model: model,
                 tab: tab,
                 tabManager: tabManager,
+                onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
                 onOpenStatusURL: onOpenStatusURL
             ),
             isPointerHovering: false,
@@ -228,6 +238,95 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { view in
+                attributedString(view.attributedStringValue, containsLink: url)
+            }
+    }
+
+    private static func attributedString(_ attributedString: NSAttributedString, containsLink url: URL) -> Bool {
+        guard attributedString.length > 0 else { return false }
+        var location = 0
+        while location < attributedString.length {
+            var range = NSRange(location: 0, length: 0)
+            let value = attributedString.attribute(.link, at: location, effectiveRange: &range)
+            if linkURL(from: value) == url {
+                return true
+            }
+            location = max(location + 1, range.location + max(range.length, 1))
+        }
+        return false
+    }
+
+    private static func linkURL(from value: Any?) -> URL? {
+        switch value {
+        case let url as URL:
+            return url
+        case let url as NSURL:
+            return url as URL
+        case let string as String:
+            return URL(string: string)
+        default:
+            return nil
+        }
+    }
+
+    @discardableResult
+    private static func layoutCell(_ cell: SidebarWorkspaceRowTableCellView, model: SidebarWorkspaceRowModel, width: CGFloat = 440) -> NSWindow {
+        let height = cell.layoutContent(model: model, width: width, apply: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        window.contentView = host
+        cell.frame = host.bounds
+        host.addSubview(cell)
+        cell.needsLayout = true
+        cell.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    @discardableResult
+    private static func click(_ view: NSView, in window: NSWindow, at point: NSPoint) throws -> NSView {
+        #expect(view.window === window)
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        let windowPoint = view.convert(point, to: nil)
+        let windowNumber = window.windowNumber
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp + 0.01,
+            windowNumber: windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+        let hitView = try #require(window.contentView?.hitTest(windowPoint))
+        window.sendEvent(down)
+        window.sendEvent(up)
+        return hitView
     }
 
     private static let linkedMetadataMarkdown =
@@ -315,15 +414,119 @@ struct SidebarAppKitRowCellTests {
             metadataEntries: [SidebarStatusEntry(key: "repro_link", value: "click me", url: url)]
         )
         var openedURL: URL?
-        let cell = Self.configuredCell(model: model) { openedURL = $0 }
+        let cell = Self.configuredCell(model: model, onOpenStatusURL: { openedURL = $0 })
+        _ = Self.layoutCell(cell, model: model)
         let buttons = Self.descendants(of: cell).compactMap { $0 as? NSButton }
 
         let link = try #require(buttons.first { $0.toolTip == url.absoluteString })
-        #expect(link.action != nil)
-        #expect(link.target != nil)
+        let action = try #require(link.action)
+        let target = try #require(link.target)
         #expect(link.isEnabled)
-        link.performClick(nil)
+        #expect(NSApp.sendAction(action, to: target, from: link))
         #expect(openedURL == url)
+    }
+
+    @Test(arguments: [
+        "http://example.com/page",
+        "https://linear.app/attendu/issue/ATD-366",
+    ])
+    func workspaceDescriptionURLClickOpensLinkWithoutEnablingTextSelection(
+        _ urlString: String
+    ) throws {
+        let url = try #require(URL(string: urlString))
+        let model = Self.makeModel(customDescription: url.absoluteString)
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+
+        #expect(!textView.isSelectable)
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(16, textView.bounds.width / 2), y: textView.bounds.midY)
+        )
+
+        #expect(hitView === textView)
+        #expect(openedURL == url)
+        #expect(!textView.isSelectable)
+    }
+
+    @Test
+    func workspaceDescriptionURLClickDoesNotExpandIntoAdjacentPlainText() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let prefix = "See "
+        let model = Self.makeModel(customDescription: "\(prefix)\(url.absoluteString)")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: max(0, prefixWidth - 0.5), y: textView.bounds.midY)
+        )
+
+        #expect(hitView !== textView)
+        #expect(openedURL == nil)
+    }
+
+    @Test
+    func workspaceDescriptionURLClickOpensWrappedTopLineLink() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let model = Self.makeModel(customDescription: "\(url.absoluteString) plain text after the link wraps below")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model, width: 240)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+
+        #expect(textView.bounds.height > font.ascender - font.descender)
+        #expect(textView.isFlipped)
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(16, textView.bounds.width / 2), y: ceil((font.ascender - font.descender) / 2))
+        )
+
+        #expect(hitView === textView)
+        #expect(openedURL == url)
+    }
+
+    @Test(arguments: ["file:///tmp/not-ok.command", "x-custom://open"])
+    func workspaceDescriptionUnsafeURLClickIsIgnored(_ urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        let model = Self.makeModel(customDescription: "[launch](\(url.absoluteString))")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(12, textView.bounds.width / 2), y: textView.bounds.midY)
+        )
+
+        #expect(hitView !== textView)
+        #expect(openedURL == nil)
     }
 
     @Test
