@@ -982,6 +982,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pre-mutation state.
     private var foregroundWorkspaceMutationRefreshPending = false
     private var foregroundWorkspaceMutationRefreshGeneration = UUID()
+    /// Bumped whenever a mutation applies its authoritative workspace-list
+    /// response. Legacy full-list fetches capture this before their RPC and
+    /// drop their (pre-mutation) snapshot when it moved during the await.
+    @ObservationIgnored var foregroundWorkspaceListAuthorityGeneration: UInt64 = 0
+
+    /// Called after a mutation applied its authoritative workspace-list
+    /// response: retires in-flight legacy list fetches and, when the
+    /// post-mutation refresh loop is already running, re-arms its pending flag
+    /// so one trailing authoritative pass reconciles anything that raced.
+    func noteForegroundAuthoritativeWorkspaceListApplied() {
+        foregroundWorkspaceListAuthorityGeneration &+= 1
+        if foregroundWorkspaceMutationRefreshTask != nil {
+            foregroundWorkspaceMutationRefreshPending = true
+        }
+    }
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -1600,6 +1615,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        // Retire any in-flight dialing transport synchronously: the generation
+        // bumps above make its owning connect() drop it at the next guard, but
+        // that is bounded by the pairing timeout, and a signed-out session must
+        // not keep a previous account's dial alive in the meantime.
+        if let attemptClient = replaceConnectionAttemptClientOwnership(with: nil) {
+            scheduleClientDisconnect(attemptClient)
+        }
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -12230,27 +12252,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
 private extension MobileWorkspacePreview {
     var preferredEntryTerminal: MobileTerminalPreview? {
-        focusedPaneTerminal ?? preferredTerminal
+        // Entry lands on the focused pane when it has a READY terminal, so the
+        // user opens onto a renderable endpoint. An unready focused selection
+        // only wins when nothing in the workspace is ready (nothing better to
+        // offer, and the pane context is worth restoring once it wakes).
+        let paneTerminals = focusedPaneTerminals
+        if let readyInPane = paneTerminals.first(where: \.isReady) {
+            return readyInPane
+        }
+        if let focused = paneTerminals.first, !hasReadyTerminal {
+            return focused
+        }
+        return preferredTerminal
     }
 
-    private var focusedPaneTerminal: MobileTerminalPreview? {
-        guard let layout else { return nil }
+    /// The focused pane's terminals with its selected surface first.
+    private var focusedPaneTerminals: [MobileTerminalPreview] {
+        guard let layout else { return [] }
         let panes = layout.orderedPanes
         let focusedPane = layout.focusedPaneID.flatMap { focusedPaneID in
             panes.first { $0.id == focusedPaneID }
         } ?? (panes.count == 1 ? panes.first : nil)
-        guard let focusedPane else { return nil }
-        let terminalIDs = focusedPane.surfaces
+        guard let focusedPane else { return [] }
+        var terminalIDs = focusedPane.surfaces
             .filter { $0.type.isTerminal }
             .map(\.id)
         if let selectedSurfaceID = focusedPane.selectedSurfaceID,
-           terminalIDs.contains(selectedSurfaceID),
-           let terminal = terminals.first(where: { $0.id.rawValue == selectedSurfaceID }) {
-            return terminal
+           let selectedIndex = terminalIDs.firstIndex(of: selectedSurfaceID) {
+            terminalIDs.remove(at: selectedIndex)
+            terminalIDs.insert(selectedSurfaceID, at: 0)
         }
         return terminalIDs.compactMap { terminalID in
             terminals.first { $0.id.rawValue == terminalID }
-        }.first
+        }
     }
 
     var preferredTerminal: MobileTerminalPreview? {

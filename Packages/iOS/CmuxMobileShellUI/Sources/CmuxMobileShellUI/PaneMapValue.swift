@@ -3,7 +3,6 @@ import CmuxMobileSupport
 
 /// Immutable workspace and status state rendered by ``PaneMapOverlay``.
 struct PaneMapValue: Equatable {
-    let workspaceName: String
     let layout: MobilePaneLayout
     let phoneSelectedSurfaceID: String?
     let agentStateKindsBySurfaceID: [String: ChatAgentStateKind]

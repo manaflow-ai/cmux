@@ -143,7 +143,6 @@ import Testing
             )
         )
         let paneMap = PaneMapValue(
-            workspaceName: "Workspace",
             layout: layout,
             phoneSelectedSurfaceID: "terminal-new",
             agentStateKindsBySurfaceID: [:]

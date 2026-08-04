@@ -5408,7 +5408,7 @@ final class cmuxUITests: XCTestCase {
                 block: { _, _ in
                     modeControl.exists
                         && modeControl.isHittable
-                        && (!isActive || overlay.exists)
+                        && (isActive ? overlay.exists : !overlay.exists)
                         && (isActive || !app.buttons["MobilePaneMapRefresh"].exists)
                 }
             ),

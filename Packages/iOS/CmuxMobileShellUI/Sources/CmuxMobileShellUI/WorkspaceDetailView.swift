@@ -214,7 +214,11 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     private var shouldShowSurfaceDeck: Bool {
-        activeSurface == .terminal
+        // The deck is the workspace's surface picker, including the documented
+        // exit path from a browser stream (BrowserStreamPane has no close
+        // affordance of its own). Hiding it during a stream would strand
+        // no-layout workspaces on the stream with no way back to a terminal.
+        (activeSurface == .terminal || activeSurface == .browserStream)
             && paneZoomPresentation.isTerminalPresented
             && surfaceDeckValue.shouldShow
     }
@@ -251,7 +255,6 @@ struct WorkspaceDetailView: View {
     private func paneMapRoot(layout: MobilePaneLayout) -> some View {
         PaneMapOverlay(
             value: PaneMapValue(
-                workspaceName: workspace.name,
                 layout: layout,
                 phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
                 agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
@@ -407,7 +410,6 @@ struct WorkspaceDetailView: View {
         if mode == .paneMap,
            let layout = workspace.layout {
             let paneMapValue = PaneMapValue(
-                workspaceName: workspace.name,
                 layout: layout,
                 phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
                 agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
@@ -802,10 +804,14 @@ struct WorkspaceDetailView: View {
     }
 
     @MainActor
-    private func reorderPanesFromMap(_ orderedPaneIDs: [String]) async -> Bool {
+    private func reorderPanesFromMap(
+        _ orderedPaneIDs: [String],
+        baseLayoutRevision: Int
+    ) async -> Bool {
         let result = await store.reorderWorkspacePanes(
             id: workspace.id,
-            orderedPaneIDs: orderedPaneIDs
+            orderedPaneIDs: orderedPaneIDs,
+            baseLayoutRevision: baseLayoutRevision
         )
         guard case .success = result else {
             toasts.present(.failure(

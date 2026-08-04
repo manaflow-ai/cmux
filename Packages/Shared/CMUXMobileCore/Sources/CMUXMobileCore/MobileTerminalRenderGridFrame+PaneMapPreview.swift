@@ -115,9 +115,12 @@ public extension MobileTerminalRenderGridFrame {
     func paneMapPreview(
         maximumRows: Int? = nil
     ) -> MobileTerminalPaneMapPreview {
-        let usesDECReverseVideo = modes.contains {
-            !$0.ansi && $0.code == 5 && $0.on
-        }
+        // Resolve mode 5 from its final setting: replay applies modes in order
+        // (last wins) and theme delivery reads `.last`, so the preview must not
+        // stay reversed when a later entry disables reverse video.
+        let usesDECReverseVideo = modes.last {
+            !$0.ansi && $0.code == 5
+        }?.on == true
         guard columns > 0, rows > 0 else {
             return MobileTerminalPaneMapPreview(
                 surfaceID: surfaceID,

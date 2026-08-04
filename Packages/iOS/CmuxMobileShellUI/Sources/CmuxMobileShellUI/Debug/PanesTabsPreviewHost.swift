@@ -161,7 +161,6 @@ struct PanesTabsPreviewHost: View {
                 ) {
                     PaneMapOverlay(
                         value: PaneMapValue(
-                            workspaceName: workspace.name,
                             layout: layout,
                             phoneSelectedSurfaceID: selectedSurfaceID,
                             agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
@@ -507,7 +506,6 @@ struct PanesTabsPreviewHost: View {
         case .paneMap:
             guard let layout = fixtureLayout else { return nil }
             return PaneMapValue(
-                workspaceName: workspace.name,
                 layout: layout,
                 phoneSelectedSurfaceID: selectedSurfaceID,
                 agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
@@ -588,7 +586,10 @@ struct PanesTabsPreviewHost: View {
     }
 
     @MainActor
-    private func reorderFixturePanes(_ orderedPaneIDs: [String]) async -> Bool {
+    private func reorderFixturePanes(
+        _ orderedPaneIDs: [String],
+        baseLayoutRevision: Int
+    ) async -> Bool {
         guard let slotPaneIDs = workspace.layout?.orderedPanes.map(\.id),
               orderedPaneIDs.count == slotPaneIDs.count,
               Set(orderedPaneIDs) == Set(slotPaneIDs) else {

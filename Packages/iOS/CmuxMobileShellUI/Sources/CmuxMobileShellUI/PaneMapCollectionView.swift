@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
@@ -20,6 +21,23 @@ struct PaneMapCollectionItem: Equatable, Identifiable {
         guard let selectedSurfaceID else { return pane.surfaces.first }
         return pane.surfaces.first { $0.id == selectedSurfaceID }
     }
+
+    /// The same pane content relabeled for a new visible position, so
+    /// accessibility ordinals track optimistic reorders instead of waiting for
+    /// the next authoritative snapshot.
+    func withPanePosition(number: Int) -> PaneMapCollectionItem {
+        PaneMapCollectionItem(
+            pane: pane,
+            paneNumber: number,
+            paneCount: paneCount,
+            isFocusedOnMac: isFocusedOnMac,
+            selectedSurfaceID: selectedSurfaceID,
+            phoneSelectedSurfaceID: phoneSelectedSurfaceID,
+            preview: preview,
+            isLoadingPreview: isLoadingPreview,
+            agentStateKind: agentStateKind
+        )
+    }
 }
 
 struct PaneMapOverflowLabels {
@@ -39,7 +57,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
     let allowsReordering: Bool
     let selectPreviewSurface: (_ paneID: String, _ surfaceID: String) -> Void
     let jumpToTerminal: (_ surfaceID: String) -> Void
-    let reorderPanes: (_ orderedPaneIDs: [String]) async -> Bool
+    let reorderPanes: (_ orderedPaneIDs: [String], _ baseLayoutRevision: Int) async -> Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -113,13 +131,21 @@ struct PaneMapCollectionView: UIViewRepresentable {
 
         init(parent: PaneMapCollectionView) {
             self.parent = parent
+            // A malformed remote layout can repeat a pane ID; first-wins keeps
+            // the coordinator alive instead of trapping on duplicate keys.
             authoritativeItemsByID = Dictionary(
-                uniqueKeysWithValues: parent.items.map { ($0.id, $0) }
+                parent.items.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
             )
             reorderState = PaneMapReorderState(
-                authoritativePaneIDs: parent.items.map(\.id),
+                authoritativePaneIDs: Self.deduplicatedPaneIDs(parent.items),
                 authoritativeRevision: parent.layout.version
             )
+        }
+
+        private static func deduplicatedPaneIDs(_ items: [PaneMapCollectionItem]) -> [String] {
+            var seen: Set<String> = []
+            return items.map(\.id).filter { seen.insert($0).inserted }
         }
 
         func attach(
@@ -145,7 +171,8 @@ struct PaneMapCollectionView: UIViewRepresentable {
 
         func reconcile(items: [PaneMapCollectionItem]) {
             authoritativeItemsByID = Dictionary(
-                uniqueKeysWithValues: items.map { ($0.id, $0) }
+                items.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
             )
             guard !isMovingItem else {
                 pendingItems = items
@@ -153,16 +180,17 @@ struct PaneMapCollectionView: UIViewRepresentable {
             }
 
             reorderState.reconcile(
-                authoritativePaneIDs: items.map(\.id),
+                authoritativePaneIDs: Self.deduplicatedPaneIDs(items),
                 authoritativeRevision: parent.layout.version
             )
             reloadVisibleItems()
         }
 
         private func reloadVisibleItems() {
-            orderedItems = reorderState.visiblePaneIDs.compactMap {
-                authoritativeItemsByID[$0]
-            }
+            orderedItems = reorderState.visiblePaneIDs
+                .compactMap { authoritativeItemsByID[$0] }
+                .enumerated()
+                .map { index, item in item.withPanePosition(number: index + 1) }
             collectionView?.reloadData()
             collectionView?.collectionViewLayout.invalidateLayout()
             container?.setNeedsLayout()
@@ -265,9 +293,19 @@ struct PaneMapCollectionView: UIViewRepresentable {
                 collectionView.moveItem(at: sourceIndexPath, to: destinationIndexPath)
             }
             coordinator.drop(droppedItem.dragItem, toItemAt: destinationIndexPath)
+            // Moved cells keep their pre-drag ordinals until reconfigured;
+            // relabel the optimistic order so VoiceOver reads the position the
+            // pane actually occupies during the mutation window.
+            orderedItems = orderedItems.enumerated().map { index, item in
+                item.withPanePosition(number: index + 1)
+            }
+            collectionView.reconfigureItems(at: collectionView.indexPathsForVisibleItems)
             Task { [weak self] in
                 guard let self else { return }
-                let succeeded = await parent.reorderPanes(request.orderedPaneIDs)
+                let succeeded = await parent.reorderPanes(
+                    request.orderedPaneIDs,
+                    request.baseLayoutRevision
+                )
                 completeReorder(requestID: request.id, succeeded: succeeded)
             }
         }
@@ -461,10 +499,10 @@ final class PaneMapCollectionContainerView: UIView {
         labels: PaneMapOverflowLabels,
         scrollStep: @escaping (PaneMapOverflowDirection) -> Void
     ) {
-        backgroundColor = UIColor(terminalHex: terminalTheme.background)
+        backgroundColor = terminalTheme.terminalBackgroundUIColor
         self.scrollStep = scrollStep
         for button in buttons.values {
-            button.tintColor = UIColor(terminalHex: terminalTheme.foreground)
+            button.tintColor = terminalTheme.terminalForegroundUIColor
         }
         buttons[.leading]?.accessibilityLabel = labels.leading
         buttons[.trailing]?.accessibilityLabel = labels.trailing
@@ -552,17 +590,3 @@ private final class PaneMapOverflowButton: UIButton {
     }
 }
 
-private extension UIColor {
-    convenience init(terminalHex: String) {
-        guard let rgb = TerminalTheme.rgbComponents(terminalHex) else {
-            self.init(white: 0, alpha: 1)
-            return
-        }
-        self.init(
-            red: CGFloat(rgb.red) / 255,
-            green: CGFloat(rgb.green) / 255,
-            blue: CGFloat(rgb.blue) / 255,
-            alpha: 1
-        )
-    }
-}

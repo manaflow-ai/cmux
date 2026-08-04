@@ -421,7 +421,9 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     private var primaryTabBarVisibility: Visibility {
         let workspaceIsPushed = usesCompactStack && !compactNavigationPath.isEmpty
-        return workspaceIsPushed || !notificationNavigationPath.isEmpty ? .hidden : .automatic
+        let notificationRouteIsPushed = !notificationNavigationPath.isEmpty
+            || !notificationSearchNavigationPath.isEmpty
+        return workspaceIsPushed || notificationRouteIsPushed ? .hidden : .automatic
     }
     #endif
 

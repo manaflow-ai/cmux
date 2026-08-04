@@ -22,7 +22,8 @@ extension MobileShellComposite {
     @discardableResult
     public func reorderWorkspacePanes(
         id: MobileWorkspacePreview.ID,
-        orderedPaneIDs: [String]
+        orderedPaneIDs: [String],
+        baseLayoutRevision: Int? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsPaneReorder else {
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
@@ -32,6 +33,11 @@ extension MobileShellComposite {
         }
         var params = workspaceMutationParams(id: id)
         params["ordered_pane_ids"] = orderedPaneIDs
+        // The layout revision the drag was computed against; the Mac rejects
+        // the reorder as a conflict when its layout moved past this baseline.
+        if let baseLayoutRevision {
+            params["base_layout_version"] = baseLayoutRevision
+        }
         return await sendWorkspaceMutation(
             method: "workspace.pane.reorder",
             params: params,
@@ -573,6 +579,10 @@ extension MobileShellComposite {
                 return false
             }
             applyRemoteWorkspaceList(response)
+            // A workspace.list fetch already in flight captured the
+            // pre-mutation layout; retiring its authority makes it drop on
+            // arrival instead of rolling this response back.
+            noteForegroundAuthoritativeWorkspaceListApplied()
             return true
         }
 
@@ -583,6 +593,13 @@ extension MobileShellComposite {
             return false
         }
         subscription.workspaceRefreshGeneration &+= 1
+        // Same race on secondary Macs: a refresh pass that already consumed its
+        // pending flag publishes its (now pre-mutation) snapshot unconditionally.
+        // Re-arming the flag makes that in-flight owner run a trailing
+        // authoritative pass instead of exiting on the stale publish.
+        if subscription.refreshTask != nil || subscription.deferredRefreshTask != nil {
+            subscription.refreshPending = true
+        }
         let workspaces = response.workspaces.map { remote -> MobileWorkspacePreview in
             var workspace = MobileWorkspacePreview(remote: remote)
             workspace.macDeviceID = subscription.macDeviceID

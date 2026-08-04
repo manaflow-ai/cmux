@@ -369,6 +369,124 @@ struct MobileWorkspaceListFidelityTests {
         )
     }
 
+    /// Slot IDs stay stable across content reorders, so the RPC's pane-id set
+    /// check alone cannot detect that another reorder landed after the phone
+    /// captured its snapshot. The phone's observed `base_layout_version` is the
+    /// precondition that makes the stale request fail closed as a conflict
+    /// instead of silently permuting the wrong panes.
+    @Test func mobilePaneReorderRejectsStaleBaseLayoutVersion() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(
+                from: firstPanelID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let paneIDs = workspace.spatiallyOrderedPaneIds
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let staleVersion = workspace.paneLayoutVersion
+        let firstResult = TerminalController.shared.v2MobileWorkspacePaneReorder(params: [
+            "workspace_id": workspace.id.uuidString,
+            "ordered_pane_ids": paneIDs.reversed().map(\.uuidString),
+        ])
+        guard case .ok = firstResult else {
+            return #expect(Bool(false), "the first reorder should succeed and bump the layout version")
+        }
+        #expect(workspace.paneLayoutVersion != staleVersion)
+        let orderAfterFirstReorder = workspace.orderedPanelIds
+        #expect(orderAfterFirstReorder == [secondPanel.id, firstPanelID])
+
+        let secondResult = TerminalController.shared.v2MobileWorkspacePaneReorder(params: [
+            "workspace_id": workspace.id.uuidString,
+            "ordered_pane_ids": paneIDs.reversed().map(\.uuidString),
+            "base_layout_version": staleVersion,
+        ])
+        guard case .err(let code, _, _) = secondResult else {
+            return #expect(Bool(false), "a reorder carrying a stale base_layout_version must be rejected")
+        }
+        #expect(code == "conflict")
+        #expect(
+            workspace.orderedPanelIds == orderAfterFirstReorder,
+            "a conflicted reorder must not mutate the pane order"
+        )
+    }
+
+    @Test func mobilePaneReorderMatchingBaseLayoutVersionSucceeds() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(
+                from: firstPanelID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let paneIDs = workspace.spatiallyOrderedPaneIds
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspacePaneReorder(params: [
+            "workspace_id": workspace.id.uuidString,
+            "ordered_pane_ids": paneIDs.reversed().map(\.uuidString),
+            "base_layout_version": workspace.paneLayoutVersion,
+        ])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "a reorder carrying the current layout version must succeed")
+        }
+        #expect(workspace.orderedPanelIds == [secondPanel.id, firstPanelID])
+    }
+
+    /// The phone's snapshot can carry the window the workspace lived in before
+    /// it moved windows. Honoring that `window_id` verbatim resolved the wrong
+    /// TabManager and rejected the reorder as not_found; the mutation must
+    /// route to the workspace's owning window first.
+    @Test func mobilePaneReorderRoutesToOwnerDespiteStaleWindowID() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let ownerManager = TabManager()
+        let otherManager = TabManager()
+        let ownerWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: ownerManager)
+        let staleWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: otherManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: ownerWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowID)
+        }
+
+        let workspace = try #require(ownerManager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(
+                from: firstPanelID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let paneIDs = workspace.spatiallyOrderedPaneIds
+
+        let result = TerminalController.shared.v2MobileWorkspacePaneReorder(params: [
+            "workspace_id": workspace.id.uuidString,
+            "window_id": staleWindowID.uuidString,
+            "ordered_pane_ids": paneIDs.reversed().map(\.uuidString),
+        ])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "a stale window_id must not misroute the reorder away from the owner")
+        }
+        #expect(workspace.orderedPanelIds == [secondPanel.id, firstPanelID])
+    }
+
     @Test func reorderingTerminalsChangesObserverHashAndBumpsLayoutVersion() throws {
         // Tabs in one pane so a within-pane reorder genuinely changes their order.
         let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 3)

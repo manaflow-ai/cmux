@@ -14632,6 +14632,10 @@ class TerminalController {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows
             payload["render_grid"] = renderGridObject
+        } else if v2Bool(params, "grid_only") == true {
+            // Grid-only consumers (pane-map previews) discard byte/VT
+            // fallbacks, so skip the unbounded VT export a hibernated surface
+            // would otherwise ship just to be thrown away on the phone.
         } else {
             if let expectedViewport {
                 guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(

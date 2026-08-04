@@ -239,11 +239,48 @@ import Testing
         #expect(fullyContracted.resolvedCharacterCellWidths == [1, 1])
     }
 
+    @Test func decReverseVideoResolvesFromFinalModeSetting() throws {
+        let reenabled = try Self.frame(
+            columns: 2,
+            rowCount: 1,
+            rowSpans: [.init(row: 0, column: 0, text: "ab")],
+            modes: [
+                .init(code: 5, on: true),
+                .init(code: 5, on: false),
+                .init(code: 5, on: true),
+            ]
+        ).paneMapPreview()
+
+        let disabledLast = try Self.frame(
+            columns: 2,
+            rowCount: 1,
+            rowSpans: [.init(row: 0, column: 0, text: "ab")],
+            modes: [
+                .init(code: 5, on: true),
+                .init(code: 5, on: false),
+            ]
+        ).paneMapPreview()
+
+        // Replay applies mode settings in order (last wins); the preview must
+        // agree so a frame that re-disables reverse video does not render
+        // permanently inverted. Legacy frames reverse the fallback theme.
+        let fallback = TerminalTheme.monokai
+        let reenabledTheme = reenabled.resolvedTerminalTheme(fallback: fallback)
+        let disabledTheme = disabledLast.resolvedTerminalTheme(fallback: fallback)
+        let base = fallback.validatedOrDefault()
+
+        #expect(reenabledTheme.foreground == base.background)
+        #expect(reenabledTheme.background == base.foreground)
+        #expect(disabledTheme.foreground == base.foreground)
+        #expect(disabledTheme.background == base.background)
+    }
+
     private static func frame(
         columns: Int,
         rowCount: Int,
         rowSpans: [MobileTerminalRenderGridFrame.RowSpan],
-        cursorRow: Int? = nil
+        cursorRow: Int? = nil,
+        modes: [MobileTerminalRenderGridFrame.ModeSetting] = []
     ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: "terminal-preview",
@@ -253,7 +290,8 @@ import Testing
             cursor: cursorRow.map {
                 MobileTerminalRenderGridFrame.Cursor(row: $0, column: 0)
             },
-            rowSpans: rowSpans
+            rowSpans: rowSpans,
+            modes: modes
         )
     }
 }

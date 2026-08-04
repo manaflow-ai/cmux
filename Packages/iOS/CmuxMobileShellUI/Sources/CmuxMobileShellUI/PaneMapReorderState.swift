@@ -5,6 +5,10 @@ struct PaneMapReorderState: Equatable {
     struct Request: Equatable, Sendable {
         let id: UUID
         let orderedPaneIDs: [String]
+        /// The authoritative layout revision this drag was computed against.
+        /// Sent to the Mac as the reorder's precondition so a stale drag fails
+        /// closed as a conflict instead of permuting the wrong pane contents.
+        let baseLayoutRevision: Int
     }
 
     enum Completion: Equatable {
@@ -39,7 +43,11 @@ struct PaneMapReorderState: Equatable {
         }
         let movedPaneID = visiblePaneIDs.remove(at: sourceIndex)
         visiblePaneIDs.insert(movedPaneID, at: destinationIndex)
-        let request = Request(id: UUID(), orderedPaneIDs: visiblePaneIDs)
+        let request = Request(
+            id: UUID(),
+            orderedPaneIDs: visiblePaneIDs,
+            baseLayoutRevision: authoritativeRevision
+        )
         pendingRequest = request
         receivedAuthorityWhilePending = false
         pendingRequestWasAccepted = false
@@ -50,7 +58,12 @@ struct PaneMapReorderState: Equatable {
         authoritativePaneIDs: [String],
         authoritativeRevision: Int
     ) {
-        let receivedNewAuthority = authoritativeRevision != self.authoritativeRevision
+        // Revisions are monotonic per Mac process, so a delayed older
+        // workspace-list response must never roll the map back after newer
+        // authority applied. (A Mac restart resets the counter, but that also
+        // drops the connection and rebuilds this state with a fresh baseline.)
+        guard authoritativeRevision >= self.authoritativeRevision else { return }
+        let receivedNewAuthority = authoritativeRevision > self.authoritativeRevision
         self.authoritativePaneIDs = authoritativePaneIDs
         self.authoritativeRevision = authoritativeRevision
         guard pendingRequest != nil else {

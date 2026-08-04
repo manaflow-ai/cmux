@@ -87,7 +87,18 @@ extension Workspace {
             }
 
             for placeholder in placeholderTabsByPaneID.values {
-                _ = bonsplitController.closeTab(placeholder)
+                // Force-close bypasses close vetoes (e.g. a close-confirmation
+                // sheet in flight on the Mac) that would otherwise leave
+                // zero-width phantom tabs in the authoritative layout while
+                // this reorder reports success. If a placeholder still survives,
+                // fail the mutation so the phone reconciles instead of trusting
+                // a success response that contains the phantom.
+                if !requestCloseTab(placeholder, force: true),
+                   panesByID.values.contains(where: { pane in
+                       bonsplitController.tabs(inPane: pane).contains(where: { $0.id == placeholder })
+                   }) {
+                    mutationSucceeded = false
+                }
             }
 
             let selectionPanes = mutationSucceeded

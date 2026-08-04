@@ -42,6 +42,10 @@ extension MobileShellComposite {
                 params: [
                     "workspace_id": remoteWorkspaceID,
                     "surface_id": surfaceID,
+                    // Previews consume only the render grid; hosts skip the
+                    // unbounded VT/byte fallback instead of shipping a payload
+                    // this side would decode and discard.
+                    "grid_only": true,
                 ]
             )
             let data = try await client.sendRequest(request)

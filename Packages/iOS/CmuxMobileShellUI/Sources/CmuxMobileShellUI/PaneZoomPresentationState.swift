@@ -79,9 +79,10 @@ struct PaneZoomNavigationStack<Root: View, Terminal: View>: View {
             )
         }
         #endif
-        #if os(iOS)
-        .toolbarVisibility(.hidden, for: .tabBar)
-        #endif
+        // Tab-bar visibility is owned by the shell's per-route policy
+        // (WorkspaceShellView). Hiding it here too would override the split
+        // layout's explicit `.visible` detail policy from deeper in the same
+        // subtree, collapsing the iPad tab bar for pane-enabled workspaces.
     }
 
     private var navigationPath: Binding<[PaneZoomPresentationState.Endpoint]> {

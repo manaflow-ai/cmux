@@ -73,8 +73,10 @@ import Testing
         )
         fetch.cancel()
         await router.releaseAllHeld()
+        // fetchPaneMapPreviewGrids runs entirely inside a task group, so once
+        // `fetch.value` resolves no further replay requests can start; the
+        // recorded set is final without any settling delay.
         _ = await fetch.value
-        try await Task.sleep(nanoseconds: 50_000_000)
         let requestedSurfaceIDs = await router.surfaceIDs(for: "mobile.terminal.replay")
 
         #expect(filledWindow)
@@ -196,12 +198,27 @@ private actor PaneMapPreviewFetchGate {
         return frames[surfaceID]
     }
 
-    func waitUntilStarted(count: Int) async {
+    /// Waits until `count` fetches have started, or until `timeout` elapses so a
+    /// fetcher that starts fewer requests fails the caller's assertions instead
+    /// of hanging the suite on an unresumed continuation.
+    func waitUntilStarted(count: Int, timeout: Duration = .seconds(5)) async {
         guard started.count < count else { return }
         startedCountTarget = count
+        let timeoutTask = Task {
+            try? await Task.sleep(for: timeout)
+            resumeStartedWaiterAfterTimeout()
+        }
         await withCheckedContinuation { continuation in
             startedCountContinuation = continuation
         }
+        timeoutTask.cancel()
+    }
+
+    private func resumeStartedWaiterAfterTimeout() {
+        guard startedCountContinuation != nil else { return }
+        startedCountTarget = nil
+        startedCountContinuation?.resume()
+        startedCountContinuation = nil
     }
 
     func startedSurfaceIDs() -> [String] {

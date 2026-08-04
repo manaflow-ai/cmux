@@ -325,6 +325,90 @@ import Testing
         await store.remoteClient?.disconnect()
     }
 
+    @Test func inFlightWorkspaceListCannotOverwriteReorderAuthoritativeLayout() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.pane_reorder.v1",
+        ])
+        let store = connected.store
+        let router = connected.router
+        await router.scriptPaneReorderResult(jsonData: Data(#"""
+        {
+          "workspaces": [{
+            "id": "live-workspace",
+            "title": "Live Workspace",
+            "is_selected": true,
+            "terminals": [
+              {"id": "terminal-a", "title": "A", "is_focused": false},
+              {"id": "terminal-b", "title": "B", "is_focused": true}
+            ],
+            "layout": {
+              "version": 2,
+              "focused_pane_id": "pane-left",
+              "root": {
+                "kind": "split",
+                "id": "split-root",
+                "orientation": "horizontal",
+                "ratio": 0.5,
+                "first": {
+                  "kind": "pane",
+                  "id": "pane-left",
+                  "selected_surface_id": "terminal-b",
+                  "surfaces": [
+                    {"id": "terminal-b", "type": "terminal", "title": "B"}
+                  ]
+                },
+                "second": {
+                  "kind": "pane",
+                  "id": "pane-right",
+                  "selected_surface_id": "terminal-a",
+                  "surfaces": [
+                    {"id": "terminal-a", "type": "terminal", "title": "A"}
+                  ]
+                }
+              }
+            }
+          }],
+          "groups": []
+        }
+        """#.utf8))
+        let workspaceID = try #require(store.workspaces.first?.id)
+
+        // A legacy full-list fetch is already in flight (its response held)
+        // when the reorder returns its authoritative layout. The held response
+        // captured the pre-reorder state and must be dropped on arrival.
+        await router.holdNextWorkspaceListRequests()
+        let staleReload = Task { @MainActor in
+            await store.reloadWorkspaceListFromMac()
+        }
+        let listRequestStarted = await router.waitForCount(
+            of: "mobile.workspace.list",
+            atLeast: 1,
+            recordIssueOnTimeout: false
+        )
+        #expect(listRequestStarted)
+
+        guard case .success = await store.reorderWorkspacePanes(
+            id: workspaceID,
+            orderedPaneIDs: ["pane-right", "pane-left"]
+        ) else {
+            return #expect(Bool(false), "pane reorder should accept the authoritative response")
+        }
+
+        await router.releaseAllHeld()
+        _ = await staleReload.value
+
+        // The reorder's authoritative layout survives; the stale pre-mutation
+        // snapshot did not roll it back.
+        let layout = try #require(store.workspaces.first?.layout)
+        #expect(layout.version == 2)
+        #expect(layout.orderedPanes.map(\.id) == ["pane-left", "pane-right"])
+        #expect(layout.orderedPanes.map(\.selectedSurfaceID) == ["terminal-b", "terminal-a"])
+        await store.remoteClient?.disconnect()
+    }
+
     private func connectedStore(
         capabilities: [String],
         ticketWorkspaceID: String = "live-workspace",

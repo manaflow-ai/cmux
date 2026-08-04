@@ -75,15 +75,6 @@ extension Workspace: WorkspaceSurfaceTreeReading {
         sidebarOrderedPanelIds().first
     }
 
-    var lastOrderedPanelIds: [UUID] {
-        get { paneTree.lastOrderedPanelIds }
-        set { paneTree.lastOrderedPanelIds = newValue }
-    }
-
-    func bumpPaneLayoutVersion() {
-        paneLayoutVersion &+= 1
-    }
-
     /// Publishes one mobile layout revision when the ratio-insensitive pane
     /// topology changed. The shared snapshot owns the comparison fields, so
     /// legacy workspace-list invalidation and state sync v2 cannot drift.

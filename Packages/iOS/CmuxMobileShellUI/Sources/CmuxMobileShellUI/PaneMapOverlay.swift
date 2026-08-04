@@ -13,7 +13,7 @@ struct PaneMapOverlay: View {
     let refreshTrigger: Int
     let fetchPreviews: ([String], [String]) async -> [String: MobileTerminalRenderGridFrame]
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
-    let reorderPanes: ([String]) async -> Bool
+    let reorderPanes: ([String], Int) async -> Bool
     let refreshingChanged: (Bool) -> Void
 
     @State private var selectedSurfaceIDsByPaneID: [String: String]
@@ -31,7 +31,7 @@ struct PaneMapOverlay: View {
         refreshTrigger: Int,
         fetchPreviews: @escaping ([String], [String]) async -> [String: MobileTerminalRenderGridFrame],
         selectTerminal: @escaping (MobileTerminalPreview.ID) -> Void,
-        reorderPanes: @escaping ([String]) async -> Bool,
+        reorderPanes: @escaping ([String], Int) async -> Bool,
         refreshingChanged: @escaping (Bool) -> Void
     ) {
         self.value = value
@@ -168,6 +168,11 @@ struct PaneMapOverlay: View {
     }
 
     private func refreshAllPreviews(generation: UUID) async {
+        // A task cancelled (and superseded) before its body ran must not touch
+        // the spinner: it would publish refreshing=true and then skip its own
+        // generation-gated clear, wedging the toolbar in the loading state
+        // while blocking the successor behind `isRefreshing`.
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         refreshingChanged(true)
