@@ -252,26 +252,30 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        let harness = try Harness()
-        defer { harness.tearDown() }
+        // This route is model-only: mounting the workspaces in a real window
+        // realizes Ghostty renderers that are unrelated to the close contract
+        // and can still be drawing while the fixture frees their surfaces.
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager()
+        let localWorkspace = try #require(manager.selectedWorkspace)
         let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
-        let controller = harness.controller
+        let controller = appDelegate.remoteTmuxController
         defer {
             if controller.sessionMirror(host: host, sessionName: "dev") != nil {
                 controller.detach(host: host, sessionName: "dev")
             }
         }
         controller.cacheConnection(connection)
-        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
-        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
-        #expect(harness.manager.tabs.count == 2)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
+        let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        #expect(manager.tabs.count == 2)
 
-        harness.manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
+        manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
 
         let log = try await waitForSSHArgument("exit", at: logURL)
         #expect(!log.contains("kill-session"), Comment(rawValue: log))
-        #expect(harness.manager.tabs.map(\.id) == [harness.workspace.id])
+        #expect(manager.tabs.map(\.id) == [localWorkspace.id])
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
     }
