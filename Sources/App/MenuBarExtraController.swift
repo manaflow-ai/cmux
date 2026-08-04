@@ -168,6 +168,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         refreshUI()
     }
 
+#if DEBUG
+    var notificationItemIdentitiesForTesting: [ObjectIdentifier] {
+        notificationItems.map(ObjectIdentifier.init)
+    }
+#endif
+
     func removeFromMenuBar() {
         notificationMenuSnapshotCancellable?.cancel()
         notificationMenuSnapshotCancellable = nil

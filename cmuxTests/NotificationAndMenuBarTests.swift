@@ -1750,6 +1750,55 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
 }
 
 
+@MainActor
+final class MenuBarExtraNotificationItemReuseTests: XCTestCase {
+    func testRefreshingInlineNotificationsReusesMenuItems() {
+        let store = TerminalNotificationStore.shared
+        let originalNotifications = store.notifications
+        store.replaceNotificationsForTesting([makeNotification(title: "First")])
+
+        let controller = MenuBarExtraController(
+            notificationStore: store,
+            onShowGlobalSearch: { _, _ in },
+            onShowMainWindow: {},
+            onShowNotifications: {},
+            onOpenNotification: { _ in },
+            onJumpToLatestUnread: {},
+            onOpenTaskManager: {},
+            onToggleSleepyMode: {},
+            onCheckForUpdates: {},
+            onOpenPreferences: {},
+            onQuitApp: {}
+        )
+        defer {
+            controller.removeFromMenuBar()
+            store.replaceNotificationsForTesting(originalNotifications)
+        }
+
+        let initialIdentities = controller.notificationItemIdentitiesForTesting
+        XCTAssertEqual(initialIdentities.count, 1)
+
+        store.replaceNotificationsForTesting([makeNotification(title: "Second")])
+        controller.refreshForDebugControls()
+
+        XCTAssertEqual(controller.notificationItemIdentitiesForTesting, initialIdentities)
+    }
+
+    private func makeNotification(title: String) -> TerminalNotification {
+        TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: title,
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+    }
+}
+
+
 final class MenuBarBuildHintFormatterTests: XCTestCase {
     func testReleaseBuildShowsNoHint() {
         XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmux DEV menubar-extra", isDebugBuild: false))
