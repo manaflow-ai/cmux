@@ -126,9 +126,9 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             insertFirst: false,
             sourcePanelId: sourcePanelId,
             url: canonicalURL,
-            focus: true,
             bypassRemoteProxy: true,
-            localFileReadAccessPolicy: .fileOnly
+            localFileReadAccessPolicy: .fileOnly,
+            focus: true
         ) != nil
     }
 }
