@@ -6,7 +6,7 @@ import Testing
 struct BrowserLocalFileReadAccessPolicyTests {
     @Test
     func fileOnlyCanonicalizesSymlinkAndRestrictsReadAccessToTarget() throws {
-        let fixture = try LocalFileFixture()
+        let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
         let target = fixture.targetDirectory.appendingPathComponent("diagram.html")
@@ -31,7 +31,7 @@ struct BrowserLocalFileReadAccessPolicyTests {
 
     @Test
     func fileOnlyRejectsDirectories() throws {
-        let fixture = try LocalFileFixture()
+        let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
         #expect(
@@ -43,7 +43,7 @@ struct BrowserLocalFileReadAccessPolicyTests {
 
     @Test
     func containingDirectoryAcceptsDirectoryURL() throws {
-        let fixture = try LocalFileFixture()
+        let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
         #expect(
@@ -78,7 +78,7 @@ struct BrowserLocalFileReadAccessPolicyTests {
 
     @Test
     func containingDirectoryPreservesDocumentURLAndGrantsParentAccess() throws {
-        let fixture = try LocalFileFixture()
+        let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
         let target = fixture.targetDirectory.appendingPathComponent("diagram.html")
@@ -102,7 +102,7 @@ struct BrowserLocalFileReadAccessPolicyTests {
 
     @Test
     func identityUsesCanonicalFileTarget() throws {
-        let fixture = try LocalFileFixture()
+        let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
         let target = fixture.targetDirectory.appendingPathComponent("diagram.html")
@@ -135,30 +135,5 @@ struct BrowserLocalFileReadAccessPolicyTests {
         )
 
         #expect(snapshot.localFileReadAccessPolicy == .fileOnly)
-    }
-}
-
-private struct LocalFileFixture {
-    let root: URL
-    let targetDirectory: URL
-    let linkDirectory: URL
-
-    init() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CmuxBrowserLocalFile-\(UUID().uuidString)", isDirectory: true)
-        targetDirectory = root.appendingPathComponent("target", isDirectory: true)
-        linkDirectory = root.appendingPathComponent("link", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: targetDirectory,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: linkDirectory,
-            withIntermediateDirectories: true
-        )
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: root)
     }
 }
