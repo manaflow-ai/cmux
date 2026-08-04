@@ -1,3 +1,5 @@
+import AppKit
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -8,6 +10,39 @@ import Testing
 
 @MainActor
 struct GhosttyTerminalViewVisibilityPolicyTests {
+    /// SwiftUI calls `updateNSView` while its graph transaction is open. The
+    /// attach step may update ownership and surface lifecycle state there, but
+    /// geometry must wait for the normal AppKit layout pass. A synchronous
+    /// descendant layout flush from attach can spend tens of seconds walking
+    /// the whole window when a large workspace collection invalidates (#7482).
+    @Test func surfaceAttachDefersGeometryToTheAppKitLayoutPass() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        hostedView.needsLayout = true
+        hostedView.layoutSubtreeIfNeeded()
+
+        let staleSurfaceSize = NSSize(width: 13, height: 17)
+        hostedView.surfaceView.setFrameSize(staleSurfaceSize)
+        hostedView.attachSurface(surface)
+
+        #expect(
+            hostedView.surfaceView.frame.size == staleSurfaceSize,
+            "Representable attachment must not synchronously flush terminal geometry"
+        )
+
+        hostedView.layoutSubtreeIfNeeded()
+        #expect(
+            hostedView.surfaceView.frame.size != staleSurfaceSize,
+            "The next AppKit layout pass must still reconcile terminal geometry"
+        )
+    }
+
     @Test func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
