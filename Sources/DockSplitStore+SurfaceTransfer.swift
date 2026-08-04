@@ -281,6 +281,7 @@ extension DockSplitStore {
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,
+            customColor: preservedTransfer?.customColor,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: transferredRestorableAgent,

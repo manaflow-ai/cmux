@@ -48,6 +48,7 @@ extension DockSocketLifecycleTests {
         cachedTitle: String? = nil,
         customTitle: String? = nil,
         customTitleSource: Workspace.CustomTitleSource? = nil,
+        customColor: String? = nil,
         directoryIsTrustedRemoteReport: Bool = false,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
@@ -77,6 +78,7 @@ extension DockSocketLifecycleTests {
             cachedTitle: cachedTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
+            customColor: customColor,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,
@@ -117,6 +119,30 @@ extension DockSocketLifecycleTests {
         #expect(panel.workspaceId == store.workspaceId)
         #expect(panel.surface.focusPlacement == .rightSidebarDock)
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+
+    @Test("Dock attach and detach preserve a custom pane color")
+    @MainActor
+    func dockAttachAndDetachPreserveCustomPaneColor() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let customColor = "#7A4FD8"
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            customColor: customColor
+        )
+
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.customColor == customColor)
     }
 
     @Test("Focused live terminal attach into visible Dock requests one view reattach")

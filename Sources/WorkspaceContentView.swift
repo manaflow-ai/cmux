@@ -101,6 +101,7 @@ private struct WorkspacePanelContentHostView: View {
 final class TmuxWorkspacePaneOverlayModel {
     private(set) var unreadRects: [CGRect] = []
     private(set) var flashRect: CGRect?
+    private(set) var customPaneBorders: [TmuxWorkspacePaneColorBorder] = []
     private(set) var activePaneBorderRect: CGRect?
     private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
@@ -109,12 +110,25 @@ final class TmuxWorkspacePaneOverlayModel {
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
+    var paneBordersInDrawOrder: [TmuxWorkspacePaneColorBorder] {
+        var borders = customPaneBorders
+        if let activePaneBorderRect,
+           let activePaneBorderColorHex {
+            borders.append(TmuxWorkspacePaneColorBorder(
+                rect: activePaneBorderRect,
+                colorHex: activePaneBorderColorHex
+            ))
+        }
+        return borders
+    }
+
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
         now: () -> Date = Date.init
     ) {
         unreadRects = state.unreadRects
         flashRect = state.flashRect
+        customPaneBorders = state.customPaneBorders
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
@@ -139,6 +153,7 @@ final class TmuxWorkspacePaneOverlayModel {
     func clear() {
         unreadRects = []
         flashRect = nil
+        customPaneBorders = []
         activePaneBorderRect = nil
         activePaneBorderColorHex = nil
         flashStartedAt = nil
@@ -509,20 +524,18 @@ struct WorkspaceContentView: View {
             )
             guard shouldShowUnread else { return nil }
 
-            let paneRect = pane.frame.cgRect
-            let rect: CGRect
             if includeContainerOffset {
-                rect = paneRect.offsetBy(
-                    dx: 0,
-                    dy: -CGFloat(layoutSnapshot.containerFrame.y)
+                return tmuxWorkspacePaneWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    pane: pane
                 )
             } else {
-                rect = paneRect.offsetBy(
+                let rect = pane.frame.cgRect.offsetBy(
                     dx: -CGFloat(layoutSnapshot.containerFrame.x),
                     dy: -CGFloat(layoutSnapshot.containerFrame.y)
                 )
+                return geometry.contentRect(rect)
             }
-            return geometry.contentRect(rect)
         }
     }
 
@@ -544,6 +557,17 @@ struct WorkspaceContentView: View {
             layoutSnapshot: layoutSnapshot,
             paneId: paneId
         )
+    }
+
+    static func tmuxWorkspacePaneWindowOverlayRect(
+        layoutSnapshot: LayoutSnapshot,
+        pane: PaneGeometry
+    ) -> CGRect {
+        let rect = pane.frame.cgRect.offsetBy(
+            dx: 0,
+            dy: -CGFloat(layoutSnapshot.containerFrame.y)
+        )
+        return tmuxPaneOverlayGeometry.contentRect(rect)
     }
 
     static func effectiveTmuxLayoutSnapshot(

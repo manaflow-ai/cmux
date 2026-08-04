@@ -263,6 +263,7 @@ extension DockSplitStore {
             title: tabTitle ?? panel.displayTitle,
             customTitle: customTitle,
             customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            customColor: transfer?.customColor,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: false,

@@ -5,6 +5,37 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator tab-action domain")
 struct ControlCommandCoordinatorTabActionTests {
+    @Test func setColorForwardsColorAndReturnsIt() throws {
+        let surfaceID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .completed(ControlTabActionResolution.Outcome(
+            workspaceID: UUID(),
+            surfaceID: surfaceID,
+            windowID: nil,
+            paneID: nil,
+            extras: .color("#7A4FD8")
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("set-color"),
+                "color": .string("#7A4FD8"),
+                "surface_id": .string(surfaceID.uuidString),
+            ]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected successful set-color payload")
+            return
+        }
+        #expect(context.actionKey == "set_color")
+        #expect(context.color == "#7A4FD8")
+        #expect(payload["color"] == .string("#7A4FD8"))
+    }
+
     @Test func toggleFullWidthTabPayloadIncludesResultingMode() throws {
         let windowID = UUID()
         let workspaceID = UUID()
@@ -69,6 +100,8 @@ struct ControlCommandCoordinatorTabActionTests {
             return
         }
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
+        #expect(supportedActions.contains(.string("set_color")))
+        #expect(supportedActions.contains(.string("clear_color")))
     }
 
     @Test func tabActionRejectsExplicitNullSurfaceIDBeforeContextMutation() {

@@ -669,6 +669,7 @@ struct DockPortalReconcileTests {
             cachedTitle: panel.displayTitle,
             customTitle: nil,
             customTitleSource: nil,
+            customColor: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
