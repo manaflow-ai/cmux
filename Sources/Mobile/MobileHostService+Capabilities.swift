@@ -76,6 +76,8 @@ extension MobileHostService {
             // expiry only against hosts that advertise this.
             "workspace.mutations.account_auth.v1",
             "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",

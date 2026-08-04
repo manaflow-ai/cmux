@@ -15,6 +15,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let macInstanceTag: String?
     /// Unmodified prompt text captured from the composer.
     public let prompt: String
+    /// Optional CLI model identifier captured from the composer.
+    public let modelID: String?
     /// Optional workspace name exactly as entered in the composer.
     public let workspaceName: String
     /// Workspace name with surrounding whitespace removed.
@@ -25,6 +27,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let trimmedDirectory: String
     /// Whether the user edited the template's suggested working directory.
     public let didEditDirectory: Bool
+    /// Value-only attachment identities captured for request equivalence.
+    public let attachments: [MobileTaskSubmissionAttachment]
     /// Stable idempotency key used for every attempt to submit this snapshot.
     public let operationID: UUID
     /// Command and environment derived from the captured template and prompt.
@@ -40,33 +44,43 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// - Parameters:
     ///   - template: Task template selected when submission begins.
     ///   - prompt: Prompt text to compose into the template command.
+    ///   - modelID: Optional CLI model identifier to apply to the command.
     ///   - macDeviceID: Identifier of the Mac that should create the task.
     ///   - macInstanceTag: Exact paired app instance to target, or `nil`.
     ///   - directory: Working-directory text shown in the composer.
     ///   - workspaceName: Optional workspace name shown in the composer.
     ///   - didEditDirectory: Whether the user changed the suggested directory.
+    ///   - attachments: Attachment upload identifiers and staged byte counts.
     ///   - operationID: Stable idempotency key for submission retries.
     public init(
         template: MobileTaskTemplate,
         prompt: String,
+        modelID: String? = nil,
         macDeviceID: String,
         macInstanceTag: String? = nil,
         directory: String,
         workspaceName: String = "",
         didEditDirectory: Bool,
+        attachments: [MobileTaskSubmissionAttachment] = [],
         operationID: UUID
     ) {
         self.templateID = template.id
         self.macDeviceID = macDeviceID
         self.macInstanceTag = macInstanceTag
         self.prompt = prompt
+        self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
+        self.attachments = attachments
         self.operationID = operationID
-        self.composition = MobileTaskCommandComposer().compose(template: template, prompt: prompt)
+        self.composition = MobileTaskCommandComposer().compose(
+            template: template,
+            prompt: prompt,
+            modelID: modelID
+        )
     }
 
     /// Whether both snapshots produce the same `workspace.create` request.
@@ -82,6 +96,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
             && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
+            && attachments == other.attachments
     }
 
     /// Rebinds an already-composed request to its resolved idempotency key.
@@ -93,13 +108,26 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             macDeviceID: macDeviceID,
             macInstanceTag: macInstanceTag,
             prompt: prompt,
+            modelID: modelID,
             workspaceName: workspaceName,
             directory: directory,
             didEditDirectory: didEditDirectory,
+            attachments: attachments,
             operationID: operationID,
             composition: composition,
             trimmedWorkspaceName: trimmedWorkspaceName,
             trimmedDirectory: trimmedDirectory
+        )
+    }
+
+    /// Applies absolute paths returned by attachment uploads to the captured composition.
+    ///
+    /// - Parameter attachmentPaths: Absolute Mac paths in attachment order.
+    /// - Returns: A composition with attachment environment and prompt suffix.
+    public func composition(attachmentPaths: [String]) -> MobileTaskComposition {
+        MobileTaskCommandComposer().addingAttachmentPaths(
+            attachmentPaths,
+            to: composition
         )
     }
 
@@ -135,6 +163,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public var draft: MobileTaskComposerDraft {
         MobileTaskComposerDraft(
             prompt: prompt,
+            modelID: modelID,
             templateID: templateID,
             macDeviceID: macDeviceID.isEmpty ? nil : macDeviceID,
             macInstanceTag: macDeviceID.isEmpty ? nil : macInstanceTag,
@@ -150,9 +179,11 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         macDeviceID: String,
         macInstanceTag: String?,
         prompt: String,
+        modelID: String?,
         workspaceName: String,
         directory: String,
         didEditDirectory: Bool,
+        attachments: [MobileTaskSubmissionAttachment],
         operationID: UUID,
         composition: MobileTaskComposition,
         trimmedWorkspaceName: String,
@@ -162,11 +193,13 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.macDeviceID = macDeviceID
         self.macInstanceTag = macInstanceTag
         self.prompt = prompt
+        self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
         self.directory = directory
         self.trimmedDirectory = trimmedDirectory
         self.didEditDirectory = didEditDirectory
+        self.attachments = attachments
         self.operationID = operationID
         self.composition = composition
     }

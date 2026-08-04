@@ -126,6 +126,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let taskCreateCapability = "workspace.task_create.v1"
+    static let taskAttachmentCapability = "task.attachments.v1"
+    static let taskModelsCapability = "task.models.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -440,6 +442,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
+    /// Mac/provider model responses observed by the task composer.
+    var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -1630,6 +1634,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
         taskTemplateStore?.clearAllUserData()
+        taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
