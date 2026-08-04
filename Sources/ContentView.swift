@@ -2795,6 +2795,9 @@ struct ContentView: View {
                         "mountedCount": mountedWorkspaceIds.count
                     ])
                 }
+#if DEBUG
+                minimalModeInvalidationProbe.startupRecoveryCompleted?()
+#endif
             }
         })
 
