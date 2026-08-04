@@ -504,6 +504,8 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
+            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
