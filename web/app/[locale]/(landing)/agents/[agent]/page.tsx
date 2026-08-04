@@ -45,12 +45,6 @@ export async function generateMetadata({ params }: { params: Params }) {
   return {
     title,
     description,
-    keywords: [
-      `best terminal for ${name}`,
-      `${name} terminal`,
-      `${name} macOS`,
-      `${name} coding agent`,
-    ],
     alternates,
     openGraph: {
       ...openGraphDefaults(locale, "website"),

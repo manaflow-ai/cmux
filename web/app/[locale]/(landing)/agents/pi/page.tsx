@@ -26,12 +26,6 @@ export async function generateMetadata({
   return {
     title,
     description,
-    keywords: [
-      "best terminal for Pi",
-      "Pi coding agent terminal",
-      "terminal for Pi",
-      "Pi agent macOS",
-    ],
     alternates,
     openGraph: {
       ...openGraphDefaults(locale, "website"),
