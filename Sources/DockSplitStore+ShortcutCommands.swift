@@ -55,7 +55,7 @@ extension DockSplitStore {
             return focusHistoryNavigation.navigateForward()
         case .triggerFlash:
             guard let focusedPanelId else { return false }
-            triggerFocusFlash(panelId: focusedPanelId)
+            triggerUserInitiatedFocusFlash(panelId: focusedPanelId)
             return true
         }
     }

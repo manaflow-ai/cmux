@@ -217,6 +217,8 @@ extension Workspace {
             return "right_sidebar_tool"
         case .customSidebar:
             return "custom_sidebar"
+        case .simulator:
+            return "simulator"
         case .agentSession:
             return "agent_session"
         case .project:
@@ -227,6 +229,10 @@ extension Workspace {
             return "workspace_todo"
         case .cloudVMLoading:
             return "cloud_vm_loading"
+        case .mobilePairing:
+            return "mobile_pairing"
+        case .accountSignIn:
+            return "account_sign_in"
         }
     }
 }

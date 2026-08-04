@@ -128,6 +128,10 @@ import Testing
         #expect(MobileShellConnectionError.connectionClosed.diagnosticFailureKind == .connectionClosed)
         #expect(MobileShellConnectionError.requestTimedOut.diagnosticFailureKind == .timedOut)
         #expect(MobileShellConnectionError.transportWriteTimedOut.diagnosticFailureKind == .timedOut)
+        #expect(
+            MobileShellConnectionError.routeCleanupBlocked.diagnosticFailureKind
+                == .admissionDenied
+        )
         #expect(MobileShellConnectionError.insecureManualRoute.diagnosticFailureKind == .unsupportedRoute)
         #expect(MobileShellConnectionError.attachTicketExpired.diagnosticFailureKind == .credentialUnavailable)
         #expect(

@@ -228,6 +228,12 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - resume.set / get / clear
 
+    /// The app-bundle-resolved localized validation strings for
+    /// `surface.resume.*` commands.
+    ///
+    /// - Returns: The surface-resume strings.
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
     /// and stores the binding.
@@ -261,13 +267,16 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
+    ///     part of authoritative session teardown.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 
     // MARK: - report_tty / report_pwd / report_shell_state / ports_kick

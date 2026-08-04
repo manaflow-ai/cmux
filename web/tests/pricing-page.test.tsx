@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -56,7 +58,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
+  cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
