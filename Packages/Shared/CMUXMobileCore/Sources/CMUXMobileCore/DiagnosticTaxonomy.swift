@@ -201,6 +201,8 @@ public enum DiagnosticSessionLifecycleKind: Int, Sendable, Codable, CaseIterable
     case runtimeReconfigured = 9
     /// A caller explicitly invalidated one exact peer session.
     case explicitlyInvalidated = 10
+    /// Every usable transport path disappeared from an admitted session.
+    case allPathsClosed = 11
 }
 
 /// Which component produced a diagnostic report.

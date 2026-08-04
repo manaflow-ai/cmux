@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import shlex
 import shutil
@@ -9,6 +10,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
 NOTES_GENERATOR = ROOT / "ios" / "scripts" / "generate-testflight-notes.sh"
+DISTRIBUTION_HELPER = ROOT / "ios" / "scripts" / "resolve_testflight_distribution.py"
 BUN = shutil.which("bun")
 IOS_PATHS = (
     "ios/**",
@@ -26,37 +28,9 @@ IOS_PATHS = (
     ".github/workflows/ios-testflight.yml",
 )
 IOS_SCHEDULES = (
-    "7 * * * *",
+    "7,27,47 * * * *",
     "37 5,17 * * *",
 )
-RESOLVED_DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
-MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
-
-
-def variant_choice(demo: str, internal: str) -> str:
-    return (
-        f"${{{{ {RESOLVED_DEMO_VARIANT_GUARD} "
-        f"&& '{demo}' || '{internal}' }}}}"
-    )
-
-
-def summary_choice(external: str, demo: str, internal: str) -> str:
-    return (
-        "${{ "
-        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
-        f"|| {RESOLVED_DEMO_VARIANT_GUARD} && '{demo}' "
-        f"|| '{internal}' }}"
-    )
-
-
-def override_choice(external: str, normal: str) -> str:
-    return (
-        "${{ "
-        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
-        f"|| '{normal}' }}"
-    )
-
-
 def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
@@ -163,15 +137,21 @@ def javascript_string_array(text: str, name: str) -> tuple[str, ...]:
     return tuple(values)
 
 
-def github_expression_containing(text: str, needle: str) -> str:
-    matches = [
-        line.strip()
-        for line in text.splitlines()
-        if needle in line and "${{" in line
-    ]
-    assert len(matches) == 1, f"expected one expression containing {needle}"
-    expression = matches[0]
-    return expression.split("${{", 1)[1].rsplit("}}", 1)[0].strip()
+def resolved_metadata_artifact(
+    variant: str,
+    marketing_version_override: str,
+) -> str:
+    spec = importlib.util.spec_from_file_location(
+        "resolve_testflight_distribution",
+        DISTRIBUTION_HELPER,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.resolve_distribution(
+        variant,
+        marketing_version_override,
+    ).metadata_artifact
 
 
 def run_decision_scenario(
@@ -189,19 +169,32 @@ def run_decision_scenario(
         ...,
     ] = (),
     prior_run_ids: tuple[int, ...] = (),
+    prior_artifact_minutes_ago: tuple[int, ...] = (),
+    completed_prior_run_count: int = 0,
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
     upload_job_starts_late: bool = False,
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
+    artifact_api_failure: bool = False,
+    expected_failure: Optional[str] = None,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
-    artifact_expression = github_expression_containing(
-        workflow_text(),
-        "ios-testflight-build-metadata-override",
-    )
+    effective_variant = input_variant
+    if event_name == "schedule":
+        if schedule == IOS_SCHEDULES[0]:
+            effective_variant = "internal"
+        elif schedule == IOS_SCHEDULES[1]:
+            effective_variant = "demo"
+    try:
+        produced_artifact_name = resolved_metadata_artifact(
+            effective_variant,
+            marketing_version_override,
+        )
+    except ValueError:
+        produced_artifact_name = ""
     history_sources = sum(
         bool(source)
         for source in (prior_sha, prior_uploads, prior_upload_pages)
@@ -224,8 +217,14 @@ def run_decision_scenario(
     assert not prior_run_ids or len(prior_run_ids) == len(
         upload_history
     ), "prior_run_ids must match the upload history"
+    assert not prior_artifact_minutes_ago or len(
+        prior_artifact_minutes_ago
+    ) == len(upload_history), "artifact ages must match the upload history"
     run_ids = prior_run_ids or tuple(
         50 - index for index in range(len(upload_history))
+    )
+    artifact_ages = prior_artifact_minutes_ago or tuple(
+        range(len(upload_history))
     )
     prior_run_pages = []
     run_index = 0
@@ -238,6 +237,7 @@ def run_decision_scenario(
                     "sha": sha,
                     "artifact": artifact,
                     "event": prior_event,
+                    "minutesAgo": artifact_ages[run_index],
                 }
             )
             run_index += 1
@@ -248,12 +248,14 @@ def run_decision_scenario(
         "inputVariant": input_variant,
         "marketingVersionOverride": marketing_version_override,
         "priorRunPages": prior_run_pages,
+        "completedPriorRunCount": completed_prior_run_count,
         "headSha": head_sha,
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
         "uploadJobStartsLate": upload_job_starts_late,
         "orderingApiFailure": ordering_api_failure,
         "compareApiFailure": compare_api_failure,
+        "artifactApiFailure": artifact_api_failure,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -262,6 +264,7 @@ const compareCalls = [];
 const warnings = [];
 const waitCalls = [];
 const workflowRunRequests = [];
+const artifactRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 let workflowRunCalls = 0;
@@ -269,20 +272,35 @@ let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
 let orderingFailurePending = scenario.orderingApiFailure !== null;
+let artifactFailurePending = scenario.artifactApiFailure;
 const allPriorRuns = scenario.priorRunPages.flat();
 const firstPriorRunId = allPriorRuns[0]?.id;
 const priorRuns = (request) => {{
   const page = Number(request.page ?? 1);
   const pageRuns = scenario.priorRunPages[page - 1] ?? [];
-  return pageRuns.map((run) => ({{
-  id: run.id,
-  status:
-    scenario.blockingPriorRun && run.id === firstPriorRunId
-      ? 'in_progress'
-      : 'completed',
-  event: run.event,
-  head_sha: run.sha,
+  const runs = pageRuns.map((run) => ({{
+    id: run.id,
+    status:
+      scenario.blockingPriorRun && run.id === firstPriorRunId
+        ? 'in_progress'
+        : 'completed',
+    event: run.event,
+    head_sha: run.sha,
   }}));
+  const idleRunsBeforePage = (page - 1) * 100;
+  const idleRunsOnPage = Math.min(
+    Math.max(100 - runs.length, 0),
+    Math.max(scenario.completedPriorRunCount - idleRunsBeforePage, 0)
+  );
+  for (let index = 0; index < idleRunsOnPage; index += 1) {{
+    runs.push({{
+      id: -1 - idleRunsBeforePage - index,
+      status: 'completed',
+      event: 'schedule',
+      head_sha: `idle-sha-${{idleRunsBeforePage + index}}`,
+    }});
+  }}
+  return runs;
 }};
 const setTimeout = (resolve, milliseconds) => {{
   waitCalls.push(milliseconds);
@@ -359,13 +377,39 @@ const github = {{
           }},
         }};
       }},
-      listWorkflowRunArtifacts: async (request) => {{
-        const priorRun = allPriorRuns.find(
-          (run) => run.id === Number(request.run_id)
-        );
+      listArtifactsForRepo: async (request) => {{
+        artifactRequests.push(request);
+        if (artifactFailurePending) {{
+          artifactFailurePending = false;
+          throw new Error('transient artifact failure');
+        }}
+        const artifacts = allPriorRuns
+          .filter((run) => run.artifact === request.name)
+          .filter(
+            (run) =>
+              !scenario.blockingPriorRun ||
+              run.id !== firstPriorRunId ||
+              uploadPhase === 2
+          )
+          .map((run) => ({{
+            id: run.id,
+            name: run.artifact,
+            created_at: new Date(
+              Date.UTC(2026, 6, 31) - run.minutesAgo * 60_000
+            ).toISOString(),
+            workflow_run: {{
+              id: run.id,
+              head_branch: 'main',
+              head_sha: run.sha,
+            }},
+          }}));
+        const perPage = Number(request.per_page ?? 30);
+        const page = Number(request.page ?? 1);
+        const start = (page - 1) * perPage;
         return {{
           data: {{
-            artifacts: priorRun ? [{{ name: priorRun.artifact }}] : [],
+            total_count: artifacts.length,
+            artifacts: artifacts.slice(start, start + perPage),
           }},
         }};
       }},
@@ -413,7 +457,7 @@ async function runDecision() {{
 }}
 await runDecision();
 const needs = {{ decide: {{ outputs }} }};
-const producedArtifactName = {artifact_expression};
+const producedArtifactName = {json.dumps(produced_artifact_name)};
 process.stdout.write(JSON.stringify({{
   outputs,
   compareCalls,
@@ -421,6 +465,7 @@ process.stdout.write(JSON.stringify({{
   waitCalls,
   workflowRunCalls,
   workflowRunRequests,
+  artifactRequests,
   priorRunStatuses,
   uploadJobStatuses,
   producedArtifactName,
@@ -433,6 +478,10 @@ process.stdout.write(JSON.stringify({{
         capture_output=True,
         text=True,
     )
+    if expected_failure is not None:
+        assert result.returncode != 0
+        assert expected_failure in result.stderr
+        return {"error": expected_failure}
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -454,6 +503,22 @@ def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
         javascript_string_array(text, "iosRelevantPaths")
         == expected_workflow_paths
     )
+
+
+def test_internal_schedule_polls_every_twenty_minutes() -> None:
+    internal_minutes = tuple(
+        int(minute)
+        for minute in IOS_SCHEDULES[0].split()[0].split(",")
+    )
+
+    assert internal_minutes == (7, 27, 47)
+    assert tuple(
+        later - earlier
+        for earlier, later in zip(
+            internal_minutes,
+            internal_minutes[1:] + (internal_minutes[0] + 60,),
+        )
+    ) == (20, 20, 20)
 
 
 def test_schedule_decision_executes_ios_path_filter() -> None:
@@ -620,6 +685,21 @@ def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
     }
 
 
+def test_decision_rejects_unknown_schedule_and_dispatch_variant() -> None:
+    expected = "unsupported TestFlight event, schedule, or variant"
+    assert run_decision_scenario(
+        event_name="schedule",
+        schedule="1 2 3 4 5",
+        input_variant="",
+        expected_failure=expected,
+    ) == {"error": expected}
+    assert run_decision_scenario(
+        event_name="workflow_dispatch",
+        input_variant="unknown",
+        expected_failure=expected,
+    ) == {"error": expected}
+
+
 def test_demo_history_skips_newer_internal_artifact() -> None:
     result = run_decision_scenario(
         event_name="schedule",
@@ -647,44 +727,95 @@ def test_demo_history_skips_newer_internal_artifact() -> None:
     ]
 
 
-def test_demo_history_paginates_to_matching_artifact() -> None:
-    first_page = tuple(
-        (
-            f"internal-sha-{index}",
-            "ios-testflight-build-metadata",
-        )
-        for index in range(100)
-    )
+def test_history_lookup_ignores_long_idle_workflow_run_history() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
-        input_variant="",
-        prior_upload_pages=(
-            first_page,
-            (("demo-base-sha", "ios-testflight-build-metadata-demo"),),
-        ),
-        prior_run_ids=tuple(range(1_000, 899, -1)),
+        schedule=IOS_SCHEDULES[0],
+        prior_upload_pages=((),) * 22
+        + ((("base-sha", "ios-testflight-build-metadata"),),),
+        completed_prior_run_count=2_200,
         changed_files=("docs/cli-contract.md",),
     )
 
     assert result["outputs"] == {
         "should_build": "false",
-        "last_uploaded_sha": "demo-base-sha",
-        "variant": "demo",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
     }
-    assert [
-        request.get("page")
-        for request in result["workflowRunRequests"]
-        if "page" in request
-    ] == [1, 2]
+    assert result["workflowRunCalls"] == 1
+    assert result["uploadJobStatuses"] == []
+    assert result["artifactRequests"] == [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "name": "ios-testflight-build-metadata",
+            "per_page": 100,
+            "page": 1,
+        }
+    ]
+
+
+def test_history_lookup_paginates_artifacts_and_selects_newest() -> None:
+    older_uploads = tuple(
+        (f"older-sha-{index}", "ios-testflight-build-metadata")
+        for index in range(100)
+    )
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_upload_pages=(
+            older_uploads,
+            (("newest-sha", "ios-testflight-build-metadata"),),
+        ),
+        prior_artifact_minutes_ago=tuple(range(200, 100, -1)) + (0,),
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "newest-sha",
+        "variant": "internal",
+    }
+    assert [request["page"] for request in result["artifactRequests"]] == [1, 2]
     assert result["compareCalls"] == [
         {
             "owner": "manaflow-ai",
             "repo": "cmux",
-            "base": "demo-base-sha",
+            "base": "newest-sha",
             "head": "head-sha",
         }
     ]
+
+
+def test_scheduled_run_skips_when_upload_history_is_unavailable() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        artifact_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
+    assert result["warnings"] == [
+        "could not resolve last uploaded sha; skipping scheduled upload"
+    ]
+    assert result["compareCalls"] == []
+
+
+def test_manual_run_builds_when_upload_history_is_unavailable() -> None:
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        artifact_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
 
 
 def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
@@ -739,7 +870,7 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
     )
 
     assert result["waitCalls"] == [60_000]
-    assert result["workflowRunCalls"] == 3
+    assert result["workflowRunCalls"] == 2
     assert result["workflowRunRequests"] == [
         {
             "owner": "manaflow-ai",
@@ -755,23 +886,13 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
             "branch": "main",
             "per_page": 100,
         },
-        {
-            "owner": "manaflow-ai",
-            "repo": "cmux",
-            "workflow_id": "ios-testflight.yml",
-            "branch": "main",
-            "per_page": 100,
-            "page": 1,
-        },
     ]
     assert result["priorRunStatuses"] == [
-        "in_progress",
         "in_progress",
         "in_progress",
     ]
     assert result["uploadJobStatuses"] == [
         "in_progress",
-        "completed",
         "completed",
     ]
     assert result["outputs"] == {
@@ -797,7 +918,6 @@ def test_scheduled_run_waits_before_upload_job_exists() -> None:
         None,
         "in_progress",
         "completed",
-        "completed",
     ]
     assert result["outputs"] == {
         "should_build": "true",
@@ -820,10 +940,9 @@ def test_ordering_retries_transient_api_failures() -> None:
         )
 
         assert result["waitCalls"] == [60_000, 60_000]
-        assert result["workflowRunCalls"] == 4
+        assert result["workflowRunCalls"] == 3
         assert result["uploadJobStatuses"] == [
             "in_progress",
-            "completed",
             "completed",
         ]
         assert result["warnings"] == [
@@ -856,10 +975,8 @@ def test_ordering_ignores_later_active_runs() -> None:
     assert result["priorRunStatuses"] == [
         "in_progress",
         "completed",
-        "in_progress",
-        "completed",
     ]
-    assert result["uploadJobStatuses"] == [None, "completed"]
+    assert result["uploadJobStatuses"] == []
     assert result["outputs"] == {
         "should_build": "false",
         "last_uploaded_sha": "base-sha",
@@ -887,7 +1004,6 @@ def test_ordering_includes_manual_current_and_prior_runs() -> None:
         assert result["waitCalls"] == [60_000]
         assert result["uploadJobStatuses"] == [
             "in_progress",
-            "completed",
             "completed",
         ]
         assert result["outputs"] == {
@@ -950,43 +1066,26 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     upload = mapping_block(text, "upload", indent=2)
     assignment = mapping_block(text, "assign-internal-group", indent=2)
 
-    bundle_choice = variant_choice("dev.cmux.app.demo", "dev.cmux.app.internal")
-    display_name_choice = variant_choice("cmux DEMO", "cmux INTERNAL")
-    group_choice = (
-        "${{ "
-        f"{RESOLVED_DEMO_VARIANT_GUARD} "
-        "&& 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' "
-        "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
-    )
+    internal = resolved_metadata_artifact("internal", "")
+    demo = resolved_metadata_artifact("demo", "")
+    external = resolved_metadata_artifact("internal", "1.2.3")
+    assert internal == "ios-testflight-build-metadata"
+    assert demo == "ios-testflight-build-metadata-demo"
+    assert external == "ios-testflight-build-metadata-override"
 
-    assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
-    assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
+    assert "python3 ./ios/scripts/resolve_testflight_distribution.py" in upload
+    assert "INPUT_VARIANT: ${{ needs.decide.outputs.variant }}" in upload
     assert (
-        "CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "
-        f'{override_choice("1", "0")}'
+        "INPUT_MARKETING_VERSION_OVERRIDE: "
+        "${{ github.event.inputs.marketing_version_override }}"
         in upload
     )
-    assert (
-        "UPLOAD_BUNDLE_ID: "
-        f"{summary_choice('dev.cmux.app.beta', 'dev.cmux.app.demo', 'dev.cmux.app.internal')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_DISPLAY_NAME: "
-        f"{summary_choice('cmux BETA', 'cmux DEMO', 'cmux INTERNAL')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_AUDIENCE: "
-        f"{override_choice('external TestFlight testers', 'internal TestFlight group')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_REVIEW_NOTE: "
-        f"{override_choice('Beta App Review may be required', 'no beta review needed')}"
-        in upload
-    )
-    assert f"if: {RESOLVED_DEMO_VARIANT_GUARD}" in upload
+    assert "IOS_BETA_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload
+    assert "UPLOAD_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload
+    assert "UPLOAD_DISPLAY_NAME: ${{ steps.distribution.outputs.display_name }}" in upload
+    assert "UPLOAD_AUDIENCE: ${{ steps.distribution.outputs.audience }}" in upload
+    assert "UPLOAD_REVIEW_NOTE: ${{ steps.distribution.outputs.review_note }}" in upload
+    assert "name: ${{ steps.distribution.outputs.metadata_artifact }}" in upload
     assert (
         'echo "- lane: \\`beta\\` '
         '(bundle id \\`${UPLOAD_BUNDLE_ID}\\`, ${UPLOAD_AUDIENCE})"'
@@ -997,13 +1096,12 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
         'on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"'
         in upload
     )
-    assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
-    assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
+    assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assignment
     assert assignment.count("needs: [decide, upload]") == 1
     assert (
         "if: github.ref == 'refs/heads/main' "
         "&& needs.upload.result == 'success' "
-        "&& github.event.inputs.marketing_version_override == ''"
+        "&& needs.upload.outputs.assign_internal_group == '1'"
         in assignment
     )
 
@@ -1011,14 +1109,19 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 if __name__ == "__main__":
     test_literal_block_accepts_whitespace_only_lines()
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
+    test_internal_schedule_polls_every_twenty_minutes()
     test_schedule_decision_executes_ios_path_filter()
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
     test_unchanged_scheduled_head_skips_without_comparing()
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_schedule_decision_routes_internal_cron_to_internal_history()
+    test_decision_rejects_unknown_schedule_and_dispatch_variant()
     test_demo_history_skips_newer_internal_artifact()
-    test_demo_history_paginates_to_matching_artifact()
+    test_history_lookup_ignores_long_idle_workflow_run_history()
+    test_history_lookup_paginates_artifacts_and_selects_newest()
+    test_scheduled_run_skips_when_upload_history_is_unavailable()
+    test_manual_run_builds_when_upload_history_is_unavailable()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_manual_override_artifact_is_excluded_from_canonical_history()
     test_scheduled_run_waits_for_an_earlier_upload()

@@ -152,6 +152,17 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
+    private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
+
+    /// Snapshots the session's ordered input seam for a Ghostty I/O callback.
+    func makePaneInputHandler(
+        toPane paneID: Int
+    ) -> (@Sendable (TerminalManualInput) -> Void)? {
+        guard let paneInputForwarder else { return nil }
+        return { input in
+            paneInputForwarder.send(input, toPane: paneID)
+        }
+    }
 
     init(
         host: RemoteTmuxHost,
@@ -175,6 +186,17 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
+        self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
+            isActive: connection.connectionState == .connected,
+            onInput: { [weak self] input, paneID in
+                self?.sendManualInput(input, toPane: paneID)
+            },
+            onOverflow: { [weak self] in
+                guard let self else { return }
+                self.connection.record("manual-input-backpressure")
+                self.connection.beginReconnecting()
+            }
+        )
 
         // Register as one of possibly several observers — never overwrite a
         // single shared closure on the connection.
@@ -207,6 +229,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 self?.handleConnectionExited()
             },
             onConnectionStateChanged: { [weak self] state in
+                self?.paneInputForwarder?.setConnectionActive(state == .connected)
                 // Drop any mid-`ESC k` title-filter state when the stream isn't live:
                 // a reconnect's `reseedAfterReconnect` re-emits clear/capture bytes,
                 // and a filter stuck mid-title from before the drop would swallow them.

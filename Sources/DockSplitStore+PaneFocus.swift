@@ -75,7 +75,8 @@ extension DockSplitStore {
     }
 
     func focusFirstControl() -> Bool {
-        guard let paneId = bonsplitController.allPaneIds.first else { return false }
+        guard let paneId = bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first else { return false }
         bonsplitController.focusPane(paneId)
         guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let panelId = surfaceIdToPanelId[tabId],

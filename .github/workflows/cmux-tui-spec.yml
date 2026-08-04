@@ -1,0 +1,56 @@
+name: cmux-tui spec inventory
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cmux-tui/**"
+      - ".github/workflows/cmux-tui-spec.yml"
+  pull_request:
+    paths:
+      - "cmux-tui/**"
+      - ".github/workflows/cmux-tui-spec.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-tui-spec-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test inventory checker
+        run: python3 cmux-tui/scripts/test_check_spec_inventory.py
+
+      - name: Check protocol and TUI action inventory
+        run: python3 cmux-tui/scripts/check-spec-inventory.py
+
+      - name: Test deterministic SDK generator
+        env:
+          PYTHONPATH: cmux-tui/bindings
+        run: python3 -m unittest discover -s cmux-tui/bindings/codegen/tests -v
+
+      - name: Test SDK schema checker
+        run: python3 cmux-tui/scripts/test_check_sdk_schema.py
+
+      - name: Check SDK schema against runtime inventory
+        run: python3 cmux-tui/scripts/check-sdk-schema.py
+
+      - name: Test public resource boundary checker
+        run: python3 cmux-tui/scripts/test_check_resource_api_boundary.py
+
+      - name: Check public resource API boundary
+        run: python3 cmux-tui/scripts/check-resource-api-boundary.py
+
+      - name: Check generated SDK wire layers
+        run: python3 cmux-tui/bindings/codegen/generate.py --check

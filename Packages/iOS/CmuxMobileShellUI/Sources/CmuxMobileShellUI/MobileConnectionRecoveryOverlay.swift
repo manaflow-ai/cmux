@@ -1,41 +1,20 @@
 import CmuxMobileShell
-import CmuxMobileToast
 import SwiftUI
 
 private struct MobileConnectionRecoveryOverlay: ViewModifier {
     @Bindable var store: CMUXMobileShellStore
     var signOut: (@MainActor @Sendable () -> Void)?
-    @Environment(ToastCenter.self) private var toasts
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if toasts.isEnabled {
-            // Transient statuses ride the toast capsule, owned solely by
-            // ConnectionStatusToastPresenter in the always-mounted shell.
-            // Reauth and failed recovery are blocking conditions, not
-            // statuses: a toast can be swiped away with nothing left to
-            // re-present it, so their Sign Out / Retry actions keep the
-            // durable banner.
-            content.overlay(alignment: .top) {
-                if store.connectionRequiresReauth || store.connectionRecoveryFailed {
-                    MobileConnectionRecoveryBanner(
-                        connectionRequiresReauth: store.connectionRequiresReauth,
-                        connectionRecoveryFailed: store.connectionRecoveryFailed,
-                        isRecoveringConnection: false,
-                        connectionError: store.connectionError,
-                        retry: { store.retryMobileConnection() },
-                        signOut: signOut
-                    )
-                }
-            }
-        } else {
-            content.overlay(alignment: .top) {
+        // Reauth is a blocking condition, not a status: the Mac rejected the
+        // connection, so a durable banner with Sign Out is the only honest
+        // surface. Transient reconnects and failed attempts keep the terminal
+        // visible and ride the status pill / picker status line instead.
+        content.overlay(alignment: .top) {
+            if store.connectionRequiresReauth {
                 MobileConnectionRecoveryBanner(
                     connectionRequiresReauth: store.connectionRequiresReauth,
-                    connectionRecoveryFailed: store.connectionRecoveryFailed,
-                    isRecoveringConnection: store.isRecoveringConnection,
                     connectionError: store.connectionError,
-                    retry: { store.retryMobileConnection() },
                     signOut: signOut
                 )
             }

@@ -9,6 +9,7 @@ WEBHOOK_URL="https://cmux.com/api/stripe/webhook"
 WEBHOOK_DESCRIPTION="cmux Pro billing (webhook-driven entitlements)"
 EVENTS=(
   "checkout.session.completed"
+  "checkout.session.async_payment_succeeded"
   "customer.subscription.created"
   "customer.subscription.updated"
   "customer.subscription.deleted"
@@ -125,14 +126,17 @@ webhook_id="$(
   ' <<<"$webhooks_response" | head -n 1
 )"
 
+event_args=()
+for event in "${EVENTS[@]}"; do
+  event_args+=(-d "enabled_events[]=${event}")
+done
+
 if [[ -n "$webhook_id" ]]; then
   echo "Found webhook endpoint: $webhook_id"
+  stripe_post "/webhook_endpoints/${webhook_id}" "${event_args[@]}" >/dev/null
+  echo "Updated webhook event subscriptions."
   echo "Webhook signing secrets are only returned at creation time; use the existing production STRIPE_WEBHOOK_SECRET."
 else
-  event_args=()
-  for event in "${EVENTS[@]}"; do
-    event_args+=(-d "enabled_events[]=${event}")
-  done
   webhook_response="$(
     stripe_post "/webhook_endpoints" \
       -d "url=${WEBHOOK_URL}" \

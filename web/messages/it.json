@@ -3602,5 +3602,36 @@
       "requirements": "Debian o Ubuntu · x64",
       "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
     }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Benvenuto in cmux Pro 🎉",
+      "fallbackName": "amico",
+      "greeting": "Ciao {name},",
+      "thanks": "Grazie per esserti unito a cmux Pro! Stiamo ancora completando l’esperienza Pro e l’accesso al cloud è in arrivo.",
+      "cloudStatus": "Quando lanceremo l’accesso al cloud, aggiungeremo al tuo account crediti di utilizzo in base al numero di mesi di abbonamento.",
+      "currentBenefit": "Nel frattempo, il tuo vantaggio Pro è l’accesso anticipato a cmux su iOS. Registrati tramite il link qui sotto e Apple ti invierà l’invito TestFlight una volta completata la registrazione.",
+      "testflightLink": "Registrati a TestFlight: {url}",
+      "testflightLinkLabel": "Registrati a TestFlight",
+      "signoff": "Siamo felici di averti con noi!\nIl team di cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro è attivo",
+    "title": "Benvenuto in cmux Pro",
+    "body": "Le funzionalità Pro sono ancora in fase di sviluppo. L’accesso al cloud arriverà presto, con crediti di utilizzo accumulati per ogni mese di abbonamento. Al momento, Pro include l’accesso a cmux per iOS tramite TestFlight.",
+    "done": "Vai alla dashboard",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux per iOS",
+        "body": "Usa cmux sul tuo telefono.",
+        "action": "Partecipa alla beta iOS"
+      },
+      "billing": {
+        "title": "Gestisci il tuo piano",
+        "body": "Consulta il tuo piano, le fatture e le opzioni di annullamento.",
+        "action": "Gestisci piano"
+      }
+    }
   }
 }

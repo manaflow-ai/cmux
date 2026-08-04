@@ -35,7 +35,7 @@ const ascFetch = mock(async (path: unknown) => {
         ? [
             {
               type: "betaGroups",
-              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+              id: PRO_TESTFLIGHT_GROUP_ID,
             },
           ]
         : [],
@@ -87,6 +87,7 @@ mock.module("@/services/billing/pro", () => ({
   isTestflightEligible,
 }));
 
+const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
 const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
 
 describe("dashboard TestFlight page", () => {
@@ -107,7 +108,7 @@ describe("dashboard TestFlight page", () => {
     const html = await renderTestflightPage();
 
     expect(html).toContain("Subscription required");
-    expect(html).toContain("active Pro users and members of a Team subscription");
+    expect(html).toContain("active personal Pro subscribers");
     expect(html).toContain('href="/pricing"');
     expect(html).not.toContain("/api/testflight");
     expect(ascFetch).not.toHaveBeenCalled();
@@ -140,7 +141,7 @@ describe("dashboard TestFlight page", () => {
     ["joined", "Apple will email your TestFlight invite shortly."],
     ["left", "You have left the iOS TestFlight group."],
     ["error", "TestFlight could not be updated. Try again shortly."],
-    ["ineligible", "An active Pro or Team subscription is required for iOS TestFlight."],
+    ["ineligible", "An active personal Pro subscription is required for iOS TestFlight."],
     ["needs_email", "Add a verified primary email before joining iOS TestFlight."],
     ["unavailable", "TestFlight enrollment is not available right now."],
   ] as const) {
