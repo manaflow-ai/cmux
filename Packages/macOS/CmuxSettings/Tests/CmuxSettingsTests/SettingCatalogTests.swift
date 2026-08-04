@@ -98,6 +98,21 @@ struct SettingCatalogTests {
         #expect(ids.contains("automation.socketPassword"))
     }
 
+    @Test func surfaceTabBarAppearanceKeysAreCataloged() {
+        let ids = Set(SettingCatalog().all.map(\.id))
+        let expected: Set<String> = [
+            "ui.surfaceTabBar.activeTabBackground",
+            "ui.surfaceTabBar.activeTabForeground",
+            "ui.surfaceTabBar.inactiveTabBackground",
+            "ui.surfaceTabBar.inactiveTabForeground",
+            "ui.surfaceTabBar.tabDividerColor",
+            "ui.surfaceTabBar.activeTabIndicatorColor",
+            "ui.surfaceTabBar.activeTabIndicatorEdge",
+        ]
+
+        #expect(expected.isSubset(of: ids))
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
