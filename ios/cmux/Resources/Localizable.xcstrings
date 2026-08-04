@@ -17279,13 +17279,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Track every workspace from your phone."
+            "value": "Follow every agent session from your phone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneからすべてのワークスペースを確認できます。"
+            "value": "iPhoneからすべてのエージェントセッションを確認できます。"
           }
         }
       }

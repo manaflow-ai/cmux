@@ -105,6 +105,14 @@ import UIKit
         }
     }
 
+    @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
+        let frame = await OnboardingScreenshot.deviceFrameImage()
+        let pixels = try #require(frame.cgImage)
+
+        #expect(pixels.width == 1_470)
+        #expect(pixels.height == 3_000)
+    }
+
     @Test func screenshotAppearanceMatchesTheSystemColorScheme() {
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .light) == .light)
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .dark) == .dark)

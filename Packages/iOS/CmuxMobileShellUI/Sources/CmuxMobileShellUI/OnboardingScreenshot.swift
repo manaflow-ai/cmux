@@ -3,11 +3,11 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Full-height Simulator captures from the production workspace list and
-/// notification feed preview entrypoints, presented inside an iPhone frame.
+/// Full-height production captures presented inside the same iPhone product
+/// frame used by the App Store screenshot pipeline.
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
-        case workspaces
+        case agentSession = "agent-session"
         case notifications
 
         var accessibilityIdentifier: String {
@@ -22,33 +22,50 @@ struct OnboardingScreenshot: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.locale) private var locale
+    @State private var deviceFrame: UIImage?
     @State private var screenshot: UIImage?
 
     var body: some View {
-        OnboardingIPhoneScreenshotFrame(preferredHeight: preferredFrameHeight) {
+        OnboardingIPhoneScreenshotFrame(
+            preferredHeight: preferredFrameHeight,
+            deviceFrame: deviceFrame
+        ) {
             ZStack {
                 Color(.systemBackground)
                 if let screenshot {
                     Image(uiImage: screenshot)
                         .resizable()
-                        .scaledToFit()
+                        .scaledToFill()
                 }
             }
+            .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: preferredFrameHeight)
+        .opacity(imagesAreReady ? 1 : 0)
         .accessibilityElement()
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier(content.accessibilityIdentifier)
+        .accessibilityIdentifier(
+            imagesAreReady
+                ? content.accessibilityIdentifier
+                : "MobileOnboardingScreenshot-loading"
+        )
         .task(id: resourceName) {
             screenshot = nil
+            deviceFrame = nil
             let loadedScreenshot = await Self.image(
                 content: content,
                 language: language,
                 appearance: appearance
             )
+            let loadedDeviceFrame = await Self.deviceFrameImage()
             guard !Task.isCancelled else { return }
             screenshot = loadedScreenshot
+            deviceFrame = loadedDeviceFrame
         }
+    }
+
+    private var imagesAreReady: Bool {
+        screenshot != nil && deviceFrame != nil
     }
 
     private var preferredFrameHeight: CGFloat {
@@ -85,13 +102,23 @@ struct OnboardingScreenshot: View {
             language: language,
             appearance: appearance
         )
+        return await cachedImage(resourceName: resourceName)
+    }
+
+    @MainActor
+    static func deviceFrameImage() async -> UIImage {
+        await cachedImage(resourceName: deviceFrameResourceName)
+    }
+
+    @MainActor
+    private static func cachedImage(resourceName: String) async -> UIImage {
         let cacheKey = resourceName as NSString
         if let cachedImage = screenshotCache.object(forKey: cacheKey) {
             return cachedImage
         }
 
         guard let loaded = await loadImage(resourceName: resourceName) else {
-            assertionFailure("Missing onboarding screenshot: \(resourceName).png")
+            assertionFailure("Missing onboarding image: \(resourceName).png")
             return UIImage()
         }
         screenshotCache.setObject(
@@ -119,17 +146,23 @@ struct OnboardingScreenshot: View {
 
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = Content.allCases.count
+        cache.countLimit = 1 + Content.allCases.count
             * OnboardingScreenshotLanguage.allCases.count
             * OnboardingScreenshotAppearance.allCases.count
         return cache
     }()
+
+    private static let deviceFrameResourceName =
+        "Onboarding-iPhone-17-Pro-Max-Silver"
 
     private static func resourceName(
         content: Content,
         language: OnboardingScreenshotLanguage,
         appearance: OnboardingScreenshotAppearance
     ) -> String {
+        if content == .agentSession {
+            return "Onboarding-agent-session"
+        }
         let baseName = "Onboarding-\(content.rawValue)-\(language.rawValue)"
         switch appearance {
         case .light:
@@ -142,11 +175,17 @@ struct OnboardingScreenshot: View {
 
 private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
     let preferredHeight: CGFloat
+    let deviceFrame: UIImage?
     let screen: Screen
-    private let metrics = OnboardingIPhoneScreenshotFrameMetrics()
+    private let metrics = OnboardingIPhoneProductFrameMetrics()
 
-    init(preferredHeight: CGFloat, @ViewBuilder screen: () -> Screen) {
+    init(
+        preferredHeight: CGFloat,
+        deviceFrame: UIImage?,
+        @ViewBuilder screen: () -> Screen
+    ) {
         self.preferredHeight = preferredHeight
+        self.deviceFrame = deviceFrame
         self.screen = screen()
     }
 
@@ -155,77 +194,30 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             preferredHeight: preferredHeight,
             metrics: metrics
         ) {
-            ZStack {
-                Color(.systemBackground)
-                screen
-            }
-            .clipShape(screenShape)
-            .overlay {
-                screenShape.stroke(
-                    Color.white.opacity(0.16),
-                    lineWidth: 1
-                )
-            }
+            screen
+            OnboardingDeviceFrameImage(image: deviceFrame)
         }
-        .background {
-            OnboardingIPhoneShell(metrics: metrics)
-        }
-    }
-
-    private var screenShape: OnboardingProportionalRoundedRectangle {
-        OnboardingProportionalRoundedRectangle(
-            cornerRadiusFraction: metrics.screenCornerRadiusFraction
-        )
     }
 }
 
-private struct OnboardingIPhoneShell: View {
-    let metrics: OnboardingIPhoneScreenshotFrameMetrics
+private struct OnboardingDeviceFrameImage: View {
+    let image: UIImage?
 
     var body: some View {
-        ZStack {
-            OnboardingProportionalRoundedRectangle(
-                cornerRadiusFraction: metrics.outerCornerRadiusFraction
-            )
-            .fill(aluminumRim)
-
-            OnboardingInsetRoundedRectangle(
-                insetFraction: metrics.glassInsetFraction,
-                cornerRadiusFraction: metrics.glassCornerRadiusFraction
-            )
-            .fill(Color.black)
-
-            OnboardingProportionalRoundedRectangle(
-                cornerRadiusFraction: metrics.outerCornerRadiusFraction
-            )
-            .stroke(Color.white.opacity(0.34), lineWidth: 1)
-
-            OnboardingInsetRoundedRectangle(
-                insetFraction: metrics.glassInsetFraction,
-                cornerRadiusFraction: metrics.glassCornerRadiusFraction
-            )
-            .stroke(Color.black.opacity(0.7), lineWidth: 1)
+        if let image {
+            Image(uiImage: image)
+                .resizable()
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        } else {
+            Color.clear
         }
-    }
-
-    private var aluminumRim: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: Color(white: 0.72), location: 0),
-                .init(color: Color(white: 0.28), location: 0.18),
-                .init(color: Color(white: 0.12), location: 0.5),
-                .init(color: Color(white: 0.42), location: 0.82),
-                .init(color: Color(white: 0.68), location: 1),
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
     }
 }
 
 private struct OnboardingIPhoneFrameLayout: Layout {
     let preferredHeight: CGFloat
-    let metrics: OnboardingIPhoneScreenshotFrameMetrics
+    let metrics: OnboardingIPhoneProductFrameMetrics
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -233,8 +225,8 @@ private struct OnboardingIPhoneFrameLayout: Layout {
         cache: inout ()
     ) -> CGSize {
         precondition(
-            subviews.count == 1,
-            "OnboardingIPhoneFrameLayout requires exactly one screen subview"
+            subviews.count == 2,
+            "OnboardingIPhoneFrameLayout requires a screen and product frame"
         )
         let width = finite(proposal.width)
         let height = finite(proposal.height)
@@ -274,21 +266,29 @@ private struct OnboardingIPhoneFrameLayout: Layout {
         cache: inout ()
     ) {
         precondition(
-            subviews.count == 1,
-            "OnboardingIPhoneFrameLayout requires exactly one screen subview"
+            subviews.count == 2,
+            "OnboardingIPhoneFrameLayout requires a screen and product frame"
         )
-        guard let screen = subviews.first else { return }
-        let horizontalInset = bounds.width
-            * metrics.screenInsetFraction
-        let screenWidth = max(0, bounds.width - horizontalInset * 2)
-        let screenHeight = min(
-            bounds.height,
-            screenWidth / metrics.screenAspectRatio
-        )
+        guard let screen = subviews.first,
+              let deviceFrame = subviews.last else { return }
         screen.place(
-            at: CGPoint(x: bounds.midX, y: bounds.midY),
-            anchor: .center,
-            proposal: ProposedViewSize(width: screenWidth, height: screenHeight)
+            at: CGPoint(
+                x: bounds.minX + bounds.width * metrics.screenOriginX,
+                y: bounds.minY + bounds.height * metrics.screenOriginY
+            ),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(
+                width: bounds.width * metrics.screenWidth,
+                height: bounds.height * metrics.screenHeight
+            )
+        )
+        deviceFrame.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(
+                width: bounds.width,
+                height: bounds.height
+            )
         )
     }
 
@@ -298,59 +298,21 @@ private struct OnboardingIPhoneFrameLayout: Layout {
     }
 }
 
-private struct OnboardingProportionalRoundedRectangle: Shape {
-    let cornerRadiusFraction: CGFloat
+private struct OnboardingIPhoneProductFrameMetrics {
+    // Pixel geometry from Apple iPhone 17 Pro Max Silver.png, shared with the
+    // App Store screenshot composer in ios/fastlane/frame_assets.
+    let frameWidth: CGFloat = 1470
+    let frameHeight: CGFloat = 3000
+    let screenX: CGFloat = 75
+    let screenY: CGFloat = 66
+    let screenPixelWidth: CGFloat = 1320
+    let screenPixelHeight: CGFloat = 2868
 
-    func path(in rect: CGRect) -> Path {
-        RoundedRectangle(
-            cornerRadius: rect.width * cornerRadiusFraction,
-            style: .continuous
-        )
-        .path(in: rect)
-    }
-}
-
-private struct OnboardingInsetRoundedRectangle: Shape {
-    let insetFraction: CGFloat
-    let cornerRadiusFraction: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let inset = rect.width * insetFraction
-        let insetRect = rect.insetBy(dx: inset, dy: inset)
-        return RoundedRectangle(
-            cornerRadius: insetRect.width * cornerRadiusFraction,
-            style: .continuous
-        )
-        .path(in: insetRect)
-    }
-}
-
-private struct OnboardingIPhoneScreenshotFrameMetrics {
-    // iPhone 17 Pro body, display, and outer-radius dimensions. Keeping the
-    // shell styling proportional preserves the same curves at every size.
-    let bodyWidth: CGFloat = 71.9
-    let bodyHeight: CGFloat = 150
-    let displayWidth: CGFloat = 1206
-    let displayHeight: CGFloat = 2622
-    let outerCornerRadius: CGFloat = 12
-    let glassInset: CGFloat = 0.18
-
-    var outerAspectRatio: CGFloat { bodyWidth / bodyHeight }
-    var screenAspectRatio: CGFloat { displayWidth / displayHeight }
-    var outerCornerRadiusFraction: CGFloat { outerCornerRadius / bodyWidth }
-    var glassInsetFraction: CGFloat { glassInset / bodyWidth }
-    var screenInsetFraction: CGFloat {
-        (1 - screenAspectRatio / outerAspectRatio)
-            / (2 * (1 - screenAspectRatio))
-    }
-    var glassCornerRadiusFraction: CGFloat {
-        (outerCornerRadiusFraction - glassInsetFraction)
-            / (1 - 2 * glassInsetFraction)
-    }
-    var screenCornerRadiusFraction: CGFloat {
-        (outerCornerRadiusFraction - screenInsetFraction)
-            / (1 - 2 * screenInsetFraction)
-    }
+    var outerAspectRatio: CGFloat { frameWidth / frameHeight }
+    var screenOriginX: CGFloat { screenX / frameWidth }
+    var screenOriginY: CGFloat { screenY / frameHeight }
+    var screenWidth: CGFloat { screenPixelWidth / frameWidth }
+    var screenHeight: CGFloat { screenPixelHeight / frameHeight }
 }
 
 enum OnboardingScreenshotLanguage: String, CaseIterable, Equatable, Sendable {
