@@ -4,13 +4,18 @@ import CmuxFoundation
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
-    private let iconView = CmuxResolvedIconImageView()
+    private let iconView: CmuxResolvedIconImageView
     private let pathLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
 
-    override init(frame: NSRect) {
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, iconRenderContext: CmuxResolvedIconRenderContext())
+    }
+
+    init(frame: NSRect, iconRenderContext: CmuxResolvedIconRenderContext) {
+        iconView = CmuxResolvedIconImageView(frame: .zero, renderContext: iconRenderContext)
         super.init(frame: frame)
         setupViews()
     }
