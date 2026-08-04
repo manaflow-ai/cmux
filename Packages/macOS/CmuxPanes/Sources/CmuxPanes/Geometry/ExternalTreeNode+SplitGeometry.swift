@@ -85,24 +85,45 @@ extension ExternalTreeNode {
     /// the nearest split matching the requested edge, and falls back to the
     /// nearest compatible opposite edge at an outer boundary. Converts
     /// `amountPixels` into a divider delta along that split's axis, clamped to
-    /// 0.1-0.9. Returns `nil` when the pane is absent or no enclosing split
-    /// matches the direction's orientation.
+    /// 0.1-0.9. Returns `nil` when the pane is absent, no enclosing split
+    /// matches the direction's orientation, or the selected split cannot be
+    /// addressed reliably.
     public func resizeDividerAdjustment(
         targetPaneId: String,
         direction: ResizeDirection,
         amountPixels: UInt16
     ) -> SplitDividerAdjustment? {
+        guard case .adjustment(let adjustment) = resizeDividerPlan(
+            targetPaneId: targetPaneId,
+            direction: direction,
+            amountPixels: amountPixels
+        ) else {
+            return nil
+        }
+        return adjustment
+    }
+
+    /// Produces a resize plan while retaining failures that the public
+    /// optional adjustment API cannot represent.
+    func resizeDividerPlan(
+        targetPaneId: String,
+        direction: ResizeDirection,
+        amountPixels: UInt16
+    ) -> SplitResizePlan {
         var candidates: [ResizeSplitCandidate] = []
         let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
-        guard trace.containsTarget else { return nil }
+        guard trace.containsTarget else { return .noMatchingSplit }
 
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else { return nil }
+        guard !orientationMatches.isEmpty else { return .noMatchingSplit }
 
         let directCandidate = orientationMatches.first {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
         }
         let candidate = directCandidate ?? orientationMatches[0]
+        guard let splitId = candidate.splitId else {
+            return .invalidSplitIdentifier
+        }
         let sign = directCandidate == nil
             ? -direction.dividerDeltaSign
             : direction.dividerDeltaSign
@@ -115,14 +136,14 @@ extension ExternalTreeNode {
         let initialShare = candidate.paneInFirstChild
             ? candidate.dividerPosition
             : 1 - candidate.dividerPosition
-        return SplitDividerAdjustment(
-            splitId: candidate.splitId,
+        return .adjustment(SplitDividerAdjustment(
+            splitId: splitId,
             position: clamped,
             requestedFocusedBranchShare: requestedShare,
             focusedBranchShare: actualShare,
             initialFocusedBranchShare: initialShare,
             focusedBranchIsFirst: candidate.paneInFirstChild
-        )
+        ))
     }
 
     func dividerPosition(forSplitId splitId: UUID) -> CGFloat? {
@@ -139,7 +160,7 @@ extension ExternalTreeNode {
     }
 
     private struct ResizeSplitCandidate {
-        let splitId: UUID
+        let splitId: UUID?
         let orientation: String
         let paneInFirstChild: Bool
         let dividerPosition: CGFloat
@@ -178,14 +199,13 @@ extension ExternalTreeNode {
             let combinedBounds = first.bounds.union(second.bounds)
             let containsTarget = first.containsTarget || second.containsTarget
 
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
+            if containsTarget {
                 let orientation = split.orientation.lowercased()
                 let axisPixels: CGFloat = orientation == "horizontal"
                     ? combinedBounds.width
                     : combinedBounds.height
                 candidates.append(ResizeSplitCandidate(
-                    splitId: splitUUID,
+                    splitId: UUID(uuidString: split.id),
                     orientation: orientation,
                     paneInFirstChild: first.containsTarget,
                     dividerPosition: CGFloat(split.dividerPosition),
@@ -196,4 +216,12 @@ extension ExternalTreeNode {
             return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
     }
+}
+
+/// Internal resize planning result used to distinguish absent geometry from
+/// an enclosing split whose identifier cannot be routed to Bonsplit safely.
+enum SplitResizePlan: Equatable {
+    case adjustment(SplitDividerAdjustment)
+    case noMatchingSplit
+    case invalidSplitIdentifier
 }

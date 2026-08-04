@@ -207,6 +207,36 @@ struct SplitGeometryTests {
         #expect(adjustment.map { $0.position > 0.5 } == true)
     }
 
+    @Test func resizeRejectsMalformedDirectSplitInsteadOfFallingBackOutward() {
+        let outerId = UUID()
+        let malformedInner = ExternalTreeNode.split(ExternalSplitNode(
+            id: "not-a-uuid",
+            orientation: "horizontal",
+            dividerPosition: 0.5,
+            first: pane("a", width: 150),
+            second: pane("b", x: 150, width: 150)
+        ))
+        let tree = split(
+            outerId,
+            orientation: "horizontal",
+            first: malformedInner,
+            second: pane("c", x: 300, width: 300)
+        )
+
+        let plan = tree.resizeDividerPlan(
+            targetPaneId: "b",
+            direction: .left,
+            amountPixels: 20
+        )
+
+        #expect(plan == .invalidSplitIdentifier)
+        #expect(tree.resizeDividerAdjustment(
+            targetPaneId: "b",
+            direction: .left,
+            amountPixels: 20
+        ) == nil)
+    }
+
     @Test func resizeRequiresMatchingOrientationAndKnownPane() {
         let splitId = UUID()
         let tree = split(

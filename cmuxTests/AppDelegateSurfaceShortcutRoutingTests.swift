@@ -413,7 +413,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     @Test func configuredGrowPaneShortcutsUseOppositeEdgeAtEveryOuterBoundary() throws {
         try assertPaneResizeShortcut(
             action: .growPaneLeft,
-            key: "x",
+            key: "←",
             keyCode: 123,
             orientation: .horizontal,
             focusSecondPane: false,
@@ -453,7 +453,15 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         focusSecondPane: Bool,
         expectedDividerToIncrease: Bool
     ) throws {
-        try withTemporaryShortcut(action: action) {
+        let shortcut = StoredShortcut(
+            key: key,
+            command: true,
+            shift: true,
+            option: false,
+            control: true,
+            keyCode: keyCode
+        )
+        try withTemporaryShortcut(action: action, shortcut: shortcut) {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -532,7 +540,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         )
     }
 
-    private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () throws -> Void) rethrows {
+    private func withTemporaryShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut? = nil,
+        _ body: () throws -> Void
+    ) rethrows {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -545,7 +557,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif
         }
-        KeyboardShortcutSettings.setShortcut(action.defaultShortcut, for: action)
+        KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
 #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif

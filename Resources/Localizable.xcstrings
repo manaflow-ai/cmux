@@ -206710,6 +206710,12 @@
             "value": "ペインを下に拡大"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងទៅខាងក្រោម"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -206827,6 +206833,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペインを左に拡大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងទៅខាងឆ្វេង"
           }
         },
         "ko": {
@@ -206948,6 +206960,12 @@
             "value": "ペインを右に拡大"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងទៅខាងស្តាំ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -207065,6 +207083,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペインを上に拡大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងទៅខាងលើ"
           }
         },
         "ko": {

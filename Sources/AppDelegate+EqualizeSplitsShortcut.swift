@@ -2,8 +2,10 @@ import AppKit
 import CmuxPanes
 
 extension AppDelegate {
+    /// Fixed incremental movement used by the directional pane resize actions.
     private static let paneResizeStep: CGFloat = 20
 
+    /// Routes configured directional pane-resize shortcuts.
     func handlePaneResizeShortcut(event: NSEvent) -> Bool {
         let routes: [(KeyboardShortcutSettings.Action, ResizeDirection, String, UInt16)] = [
             (.growPaneLeft, .left, "←", 123),
@@ -27,6 +29,7 @@ extension AppDelegate {
         return true
     }
 
+    /// Applies a directional resize in the main-window context for `event`.
     func performPaneResizeShortcut(direction: ResizeDirection, event: NSEvent) {
         if focusedDockStoreForShortcut(preferredWindow: event.window) != nil {
             NSSound.beep()

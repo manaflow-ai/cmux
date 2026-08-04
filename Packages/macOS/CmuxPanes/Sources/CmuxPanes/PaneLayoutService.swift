@@ -60,12 +60,19 @@ public struct PaneLayoutService {
         amountPixels: UInt16,
         controller: BonsplitController
     ) -> PaneResizeResult {
-        guard let adjustment = node.resizeDividerAdjustment(
+        let plan = node.resizeDividerPlan(
             targetPaneId: targetPaneId,
             direction: direction,
             amountPixels: amountPixels
-        ) else {
+        )
+        let adjustment: SplitDividerAdjustment
+        switch plan {
+        case .adjustment(let plannedAdjustment):
+            adjustment = plannedAdjustment
+        case .noMatchingSplit:
             return .noMatchingSplit
+        case .invalidSplitIdentifier:
+            return .rejected(reason: "The matching split has an invalid identifier.")
         }
         guard let requestedShare = adjustment.requestedFocusedBranchShare,
               let plannedShare = adjustment.focusedBranchShare,

@@ -13,6 +13,7 @@ public enum PaneResizeResult: Equatable, Sendable {
     /// The command could not be applied for the supplied reason.
     case rejected(reason: String)
 
+    /// Whether the command changed a divider, including a clamped change.
     public var didApply: Bool {
         switch self {
         case .applied, .clamped:

@@ -3962,7 +3962,7 @@ class TabManager: ObservableObject {
         return moved
     }
 
-    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
+    /// Resizes the focused pane in the selected split workspace.
     func resizeSelectedPane(
         direction: ResizeDirection,
         amountInPixels: CGFloat
@@ -3993,6 +3993,7 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions.
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
         guard amount > 0,
               let tab = tabs.first(where: { $0.id == tabId }),
