@@ -645,6 +645,70 @@ struct FileExplorerStoreTests {
         _ = container
     }
 
+    @Test
+    func testRevisionReloadRestoresNestedExpansionAndSelection() async throws {
+        let rootPath = "/home/user/project"
+        let projectPath = "\(rootPath)/App"
+        let sourcePath = "\(projectPath)/Sources"
+        let keepPath = "\(sourcePath)/Keep.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "App", path: projectPath, isDirectory: true),
+        ])
+        provider.listings[projectPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("nested root loaded") { store.rootNodes.count == 1 }
+
+        let projectNode = try #require(store.rootNodes.first)
+        store.expand(node: projectNode)
+        try await waitFor("nested project loaded") { projectNode.children?.count == 1 }
+        let sourceNode = try #require(projectNode.children?.first)
+        store.expand(node: sourceNode)
+        try await waitFor("nested source loaded") { sourceNode.children?.count == 2 }
+        let keepNode = try #require(sourceNode.children?.first { $0.path == keepPath })
+        store.select(node: keepNode)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+        outlineView.expandItem(sourceNode)
+        coordinator.reloadIfNeeded()
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested hierarchy") {
+            store.rootNodes.first?.children?.first?.children?.map(\.name) == ["Added.swift", "Keep.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        let selectedNames = outlineView.selectedRowIndexes.compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["App", "Sources", "Added.swift", "Keep.swift"])
+        #expect(selectedNames == ["Keep.swift"])
+        _ = container
+    }
+
     // MARK: - Collapse/Expand
 
     @Test
