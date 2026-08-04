@@ -38,6 +38,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
+            repositoryLink: nil,
             pullRequestRows: [],
             listeningPorts: [],
             finderDirectoryPath: nil,
