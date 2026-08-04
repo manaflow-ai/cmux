@@ -846,6 +846,87 @@ extension GlobalSearchShortcutBehaviorTests {
 #endif
     }
 
+    @MainActor
+    @Test func liveRefreshAwaitsBrowserCaptureSupersededByLifecycleEvent() async throws {
+#if DEBUG
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-browser-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let appDelegate = try #require(AppDelegate.shared)
+        let token = "browsersuperseded\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let html = "<html><head><title>Lifecycle page</title></head><body>\(token)</body></html>"
+        let encodedHTML = try #require(html.data(using: .utf8)).base64EncodedString()
+        let initialURL = try #require(URL(string: "data:text/html;base64,\(encodedHTML)"))
+        let harness = try makeNamedMainWindow(
+            appDelegate: appDelegate,
+            initialWorkspaceTitle: "Browser lifecycle workspace"
+        )
+        defer { closeWindow(harness.window, appDelegate: appDelegate) }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: harness.windowID))
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let browserPanelID = try #require(
+            tabManager.openBrowser(
+                inWorkspace: workspace.id,
+                url: initialURL,
+                preferSplitRight: true
+            )
+        )
+        let browserPanel = try #require(workspace.browserPanel(for: browserPanelID))
+        #expect(
+            await waitForBrowserBody(token, panel: browserPanel),
+            "The browser fixture must finish loading before capture starts"
+        )
+
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let firstIndexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseFirstIndexRequest = GlobalSearchAsyncSignal()
+        let indexRequestCount = GlobalSearchCounter()
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestCount.increment()
+                if indexRequestCount.value == 1 {
+                    firstIndexRequestStarted.signal()
+                    await releaseFirstIndexRequest.wait()
+                }
+                return index
+            },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            releaseFirstIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: browserPanel.id)
+        }
+        let context = try #require(
+            appDelegate.globalSearchContext(
+                forPanelID: browserPanel.id,
+                preferredWorkspaceID: workspace.id
+            )
+        )
+
+        let refreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+        }
+        await firstIndexRequestStarted.wait()
+        captureManager.captureBrowserPanel(browserPanel)
+        releaseFirstIndexRequest.signal()
+        await refreshTask.value
+
+        #expect(
+            try await index.search(token).contains(where: {
+                $0.panelID == browserPanel.id && $0.kind == .browser
+            }),
+            "A live refresh must await the replacement when a browser lifecycle event supersedes its capture"
+        )
+#else
+        Issue.record("Browser lifecycle capture coverage requires a DEBUG app-host build")
+#endif
+    }
+
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
         SearchIndexHit(
             id: id,
