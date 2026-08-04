@@ -12,6 +12,7 @@ import CmuxSidebarProviderKit
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
+import CmuxUpdater
 @_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
@@ -2474,6 +2475,40 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         coordinator: SidebarWorkspaceTableController
     ) {
         coordinator.dismantleContainerView(view)
+    }
+}
+
+struct NativeSidebarFooterBridge: NSViewControllerRepresentable {
+    @EnvironmentObject private var tabManager: TabManager
+    let updateViewModel: UpdateStateModel
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
+    let onSendFeedback: () -> Void
+
+    func makeNSViewController(context: Context) -> SidebarFooterNativeViewController {
+        SidebarFooterNativeViewController(
+            updateViewModel: updateViewModel,
+            tabManager: tabManager,
+            modifierKeyMonitor: modifierKeyMonitor,
+            onSendFeedback: onSendFeedback
+        )
+    }
+
+    func updateNSViewController(
+        _ controller: SidebarFooterNativeViewController,
+        context: Context
+    ) {
+        controller.update(
+            tabManager: tabManager,
+            modifierKeyMonitor: modifierKeyMonitor,
+            onSendFeedback: onSendFeedback
+        )
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SidebarFooterNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
     }
 }
 

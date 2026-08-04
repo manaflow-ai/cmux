@@ -1847,6 +1847,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0270000000000000027 /* SidebarDividerTrackingView.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
+		A4F700000000000000000001 /* SidebarFooterNativeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F700000000000000000002 /* SidebarFooterNativeViewController.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
 		B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */; };
 		B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */; };
@@ -4405,6 +4406,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B804B0270000000000000027 /* SidebarDividerTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDividerTrackingView.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
+		A4F700000000000000000002 /* SidebarFooterNativeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarFooterNativeViewController.swift"; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
 		B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowModel.swift; sourceTree = "<group>"; };
 		B804B0210000000000000021 /* SidebarGroupHeaderRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift; sourceTree = "<group>"; };
@@ -5560,6 +5562,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */,
 					C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 				A5001012 /* ContentView.swift */,
+				A4F700000000000000000002 /* SidebarFooterNativeViewController.swift */,
 				A9A000000000000000000021 /* ExtensionSidebarWorkspaceRowView.swift */,
 					A77A00010000000000000002 /* NativeAppKitSupportBridges.swift */,
 					A77A00020000000000000002 /* NativeCustomSidebarSurfaceBridge.swift */,
@@ -9396,6 +9399,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */,
 				B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
+				A4F700000000000000000001 /* SidebarFooterNativeViewController.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,
 				B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */,
 				AABBCC00000000000000020C /* SidebarInlineRenameAction.swift in Sources */,

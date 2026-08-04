@@ -3276,7 +3276,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let textView = SavingTextView()
         scrollView.documentView = textView
 
-        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+        FilePreviewTextEditorTheme.apply(
             to: scrollView,
             backgroundColor: .clear,
             foregroundColor: .white,
@@ -3300,7 +3300,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
         scrollView.documentView = textView
 
-        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+        FilePreviewTextEditorTheme.apply(
             to: scrollView,
             backgroundColor: backgroundColor,
             foregroundColor: .white,
