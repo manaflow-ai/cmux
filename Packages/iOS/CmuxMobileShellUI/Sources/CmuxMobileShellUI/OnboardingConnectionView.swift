@@ -1,9 +1,12 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
+    let connectionMethod: MobileConnectionMethod
+    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
 
     var body: some View {
         ZStack {
@@ -16,8 +19,26 @@ struct OnboardingConnectionView: View {
             OnboardingSceneContent(
                 title: title,
                 message: message,
-                visual: OnboardingConnectionPreview(phase: phase)
+                visual: visual
             )
+        }
+    }
+
+    /// The method choice stays visible while there is still a decision to act
+    /// on; once connected it disappears (Settings keeps the control).
+    private var showsMethodPicker: Bool {
+        phase == .idle || phase == .fallback
+    }
+
+    private var visual: some View {
+        VStack(spacing: 14) {
+            OnboardingConnectionPreview(phase: phase)
+            if showsMethodPicker {
+                OnboardingConnectionMethodPicker(
+                    method: connectionMethod,
+                    onSelect: onSelectConnectionMethod
+                )
+            }
         }
     }
 
@@ -26,6 +47,12 @@ struct OnboardingConnectionView: View {
             return L10n.string(
                 "mobile.onboarding.ready.title",
                 defaultValue: "Your Mac is connected"
+            )
+        }
+        if connectionMethod == .tailscale {
+            return L10n.string(
+                "mobile.onboarding.connect.tailscaleTitle",
+                defaultValue: "Connect over Tailscale"
             )
         }
         return L10n.string(
@@ -38,12 +65,21 @@ struct OnboardingConnectionView: View {
         if phase == .ready {
             return L10n.string(
                 "mobile.onboarding.ready.body",
-                defaultValue: "Open a workspace to see the latest activity and respond when an agent needs you."
+                defaultValue: "Open any workspace and respond when an agent needs you."
+            )
+        }
+        if connectionMethod == .tailscale {
+            return L10n.string(
+                "mobile.onboarding.connect.tailscaleBody",
+                defaultValue: """
+                Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. \
+                On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here.
+                """
             )
         }
         return L10n.string(
             "mobile.onboarding.connect.body",
-            defaultValue: "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
     }
 }

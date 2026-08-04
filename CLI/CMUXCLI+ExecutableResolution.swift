@@ -3,6 +3,14 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    func managedTerminalRequiredMessage(displayName: String) -> String {
+        let format = String(
+            localized: "cli.tmux-compat.error.managedTerminalRequired",
+            defaultValue: "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+        )
+        return String(format: format, displayName)
+    }
+
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
@@ -77,7 +85,14 @@ extension CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the provider binary would otherwise shadow the real executable and
+            // fail at execv (#8743). Reject directories the way the configured-candidate
+            // path in `resolveClaudeExecutable` already does.
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             guard !isBundledProviderExecutable(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate
@@ -146,6 +161,59 @@ extension CMUXCLI {
             "--dangerously-skip-permissions",
             args: commandArgs
         )
+    }
+
+    /// Whether a Claude-backed launcher will exit after printing help or version
+    /// information. Reuse the launch parser so flag-shaped prompt text and option values
+    /// cannot downgrade a real agent session to launcher-only tmux compatibility.
+    func tmuxCompatIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        ["--help", "-h", "--version", "-v"].contains { option in
+            AgentLaunchSanitizer.claudeTeamsLaunchHasOption(option, args: commandArgs)
+        }
+    }
+
+    func claudeTeamsIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        tmuxCompatIsInformationalInvocation(commandArgs: commandArgs)
+            || AgentLaunchInvocationClassifier().claudeTeamsLaunchIsManagementCommand(args: commandArgs)
+    }
+
+    /// Whether cmux delegates the complete argument tail to a managed provider.
+    /// These commands own flags such as `--json` and nested `--help`; cmux must
+    /// not consume them as presentation options or generic subcommand help.
+    func managedProviderArgumentsPassThrough(command: String) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether cmux should render its own subcommand help before launching a provider.
+    ///
+    /// Claude and Codex own their help arguments. The legacy OMO/OMX/OMC wrappers
+    /// retain cmux's root `--help` contract while forwarding nested help unchanged.
+    func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams":
+            return false
+        case "omo", "omx", "omc":
+            return commandArgs.count == 1 && ["--help", "-h"].contains(commandArgs[0])
+        default:
+            return true
+        }
+    }
+
+    func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().codexTeamsLaunchIsInformational(args: commandArgs)
+    }
+
+    func omoIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().omoLaunchIsNonLaunch(args: commandArgs)
+    }
+
+    func omxIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().omxLaunchIsNonLaunch(args: commandArgs)
     }
 
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
