@@ -211,13 +211,67 @@ import Testing
         MobileWorkspaceGroupPreview(id: .init(rawValue: id), name: id, anchorWorkspaceID: .init(rawValue: anchor))
     }
 
-    @Test func groupsComeFromForegroundMac() {
+    @Test func groupsFromEveryMacStayDistinctInAggregatedList() throws {
+        var foregroundAnchor = ws("foreground-anchor", mac: "mac-fg")
+        foregroundAnchor.groupID = "shared-group"
+        var backgroundAnchor = ws("background-anchor", mac: "mac-bg")
+        backgroundAnchor.groupID = "shared-group"
         let states = [
-            "mac-fg": MacWorkspaceState(macDeviceID: "mac-fg", displayName: "FG", workspaces: [], groups: [group("g1", anchor: "w1")], status: .connected),
-            "mac-bg": MacWorkspaceState(macDeviceID: "mac-bg", displayName: "BG", workspaces: [], groups: [group("g2", anchor: "w2")], status: .connected),
+            "mac-fg": MacWorkspaceState(
+                macDeviceID: "mac-fg",
+                displayName: "FG",
+                workspaces: [foregroundAnchor],
+                groups: [MobileWorkspaceGroupPreview(
+                    id: "shared-group",
+                    name: "Foreground Group",
+                    anchorWorkspaceID: foregroundAnchor.id
+                )],
+                status: .connected
+            ),
+            "mac-bg": MacWorkspaceState(
+                macDeviceID: "mac-bg",
+                displayName: "BG",
+                workspaces: [backgroundAnchor],
+                groups: [MobileWorkspaceGroupPreview(
+                    id: "shared-group",
+                    name: "Background Group",
+                    anchorWorkspaceID: backgroundAnchor.id
+                )],
+                status: .connected
+            ),
         ]
-        let groups = MobileWorkspaceAggregation().derivedGroups(statesByMac: states, foregroundMacDeviceID: "mac-fg")
-        #expect(groups.map { $0.id.rawValue } == ["g1"])
+        let aggregation = MobileWorkspaceAggregation()
+        let workspaces = aggregation.derivedWorkspaces(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-fg",
+            machineColorIndex: machineColorIndex(statesByMac: states)
+        )
+        let groups = aggregation.derivedGroups(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-fg"
+        )
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let headerNames = items.compactMap { item -> String? in
+            guard case .groupHeader(let group, _) = item else { return nil }
+            return group.name
+        }
+        let shownForeground = try #require(
+            workspaces.first { $0.name == "foreground-anchor" }
+        )
+        let shownBackground = try #require(
+            workspaces.first { $0.name == "background-anchor" }
+        )
+
+        #expect(headerNames == ["Foreground Group", "Background Group"])
+        #expect(Set(groups.map(\.id)).count == 2)
+        let shownForegroundGroup = try #require(
+            groups.first { $0.name == "Foreground Group" }
+        )
+        let shownBackgroundGroup = try #require(
+            groups.first { $0.name == "Background Group" }
+        )
+        #expect(shownForeground.groupID == shownForegroundGroup.id)
+        #expect(shownBackground.groupID == shownBackgroundGroup.id)
     }
 
     @Test func foregroundGroupAnchorsFollowScopedWorkspaceRowIDs() {
