@@ -537,7 +537,10 @@ class Client:
 
 # Headless server.
 server = subprocess.Popen(
-    [BIN, "--headless", "--session", SESSION],
+    # This test owns one process lifetime and verifies frontend detach, not
+    # daemon restart adoption. Keep its terminals in-process so teardown
+    # cannot leave durable terminal hosts or consume the machine PTY pool.
+    [BIN, "--headless", "--ephemeral", "--session", SESSION],
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,
