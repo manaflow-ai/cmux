@@ -18643,6 +18643,242 @@ mod tests {
     }
 
     #[test]
+    fn failed_semantic_destination_discards_only_its_dependent_input() {
+        let (mux, surface) = test_mux("semantic-failure-scope-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.semantic_destination_outcomes.insert(1, super::SemanticDestinationOutcome::Failed);
+
+        let mut dependent = queued_input(
+            Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Some(surface.id),
+            1,
+        );
+        dependent.admission.semantic_dependency = Some(1);
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+        let mut frontend_local = queued_input(
+            TerminalInput::FrontendAction { action: Action::ShowShortcuts, prefix },
+            None,
+            2,
+        );
+        frontend_local.admission.client_owned = true;
+        app.deferred_input.push_back(dependent);
+        app.deferred_input.push_back(frontend_local);
+
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(app.shortcut_help.is_some(), "an unrelated frontend-local action was discarded");
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().terminal.deferred_input_destination_changed)
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn repeated_split_then_ctrl_d_is_receipt_ordered_without_prefix_leaks() {
+        let mux = Mux::new(
+            "semantic-split-close-chain-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "IFS= read -r line".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let original = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mux_events = mux.subscribe();
+        let (mut app, session_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let (writes_tx, writes_rx) = std::sync::mpsc::sync_channel(16);
+        app.pty_input.set_delivered_write_observer(Some(Arc::new(move |surface, bytes| {
+            writes_tx.send((surface, bytes.to_vec())).unwrap();
+        })));
+        let (barrier_started_tx, barrier_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_barrier_tx, release_barrier_rx) = std::sync::mpsc::sync_channel(1);
+        app.session.enqueue("block semantic input chain", move |_| {
+            barrier_started_tx.send(()).unwrap();
+            release_barrier_rx.recv().unwrap();
+            Ok(())
+        });
+        barrier_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        for _ in 0..2 {
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('b'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+                shifted_key: Some('%'),
+                base_layout_key: Some('5'),
+                text: "%".to_string(),
+            })))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('d'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+        }
+
+        assert!(!app.prefix_armed);
+        assert_eq!(app.deferred_input.len(), 4);
+        release_barrier_tx.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut created = Vec::new();
+        while app.session.has_pending_mutations() || !app.deferred_input.is_empty() {
+            if !app.session.has_pending_mutations() {
+                app.replay_deferred_input().unwrap();
+                continue;
+            }
+            let event = session_events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("semantic input chain did not settle");
+            if let AppEvent::SessionMutationSettled { outcome, .. } = &event {
+                let outcome = match outcome {
+                    super::SessionMutationOutcome::SemanticIntent { outcome, .. } => {
+                        outcome.as_ref()
+                    }
+                    outcome => outcome,
+                };
+                if let super::SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                    completion:
+                        Some(SessionCompletion {
+                            action: SessionCompletionAction::SurfaceCreated { surface },
+                            ..
+                        }),
+                    ..
+                } = outcome
+                {
+                    created.push(*surface);
+                }
+            }
+            app.handle(event).unwrap();
+        }
+        assert_eq!(created.len(), 2);
+        assert!(app.pty_input.shutdown(Duration::from_secs(2)));
+
+        let writes = writes_rx.try_iter().collect::<Vec<_>>();
+        assert_eq!(
+            writes,
+            vec![(created[0], vec![0x04]), (created[1], vec![0x04])],
+            "each Ctrl-D must follow the exact split receipt, with no Ctrl-B or percent bytes"
+        );
+
+        let mut exited = HashSet::new();
+        while exited.len() < created.len() {
+            match mux_events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(MuxEvent::SurfaceExited(surface)) if created.contains(&surface) => {
+                    exited.insert(surface);
+                }
+                Ok(_) => {}
+                Err(error) => panic!("created surfaces did not exit after Ctrl-D: {error}"),
+            }
+        }
+        let tree = app.session.tree();
+        assert_eq!(tree.workspaces[0].screens[0].panes.len(), 1);
+        assert_eq!(tree.active_surface(), Some(original.id));
+        mux.close_surface(original.id).unwrap();
+    }
+
+    #[test]
+    fn immediate_split_receipt_routes_following_input_past_later_creation() {
+        let mux = Mux::new(
+            "semantic-immediate-split-route-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "IFS= read -r line".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let original = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let (mut app, session_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let (writes_tx, writes_rx) = std::sync::mpsc::sync_channel(4);
+        app.pty_input.set_delivered_write_observer(Some(Arc::new(move |surface, bytes| {
+            writes_tx.send((surface, bytes.to_vec())).unwrap();
+        })));
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+            shifted_key: Some('%'),
+            base_layout_key: Some('5'),
+            text: "%".to_string(),
+        })))
+        .unwrap();
+
+        app.session
+            .new_screen_for_semantic_intent(None, Some((20, 8)), None)
+            .unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut created = Vec::new();
+        while app.session.has_pending_mutations() || !app.deferred_input.is_empty() {
+            if !app.session.has_pending_mutations() {
+                app.replay_deferred_input().unwrap();
+                continue;
+            }
+            let event = session_events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("competing destination creations did not settle");
+            if let AppEvent::SessionMutationSettled { outcome, .. } = &event {
+                let outcome = match outcome {
+                    super::SessionMutationOutcome::SemanticIntent { outcome, .. } => {
+                        outcome.as_ref()
+                    }
+                    outcome => outcome,
+                };
+                if let super::SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                    completion:
+                        Some(SessionCompletion {
+                            action: SessionCompletionAction::SurfaceCreated { surface },
+                            ..
+                        }),
+                    ..
+                } = outcome
+                {
+                    created.push(*surface);
+                }
+            }
+            app.handle(event).unwrap();
+        }
+        assert_eq!(created.len(), 2);
+        assert!(app.pty_input.shutdown(Duration::from_secs(2)));
+        assert_eq!(
+            writes_rx.try_iter().collect::<Vec<_>>(),
+            vec![(created[0], vec![0x04])],
+            "input admitted after the split must target its receipt, not a later creation"
+        );
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            let _ = mux.close_surface(surface);
+        }
+        assert!(!mux.with_state(|state| state.surfaces.contains_key(&original.id)));
+    }
+
+    #[test]
     fn enhanced_prefixed_split_survives_pointer_mutation_and_focus_refresh() {
         let (mux, _) = test_mux("enhanced-prefix-split-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
