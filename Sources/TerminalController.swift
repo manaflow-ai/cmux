@@ -4591,7 +4591,14 @@ class TerminalController {
                     focusWorkspace: v2FocusAllowed(),
                     debugSource: "cli.workspaceAction.mobileConnect"
                 ) else {
-                    result = .err(code: "unavailable", message: "Mobile Connect is unavailable", data: nil)
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.workspaceAction.tailscalePairingUnavailable",
+                            defaultValue: "Tailscale Pairing is unavailable"
+                        ),
+                        data: nil
+                    )
                     return
                 }
                 result = .ok([

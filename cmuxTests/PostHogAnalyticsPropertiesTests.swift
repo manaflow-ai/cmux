@@ -186,8 +186,8 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
-    @Test("Mobile Connect button defaults hidden without a flag value")
-    func mobileConnectButtonDefaultsHidden() throws {
+    @Test("Tailscale Pairing button defaults hidden without a flag value")
+    func tailscalePairingButtonDefaultsHidden() throws {
         let suiteName = "cmux.feature.flags.mobile-connect.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {

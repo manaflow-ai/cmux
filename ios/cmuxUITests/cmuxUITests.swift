@@ -196,8 +196,14 @@ final class cmuxUITests: XCTestCase {
         qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
+        let scannerGuidance = element("MobilePairingScannerGuidance")
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            scannerGuidance.label,
+            "On your Mac, open Tailscale Pairing in cmux to show the QR. Install Tailscale on both devices and connect them to the same Tailscale network first."
+        )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
 
