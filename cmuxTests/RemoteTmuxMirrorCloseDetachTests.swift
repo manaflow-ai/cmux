@@ -454,16 +454,35 @@ import Testing
         let manager: TabManager
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
+        private let previousMainWindowContentViewFactory: (() -> NSView)?
         private var ownedWindowIDs: [UUID] = []
         private var ownedManagers: [ObjectIdentifier: TabManager] = [:]
         private var cachedConnections: [RemoteTmuxControlConnection] = []
         private var didTearDown = false
 
         init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+            let resolvedAppDelegate = try #require(AppDelegate.shared)
+            let previousContentViewFactory =
+                resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting
+            resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting = {
+                NSView(frame: .zero)
+            }
+            do {
+                let createdWindowID = resolvedAppDelegate.createMainWindow(shouldActivate: false)
+                let createdManager = try #require(
+                    resolvedAppDelegate.tabManagerFor(windowId: createdWindowID)
+                )
+                let createdWorkspace = try #require(createdManager.selectedWorkspace)
+                appDelegate = resolvedAppDelegate
+                previousMainWindowContentViewFactory = previousContentViewFactory
+                windowId = createdWindowID
+                manager = createdManager
+                workspace = createdWorkspace
+            } catch {
+                resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting =
+                    previousContentViewFactory
+                throw error
+            }
             ownedWindowIDs.append(windowId)
             ownedManagers[ObjectIdentifier(manager)] = manager
         }
@@ -475,10 +494,10 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
 
-            // SwiftUI and the portal hierarchy must stop owning renderer views
-            // before model teardown schedules the native Ghostty surface free.
-            // Capturing the workspaces first also covers a window whose production
-            // close path already removed its AppDelegate context.
+            // Every fixture window uses placeholder AppKit content, including
+            // dedicated windows created inside socket/controller entrypoints.
+            // The tests exercise real window routing and workspace ownership
+            // without ever realizing a native Ghostty renderer.
             let workspaces = ownedManagers.values.flatMap(\.tabs)
             ownedWindowIDs.reversed().forEach(closeWindow)
             workspaces.forEach { $0.teardownAllPanels() }
@@ -489,7 +508,8 @@ import Testing
             for connection in cachedConnections {
                 controller.detach(host: connection.host, sessionName: connection.sessionName)
             }
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.debugMainWindowContentViewFactoryForTesting =
+                previousMainWindowContentViewFactory
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
