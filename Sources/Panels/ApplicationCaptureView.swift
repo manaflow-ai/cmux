@@ -704,13 +704,25 @@ final class ApplicationCaptureView: NSView {
         ) else {
             return
         }
+        let relativeDelta: CGPoint
+        if kind.isCoalescibleMotion {
+            relativeDelta = Self.normalizedMouseDelta(
+                delta: CGPoint(x: event.deltaX, y: event.deltaY),
+                in: bounds,
+                sourceFrameSize: remoteFrameView.framePixelSize
+            ) ?? .zero
+        } else {
+            relativeDelta = .zero
+        }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: kind,
             frameSequence: remoteFrameView.presentedFrameSequence ?? 0,
             x: point.x,
             y: point.y,
             modifiers: UInt64(event.modifierFlags.rawValue),
-            clickCount: event.clickCount
+            clickCount: event.clickCount,
+            deltaX: relativeDelta.x,
+            deltaY: relativeDelta.y
         )) == .accepted else {
             handleInputQueueFull()
             return
@@ -1159,9 +1171,9 @@ final class ApplicationCaptureView: NSView {
             return normalizedPoint
         }
         switch kind {
-        case .leftMouseUp:
+        case .leftMouseDragged, .leftMouseUp:
             return lastLeftPoint
-        case .rightMouseUp:
+        case .rightMouseDragged, .rightMouseUp:
             return lastRightPoint
         default:
             return nil
@@ -1248,6 +1260,32 @@ final class ApplicationCaptureView: NSView {
         return CGPoint(
             x: sourceFrame.minX + (point.x - renderedRect.minX) / scale,
             y: sourceFrame.minY + (point.y - renderedRect.minY) / scale
+        )
+    }
+
+    static func normalizedMouseDelta(
+        delta: CGPoint,
+        in bounds: CGRect,
+        sourceFrameSize: CGSize
+    ) -> CGPoint? {
+        guard
+            delta.x.isFinite,
+            delta.y.isFinite,
+            bounds.width > 0,
+            bounds.height > 0,
+            sourceFrameSize.width > 0,
+            sourceFrameSize.height > 0
+        else {
+            return nil
+        }
+        let scale = min(
+            bounds.width / sourceFrameSize.width,
+            bounds.height / sourceFrameSize.height
+        )
+        guard scale.isFinite, scale > 0 else { return nil }
+        return CGPoint(
+            x: delta.x / (sourceFrameSize.width * scale),
+            y: delta.y / (sourceFrameSize.height * scale)
         )
     }
 

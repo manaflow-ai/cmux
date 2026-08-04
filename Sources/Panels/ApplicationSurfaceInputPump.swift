@@ -39,7 +39,10 @@ final class ApplicationSurfaceInputPump {
         if event.kind.isCoalescibleMotion,
            let lastIndex = queue.indices.last,
            queue[lastIndex].kind.isCoalescibleMotion {
-            queue[lastIndex] = event
+            var coalesced = event
+            coalesced.deltaX += queue[lastIndex].deltaX
+            coalesced.deltaY += queue[lastIndex].deltaY
+            queue[lastIndex] = coalesced
             return .accepted
         }
         guard makeRoom(for: 1) else { return .full }
