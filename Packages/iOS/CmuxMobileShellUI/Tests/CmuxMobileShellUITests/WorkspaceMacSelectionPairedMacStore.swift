@@ -3,6 +3,14 @@ import CmuxMobilePairedMac
 import Foundation
 
 actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private var records: [MobilePairedMac]
 
     init(_ records: [MobilePairedMac]) {
@@ -18,6 +26,7 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -38,6 +47,7 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
         }) {
             records[index].displayName = displayName
             records[index].routes = routes
+            records[index].instanceTag = instanceTag
             records[index].lastSeenAt = now
             records[index].isActive = markActive
         } else {
@@ -49,7 +59,8 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: markActive,
                 stackUserID: stackUserID,
-                teamID: teamID
+                teamID: teamID,
+                instanceTag: instanceTag
             ))
         }
     }

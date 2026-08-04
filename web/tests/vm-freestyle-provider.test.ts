@@ -21,6 +21,7 @@ const websocketEndpoint: WebSocketPtyEndpoint = {
   headers: {},
   token: "pty-token",
   sessionId: "pty-session",
+  attachmentId: "attachment-1",
   expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
 };
 
@@ -42,23 +43,35 @@ class TestFreestyleProvider extends FreestyleProvider {
 }
 
 describe("FreestyleProvider attach fallback", () => {
-  test("falls back to SSH when a required daemon attach is unavailable", async () => {
+  test("does not fall back to SSH when a required daemon attach is unavailable", async () => {
     const provider = new TestFreestyleProvider();
     provider.websocketResult = new Error("Freestyle cmuxd websocket health check returned 502");
 
-    const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
+    await expect(provider.openAttach("vm-1", { requireDaemon: true })).rejects.toThrow(
+      "Freestyle cmuxd websocket health check returned 502",
+    );
 
-    expect(endpoint).toEqual(sshEndpoint);
-    expect(provider.sshCalls).toBe(1);
+    expect(provider.sshCalls).toBe(0);
   });
 
-  test("falls back to SSH when the WebSocket health check times out", async () => {
+  test("does not fall back to SSH when required daemon health check times out", async () => {
     const provider = new TestFreestyleProvider();
     provider.websocketResult = new Error(
       "Freestyle cmuxd websocket health check failed: The operation was aborted",
     );
 
-    const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
+    await expect(provider.openAttach("vm-1", { requireDaemon: true })).rejects.toThrow(
+      "Freestyle cmuxd websocket health check failed",
+    );
+
+    expect(provider.sshCalls).toBe(0);
+  });
+
+  test("keeps SSH fallback for non-daemon attach when WebSocket is unavailable", async () => {
+    const provider = new TestFreestyleProvider();
+    provider.websocketResult = new Error("Freestyle cmuxd websocket health check returned 502");
+
+    const endpoint = await provider.openAttach("vm-1");
 
     expect(endpoint).toEqual(sshEndpoint);
     expect(provider.sshCalls).toBe(1);
@@ -74,14 +87,15 @@ describe("FreestyleProvider attach fallback", () => {
     expect(provider.sshCalls).toBe(0);
   });
 
-  test("falls back to SSH when required daemon metadata is missing", async () => {
+  test("does not fall back to SSH when required daemon metadata is missing", async () => {
     const provider = new TestFreestyleProvider();
     provider.websocketResult = websocketEndpoint;
 
-    const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
+    await expect(provider.openAttach("vm-1", { requireDaemon: true })).rejects.toThrow(
+      "requires a cmuxd RPC endpoint",
+    );
 
-    expect(endpoint).toEqual(sshEndpoint);
-    expect(provider.sshCalls).toBe(1);
+    expect(provider.sshCalls).toBe(0);
   });
 
   test("keeps WebSocket attach when daemon metadata is present", async () => {
@@ -102,5 +116,51 @@ describe("FreestyleProvider attach fallback", () => {
 
     expect(endpoint).toEqual(endpointWithDaemon);
     expect(provider.sshCalls).toBe(0);
+  });
+
+  test("keeps daemon attach when Freestyle exec probe fails but websocket admin is healthy", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.FREESTYLE_API_KEY;
+    process.env.FREESTYLE_API_KEY = "test-freestyle-api-key";
+    const urls: string[] = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      urls.push(url);
+      if (url === "https://vm-1.vm.freestyle.sh/healthz") {
+        return new Response("ok", { status: 200 });
+      }
+      if (url === "https://vm-1.vm.freestyle.sh/admin/leases") {
+        expect(init?.method).toBe("POST");
+        return new Response("ok", { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: "INTERNAL_ERROR", message: "Internal server error" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const provider = new FreestyleProvider();
+      const endpoint = await provider.openAttach("vm-1", {
+        requireDaemon: true,
+        providerMetadata: { freestyleDaemonAdminToken: "admin-token" },
+      });
+
+      expect(endpoint.transport).toBe("websocket");
+      if (endpoint.transport !== "websocket") {
+        throw new Error("expected websocket attach endpoint");
+      }
+      expect(endpoint.url).toBe("wss://vm-1.vm.freestyle.sh/terminal");
+      expect(endpoint.daemon?.url).toBe("wss://vm-1.vm.freestyle.sh/rpc");
+      expect(urls).toContain("https://vm-1.vm.freestyle.sh/healthz");
+      expect(urls).toContain("https://vm-1.vm.freestyle.sh/admin/leases");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalApiKey === undefined) {
+        delete process.env.FREESTYLE_API_KEY;
+      } else {
+        process.env.FREESTYLE_API_KEY = originalApiKey;
+      }
+    }
   });
 });

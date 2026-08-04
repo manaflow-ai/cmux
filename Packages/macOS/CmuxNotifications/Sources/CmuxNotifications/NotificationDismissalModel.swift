@@ -55,8 +55,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let panelId = host?.focusedPanelId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: panelId, context: context)
+        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
+        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(
@@ -76,7 +76,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
         panelId: UUID,
         context: NotificationDismissalContext
     ) {
-        guard host?.selectedWorkspaceId == workspaceId else { return }
         guard !suppressFocusFlash else { return }
         _ = dismissNotification(
             workspaceId: workspaceId,
@@ -102,7 +101,10 @@ public final class NotificationDismissalModel: NotificationDismissing {
         context: NotificationDismissalContext
     ) -> Bool {
         guard let host else { return false }
-        guard host.selectedWorkspaceId == workspaceId else { return false }
+        guard host.isNotificationTargetSelected(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        ) else { return false }
         if context.requiresActiveApp {
             guard host.isAppActive else { return false }
             // Opt-in (`notifications.suppressOnlyFocusedSurface`): narrow the
@@ -123,6 +125,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
             }
         }
         guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
@@ -147,20 +151,27 @@ public final class NotificationDismissalModel: NotificationDismissing {
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification: Bool
+        let hasPendingNotification: Bool
         let hasFocusedIndicator: Bool
         if notificationSurfaceIds.isEmpty {
             hasUnreadNotification = host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil)
+            hasPendingNotification = host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: nil)
             hasFocusedIndicator = host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: nil)
         } else {
             hasUnreadNotification = notificationSurfaceIds.contains {
                 host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: $0)
             }
+            hasPendingNotification = notificationSurfaceIds.contains {
+                host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: $0)
+            }
             hasFocusedIndicator = notificationSurfaceIds.contains {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
-        if hasUnreadNotification {
+        guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
+            return false
+        }
+        if hasUnreadNotification || hasPendingNotification {
             if notificationSurfaceIds.isEmpty {
                 host.storeMarkRead(workspaceId: workspaceId, surfaceId: nil)
             } else {

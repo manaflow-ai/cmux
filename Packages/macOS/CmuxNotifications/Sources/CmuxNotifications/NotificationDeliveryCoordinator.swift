@@ -265,6 +265,9 @@ public final class NotificationDeliveryCoordinator {
                 return UUID(uuidString: surfaceIdString)
             }()
             let notificationId = notificationId(response)
+            let retargetsToLiveSurfaceOwner = response.userInfo[
+                terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
+            ] as? Bool ?? true
             if let clickAction = NotificationNavClickAction(userInfo: response.userInfo) {
                 let didPerform = terminalNavigation.performClickAction(clickAction)
                 if didPerform, let notificationId {
@@ -272,7 +275,16 @@ public final class NotificationDeliveryCoordinator {
                 }
                 return
             }
-            _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            if let notificationId {
+                _ = terminalNavigation.openNotification(
+                    id: notificationId,
+                    fallbackTabId: tabId,
+                    fallbackSurfaceId: surfaceId,
+                    fallbackRetargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+                )
+            } else {
+                _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: nil)
+            }
         case UNNotificationDismissActionIdentifier:
             if let notificationId = notificationId(response) {
                 terminalNavigation.markNotificationRead(id: notificationId)

@@ -1,3 +1,5 @@
+import CmuxAgentChat
+
 /// The closure bundle transcript rows use to act on the conversation.
 ///
 /// Rows receive immutable snapshots plus this bundle — never a reference to
@@ -5,9 +7,6 @@
 /// (snapshot-boundary rule).
 @MainActor
 public struct ChatRowActions {
-    /// Toggles a card's expanded state, keyed by row id.
-    public var toggleExpanded: (String) -> Void
-
     /// Answers the pending question or permission card by option index.
     public var answerOption: (Int) -> Void
 
@@ -20,25 +19,53 @@ public struct ChatRowActions {
     /// Opens the session's raw terminal (the escape hatch).
     public var openTerminal: () -> Void
 
+    /// Pushes a Mac-hosted artifact in the conversation's navigation stack.
+    public var openArtifact: (String) -> Void
+
+    /// Shows a non-resizing detail sheet for a compact message row.
+    public var showMessageDetail: (ChatMessage) -> Void
+
+    /// Shows a non-resizing detail sheet for a plain-terminal command row.
+    public var showTerminalCommandDetail: (TerminalCommandBlock) -> Void
+
+    /// Shows a non-resizing detail sheet for an embedded prose code block.
+    public var showCodeBlockDetail: (String, Int) -> Void
+
+    /// A row copied something to the pasteboard; the host confirms it
+    /// (toast + haptic), keeping one confirmation vocabulary above the
+    /// snapshot boundary.
+    public var notifyCopied: () -> Void
+
     /// Creates an action bundle.
     ///
     /// - Parameters:
-    ///   - toggleExpanded: Toggles a card's expanded state by row id.
     ///   - answerOption: Answers the pending actionable card by index.
     ///   - retryPending: Retries a failed pending send by pending id.
     ///   - discardPending: Discards a failed pending send by pending id.
     ///   - openTerminal: Opens the session's raw terminal.
+    ///   - openArtifact: Pushes a Mac-hosted artifact path inline.
+    ///   - showMessageDetail: Presents full details for compact message rows.
+    ///   - showTerminalCommandDetail: Presents full details for terminal rows.
+    ///   - showCodeBlockDetail: Presents full details for prose code blocks.
     public init(
-        toggleExpanded: @escaping (String) -> Void = { _ in },
         answerOption: @escaping (Int) -> Void = { _ in },
         retryPending: @escaping (String) -> Void = { _ in },
         discardPending: @escaping (String) -> Void = { _ in },
-        openTerminal: @escaping () -> Void = {}
+        openTerminal: @escaping () -> Void = {},
+        openArtifact: @escaping (String) -> Void = { _ in },
+        showMessageDetail: @escaping (ChatMessage) -> Void = { _ in },
+        showTerminalCommandDetail: @escaping (TerminalCommandBlock) -> Void = { _ in },
+        showCodeBlockDetail: @escaping (String, Int) -> Void = { _, _ in },
+        notifyCopied: @escaping () -> Void = {}
     ) {
-        self.toggleExpanded = toggleExpanded
         self.answerOption = answerOption
         self.retryPending = retryPending
         self.discardPending = discardPending
         self.openTerminal = openTerminal
+        self.openArtifact = openArtifact
+        self.showMessageDetail = showMessageDetail
+        self.showTerminalCommandDetail = showTerminalCommandDetail
+        self.showCodeBlockDetail = showCodeBlockDetail
+        self.notifyCopied = notifyCopied
     }
 }

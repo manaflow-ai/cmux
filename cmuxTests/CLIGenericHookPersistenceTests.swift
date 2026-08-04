@@ -314,7 +314,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -582,7 +582,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
+            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -905,16 +905,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
 
-        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
-        let preToolCommands = preToolUse
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-        XCTAssertTrue(
-            preToolCommands.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
-            },
-            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
+        XCTAssertNil(
+            cmuxGroup["PreToolUse"],
+            "Antigravity rejects PreToolUse hook output, so cmux must not install a tool-gating hook"
+        )
+        XCTAssertNil(
+            cmuxGroup["PostToolUse"],
+            "Antigravity tool lifecycle hooks must not be installed when they cannot safely fail neutral"
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
@@ -929,7 +926,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
-        XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
@@ -1373,7 +1369,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1795,11 +1791,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             fallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1893,11 +1889,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             neutralFallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -3652,13 +3648,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
-        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        if let data = try? Data(contentsOf: storeURL),
+        // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
+        if let data = try? Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json")),
            let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let sessions = storeJSON["sessions"] as? [String: Any],
            let persisted = sessions[sessionId] as? [String: Any] {
-            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+            let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
+            let env = launchCommand["environment"] as? [String: String]
             XCTAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"

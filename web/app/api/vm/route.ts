@@ -21,15 +21,22 @@ import {
 } from "../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
-import { resolveVmImage } from "../../../services/vms/images/resolver";
+import {
+  imageUsesBakedFreestyleSignedAdmin,
+  resolveVmImage,
+} from "../../../services/vms/images/resolver";
+import { reconcileProPlanMetadata } from "../../../services/billing/pro";
+import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
   createVm,
@@ -81,6 +88,7 @@ export async function GET(request: Request): Promise<Response> {
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
+        status: entry.status,
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
@@ -158,7 +166,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
+          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -236,6 +244,28 @@ export async function POST(request: Request): Promise<Response> {
           if (!refreshedUser) return unauthorized();
           user = refreshedUser;
         }
+        // Read-time reconcile: a Stripe subscription change is corrected here
+        // right before paid limits apply. Best-effort — billing reads must
+        // not block VM creation, so the whole reconcile races a hard
+        // deadline and VM create proceeds with current metadata on timeout.
+        try {
+          if (isStackConfigured()) {
+            const changed = await withBillingReconcileDeadline(
+              measureVmAsync(timing, "billing_reconcile", async () => {
+                const serverUser = await getStackServerApp().getUser(user.id);
+                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+              })
+            );
+            if (changed) {
+              const reconciledUser = await measureVmAsync(timing, "auth", () =>
+                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+              );
+              if (reconciledUser) user = reconciledUser;
+            }
+          }
+        } catch (err) {
+          console.error("[VM] Pro plan reconcile failed", err);
+        }
         let entitlements;
         try {
           entitlements = measureVmSync(timing, "entitlements", () =>
@@ -258,6 +288,10 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
+        if (isVmProGateBlocked(entitlements)) {
+          return vmRequiresProResponse();
+        }
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -270,6 +304,7 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
+            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             timing,
           }));
         } catch (err) {
@@ -290,6 +325,8 @@ export async function POST(request: Request): Promise<Response> {
               action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
               details: {
                 idempotencyKeySet: !!err.idempotencyKey,
+                failureCode: err.code,
+                failureMessage: err.message,
               },
             });
           }
@@ -328,6 +365,31 @@ export async function POST(request: Request): Promise<Response> {
       }
     },
   );
+}
+
+// Upper bound on how long VM creation waits for the best-effort billing
+// reconcile (Stripe subscription lookup). On timeout
+// the reconcile keeps running in the background (its result is logged, not
+// awaited) and VM create proceeds with the user's current plan metadata.
+const BILLING_RECONCILE_DEADLINE_MS = 5_000;
+
+export async function withBillingReconcileDeadline(
+  reconcile: Promise<boolean>
+): Promise<boolean> {
+  // Late failures land here instead of surfacing as unhandled rejections.
+  const guarded = reconcile.catch((err) => {
+    console.error("[VM] Pro plan reconcile failed", err);
+    return false;
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), BILLING_RECONCILE_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([guarded, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function invalidTeamIdResponse(): Response {

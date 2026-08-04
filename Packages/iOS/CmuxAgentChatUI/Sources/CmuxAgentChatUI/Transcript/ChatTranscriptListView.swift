@@ -13,7 +13,6 @@ import SwiftUI
 /// uses `ScrollViewReader` and always follows the tail.
 public struct ChatTranscriptListView: View {
     private let rows: [ChatTranscriptRow]
-    private let expandedIDs: Set<String>
     private let agentState: ChatAgentState
     private let hasMoreHistory: Bool
     private let hasLoadedInitialHistory: Bool
@@ -38,7 +37,6 @@ public struct ChatTranscriptListView: View {
     ///
     /// - Parameters:
     ///   - rows: The projected rows, oldest first.
-    ///   - expandedIDs: Row ids currently expanded.
     ///   - agentState: Live agent presence (drives the typing indicator).
     ///   - hasMoreHistory: Whether a top sentinel should page older history.
     ///   - hasLoadedInitialHistory: Whether the first page has arrived
@@ -49,7 +47,6 @@ public struct ChatTranscriptListView: View {
     ///   - onReachTop: Called when the top sentinel appears (load older).
     public init(
         rows: [ChatTranscriptRow],
-        expandedIDs: Set<String>,
         agentState: ChatAgentState,
         hasMoreHistory: Bool,
         hasLoadedInitialHistory: Bool = true,
@@ -60,7 +57,6 @@ public struct ChatTranscriptListView: View {
         onRetryInitialLoad: @escaping () -> Void = {}
     ) {
         self.rows = rows
-        self.expandedIDs = expandedIDs
         self.agentState = agentState
         self.hasMoreHistory = hasMoreHistory
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
@@ -75,7 +71,6 @@ public struct ChatTranscriptListView: View {
         #if os(iOS)
         ChatTranscriptTableView(
             rows: rows,
-            expandedIDs: expandedIDs,
             agentState: agentState,
             hasMoreHistory: hasMoreHistory,
             hasLoadedInitialHistory: hasLoadedInitialHistory,
@@ -154,7 +149,6 @@ public struct ChatTranscriptListView: View {
                 ForEach(rows) { row in
                     ChatTranscriptRowView(
                         row: row,
-                        isExpanded: expandedIDs.contains(row.id),
                         actions: actions
                     )
                     .equatable()

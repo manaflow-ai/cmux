@@ -10,9 +10,8 @@ import SwiftUI
 /// ``TerminalInteractiveCardView`` escape hatch instead of its raw screen.
 public struct TerminalCommandBlockView: View {
     private let block: TerminalCommandBlock
-    private let isExpanded: Bool
-    private let onToggleExpanded: () -> Void
     private let onOpenTerminal: () -> Void
+    private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
 
@@ -25,19 +24,16 @@ public struct TerminalCommandBlockView: View {
     ///
     /// - Parameters:
     ///   - block: The parsed command/output unit.
-    ///   - isExpanded: Whether long output is fully shown.
-    ///   - onToggleExpanded: Toggles the long-output collapse.
     ///   - onOpenTerminal: Opens the raw terminal (escape hatch).
+    ///   - onShowDetail: Opens the full command block in a stable detail sheet.
     public init(
         block: TerminalCommandBlock,
-        isExpanded: Bool,
-        onToggleExpanded: @escaping () -> Void,
-        onOpenTerminal: @escaping () -> Void
+        onOpenTerminal: @escaping () -> Void,
+        onShowDetail: @escaping () -> Void = {}
     ) {
         self.block = block
-        self.isExpanded = isExpanded
-        self.onToggleExpanded = onToggleExpanded
         self.onOpenTerminal = onOpenTerminal
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
@@ -52,27 +48,39 @@ public struct TerminalCommandBlockView: View {
         // Split the output once per render; outputLines was a computed property
         // read 5+ times per body pass (each a full re-split of growing output).
         let lines = outputLines
-        return VStack(alignment: .leading, spacing: 3) {
-            commandRow
-            if !lines.isEmpty {
-                outputBlock(lines)
+        return Button(action: onShowDetail) {
+            VStack(alignment: .leading, spacing: 3) {
+                commandRow
+                if !lines.isEmpty {
+                    outputBlock(lines)
+                }
+                footer
             }
-            footer
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 5)
-        // Reserve the rail gutter on every row so command text stays aligned
-        // whether or not the command failed (no cross-row horizontal shift).
-        .padding(.leading, 8)
-        .overlay(alignment: .leading) {
-            // A red left rail makes failed commands scannable while flicking
-            // through history; it sits in the reserved gutter.
-            if block.failed {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(.red)
-                    .frame(width: 2.5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 5)
+            // Reserve the rail gutter on every row so command text stays aligned
+            // whether or not the command failed (no cross-row horizontal shift).
+            .padding(.leading, 8)
+            .overlay(alignment: .leading) {
+                // A red left rail makes failed commands scannable while flicking
+                // through history; it sits in the reserved gutter.
+                if block.failed {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(.red)
+                        .frame(width: 2.5)
+                }
             }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
+        )
         .accessibilityIdentifier("TerminalCommandBlock-\(block.id)")
     }
 
@@ -84,14 +92,13 @@ public struct TerminalCommandBlockView: View {
             Text(block.command.isEmpty ? " " : block.command)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(theme.terminalCardText)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     @ViewBuilder
     private func outputBlock(_ lines: [String]) -> some View {
-        if !isExpanded, lines.count > Self.collapseThreshold {
+        if lines.count > Self.collapseThreshold {
             collapsedOutput(lines)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -106,29 +113,17 @@ public struct TerminalCommandBlockView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             outputText(Array(lines.prefix(Self.collapsedHeadCount)))
         }
-        Button(action: onToggleExpanded) {
-            Text(
-                String(
-                    localized: "chat.terminal.more_lines",
-                    defaultValue: "⋯ \(hidden) more lines",
-                    bundle: .module
-                )
+        Text(
+            String(
+                localized: "chat.terminal.more_lines",
+                defaultValue: "⋯ \(hidden) more lines",
+                bundle: .module
             )
-            .font(.system(size: 12, design: .monospaced))
-            .foregroundStyle(theme.accent)
-            .padding(.vertical, 4)
-            .frame(minHeight: 28, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            isExpanded
-                ? String(localized: "chat.terminal.collapse.action", defaultValue: "Show less output", bundle: .module)
-                : String(localized: "chat.terminal.expand.action", defaultValue: "Show all output", bundle: .module)
         )
-        .accessibilityIdentifier("TerminalCommandBlockToggle-\(block.id)")
-        .accessibilityAddTraits(.isButton)
+        .font(.system(size: 12, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .frame(minHeight: 28, alignment: .leading)
         ScrollView(.horizontal, showsIndicators: false) {
             outputText(Array(lines.suffix(Self.collapsedTailCount)))
                 .opacity(0.55)
@@ -140,7 +135,6 @@ public struct TerminalCommandBlockView: View {
             .font(.system(size: 13, design: .monospaced))
             .foregroundStyle(theme.terminalCardText)
             .fixedSize(horizontal: true, vertical: false)
-            .textSelection(.enabled)
     }
 
     @ViewBuilder
@@ -214,25 +208,25 @@ public struct TerminalCommandBlockView: View {
                     id: 0, command: "ls -la", output: "total 8\ndrwxr-xr-x  4 me  staff  128 Jun 12 .\n-rw-r--r--  1 me  staff   42 Jun 12 README.md",
                     exitCode: 0, isRunning: false
                 ),
-                isExpanded: false, onToggleExpanded: {}, onOpenTerminal: {}
+                onOpenTerminal: {}
             )
             TerminalCommandBlockView(
                 block: TerminalCommandBlock(
                     id: 1, command: "npm run build", output: "compiling…", exitCode: nil, isRunning: true
                 ),
-                isExpanded: false, onToggleExpanded: {}, onOpenTerminal: {}
+                onOpenTerminal: {}
             )
             TerminalCommandBlockView(
                 block: TerminalCommandBlock(
                     id: 2, command: "false && echo nope", output: "", exitCode: 1, isRunning: false
                 ),
-                isExpanded: false, onToggleExpanded: {}, onOpenTerminal: {}
+                onOpenTerminal: {}
             )
             TerminalCommandBlockView(
                 block: TerminalCommandBlock(
                     id: 3, command: "vim notes.md", output: "", exitCode: nil, isRunning: true, isInteractive: true
                 ),
-                isExpanded: false, onToggleExpanded: {}, onOpenTerminal: {}
+                onOpenTerminal: {}
             )
         }
         .padding()

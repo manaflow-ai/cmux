@@ -5,11 +5,7 @@ import posthog from "posthog-js";
 import { useState } from "react";
 import { WaitlistDialog } from "./waitlist-dialog";
 
-/**
- * A subtle one-line prompt ("Coming to Linux, Windows, and Android — Join
- * waitlist") that opens the generic waitlist dialog. Use it near a download
- * CTA to point non-macOS visitors at the waitlist.
- */
+/** Opens the generic waitlist dialog from a subtle one-line release prompt. */
 export function WaitlistCallout({
   location = "bottom",
   className,
@@ -33,7 +29,7 @@ export function WaitlistCallout({
             });
             setOpen(true);
           }}
-          className="text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+          className="text-foreground underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
         >
           {t("join")}
         </button>

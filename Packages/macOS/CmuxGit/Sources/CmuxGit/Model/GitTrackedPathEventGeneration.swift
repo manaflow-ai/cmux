@@ -5,7 +5,7 @@ public import Foundation
 /// `GitMetadataService` uses this value to decide when it may reuse a tracked
 /// changes snapshot. The namespace separates independent owners whose numeric
 /// generation counters can legitimately have the same value.
-public nonisolated struct GitTrackedPathEventGeneration: Equatable, Hashable, Sendable {
+public struct GitTrackedPathEventGeneration: Equatable, Hashable, Sendable {
     /// Stable identity for the owner that produced ``generation``.
     public let namespace: UUID
     /// Monotonic value that changes when the owner's watched git paths emit an event.

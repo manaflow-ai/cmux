@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Safety: the cancellation handler requires a `Sendable` capture, and this wrapper
@@ -14,8 +15,12 @@ final class RemoteTmuxProcessCancellation: @unchecked Sendable {
     }
 
     func cancel() {
-        if process.isRunning {
+        let processIdentifier = process.processIdentifier
+        if process.isRunning, processIdentifier > 1 {
             process.terminate()
+            // Quit owns a hard deadline. OpenSSH normally exits on SIGTERM,
+            // but a wedged executable or test double may ignore it.
+            _ = Darwin.kill(processIdentifier, SIGKILL)
         }
         try? stdout.close()
         try? stderr.close()

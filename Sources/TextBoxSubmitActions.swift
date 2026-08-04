@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -335,7 +336,7 @@ extension TextBoxInputContainer {
             if allowsSubmitActionSelection {
                 ForEach(submitActions) { action in
                     Button {
-                        selectedSubmitActionID = action.id
+                        onSelectSubmitAction(action.id)
                     } label: {
                         submitActionMenuLabel(action)
                     }
@@ -367,6 +368,16 @@ extension TextBoxInputContainer {
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize
                 )
+        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(
+                assetName: assetName,
+                tintColor: action.id == "codex" ? .black : nil
+            ))
+                .opacity(iconOpacity)
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
         } else {
             Image(systemName: action.systemImage)
                 .foregroundStyle(Color.black)
@@ -384,6 +395,12 @@ extension TextBoxInputContainer {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
+        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
+            CmuxResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
                     height: TextBoxSubmitActionImageSupport.iconSize
@@ -416,10 +433,6 @@ extension TextBoxInputContainer {
            !path.isEmpty {
             return submitActionImageCache[submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))]
         }
-        if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !assetName.isEmpty {
-            return submitActionImageCache[submitActionAssetImageCacheKey(assetName)]
-        }
         return nil
     }
 
@@ -427,9 +440,11 @@ extension TextBoxInputContainer {
     func refreshSubmitActionImageCache(keys: [String]) async {
         let keySet = Set(keys)
         submitActionImageCache = submitActionImageCache.filter { keySet.contains($0.key) }
+        submitActionAssetAvailabilityCache = submitActionAssetAvailabilityCache.filter { keySet.contains($0.key) }
 
-        for key in keys where submitActionImageCache[key] == nil {
+        for key in keys {
             if let path = submitActionPath(fromCacheKey: key) {
+                guard submitActionImageCache[key] == nil else { continue }
                 let image = await Task.detached(priority: .utility) {
                     TextBoxSubmitActionImageSupport.image(atPath: path)
                 }.value
@@ -438,8 +453,9 @@ extension TextBoxInputContainer {
                     submitActionImageCache[key] = image
                 }
             } else if let assetName = submitActionAssetName(fromCacheKey: key),
-                      let image = NSImage(named: assetName) {
-                submitActionImageCache[key] = TextBoxSubmitActionImageSupport.fixedSizeImage(image)
+                      submitActionAssetAvailabilityCache[key] == nil {
+                submitActionAssetAvailabilityCache[key] =
+                    Bundle.main.image(forResource: assetName) != nil || NSImage(named: assetName) != nil
             }
         }
     }

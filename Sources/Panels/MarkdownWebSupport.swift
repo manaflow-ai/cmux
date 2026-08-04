@@ -32,14 +32,109 @@ final class MarkdownWebView: WKWebView {
     var onReenterWindow: (() -> Void)?
 
     private var needsRenderingReattach = false
+    private var editableFocusStateConfirmed = false
+    private var editableElementFocused = false
+    private let viewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
+        .diffViewerScrollDown, .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom, .diffViewerScrollToTop,
+    ])
+
+    override init(frame: CGRect, configuration: WKWebViewConfiguration) {
+        Self.installEditableFocusTracking(on: configuration.userContentController)
+        super.init(frame: frame, configuration: configuration)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        Self.installEditableFocusTracking(on: configuration.userContentController)
+    }
+
+    private static func installEditableFocusTracking(on controller: WKUserContentController) {
+        let name = MarkdownEditableFocusMessageHandler.name
+        controller.add(MarkdownEditableFocusMessageHandler.shared, name: name)
+        controller.addUserScript(WKUserScript(
+            source: """
+            (() => {
+              const handler = window.webkit?.messageHandlers?.['\(name)'];
+              if (!handler) return;
+              const deepestActiveElement = () => {
+                let element = document.activeElement;
+                while (element?.shadowRoot?.activeElement) {
+                  element = element.shadowRoot.activeElement;
+                }
+                return element;
+              };
+              const publish = () => {
+                const element = deepestActiveElement();
+                const editable = !!element?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false'])");
+                handler.postMessage({ editable });
+              };
+              document.addEventListener('focusin', publish, true);
+              document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
+              document.addEventListener('DOMContentLoaded', publish, { once: true });
+              publish();
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+    }
+
+    func markdownEditableFocusDidChange(_ editable: Bool) {
+        editableFocusStateConfirmed = true
+        editableElementFocused = editable
+        if editable {
+            viewerNavigationKeyRouter.reset()
+        }
+    }
+
+    var isViewerNavigationEditableElementFocused: Bool {
+        editableElementFocused
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
     }
 
     override func mouseDown(with event: NSEvent) {
+        editableFocusStateConfirmed = false
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 48 {
+            editableFocusStateConfirmed = false
+        }
+        if handleViewerNavigationKey(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    func handleViewerNavigationKey(_ event: NSEvent) -> Bool {
+        guard cmuxOwnsKeyEvent(event),
+              editableFocusStateConfirmed,
+              !editableElementFocused else {
+            viewerNavigationKeyRouter.reset()
+            return false
+        }
+        return viewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
+            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, perform: { [weak self] action in
+            self?.performViewerNavigationAction(action)
+        })
+    }
+
+    private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {
+        evaluateJavaScript("window.__cmuxPerformViewerNavigationAction?.('\(action.rawValue)')")
     }
 
     override func viewDidMoveToWindow() {

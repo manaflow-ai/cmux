@@ -9,10 +9,10 @@ import Testing
 // interpolated into remote shell, and must strip internal markers from the
 // stdout used in user-facing error detail.
 //
-// `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
-// suite shares the process-global fd table and is not parallel-safe, matching
-// RemoteSessionProcessRunnerTests.
-@Suite("RemotePlatformProbeScript", .serialized)
+// Each script case spawns a real `Process` with `Pipe`s, so this suite lives
+// under the shared serialized subprocess parent.
+extension RemoteSubprocessTests {
+@Suite("RemotePlatformProbeScript")
 struct RemotePlatformProbeScriptTests {
     private struct ProcessResult {
         let status: Int32
@@ -195,10 +195,6 @@ struct RemotePlatformProbeScriptTests {
     }
 
     private static func runProcess(executablePath: String, arguments: [String]) throws -> ProcessResult {
-        // Serialize against the other real-subprocess suite; see
-        // ``remoteSubprocessTestLock``.
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -215,4 +211,5 @@ struct RemotePlatformProbeScriptTests {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+}
 }

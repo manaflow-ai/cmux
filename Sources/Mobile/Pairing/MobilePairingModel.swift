@@ -5,14 +5,14 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints an attach ticket, and exposes the QR payload plus
-/// Tailscale reachability for the view. The displayed code never expires and
-/// is never regenerated on a timer; Refresh Code re-mints on demand.
+/// in (authorization is a Stack same-account check), then turns on the pairing
+/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
+/// QR. The displayed Tailscale code never expires and is never regenerated on
+/// a timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
-/// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
-/// is observed by the view through the coordinator's `@Observable` state.
+/// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
+/// and completion is observed by the view through observable auth state.
 @MainActor
 @Observable
 final class MobilePairingModel {
@@ -29,9 +29,8 @@ final class MobilePairingModel {
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
         case connected(Ready)
-        /// The listener is up but there is no route a phone can reach (no
-        /// Tailscale address on this Mac), so no ticket can be minted yet.
-        case needsTailscale
+        /// No phone-reachable Tailscale route is available yet.
+        case needsReachableTransport
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -40,10 +39,7 @@ final class MobilePairingModel {
     struct Ready: Equatable {
         /// The `cmux-ios://attach?...` URL encoded into the QR code.
         let attachURL: String
-        /// The Mac's display name, shown above the code.
-        let macName: String
-        /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
-        /// detected, in which case a real iPhone cannot reach this Mac.
+        /// Reachable Tailscale `host:port` routes represented by the code.
         let tailscaleLines: [String]
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
@@ -53,6 +49,19 @@ final class MobilePairingModel {
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
     }
 
+    struct PairingRoutePlan: Equatable, Sendable {
+        let disclosureMode: CmxPairingRouteDisclosureMode
+
+        static func make(routes: [CmxAttachRoute]) -> PairingRoutePlan? {
+            guard routes.contains(
+                where: MobilePairingModel.isPhoneReachableTailscaleRoute
+            ) else { return nil }
+            return PairingRoutePlan(
+                disclosureMode: .legacyPrivateNetworkCompatibility
+            )
+        }
+    }
+
     /// The current render state, observed by ``MobilePairingView``.
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
@@ -60,8 +69,8 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    /// Observes the host's connection status while a code is shown, flipping the
-    /// render state between `.ready` and `.connected`. Cancelled on each refresh.
+    /// Observes host status while a code is shown and tracks new connections.
+    /// Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
@@ -77,7 +86,7 @@ final class MobilePairingModel {
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed v2 pairing QR carries no token and never
+    ///     side effect; the displayed Tailscale QR carries no token and never
     ///     expires.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
@@ -90,6 +99,8 @@ final class MobilePairingModel {
     /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
     /// or the view re-running it when auth state settles).
     func refresh() async {
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
         refreshGeneration &+= 1
         let generation = refreshGeneration
         state = .loading
@@ -124,20 +135,17 @@ final class MobilePairingModel {
             )
             return
         }
-        // No route a phone can reach: a real iPhone needs a Tailscale address
-        // on this Mac. A DEBUG build's dev loopback route does not count — a
-        // QR pointing at 127.0.0.1 would make the phone dial itself, so the
-        // window shows the set-up-Tailscale guidance instead of a weak code.
-        // (Simulator/dev pairing uses the injected attach URL path, not the QR.)
-        guard status.routes.contains(where: Self.isPhoneReachableRoute) else {
-            state = .needsTailscale
+        guard let routePlan = PairingRoutePlan.make(routes: status.routes) else {
+            state = .needsReachableTransport
+            observeRouteAvailability()
             return
         }
         do {
             let payload = try await host.createAttachTicket(
                 workspaceID: "",
                 terminalID: nil,
-                ttl: ticketTTL
+                ttl: ticketTTL,
+                routeDisclosureMode: routePlan.disclosureMode
             )
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
@@ -149,25 +157,19 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale routes only, no loopback,
-            // no token) may ever be displayed as a scannable code. If the mint
-            // raced a Tailscale route loss and fell back to the v1 payload,
-            // show the Tailscale guidance rather than a weak QR.
-            guard CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
-                state = .needsTailscale
-                return
-            }
             state = .ready(
                 Ready(
                     attachURL: attachURL,
-                    macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
             observeConnections()
-        } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
-            state = .needsTailscale
+        } catch MobileAttachTicketStoreError.noRoutes,
+                MobileAttachTicketStoreError.routeUnavailable,
+                MobileAttachTicketStoreError.invalidAttachURL {
+            state = .needsReachableTransport
+            observeRouteAvailability()
         } catch {
             state = .failed(
                 String(
@@ -178,19 +180,12 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
-    }
-
     /// Cancels the connection observation. Call when the window closes.
     ///
     /// There is deliberately no timer to cancel: the displayed code never
     /// expires and is never regenerated behind the user's back. If a
-    /// Tailscale address changes while the window sits open (rare), the
-    /// Refresh Code button re-mints on demand.
+    /// Tailscale address changes while the window sits open, the Refresh Code
+    /// button re-mints on demand.
     func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -225,6 +220,27 @@ final class MobilePairingModel {
         }
     }
 
+    /// Automatically replaces the temporary no-route state when a Tailscale
+    /// route appears. This is event-driven by the host status cache.
+    private func observeRouteAvailability() {
+        connectionObservationTask?.cancel()
+        let generation = refreshGeneration
+        connectionObservationTask = Task { [weak self] in
+            guard let self else { return }
+            for await status in self.host.statusUpdates() {
+                guard !Task.isCancelled,
+                      generation == self.refreshGeneration else { return }
+                guard PairingRoutePlan.make(routes: status.routes) != nil else {
+                    continue
+                }
+                Task { @MainActor [weak self] in
+                    await self?.refresh()
+                }
+                return
+            }
+        }
+    }
+
     /// Computes the next render state from a connection-count change, relative to
     /// the `baselineConnectionCount` captured when the code was displayed. A
     /// connection *above* the baseline (a phone that attached after the QR was
@@ -252,15 +268,11 @@ final class MobilePairingModel {
         UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
     }
 
-    private static var macDisplayName: String {
-        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-    }
-
-    /// Whether `route` is one a physical iPhone can actually dial: a
-    /// Tailscale route that does not point back at this Mac. The dev loopback
-    /// route a DEBUG build always carries must not count as reachability, or
-    /// the pairing window would happily display a QR no phone can use.
-    private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
+    /// Whether `route` can serve a physical iPhone: a Tailscale route that does
+    /// not point back at this Mac.
+    private nonisolated static func isPhoneReachableTailscaleRoute(
+        _ route: CmxAttachRoute
+    ) -> Bool {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 

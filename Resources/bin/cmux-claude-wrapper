@@ -156,6 +156,7 @@ cmux_claude_wrapper_exec_resolved_claude() {
         # A non-shim target is the boundary where a real Claude process starts.
         # Clear the shim-bounce guard so real Claude children that invoke
         # `claude` later begin a fresh wrapper resolution.
+        unset CMUX_AGENT_RESTORE_LAUNCH
         unset cmux_claude_wrapper_reexec_guard
         unset cmux_claude_wrapper_reexec_targets
         exec "$target" "$@"
@@ -178,6 +179,11 @@ cmux_claude_wrapper_exec_resolved_claude() {
     fi
     cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_target_history"
     export cmux_claude_wrapper_reexec_targets
+    if [[ "${cmux_claude_app_restore_owned:-0}" == "1" ]]; then
+        # A supported shim will invoke this wrapper again. Re-issue the exact
+        # authorization for that pass; the next wrapper consumes it immediately.
+        export CMUX_AGENT_RESTORE_LAUNCH="$cmux_claude_app_restore_launch"
+    fi
     exec "$target" "$@"
 }
 
@@ -560,15 +566,20 @@ clear_inherited_claude_auth_selection_env() {
     normalize_claude_config_dir
 }
 
-clear_inherited_claude_session_env() {
+clear_inherited_claude_session_identity_env() {
+    # Generated from scripts/claude-launch-environment-policy.json.
+    # ClaudeWrapperResumeEnvironmentTests exercises every session identity key here.
+    # BEGIN GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
     unset CLAUDECODE
     unset CLAUDE_CODE
     unset CLAUDE_CODE_CHILD_SESSION
+    unset CLAUDE_CODE_BRIDGE_SESSION_ID
     unset CLAUDE_CODE_PARENT_SESSION_ID
     unset CLAUDE_CODE_SESSION_ID
     unset CLAUDE_CODE_ENTRYPOINT
     unset CLAUDE_CODE_EXECPATH
     unset CLAUDE_CODE_SSE_PORT
+    # END GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
 }
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
@@ -578,9 +589,15 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+# CMUX_AGENT_RESTORE_LAUNCH is a provider/session-bound one-shot token attached
+# only to app-generated restore input. Consume it before every eventual exec so
+# it can authorize this launch without leaking to Claude or hooks.
+cmux_claude_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
+unset CMUX_AGENT_RESTORE_LAUNCH
+
 exec_real_claude_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_env
+        clear_inherited_claude_session_identity_env
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
             unset "$cmux_key"
@@ -593,7 +610,7 @@ exec_real_claude_passthrough() {
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     # User-managed hooks need the original cmux terminal environment.
     if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_env
+        clear_inherited_claude_session_identity_env
     fi
     clear_inherited_claude_auth_selection_env
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -603,16 +620,27 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
-    # In cmux-launched shells, preserve old behavior and always clear nested
-    # Claude session markers, even when we must pass through due to stale socket.
-    if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_env
-    fi
+if [[ "$IN_CMUX" == "0" ]]; then
     clear_inherited_claude_auth_selection_env
-    if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
-    fi
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec_real_claude_passthrough "$@"
+fi
+
+# App-generated restore input plus an explicit resume id proves cmux owns this
+# launch, so a transient socket miss cannot permanently strip its hooks. An
+# unmarked resume from a detached shell/tmux keeps the bounded ownership probe
+# and preserves native behavior when its inherited cmux environment is stale.
+cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
+cmux_claude_app_restore_owned=0
+if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ \
+      && "$cmux_claude_app_restore_launch" == "claude:$cmux_claude_resume_sid" ]]; then
+    cmux_claude_app_restore_owned=1
+fi
+if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
+      && ! cmux_socket_available; then
+    clear_inherited_claude_session_identity_env
+    clear_inherited_claude_auth_selection_env
+    reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi
@@ -850,7 +878,7 @@ fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
-clear_inherited_claude_session_env
+clear_inherited_claude_session_identity_env
 clear_inherited_claude_auth_selection_env
 
 # Check if the user already specified a session/resume flag.
@@ -863,7 +891,12 @@ fi
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
 # resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
-reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
+if [[ -n "$cmux_claude_resume_sid" ]]; then
+    export CMUX_AGENT_RESUME_LAUNCH=1
+else
+    unset CMUX_AGENT_RESUME_LAUNCH
+fi
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
@@ -889,6 +922,13 @@ install_cmux_node_options
 #   fires no PermissionRequest/Notification for those two, so the handler also
 #   publishes the full needs-input status + bell itself. See
 #   https://github.com/manaflow-ai/cmux/issues/6606
+# - PostToolUse (PushNotification): bridges Claude's PushNotification tool
+#   into a cmux notification. The tool delivers via a raw OSC desktop
+#   notification, which cmux suppresses for surfaces running a hook-integrated
+#   agent, and it never fires the Notification hook — so this PostToolUse
+#   bridge is the only way its message reaches the user inside cmux. ASYNC;
+#   the handler mirrors the tool's own sent/skipped decision via
+#   tool_response.localSent.
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
 #   This is Claude Code's native blocking decision hook. Outside
 #   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
@@ -900,7 +940,7 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #

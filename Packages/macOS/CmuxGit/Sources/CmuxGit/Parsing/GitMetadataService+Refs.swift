@@ -25,6 +25,38 @@ extension GitMetadataService {
         return branch.isEmpty ? nil : branch
     }
 
+    /// Classifies the repository's `HEAD` into a ``GitCheckedOutBranch``,
+    /// keeping a legitimate non-branch checkout (detached commit, non-branch
+    /// symbolic ref) distinct from a missing/unreadable/malformed `HEAD`.
+    nonisolated static func gitCheckedOutBranch(repository: ResolvedGitRepository) -> GitCheckedOutBranch {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return .unreadable
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchPrefix = "ref: refs/heads/"
+        if trimmed.hasPrefix(branchPrefix) {
+            guard let branch = normalizedBranchName(String(trimmed.dropFirst(branchPrefix.count))) else {
+                return .unreadable
+            }
+            return .branch(branch)
+        }
+        if trimmed.hasPrefix("ref: ") {
+            return .detached
+        }
+        if isLikelyCommitSHA(trimmed) {
+            return .detached
+        }
+        return .unreadable
+    }
+
+    /// Whether `value` looks like a full git object id (40-hex SHA-1 or
+    /// 64-hex SHA-256).
+    private nonisolated static func isLikelyCommitSHA(_ value: String) -> Bool {
+        guard value.count == 40 || value.count == 64 else { return false }
+        return value.allSatisfy(\.isHexDigit)
+    }
+
     /// A signature of `HEAD` plus the commit it resolves to: the symbolic ref
     /// text and the resolved ref value joined, or the detached SHA directly.
     nonisolated static func gitHeadSignature(repository: ResolvedGitRepository) -> String? {

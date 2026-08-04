@@ -2,41 +2,130 @@ import CmuxMobileCamera
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
+@preconcurrency import AVFoundation
 import UIKit
 #endif
 
 #if os(iOS)
 struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
+    let onCancel: (() -> Void)?
+    let onEnterManually: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    private let authorization = CameraAuthorization()
-    @State private var authorizationStatus = CameraAuthorization().videoStatus
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    private let authorization: CameraAuthorization
+    private let previewEnabled: Bool
+    @State private var authorizationStatus: AVAuthorizationStatus
+
+    init(
+        previewEnabled: Bool = false,
+        onCancel: (() -> Void)? = nil,
+        onEnterManually: (() -> Void)? = nil,
+        onCode: @escaping (String) -> Void
+    ) {
+        let authorization = CameraAuthorization()
+        self.authorization = authorization
+        self.previewEnabled = previewEnabled
+        self.onCancel = onCancel
+        self.onEnterManually = onEnterManually
+        self.onCode = onCode
+        _authorizationStatus = State(
+            initialValue: previewEnabled ? .authorized : authorization.videoStatus
+        )
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                switch authorizationStatus {
-                case .authorized:
-                    QRCodeScannerView { code in
-                        dismiss()
-                        onCode(code)
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                case .notDetermined:
-                    ProgressView()
-                        .task {
-                            authorizationStatus = await authorization.requestVideoAccess()
+                if previewEnabled {
+                    MobilePairingScannerPreview()
+                } else {
+                    switch authorizationStatus {
+                    case .authorized:
+                        ZStack(alignment: .bottom) {
+                            QRCodeScannerView { code in
+                                dismiss()
+                                onCode(code)
+                            }
+                            .ignoresSafeArea(edges: .bottom)
+
+                            Text(MobilePairingScannerGuidanceCopy.text)
+                                .font(.footnote.weight(.medium))
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    .black.opacity(0.72),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                                .padding(16)
+                                .accessibilityIdentifier("MobilePairingScannerGuidance")
                         }
-                case .denied, .restricted:
-                    ContentUnavailableView(
-                        L10n.string("mobile.pairing.cameraDenied", defaultValue: "Camera Access Required"),
-                        systemImage: "camera.fill"
-                    )
-                @unknown default:
-                    ContentUnavailableView(
-                        L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
-                        systemImage: "camera.fill"
-                    )
+                    case .notDetermined:
+                        ProgressView()
+                            .accessibilityIdentifier("MobilePairingScannerPermissionProgress")
+                            .task {
+                                authorizationStatus = await authorization.requestVideoAccess()
+                            }
+                    case .denied:
+                        ContentUnavailableView {
+                            Label(
+                                L10n.string(
+                                    "mobile.pairing.cameraDenied",
+                                    defaultValue: "Camera Access Required"
+                                ),
+                                systemImage: "camera.fill"
+                            )
+                        } description: {
+                            Text(L10n.string(
+                                "mobile.pairing.cameraDeniedDescription",
+                                defaultValue: "Allow camera access in Settings to scan the QR code from your Mac."
+                            ))
+                        } actions: {
+                            Button {
+                                openSettings()
+                            } label: {
+                                Text(L10n.string(
+                                    "mobile.pairing.openSettings",
+                                    defaultValue: "Open Settings"
+                                ))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("MobilePairingOpenSettingsButton")
+                            manualEntryButton
+                        }
+                        .accessibilityIdentifier("MobilePairingCameraDenied")
+                    case .restricted:
+                        ContentUnavailableView {
+                            Label(
+                                L10n.string(
+                                    "mobile.pairing.cameraDenied",
+                                    defaultValue: "Camera Access Required"
+                                ),
+                                systemImage: "camera.fill"
+                            )
+                        } description: {
+                            Text(L10n.string(
+                                "mobile.pairing.cameraRestrictedDescription",
+                                defaultValue: """
+                                Camera access is restricted on this device. Use a pairing link or the manual form instead.
+                                """
+                            ))
+                        } actions: { manualEntryButton }
+                        .accessibilityIdentifier("MobilePairingCameraRestricted")
+                    @unknown default:
+                        ContentUnavailableView {
+                            Label(
+                                L10n.string(
+                                    "mobile.pairing.cameraUnavailable",
+                                    defaultValue: "Camera Unavailable"
+                                ),
+                                systemImage: "camera.fill"
+                            )
+                        } actions: { manualEntryButton }
+                    }
                 }
             }
             .navigationTitle(L10n.string("mobile.pairing.scannerTitle", defaultValue: "Scan QR Code"))
@@ -45,6 +134,7 @@ struct MobilePairingScannerSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         dismiss()
+                        onCancel?()
                     } label: {
                         Text(L10n.string("mobile.pairing.scannerCancel", defaultValue: "Cancel"))
                     }
@@ -52,6 +142,30 @@ struct MobilePairingScannerSheet: View {
                 }
             }
         }
+        .accessibilityIdentifier("MobilePairingScannerSheet")
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, !previewEnabled else { return }
+            authorizationStatus = authorization.videoStatus
+        }
+    }
+
+    @ViewBuilder
+    private var manualEntryButton: some View {
+        if let onEnterManually {
+            Button {
+                dismiss()
+                onEnterManually()
+            } label: {
+                Text(L10n.string("mobile.pairing.enterManually", defaultValue: "Enter Manually"))
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("MobilePairingEnterManuallyButton")
+        }
+    }
+
+    private func openSettings() {
+        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(settingsURL)
     }
 }
 #else
@@ -66,3 +180,15 @@ struct MobilePairingScannerSheet: View {
     }
 }
 #endif
+
+enum MobilePairingScannerGuidanceCopy {
+    static var text: String {
+        L10n.string(
+            "mobile.pairing.scannerInstruction",
+            defaultValue: """
+            On your Mac, open Tailscale Pairing in cmux to show the QR. \
+            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            """
+        )
+    }
+}

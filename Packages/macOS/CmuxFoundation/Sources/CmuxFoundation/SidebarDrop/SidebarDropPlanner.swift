@@ -62,6 +62,11 @@ public struct SidebarDropPlanner {
             proposedIndicator = SidebarDropIndicator(tabId: nil, edge: .bottom)
         }
 
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return nil
+        }
+
         let legalInsertionPosition = legalInsertionPosition(
             draggedTabId: draggedTabId,
             proposedInsertionPosition: insertionPosition,
@@ -104,6 +109,11 @@ public struct SidebarDropPlanner {
             insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
         } else {
             insertionPosition = tabIds.count
+        }
+
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return fromIndex
         }
 
         let legalInsertionPosition = legalInsertionPosition(

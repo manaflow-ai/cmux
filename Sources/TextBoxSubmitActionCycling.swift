@@ -16,14 +16,14 @@ extension TextBoxInputContainer {
         ) else {
             return
         }
-        selectedSubmitActionID = nextID
+        onSelectSubmitAction(nextID)
     }
 
     private func refreshedShouldForceTextEntrySubmitAfterAgentPrune() -> Bool {
         guard let workspace = surface.owningWorkspace() else {
             return shouldForceTextEntrySubmit
         }
-        workspace.clearStaleAgentPIDs(panelId: surface.id, refreshPorts: false)
+        workspace.clearStaleAgentPIDs(panelId: surface.id, refreshPorts: true)
         let refreshedContext = workspace.terminalPanel(for: surface.id).map {
             WorkspaceContentView.terminalAgentContext(panel: $0, workspace: workspace)
         } ?? terminalAgentContext

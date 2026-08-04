@@ -34,7 +34,9 @@ final class BrowserHiddenWebViewDiscardManager {
         let isDeveloperToolsVisible: Bool
         let isElementFullscreenActive: Bool
         let isReactGrabActive: Bool
+        var isDesignModeActive = false
         let isVisualAutomationCaptureActive: Bool
+        let isMobileBrowserStreamActive: Bool
         let hasPopups: Bool
         let isCapturingMedia: Bool
         let isPlayingMedia: Bool
@@ -66,6 +68,7 @@ final class BrowserHiddenWebViewDiscardManager {
     private(set) var lastDiscardReason: String?
     private(set) var lastRestoreReason: String?
     private(set) var restoredSessionShouldRenderWebView: Bool?
+    private(set) var isRestoreNavigationPending: Bool = false
 
     var hasScheduledDiscard: Bool {
         discardTimer != nil
@@ -93,7 +96,9 @@ final class BrowserHiddenWebViewDiscardManager {
         }
         if snapshot.isElementFullscreenActive { blockers.append("fullscreen") }
         if snapshot.isReactGrabActive { blockers.append("react_grab") }
+        if snapshot.isDesignModeActive { blockers.append("design_mode") }
         if snapshot.isVisualAutomationCaptureActive { blockers.append("visual_automation") }
+        if snapshot.isMobileBrowserStreamActive { blockers.append("mobile_browser_stream") }
         if snapshot.hasPopups { blockers.append("popup") }
         return blockers
     }
@@ -239,29 +244,56 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func markDiscarded(reason: String, now: Date) {
         isDiscardedForMemory = true
+        isRestoreNavigationPending = false
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
     }
 
     @discardableResult
-    func restoreIfNeeded(reason: String, performRestore: () -> Void) -> Bool {
+    func restoreIfNeeded(reason: String, force: Bool = false, performRestore: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
+        if isRestoreNavigationPending {
+            // An explicit user reload restarts an in-flight restore instead of
+            // being swallowed by the pending dedup.
+            guard force else { return true }
+            isRestoreNavigationPending = false
+        }
+        lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
         performRestore()
         return true
+    }
+
+    func noteRestoreNavigationStarted(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = true
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.start reason=\(reason)")
+#endif
+    }
+
+    @discardableResult
+    func noteRestoreNavigationCommitted(reason: String) -> Bool {
+        isRestoreNavigationPending = false
+        return clearDiscardState(reason: reason)
+    }
+
+    func noteRestoreNavigationDidNotCommit(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = false
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.didNotCommit reason=\(reason)")
+#endif
     }
 
     @discardableResult
     func reactivateWithoutNavigation(reason: String, performReactivate: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
-        updateRestoredSessionRenderIntent(nil)
         performReactivate()
-        return true
+        return clearDiscardState(reason: reason)
     }
 
     func updateRestoredSessionRenderIntent(_ shouldRenderWebView: Bool?) {
@@ -272,14 +304,17 @@ final class BrowserHiddenWebViewDiscardManager {
     func clearDiscardState(reason: String) -> Bool {
         guard isDiscardedForMemory else { return false }
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastRestoreReason = reason
+        updateRestoredSessionRenderIntent(nil)
         return true
     }
 
     func resetMetadata() {
         cancel()
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil

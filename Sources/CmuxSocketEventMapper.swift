@@ -37,7 +37,7 @@ enum CmuxSocketEventMapper {
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
         publishResult(
-            name: mapping.name,
+            name: mapping.resolvedName(using: result),
             category: mapping.category,
             method: method,
             params: mappedParams(params, using: mapping.params),
@@ -48,8 +48,28 @@ enum CmuxSocketEventMapper {
 
     private struct DomainEventMapping {
         let name: String
+        let remoteName: String?
         let category: String
         let params: ParameterMapping
+
+        init(
+            name: String,
+            remoteName: String? = nil,
+            category: String,
+            params: ParameterMapping
+        ) {
+            self.name = name
+            self.remoteName = remoteName
+            self.category = category
+            self.params = params
+        }
+
+        func resolvedName(using result: [String: Any]) -> String {
+            if result["remote"] as? Bool == true, let remoteName {
+                return remoteName
+            }
+            return name
+        }
     }
 
     private enum ParameterMapping {
@@ -79,7 +99,12 @@ enum CmuxSocketEventMapper {
         case "surface.send_key":
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
-            return DomainEventMapping(name: "pane.resized", category: "pane", params: .unchanged)
+            return DomainEventMapping(
+                name: "pane.resized",
+                remoteName: "pane.resize_requested",
+                category: "pane",
+                params: .unchanged
+            )
         case "pane.swap":
             return DomainEventMapping(name: "pane.swapped", category: "pane", params: .unchanged)
         case "pane.break":

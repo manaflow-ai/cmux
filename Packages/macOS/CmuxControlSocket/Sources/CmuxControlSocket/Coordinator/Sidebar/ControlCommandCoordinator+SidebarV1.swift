@@ -39,36 +39,13 @@ extension ControlCommandCoordinator {
     ///   - args: The raw argument remainder of the command line.
     /// - Returns: The raw reply line, or `nil` if not owned here.
     public func handleSidebarV1(command: String, args: String) -> String? {
+        // The telemetry family shares its nonisolated worker-lane bodies with
+        // the socket dispatcher (`socketWorkerV1ResponseIfHandled`); dispatch
+        // through the same entry so both lanes run the identical body.
+        if let telemetry = handleSidebarTelemetryV1(command: command, args: args, context: context) {
+            return telemetry
+        }
         switch command {
-        case "set_status": return sidebarSetStatus(args)
-        case "report_meta": return sidebarReportMeta(args)
-        case "report_meta_block": return sidebarReportMetaBlock(args)
-        case "clear_status": return sidebarClearStatus(args)
-        case "clear_meta": return sidebarClearMeta(args)
-        case "clear_meta_block": return sidebarClearMetaBlock(args)
-        case "list_status": return sidebarListStatus(args)
-        case "list_meta": return sidebarListMeta(args)
-        case "list_meta_blocks": return sidebarListMetaBlocks(args)
-        case "set_agent_pid": return sidebarSetAgentPID(args)
-        case "set_agent_lifecycle": return sidebarSetAgentLifecycle(args)
-        case "agent_hibernation": return sidebarAgentHibernation(args)
-        case "clear_agent_pid": return sidebarClearAgentPID(args)
-        case "log": return sidebarAppendLog(args)
-        case "clear_log": return sidebarClearLog(args)
-        case "list_log": return sidebarListLog(args)
-        case "set_progress": return sidebarSetProgress(args)
-        case "clear_progress": return sidebarClearProgress(args)
-        case "report_git_branch": return sidebarReportGitBranch(args)
-        case "clear_git_branch": return sidebarClearGitBranch(args)
-        case "report_pr", "report_review": return sidebarReportPullRequest(args)
-        case "clear_pr": return sidebarClearPullRequest(args)
-        case "report_pr_action": return sidebarReportPullRequestAction(args)
-        case "report_ports": return sidebarReportPorts(args)
-        case "clear_ports": return sidebarClearPorts(args)
-        case "report_pwd": return sidebarReportPwd(args)
-        case "report_shell_state": return sidebarReportShellState(args)
-        case "report_tty": return sidebarReportTTY(args)
-        case "ports_kick": return sidebarPortsKick(args)
         case "sidebar_state": return sidebarState(args)
         case "reset_sidebar": return sidebarReset(args)
         case "right_sidebar": return sidebarRightSidebar(args)
@@ -87,6 +64,64 @@ extension ControlCommandCoordinator {
         }
     }
 
+    /// Dispatches the v1 sidebar telemetry family (status/metadata upserts,
+    /// agent PID/lifecycle, log/progress, and the report/clear/kick commands)
+    /// to their nonisolated worker-lane bodies; returns `nil` for anything
+    /// else. Callable from the socket-worker thread (the dispatcher's v1
+    /// worker lane) and from the main actor (`handleSidebarV1`, and in-process
+    /// main-thread callers on the `mainThreadCallable` inline path) — every
+    /// body is non-blocking end-to-end: parse and bus enqueues never block,
+    /// and each body crosses to the main actor at most once via
+    /// ``ControlSidebarContext/controlSidebarOnMain(_:)``, which collapses to
+    /// an inline call when already on main.
+    ///
+    /// - Parameters:
+    ///   - command: The lowercased v1 command token.
+    ///   - args: The raw argument remainder of the command line.
+    ///   - context: The live app seam (the coordinator's own `context`,
+    ///     passed explicitly because these bodies run off the main actor and
+    ///     must not read the main-actor `context` property).
+    /// - Returns: The raw reply line, or `nil` if not a telemetry command.
+    public nonisolated func handleSidebarTelemetryV1(
+        command: String,
+        args: String,
+        context: (any ControlCommandContext)?
+    ) -> String? {
+        switch command {
+        case "set_status": return sidebarSetStatus(args, context: context)
+        case "report_meta": return sidebarReportMeta(args, context: context)
+        case "report_meta_block": return sidebarReportMetaBlock(args, context: context)
+        case "clear_status": return sidebarClearStatus(args, context: context)
+        case "clear_meta": return sidebarClearMeta(args, context: context)
+        case "clear_meta_block": return sidebarClearMetaBlock(args, context: context)
+        case "list_status": return sidebarListStatus(args, context: context)
+        case "list_meta": return sidebarListMeta(args, context: context)
+        case "list_meta_blocks": return sidebarListMetaBlocks(args, context: context)
+        case "set_agent_pid": return sidebarSetAgentPID(args, context: context)
+        case "set_agent_lifecycle": return sidebarSetAgentLifecycle(args, context: context)
+        case "workspace_loading": return sidebarWorkspaceLoading(args, context: context)
+        case "agent_hibernation": return sidebarAgentHibernation(args, context: context)
+        case "clear_agent_pid": return sidebarClearAgentPID(args, context: context)
+        case "log": return sidebarAppendLog(args, context: context)
+        case "clear_log": return sidebarClearLog(args, context: context)
+        case "list_log": return sidebarListLog(args, context: context)
+        case "set_progress": return sidebarSetProgress(args, context: context)
+        case "clear_progress": return sidebarClearProgress(args, context: context)
+        case "report_git_branch": return sidebarReportGitBranch(args, context: context)
+        case "clear_git_branch": return sidebarClearGitBranch(args, context: context)
+        case "report_pr", "report_review": return sidebarReportPullRequest(args, context: context)
+        case "clear_pr": return sidebarClearPullRequest(args, context: context)
+        case "report_pr_action": return sidebarReportPullRequestAction(args, context: context)
+        case "report_ports": return sidebarReportPorts(args, context: context)
+        case "clear_ports": return sidebarClearPorts(args, context: context)
+        case "report_pwd": return sidebarReportPwd(args, context: context)
+        case "report_shell_state": return sidebarReportShellState(args, context: context)
+        case "report_tty": return sidebarReportTTY(args, context: context)
+        case "ports_kick": return sidebarPortsKick(args, context: context)
+        default: return nil
+        }
+    }
+
     /// The sidebar-domain view of the seam. Once the integrator adds
     /// ``ControlSidebarContext`` to the ``ControlCommandContext`` umbrella this
     /// cast is statically guaranteed (and may be simplified to `context`);
@@ -100,7 +135,7 @@ extension ControlCommandCoordinator {
 
     /// Tokenizes a v1 argument string with shell-style quoting and escapes
     /// (the legacy `tokenizeArgs`).
-    func sidebarTokenizeArgs(_ args: String) -> [String] {
+    nonisolated func sidebarTokenizeArgs(_ args: String) -> [String] {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -177,7 +212,7 @@ extension ControlCommandCoordinator {
 
     /// Splits args into positionals and `--key[=value]` options, honoring a
     /// bare `--` stop token (the legacy `parseOptions`).
-    func sidebarParseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+    nonisolated func sidebarParseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
         let tokens = sidebarTokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
@@ -215,7 +250,7 @@ extension ControlCommandCoordinator {
 
     /// Splits args into positionals and options, skipping bare `--` tokens
     /// instead of stopping (the legacy `parseOptionsNoStop`).
-    func sidebarParseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
+    nonisolated func sidebarParseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
         let tokens = sidebarTokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
@@ -252,14 +287,14 @@ extension ControlCommandCoordinator {
 
     /// Trims an option value, mapping empty to `nil` (the legacy
     /// `normalizedOptionValue`).
-    func sidebarNormalizedOptionValue(_ value: String?) -> String? {
+    nonisolated func sidebarNormalizedOptionValue(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Parses a metadata format token (the legacy `parseSidebarMetadataFormat`).
-    func sidebarParseMetadataFormat(_ raw: String) -> ControlSidebarMetadataFormat? {
+    nonisolated func sidebarParseMetadataFormat(_ raw: String) -> ControlSidebarMetadataFormat? {
         switch raw.lowercased() {
         case "plain":
             return .plain
@@ -272,7 +307,7 @@ extension ControlCommandCoordinator {
 
     /// Parses the `--tab` mutation target (the legacy
     /// `parseSidebarMutationTabTarget`).
-    func sidebarParseMutationTabTarget(
+    nonisolated func sidebarParseMutationTabTarget(
         options: [String: String]
     ) -> (target: ControlSidebarTabTarget?, error: String?) {
         if let rawTabArg = options["tab"] {
@@ -293,7 +328,7 @@ extension ControlCommandCoordinator {
 
     /// Parses the optional `--panel`/`--surface` id (the legacy
     /// `parseOptionalPanelIdOption`).
-    func sidebarParseOptionalPanelIdOption(
+    nonisolated func sidebarParseOptionalPanelIdOption(
         options: [String: String],
         usage: String
     ) -> (panelId: UUID?, error: String?) {
@@ -313,7 +348,7 @@ extension ControlCommandCoordinator {
     /// The explicit shell-integration scope when both `--tab` and `--panel`
     /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
     /// its unit tests).
-    func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
+    nonisolated func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,
               let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -327,7 +362,7 @@ extension ControlCommandCoordinator {
 
     /// Splits a metadata-block command line at the first ` -- ` separator
     /// (the legacy `splitMetadataBlockArgs`).
-    func sidebarSplitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
+    nonisolated func sidebarSplitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
         guard let separatorRange = args.range(of: " -- ") else {
             return (args, nil)
         }
@@ -337,7 +372,7 @@ extension ControlCommandCoordinator {
     }
 
     /// Formats one status entry listing line (the legacy `sidebarMetadataLine`).
-    func sidebarMetadataLine(_ entry: ControlSidebarStatusEntrySnapshot) -> String {
+    nonisolated func sidebarMetadataLine(_ entry: ControlSidebarStatusEntrySnapshot) -> String {
         var line = "\(entry.key)=\(entry.value)"
         if let icon = entry.icon { line += " icon=\(icon)" }
         if let color = entry.color { line += " color=\(color)" }
@@ -349,7 +384,7 @@ extension ControlCommandCoordinator {
 
     /// Formats one metadata block listing line (the legacy
     /// `sidebarMetadataBlockLine`).
-    func sidebarMetadataBlockLine(_ block: ControlSidebarMetadataBlockSnapshot) -> String {
+    nonisolated func sidebarMetadataBlockLine(_ block: ControlSidebarMetadataBlockSnapshot) -> String {
         var line = "\(block.key)=\(block.markdown.replacingOccurrences(of: "\n", with: "\\n"))"
         if block.priority != 0 { line += " priority=\(block.priority)" }
         return line
@@ -358,7 +393,7 @@ extension ControlCommandCoordinator {
     /// The shared pre-validation of the panel-metadata mutation commands
     /// (the parse-level head of the legacy `schedulePanelMetadataMutation`;
     /// the enqueue halves live behind the seam).
-    func sidebarPanelMutationTarget(
+    nonisolated func sidebarPanelMutationTarget(
         options: [String: String],
         missingPanelUsage: String
     ) -> (target: ControlSidebarPanelMutationTarget?, error: String?) {

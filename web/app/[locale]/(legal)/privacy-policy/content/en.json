@@ -1,0 +1,128 @@
+{
+  "metadataTitle": "Privacy Policy — cmux",
+  "metadataDescription": "Privacy policy for cmux",
+  "title": "Privacy Policy",
+  "lastUpdated": "Last updated: July 10, 2026",
+  "sections": [
+    {
+      "paragraphs": [
+        "Manaflow (the \"Company\") is committed to maintaining robust privacy protections for its users. This Privacy Policy explains how we collect, use, and safeguard information you provide to us.",
+        "In this policy, \"Site\" means the Company website at [cmux.com](https://cmux.com). \"Application\" means the cmux desktop application for macOS and the cmux mobile application for iPhone and iPad. \"Service\" means the Site and Application together. \"We,\" \"us,\" and \"our\" mean the Company. \"You\" means a user of our Service.",
+        "By using our Service, you accept this Privacy Policy and our [Terms of Service](https://cmux.com/terms-of-service), and consent to the collection, storage, use, and disclosure described here."
+      ]
+    },
+    {
+      "heading": "I. Information We Collect",
+      "paragraphs": [
+        "We collect Non-Personal Information and Personal Information. Non-Personal Information cannot identify you and includes anonymous usage data, platform types, and crash diagnostics. Personal Information includes your email address, account identifiers, and information you choose to provide when you sign in, contact us, pair a device, or use the Application."
+      ],
+      "subsections": [
+        {
+          "heading": "1. Information collected through technology",
+          "paragraphs": [
+            "The Application may automatically collect the following information:"
+          ],
+          "bullets": [
+            "Crash reports and error diagnostics through Sentry.",
+            "Operating-system version and application version.",
+            "Product analytics and feature-usage events for the Site and Application.",
+            "Device, account, and pairing metadata needed to connect your signed-in devices.",
+            "Apple Push Notification service device tokens, only after you enable phone notifications."
+          ],
+          "afterBullets": [
+            "The macOS Application checks for updates through Sparkle, which may send your operating-system and application versions to our update server. The iPhone and iPad Application is updated through the App Store, not Sparkle.",
+            "The Site uses PostHog for page-view and navigation analytics. PostHog stores a cookie to distinguish visitors. If you join a platform waitlist, your submitted email is recorded in PostHog so we can notify you. If you submit the Enterprise contact form, we record the company and contact details you provide in PostHog and send them to our private Slack workspace and founders email inbox so we can respond. You can block website analytics with a browser extension that blocks tracking scripts.",
+            "The iPhone and iPad Application sends product analytics events to our server-side PostHog proxy. These events help diagnose reliability, understand feature use, and improve the Application. They include app launch and session events, sign-in status, pairing attempts and results, connection recovery, workspace opens, terminal-input byte and line counts, and notification opt-in or notification-deep-link results. Mobile analytics does not send terminal command text, terminal output, selected photos, or speech transcripts to PostHog. Before sign-in, events use a random per-install client identifier. After sign-in, our server attaches your Stack Auth account identifier before forwarding events to PostHog. Analytics and crash reports start disabled and are sent only after you enable Share Analytics and Crash Reports in Settings. Turning that control off stops analytics from being buffered or sent and stops crash reporting. Contact [founders@manaflow.com](mailto:founders@manaflow.com) to request deletion of analytics associated with your account."
+          ]
+        },
+        {
+          "heading": "2. Information you provide directly",
+          "paragraphs": [
+            "If you contact us by email, our contact page, or the Enterprise contact form, we collect information you provide, including name, email, company, role, phone number, country, deployment needs, and comments. If you join a platform waitlist, we collect your submitted email to notify you when that platform launches and send the signup email and selected platforms to our private Slack workspace.",
+            "When you sign in, we receive authentication information such as your email address and provider identifier from Apple, Google, GitHub, or email-code sign-in. When you pair the mobile app with a Mac, we process pairing information needed to connect the devices. When you view a workspace, send terminal input, attach selected photos, use speech transcription, or receive terminal notifications, the related content or transcript may pass between your devices and our service as needed to provide that feature.",
+            "Camera access is used only to scan cmux pairing QR codes. Microphone and speech-recognition access are used only when you choose voice transcription in the message box. Photo-library access is used only when you choose photos to attach."
+          ]
+        },
+        {
+          "heading": "3. Children’s Privacy",
+          "paragraphs": [
+            "The Service is not directed to anyone under 13, and we do not knowingly collect information from anyone under 13. If you believe we collected such information, contact [founders@manaflow.com](mailto:founders@manaflow.com)."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "II. Third-Party Services",
+      "paragraphs": [
+        "The Application integrates with these third-party services:"
+      ],
+      "bullets": [
+        "Stack Auth: authentication and account management for sign-in, sessions, and account deletion.",
+        "Apple, Google, and GitHub: optional sign-in providers that send account information required to authenticate you.",
+        "Apple Push Notification service: notifications to iPhone and iPad after you opt in.",
+        "Apple Speech Recognition: voice transcription when you choose it in the mobile app.",
+        "Sentry: error tracking and crash reporting, which may collect error logs, stack traces, device information, and operating-system version.",
+        "Sparkle: the macOS auto-update framework, which sends application and operating-system versions to check for macOS updates.",
+        "Ghostty / libghostty: the terminal-rendering engine, which runs locally on your device.",
+        "PostHog: website and mobile product analytics, including page views, navigation patterns, browser metadata, mobile feature events, account-linked mobile analytics after sign-in through a first-party proxy, and a submitted waitlist email so we can notify you.",
+        "Resend: transactional email delivery. Your email is sent to Resend only if you voluntarily submit feedback.",
+        "Slack: private internal notifications. If you join a platform waitlist, the email and platforms you submit are sent to our private Slack workspace."
+      ],
+      "afterBullets": [
+        "Each service has its own privacy policy. When a third party processes Personal Information for cmux, we require safeguards at least as protective as this policy and limit use to providing services to cmux."
+      ]
+    },
+    {
+      "heading": "III. How We Use and Share Information",
+      "paragraphs": [
+        "We do not sell, trade, rent, or share Personal Information with third parties for marketing. We use crash reports and diagnostics only to improve the Application. We may disclose information when we believe in good faith that disclosure is necessary for legal process or protection from harm."
+      ]
+    },
+    {
+      "heading": "IV. How We Protect Information",
+      "paragraphs": [
+        "We use measures designed to prevent unauthorized access, including encryption and secure server software. No transmission or storage method is completely secure, and use of the Service involves this risk."
+      ]
+    },
+    {
+      "heading": "V. Your Rights",
+      "paragraphs": [
+        "Depending on your location, applicable laws such as GDPR or CCPA may give you these rights:"
+      ],
+      "bullets": [
+        "Access a copy of data we hold about you.",
+        "Correct inaccurate data.",
+        "Request deletion of your data.",
+        "Receive portable data.",
+        "Restrict or object to processing."
+      ],
+      "afterBullets": [
+        "To exercise these rights, contact [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "VI. Links to Other Websites",
+      "paragraphs": [
+        "The Service may link to third-party websites. We are not responsible for their privacy practices. This policy applies only to information we collect."
+      ]
+    },
+    {
+      "heading": "VII. Changes to This Policy",
+      "paragraphs": [
+        "We may change this policy. Significant changes take effect 30 days after notification. Check the Site periodically for updates."
+      ]
+    },
+    {
+      "heading": "VIII. Contact Us",
+      "paragraphs": [
+        "Questions about this policy can be sent to [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "IX. Data Retention",
+      "paragraphs": [
+        "Crash reports and diagnostics are kept only as long as needed to diagnose and fix issues. Mobile account identifiers and authentication records are kept while your account is active, then deleted or anonymized when account deletion finishes, except when security, legal, billing, or fraud-prevention duties require retention. Device and pairing metadata is kept until you unpair, sign out and delete local data, delete your account, or stale pairing data is pruned. Apple Push Notification service tokens are kept only while notifications are enabled and are removed when you disable notifications, sign out, delete your account, or Apple reports the token invalid. Mobile product analytics in PostHog is kept for up to 24 months unless you request earlier deletion. Mobile account settings delete or anonymize cmux-owned account, device, pairing, notification, billing, and cloud data, delete the account-linked PostHog person, and request deletion of its mobile analytics events and recordings. Some provider deletion work may complete asynchronously. Request deletion in mobile account settings or by contacting [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    }
+  ]
+}

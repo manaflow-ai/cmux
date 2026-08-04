@@ -1,6 +1,8 @@
 import Testing
 import AppKit
 import Bonsplit
+import CMUXMobileCore
+import CmuxCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -48,6 +50,39 @@ struct MobileWorkspaceListFidelityTests {
             orderedIds.append(panel.id)
         }
         return (workspace, orderedIds)
+    }
+
+    @Test func observerPipelinesFollowSubscriberPresence() throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+
+        // With no mobile client subscribed to workspace.updated, the observer
+        // must not build its publisher graph: every agent-driven workspace
+        // mutation would otherwise run throttled deliveries plus a full-list
+        // summary hash on the main thread for nobody.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = false
+        let manager = TabManager()
+        let observer = MobileWorkspaceListObserver(tabManager: manager)
+        #expect(!observer.pipelinesAttachedForTesting)
+
+        // First subscriber arrives: the graph attaches (with its forced
+        // initial emit) off the subscription-change notification.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": ["workspace.updated"]]
+        )
+        #expect(observer.pipelinesAttachedForTesting)
+
+        // Last subscriber leaves: the graph detaches again.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = false
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": ["workspace.updated"]]
+        )
+        #expect(!observer.pipelinesAttachedForTesting)
     }
 
     @Test func orderedPanelIdsMatchesBonsplitSpatialOrder() throws {
@@ -140,6 +175,63 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a workspace rename must change the mobile summary hash")
     }
 
+    @Test func workspaceMetadataFlowsIntoPayloadAndObserverHash() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+
+        workspace.setCustomDescription("Release validation")
+        workspace.setCustomColor("#1565c0")
+        let customized = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(customized != before)
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(payload["description"] as? String == "Release validation")
+        #expect(payload["description_truncated"] as? Bool == false)
+        #expect(payload["custom_color"] as? String == "#1565C0")
+
+        workspace.setCustomDescription(nil)
+        workspace.setCustomColor(nil)
+        let cleared = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(cleared != customized)
+        let clearedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(clearedPayload["description"] is NSNull)
+        #expect(clearedPayload["description_truncated"] as? Bool == false)
+        #expect(clearedPayload["custom_color"] is NSNull)
+    }
+
+    @Test func mobileWorkspacePayloadFlagsTruncatedDescription() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        workspace.setCustomDescription(String(repeating: "🧪", count: 2_000))
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let description = try #require(payload["description"] as? String)
+        #expect(description.utf8.count == MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes)
+        #expect(payload["description_truncated"] as? Bool == true)
+    }
+
     /// A pure group-membership move (a workspace's `groupId` changes while the tab
     /// set, group list, panels, title, and pin state stay put) must change the
     /// mobile summary hash so the observer re-emits `workspace.updated`. The phone
@@ -168,6 +260,110 @@ struct MobileWorkspaceListFidelityTests {
             selectedTabID: manager.selectedTabId
         )
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
+    }
+
+    @Test func workspaceGroupIconFlowsIntoMobilePayloadAndObserverHash() throws {
+        let manager = TabManager()
+        let groupID = try #require(manager.createWorkspaceGroup(name: "Release"))
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "shippingbox.fill")
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after)
+
+        let payload = TerminalController.shared.mobileWorkspaceGroupPayloads(
+            manager.workspaceGroups,
+            tabs: manager.tabs
+        )
+        #expect(payload.first?["icon_symbol"] as? String == "shippingbox.fill")
+    }
+
+    @Test func configuredWorkspaceGroupIconFlowsIntoMobilePayloadAndObserverHash() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mobile-group-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceGroups": {
+            "byCwd": {
+              "\(root.path)": {
+                "icon": "hammer.fill"
+              }
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let configStore = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        configStore.loadAll()
+        #expect(
+            configStore.resolveWorkspaceGroupConfig(forCwd: root.path)?.iconSymbol
+                == "hammer.fill"
+        )
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let groupID = try #require(
+            manager.createWorkspaceGroup(
+                name: "Configured",
+                anchorWorkingDirectory: root.path
+            )
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupID })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+        #expect(anchor.currentDirectory == root.path)
+
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            cmuxConfigStore: configStore
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+        let payload = TerminalController.shared.mobileWorkspaceGroupPayloads(
+            manager.workspaceGroups,
+            tabs: manager.tabs,
+            tabManager: manager
+        )
+        #expect(payload.first?["icon_symbol"] as? String == "hammer.fill")
+
+        let storedOnly = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        let configured = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            groupIconSymbols: [groupID: "hammer.fill"],
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(configured != storedOnly)
+
+        manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "shippingbox.fill")
+        let explicitPayload = TerminalController.shared.mobileWorkspaceGroupPayloads(
+            manager.workspaceGroups,
+            tabs: manager.tabs,
+            tabManager: manager
+        )
+        #expect(explicitPayload.first?["icon_symbol"] as? String == "shippingbox.fill")
     }
 
     /// A new notification (or clearing the latest one) changes only a workspace's
@@ -199,6 +395,154 @@ struct MobileWorkspaceListFidelityTests {
             previewSignatures: [workspace.id: 43]
         )
         #expect(after != changed, "a newer notification must change the mobile summary hash")
+    }
+
+    @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        let configuration = sshRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let untrustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        let untrustedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let untrustedTerminals = try #require(untrustedPayload["terminals"] as? [[String: Any]])
+        let untrustedTerminal = try #require(untrustedTerminals.first)
+        #expect(untrustedPayload["current_directory"] is NSNull)
+        #expect(untrustedTerminal["current_directory"] is NSNull)
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let trustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(untrustedHash != trustedHash, "trusting a remote cwd must refresh the mobile list")
+        let trustedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let trustedTerminals = try #require(trustedPayload["terminals"] as? [[String: Any]])
+        let trustedTerminal = try #require(trustedTerminals.first)
+        #expect(trustedPayload["current_directory"] as? String == remoteDirectory)
+        #expect(trustedTerminal["current_directory"] as? String == remoteDirectory)
+
+        workspace.disconnectRemoteConnection()
+        let disconnectedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let disconnectedTerminals = try #require(disconnectedPayload["terminals"] as? [[String: Any]])
+        #expect(disconnectedPayload["current_directory"] is NSNull)
+        #expect(try #require(disconnectedTerminals.first)["current_directory"] is NSNull)
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let clearedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(clearedHash != trustedHash, "clearing remote cwd trust must refresh the mobile list")
+        let clearedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let clearedTerminals = try #require(clearedPayload["terminals"] as? [[String: Any]])
+        let clearedTerminal = try #require(clearedTerminals.first)
+        #expect(clearedPayload["current_directory"] is NSNull)
+        #expect(clearedTerminal["current_directory"] is NSNull)
+    }
+
+    @Test func focusingUntrustedRemoteTerminalChangesObserverHash() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let trustedPanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: trustedPanelId, directory: remoteDirectory)
+        let untrustedPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        #expect(workspace.isRemoteTerminalSurface(untrustedPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: trustedPanelId) == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: untrustedPanel.id) == nil)
+
+        let trustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        workspace.focusPanel(untrustedPanel.id)
+        #expect(workspace.focusedPanelId == untrustedPanel.id)
+        #expect(workspace.presentedCurrentDirectory == nil)
+
+        let untrustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(
+            trustedFocusHash != untrustedFocusHash,
+            "a focus-only presented cwd change must refresh the mobile list"
+        )
+
+        workspace.configureRemoteConnection(
+            try #require(workspace.remoteConfiguration),
+            autoConnect: false
+        )
+        let clearedTrustHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(
+            untrustedFocusHash != clearedTrustHash,
+            "clearing background remote cwd trust must refresh the mobile list"
+        )
+    }
+
+    @Test func localTerminalInRemoteWorkspaceKeepsDirectoryInMobilePayload() throws {
+        let localDirectory = "/Users/alice/development"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(), autoConnect: false)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: localDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        #expect(!workspace.isRemoteTerminalSurface(localPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == nil)
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: localPanel.id
+        )
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first)
+        #expect(terminal["current_directory"] as? String == localDirectory)
     }
 
     /// Why some rows showed no relative time: the payload's only timestamp was
@@ -328,5 +672,20 @@ struct MobileWorkspaceListFidelityTests {
         let boundedCluster = try #require(TerminalController.mobilePreviewSanitize(combiningBomb))
         #expect(boundedCluster.unicodeScalars.count <= TerminalController.mobilePreviewInputCap + 1)
         #expect(boundedCluster.hasSuffix("\u{2026}"))
+    }
+
+    private func sshRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-issue-7268-\(UUID().uuidString).sock",
+            terminalStartupCommand: "ssh seepine@192.168.5.20"
+        )
     }
 }

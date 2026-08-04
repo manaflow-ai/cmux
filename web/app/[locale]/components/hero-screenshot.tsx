@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import landingImage from "../assets/landing-image.png";
+import landingImage from "@/app/[locale]/(landing)/assets/landing-image.png";
 import { HeroPhone } from "./hero-phone";
 
 // Mac screenshot + overlapping iPhone. Both fade in together, in sync, when

@@ -73,12 +73,22 @@ die() { err "$*"; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/cloud-testflight.sh [--no-upload] [--external] [--tag <tag>] [--marketing-version <X.Y.Z>]
+Usage: ios/scripts/cloud-testflight.sh [--lane beta|appstore] [--no-upload] [--external]
+                                       [--tag <tag>] [--marketing-version <X.Y.Z>]
                                        [--host <name>] [--wait <seconds>]
                                        [--local] [--keep-artifacts]
 
-Build an UNSIGNED Release archive for the cmux iOS beta on a leased fleet Mac,
-download it, then export/re-sign/verify/upload via upload-testflight.sh.
+Build an UNSIGNED Release archive for cmux iOS on a leased fleet Mac, download
+it, then export/re-sign/verify/upload via upload-testflight.sh.
+
+  --lane <beta|appstore>
+                     Distribution lane. beta (default) = dev.cmux.app.beta;
+                     appstore = com.cmux.app (public App Store record). Both
+                     archive an unsigned Release build with display name "cmux"
+                     on the fleet; upload-testflight.sh picks the matching
+                     provisioning profile and uploads to that record's
+                     TestFlight (the appstore build is then attached to the App
+                     Store version in App Store Connect; it does not auto-submit).
 
   --no-upload        Dry run. Stop after the local export + re-sign + strict
                      codesign verification (aps-environment=production); do NOT
@@ -110,6 +120,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-upload) NO_UPLOAD=1; shift ;;
+    --lane) LANE="${2:-}"; shift 2 ;;
     --marketing-version) MARKETING_VERSION_OVERRIDE="${2:-}"; shift 2 ;;
     --external) EXTERNAL=1; shift ;;
     --skip-notes) SKIP_NOTES=1; shift ;;
@@ -123,7 +134,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$LANE" == "beta" ]] || die "only the beta lane is supported"
+# Resolve the archive bundle id + on-device display name per lane. The fleet
+# build (reload-cloud-ios.sh --mode beta-archive) bakes DISPLAY_NAME="cmux" for
+# either lane already; LANE_DISPLAY_NAME only feeds the LOCAL fallback archive,
+# which otherwise inherits Release.xcconfig's "cmux BETA".
+LANE_DISPLAY_NAME=""
+case "$LANE" in
+  beta)
+    : "${BETA_BUNDLE_ID:=dev.cmux.app.beta}"
+    ;;
+  appstore|prod)
+    BETA_BUNDLE_ID="com.cmux.app"
+    LANE_DISPLAY_NAME="cmux"
+    [[ "$TAG" == "beta" ]] && TAG="appstore"
+    ;;
+  *)
+    die "unsupported lane: $LANE (expected beta or appstore)"
+    ;;
+esac
 [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid tag: $TAG"
 # Validate the override eagerly: a malformed value (or a flag swallowed by
 # `--marketing-version --external`) must fail here, not as a silent no-op or
@@ -131,6 +159,15 @@ done
 [[ -z "$MARKETING_VERSION_OVERRIDE" || "$MARKETING_VERSION_OVERRIDE" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] \
   || die "invalid --marketing-version (want X.Y or X.Y.Z): $MARKETING_VERSION_OVERRIDE"
 [[ -d "$IOS_DIR/cmux.xcworkspace" ]] || die "run from a cmux checkout containing ios/cmux.xcworkspace"
+
+# Pin the expected beta version before any archive path runs. The local fallback
+# and the fleet build both stamp this version into the archive; upload-testflight.sh
+# reads the same env var when it verifies a reused --archive-path.
+if [[ -n "$MARKETING_VERSION_OVERRIDE" ]]; then
+  export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
+else
+  unset BETA_MARKETING_VERSION
+fi
 
 # --- locate the hq cloud build script (mirrors ios/scripts/reload-cloud.sh) ---
 # scripts/reload-cloud-ios.sh lives in the cmuxterm-hq checkout, two levels up
@@ -163,14 +200,6 @@ build_archive_cloud() {
   log="$(mktemp "${TMPDIR:-/tmp}/cloud-testflight-cloud.XXXXXX")"
   err "building UNSIGNED Release beta archive on the fleet via $hq_cloud"
   local args=( --mode beta-archive --tag "$TAG" --keep-artifacts --beta-bundle-id "$BETA_BUNDLE_ID" )
-  # Pin BETA_MARKETING_VERSION to exactly the requested override; explicitly
-  # unset otherwise so a stray value already in the caller's environment can
-  # not leak into the cloud build and desync it from a local cut.
-  if [[ -n "$MARKETING_VERSION_OVERRIDE" ]]; then
-    export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
-  else
-    unset BETA_MARKETING_VERSION
-  fi
   [[ -n "$HOST_FILTER" ]] && args+=( --host "$HOST_FILTER" )
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ && "$WAIT_SECONDS" -gt 0 ]] && args+=( --wait "$WAIT_SECONDS" )
   # Run from the repo root so the hq script's "run from a cmux checkout" check and
@@ -214,6 +243,7 @@ build_archive_local() {
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$out/DerivedData" \
       PRODUCT_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
+      ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \
       CODE_SIGNING_ALLOWED=NO \

@@ -156,6 +156,23 @@ public struct GitMetadataService: Sendable {
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
+    /// Reads the checked-out branch state for the repository enclosing
+    /// `directory`.
+    ///
+    /// Distinguishes a detached (or non-branch) checkout from a repository
+    /// whose `HEAD` is missing or malformed, so callers can treat the latter
+    /// as unverified rather than trusting a stale projection.
+    ///
+    /// - Parameter directory: An absolute path to inspect.
+    /// - Returns: The ``GitCheckedOutBranch`` for the enclosing repository, or
+    ///   ``GitCheckedOutBranch/notARepository`` when there is none.
+    public nonisolated func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
+            return .notARepository
+        }
+        return Self.gitCheckedOutBranch(repository: repository)
+    }
+
     /// Whether this module's `nonisolated async` methods execute off the calling
     /// thread. A seam for the test that pins the SE-0338 execution contract the
     /// reads above rely on (see the `Important` note on the type): if this module

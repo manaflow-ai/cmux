@@ -508,7 +508,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func commandLineArguments(forPID pid: Int32) -> [String]? {
+    static func commandLineArguments(forPID pid: Int32) -> [String]? {
         var mib = [CTL_KERN, KERN_PROCARGS2, pid]
         var size: size_t = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 4 else {

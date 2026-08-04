@@ -50,6 +50,25 @@ struct PaneDragTransfer: Equatable {
 
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
+@MainActor
+extension WindowTerminalHostView {
+    var hasActivePaneDropDrag: Bool {
+        paneDropRoutingSession.hasActiveDropDrag
+    }
+
+    func updateActivePaneDropRoutingSession(_ sender: any NSDraggingInfo, operation: NSDragOperation) -> Bool {
+        paneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+    }
+
+    func clearActivePaneDropRoutingSession(_ sender: any NSDraggingInfo) {
+        paneDropRoutingSession.clearActiveDropDrag(sender)
+    }
+
+    func clearActivePaneDropRoutingSession(sequenceNumber: Int) {
+        paneDropRoutingSession.clearActiveDropDrag(sequenceNumber: sequenceNumber)
+    }
+}
+
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
         CGSize(width: size.width, height: size.height + max(0, topChromeHeight))
