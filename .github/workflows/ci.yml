@@ -271,6 +271,9 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
+      - name: Validate bash prompt hooks preserve command status
+        run: ./tests/test_issue_5389_bash_prompt_status.sh
+
       - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
         run: python3 scripts/lint-feature-flags.py
 
