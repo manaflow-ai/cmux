@@ -3402,9 +3402,9 @@ struct ContentView: View {
         window.isRestorable = false
         setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
         window.titlebarAppearsTransparent = true
-        // Native AppKit titlebar dragging steals pane-tab drags in minimal
-        // mode. Keep the main window immovable by default; explicit chrome
-        // drag zones temporarily enable performDrag for real app moves.
+        // Keep background dragging disabled so explicit chrome owns window
+        // movement. Pane-tab and folder drags temporarily suppress movability
+        // through the shared NSWindow event path.
         configureCmuxMainWindowDragBehavior(window)
         window.styleMask.insert(.fullSizeContentView)
 
