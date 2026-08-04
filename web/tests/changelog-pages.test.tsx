@@ -11,6 +11,7 @@ import {
   parseChangelog,
 } from "../app/lib/changelog";
 import { changelogStore } from "../app/lib/changelog-store";
+import { docsPagerItemIndex } from "../app/lib/docs-pager-path";
 import sitemap from "../app/sitemap";
 import middleware from "../proxy";
 import { locales } from "../i18n/routing";
@@ -108,6 +109,20 @@ Release intro.
     );
     expect(versions.length).toBeGreaterThan(80);
     expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  test("uses the exact or deepest docs page for nested release routes", () => {
+    const items = [
+      { href: "/docs" },
+      { href: "/docs/changelog" },
+      { href: "/docs/changelog/archive" },
+    ];
+
+    expect(docsPagerItemIndex(items, "/docs/changelog")).toBe(1);
+    expect(docsPagerItemIndex(items, "/docs/changelog/0.64.22")).toBe(1);
+    expect(
+      docsPagerItemIndex(items, "/docs/changelog/archive/0.17.0"),
+    ).toBe(2);
   });
 
   test("emits unique release summaries without Markdown URLs", () => {
