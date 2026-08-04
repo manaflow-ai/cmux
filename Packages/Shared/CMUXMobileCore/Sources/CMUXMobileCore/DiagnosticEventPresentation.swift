@@ -9,7 +9,14 @@ import Foundation
 /// Stable machine names remain available through the `name(_:)` overloads for
 /// Sentry fingerprints, tags, and search attributes.
 public struct DiagnosticEventPresentation: Sendable {
-    public init() {}
+    private let localization: DiagnosticLocalization
+
+    /// Creates a presenter that resolves report copy for `locale`.
+    ///
+    /// - Parameter locale: Locale used for human-readable titles and values.
+    public init(locale: Locale = .current) {
+        self.localization = DiagnosticLocalization(locale: locale)
+    }
 
     /// One decoded key/value pair of a described event.
     public struct Field: Sendable, Equatable {
@@ -75,92 +82,92 @@ public struct DiagnosticEventPresentation: Sendable {
     /// Human-readable name of a diagnostic failure category.
     public func displayName(_ kind: DiagnosticFailureKind) -> String {
         switch kind {
-        case .none: "No failure"
-        case .offline: "Offline"
-        case .timedOut: "Timed out"
-        case .connectionRefused: "Connection refused"
-        case .hostUnreachable: "Host unreachable"
-        case .permissionDenied: "Permission denied"
-        case .dnsFailed: "DNS lookup failed"
-        case .secureChannelFailed: "Secure channel failed"
-        case .unsupportedRoute: "Unsupported route"
-        case .noRoute: "No route available"
-        case .credentialUnavailable: "Credentials unavailable"
-        case .policyUnavailable: "Relay policy unavailable"
-        case .endpointUnavailable: "Iroh endpoint unavailable"
-        case .identityMismatch: "Host identity mismatch"
-        case .admissionDenied: "Client admission denied"
-        case .authorizationFailed: "Authorization failed"
-        case .accountMismatch: "Account mismatch"
-        case .protocolViolation: "Protocol violation"
-        case .connectionClosed: "Connection closed"
-        case .superseded: "Superseded by a newer attempt"
-        case .cancelled: "Cancelled"
-        case .transportIdleTimedOut: "Transport idle timed out"
-        case .admissionLeaseExpired: "Admission lease expired"
-        case .admissionRevalidationFailed: "Admission revalidation failed"
-        case .sendQueueOverflow: "Send queue overflow"
-        case .routeGated: "Route already connecting"
-        case .unknown: "Unknown failure"
+        case .none: localized("diagnostics.failure.none", defaultValue: "No failure")
+        case .offline: localized("diagnostics.failure.offline", defaultValue: "Offline")
+        case .timedOut: localized("diagnostics.failure.timedOut", defaultValue: "Timed out")
+        case .connectionRefused: localized("diagnostics.failure.connectionRefused", defaultValue: "Connection refused")
+        case .hostUnreachable: localized("diagnostics.failure.hostUnreachable", defaultValue: "Host unreachable")
+        case .permissionDenied: localized("diagnostics.failure.permissionDenied", defaultValue: "Permission denied")
+        case .dnsFailed: localized("diagnostics.failure.dnsFailed", defaultValue: "DNS lookup failed")
+        case .secureChannelFailed: localized("diagnostics.failure.secureChannelFailed", defaultValue: "Secure channel failed")
+        case .unsupportedRoute: localized("diagnostics.failure.unsupportedRoute", defaultValue: "Unsupported route")
+        case .noRoute: localized("diagnostics.failure.noRoute", defaultValue: "No route available")
+        case .credentialUnavailable: localized("diagnostics.failure.credentialUnavailable", defaultValue: "Credentials unavailable")
+        case .policyUnavailable: localized("diagnostics.failure.policyUnavailable", defaultValue: "Relay policy unavailable")
+        case .endpointUnavailable: localized("diagnostics.failure.endpointUnavailable", defaultValue: "Iroh endpoint unavailable")
+        case .identityMismatch: localized("diagnostics.failure.identityMismatch", defaultValue: "Host identity mismatch")
+        case .admissionDenied: localized("diagnostics.failure.admissionDenied", defaultValue: "Client admission denied")
+        case .authorizationFailed: localized("diagnostics.failure.authorizationFailed", defaultValue: "Authorization failed")
+        case .accountMismatch: localized("diagnostics.failure.accountMismatch", defaultValue: "Account mismatch")
+        case .protocolViolation: localized("diagnostics.failure.protocolViolation", defaultValue: "Protocol violation")
+        case .connectionClosed: localized("diagnostics.failure.connectionClosed", defaultValue: "Connection closed")
+        case .superseded: localized("diagnostics.failure.superseded", defaultValue: "Superseded by a newer attempt")
+        case .cancelled: localized("diagnostics.failure.cancelled", defaultValue: "Cancelled")
+        case .transportIdleTimedOut: localized("diagnostics.failure.transportIdleTimedOut", defaultValue: "Transport idle timed out")
+        case .admissionLeaseExpired: localized("diagnostics.failure.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed: localized("diagnostics.failure.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow: localized("diagnostics.failure.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .routeGated: localized("diagnostics.failure.routeGated", defaultValue: "Route already connecting")
+        case .unknown: localized("diagnostics.failure.unknown", defaultValue: "Unknown failure")
         }
     }
 
     /// Human-readable name of a transport category.
     public func displayName(_ kind: DiagnosticTransportKind) -> String {
         switch kind {
-        case .unknown: "Unknown transport"
-        case .iroh: "Iroh"
-        case .tailscale: "Tailscale"
-        case .websocket: "WebSocket"
-        case .debugLoopback: "Debug loopback"
+        case .unknown: localized("diagnostics.transport.unknown", defaultValue: "Unknown transport")
+        case .iroh: localized("diagnostics.transport.iroh", defaultValue: "Iroh")
+        case .tailscale: localized("diagnostics.transport.tailscale", defaultValue: "Tailscale")
+        case .websocket: localized("diagnostics.transport.websocket", defaultValue: "WebSocket")
+        case .debugLoopback: localized("diagnostics.transport.debugLoopback", defaultValue: "Debug loopback")
         }
     }
 
     /// Human-readable name of a selected network path.
     public func displayName(_ kind: DiagnosticPathKind) -> String {
         switch kind {
-        case .unknown: "Unknown path"
-        case .direct: "Direct"
-        case .relay: "Relay"
-        case .privateNetwork: "Private network"
-        case .loopback: "Loopback"
+        case .unknown: localized("diagnostics.path.unknown", defaultValue: "Unknown path")
+        case .direct: localized("diagnostics.path.direct", defaultValue: "Direct")
+        case .relay: localized("diagnostics.path.relay", defaultValue: "Relay")
+        case .privateNetwork: localized("diagnostics.path.privateNetwork", defaultValue: "Private network")
+        case .loopback: localized("diagnostics.path.loopback", defaultValue: "Loopback")
         }
     }
 
     /// Human-readable name of a transport-session lifecycle state.
     public func displayName(_ kind: DiagnosticSessionLifecycleKind) -> String {
         switch kind {
-        case .established: "Established"
-        case .controlOwnerReleased: "Control owner released"
-        case .controlReadFailed: "Control read failed"
-        case .controlWriteFailed: "Control write failed"
-        case .remoteClosed: "Remote closed"
-        case .closedSessionEvicted: "Closed session evicted"
-        case .applicationLaneFailed: "Application lane failed"
-        case .runtimeDeactivated: "Runtime deactivated"
-        case .runtimeReconfigured: "Runtime reconfigured"
-        case .explicitlyInvalidated: "Explicitly invalidated"
-        case .allPathsClosed: "All paths closed"
+        case .established: localized("diagnostics.session.established", defaultValue: "Established")
+        case .controlOwnerReleased: localized("diagnostics.session.controlOwnerReleased", defaultValue: "Control owner released")
+        case .controlReadFailed: localized("diagnostics.session.controlReadFailed", defaultValue: "Control read failed")
+        case .controlWriteFailed: localized("diagnostics.session.controlWriteFailed", defaultValue: "Control write failed")
+        case .remoteClosed: localized("diagnostics.session.remoteClosed", defaultValue: "Remote closed")
+        case .closedSessionEvicted: localized("diagnostics.session.closedSessionEvicted", defaultValue: "Closed session evicted")
+        case .applicationLaneFailed: localized("diagnostics.session.applicationLaneFailed", defaultValue: "Application lane failed")
+        case .runtimeDeactivated: localized("diagnostics.session.runtimeDeactivated", defaultValue: "Runtime deactivated")
+        case .runtimeReconfigured: localized("diagnostics.session.runtimeReconfigured", defaultValue: "Runtime reconfigured")
+        case .explicitlyInvalidated: localized("diagnostics.session.explicitlyInvalidated", defaultValue: "Explicitly invalidated")
+        case .allPathsClosed: localized("diagnostics.session.allPathsClosed", defaultValue: "All paths closed")
         }
     }
 
     /// Human-readable name of an app lifecycle phase.
     public func displayName(_ phase: DiagnosticAppLifecyclePhase) -> String {
         switch phase {
-        case .background: "Background"
-        case .active: "Active"
-        case .inactive: "Inactive"
+        case .background: localized("diagnostics.phase.background", defaultValue: "Background")
+        case .active: localized("diagnostics.phase.active", defaultValue: "Active")
+        case .inactive: localized("diagnostics.phase.inactive", defaultValue: "Inactive")
         }
     }
 
     /// Human-readable name of a report's producing runtime.
     public func displayName(_ role: DiagnosticRuntimeRole) -> String {
         switch role {
-        case .unspecified: "Unspecified runtime"
-        case .mobileClient: "iOS client"
-        case .macHost: "Mac host"
-        case .broker: "Broker"
-        case .relay: "Relay"
+        case .unspecified: localized("diagnostics.role.unspecified", defaultValue: "Unspecified runtime")
+        case .mobileClient: localized("diagnostics.role.mobileClient", defaultValue: "iOS client")
+        case .macHost: localized("diagnostics.role.macHost", defaultValue: "Mac host")
+        case .broker: localized("diagnostics.role.broker", defaultValue: "Broker")
+        case .relay: localized("diagnostics.role.relay", defaultValue: "Relay")
         }
     }
 
@@ -194,11 +201,22 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Renders an already-described event as a title followed by labeled fields.
     public func summary(_ described: DescribedEvent) -> String {
-        guard !described.fields.isEmpty else { return described.name }
-        let details = described.fields.map { field in
-            "\(label(for: field.key)): \(field.value)"
+        let visibleFields = described.fields.filter { $0.key != "session" }
+        guard !visibleFields.isEmpty else { return described.name }
+        let details = visibleFields.map { field in
+            localized(
+                "diagnostics.summary.field",
+                defaultValue: "\(label(for: field.key)): \(field.value)"
+            )
         }
-        return "\(described.name) (\(details.joined(separator: ", ")))"
+        let separator = localized(
+            "diagnostics.summary.separator",
+            defaultValue: ", "
+        )
+        return localized(
+            "diagnostics.summary.details",
+            defaultValue: "\(described.name) (\(details.joined(separator: separator)))"
+        )
     }
 
     /// The failure kind carried in an event's `b` slot, when applicable.
@@ -236,55 +254,105 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func title(for code: DiagnosticEventCode) -> String {
         switch code {
-        case .connect: "Connection attempt started"
-        case .pairOk: "Pairing succeeded"
-        case .pairFail: "Pairing failed"
-        case .renderGridLag: "Render grid lagged"
-        case .livenessResubscribe: "Silent event stream resubscribed"
-        case .streamEnded: "Event stream ended"
-        case .inputSeqBehind: "Terminal input acknowledgements fell behind"
-        case .byteGap: "Terminal byte gap detected"
-        case .error: "Unclassified transport error"
-        case .pairUnreachable: "Pairing skipped while offline"
-        case .composerPresentedChanged: "Composer visibility changed"
-        case .composerInputTextChanged: "Composer draft changed"
-        case .composerViewAppear: "Composer appeared"
-        case .composerViewDisappear: "Composer disappeared"
-        case .composerFieldFocusChanged: "Composer focus changed"
-        case .composerActiveTransition: "Composer activation changed"
+        case .connect:
+            localized("diagnostics.event.connect", defaultValue: "Connection attempt started")
+        case .pairOk:
+            localized("diagnostics.event.pairOk", defaultValue: "Pairing succeeded")
+        case .pairFail:
+            localized("diagnostics.event.pairFail", defaultValue: "Pairing failed")
+        case .renderGridLag:
+            localized("diagnostics.event.renderGridLag", defaultValue: "Render grid lagged")
+        case .livenessResubscribe:
+            localized("diagnostics.event.livenessResubscribe", defaultValue: "Silent event stream resubscribed")
+        case .streamEnded:
+            localized("diagnostics.event.streamEnded", defaultValue: "Event stream ended")
+        case .inputSeqBehind:
+            localized("diagnostics.event.inputSeqBehind", defaultValue: "Terminal input acknowledgements fell behind")
+        case .byteGap:
+            localized("diagnostics.event.byteGap", defaultValue: "Terminal byte gap detected")
+        case .error:
+            localized("diagnostics.event.error", defaultValue: "Unclassified transport error")
+        case .pairUnreachable:
+            localized("diagnostics.event.pairUnreachable", defaultValue: "Pairing skipped while offline")
+        case .composerPresentedChanged:
+            localized("diagnostics.event.composerPresentedChanged", defaultValue: "Composer visibility changed")
+        case .composerInputTextChanged:
+            localized("diagnostics.event.composerInputTextChanged", defaultValue: "Composer draft changed")
+        case .composerViewAppear:
+            localized("diagnostics.event.composerViewAppear", defaultValue: "Composer appeared")
+        case .composerViewDisappear:
+            localized("diagnostics.event.composerViewDisappear", defaultValue: "Composer disappeared")
+        case .composerFieldFocusChanged:
+            localized("diagnostics.event.composerFieldFocusChanged", defaultValue: "Composer focus changed")
+        case .composerActiveTransition:
+            localized("diagnostics.event.composerActiveTransition", defaultValue: "Composer activation changed")
         case .composerKeyboardToggleWhilePresented:
-            "Keyboard toggled while composer was open"
-        case .transportDialStarted: "Transport dial started"
-        case .transportDialConnected: "Transport connected"
-        case .transportDialFailed: "Transport dial failed"
-        case .hostAuthenticated: "Host authenticated"
-        case .rpcReady: "RPC session ready"
-        case .recoveryStarted: "Connection recovery started"
-        case .recoverySucceeded: "Connection recovery succeeded"
-        case .recoveryFailed: "Connection recovery failed"
-        case .endpointStarting: "Iroh endpoint starting"
-        case .endpointActive: "Iroh endpoint active"
-        case .endpointStopped: "Iroh endpoint stopped"
-        case .endpointFailed: "Iroh endpoint failed"
-        case .relayPolicyRefreshStarted: "Relay policy refresh started"
-        case .relayPolicyRefreshSucceeded: "Relay policy refreshed"
-        case .relayPolicyRefreshFailed: "Relay policy refresh failed"
-        case .selectedPathChanged: "Selected network path changed"
-        case .sessionClosed: "Transport session closed"
-        case .routeUnavailable: "No usable transport route"
-        case .retryScheduled: "Retry scheduled"
-        case .discoveryStarted: "Iroh route discovery started"
-        case .discoverySucceeded: "Iroh route discovery succeeded"
-        case .discoveryFailed: "Iroh route discovery failed"
-        case .admissionSucceeded: "Client admitted"
-        case .admissionFailed: "Client admission failed"
-        case .hostAuthenticationFailed: "Host authentication failed"
-        case .rpcFailed: "RPC session failed"
-        case .transportSessionLifecycle: "Transport session state changed"
-        case .appLifecycleChanged: "App lifecycle changed"
-        case .reachabilityChanged: "Network reachability changed"
-        case .transportCloseAttribution: "Transport close attributed"
-        case .transportPathEvent: "Transport path changed"
+            localized(
+                "diagnostics.event.composerKeyboardToggleWhilePresented",
+                defaultValue: "Keyboard toggled while composer was open"
+            )
+        case .transportDialStarted:
+            localized("diagnostics.event.transportDialStarted", defaultValue: "Transport dial started")
+        case .transportDialConnected:
+            localized("diagnostics.event.transportDialConnected", defaultValue: "Transport connected")
+        case .transportDialFailed:
+            localized("diagnostics.event.transportDialFailed", defaultValue: "Transport dial failed")
+        case .hostAuthenticated:
+            localized("diagnostics.event.hostAuthenticated", defaultValue: "Host authenticated")
+        case .rpcReady:
+            localized("diagnostics.event.rpcReady", defaultValue: "RPC session ready")
+        case .recoveryStarted:
+            localized("diagnostics.event.recoveryStarted", defaultValue: "Connection recovery started")
+        case .recoverySucceeded:
+            localized("diagnostics.event.recoverySucceeded", defaultValue: "Connection recovery succeeded")
+        case .recoveryFailed:
+            localized("diagnostics.event.recoveryFailed", defaultValue: "Connection recovery failed")
+        case .endpointStarting:
+            localized("diagnostics.event.endpointStarting", defaultValue: "Iroh endpoint starting")
+        case .endpointActive:
+            localized("diagnostics.event.endpointActive", defaultValue: "Iroh endpoint active")
+        case .endpointStopped:
+            localized("diagnostics.event.endpointStopped", defaultValue: "Iroh endpoint stopped")
+        case .endpointFailed:
+            localized("diagnostics.event.endpointFailed", defaultValue: "Iroh endpoint failed")
+        case .relayPolicyRefreshStarted:
+            localized("diagnostics.event.relayPolicyRefreshStarted", defaultValue: "Relay policy refresh started")
+        case .relayPolicyRefreshSucceeded:
+            localized("diagnostics.event.relayPolicyRefreshSucceeded", defaultValue: "Relay policy refreshed")
+        case .relayPolicyRefreshFailed:
+            localized("diagnostics.event.relayPolicyRefreshFailed", defaultValue: "Relay policy refresh failed")
+        case .selectedPathChanged:
+            localized("diagnostics.event.selectedPathChanged", defaultValue: "Selected network path changed")
+        case .sessionClosed:
+            localized("diagnostics.event.sessionClosed", defaultValue: "Transport session closed")
+        case .routeUnavailable:
+            localized("diagnostics.event.routeUnavailable", defaultValue: "No usable transport route")
+        case .retryScheduled:
+            localized("diagnostics.event.retryScheduled", defaultValue: "Retry scheduled")
+        case .discoveryStarted:
+            localized("diagnostics.event.discoveryStarted", defaultValue: "Iroh route discovery started")
+        case .discoverySucceeded:
+            localized("diagnostics.event.discoverySucceeded", defaultValue: "Iroh route discovery succeeded")
+        case .discoveryFailed:
+            localized("diagnostics.event.discoveryFailed", defaultValue: "Iroh route discovery failed")
+        case .admissionSucceeded:
+            localized("diagnostics.event.admissionSucceeded", defaultValue: "Client admitted")
+        case .admissionFailed:
+            localized("diagnostics.event.admissionFailed", defaultValue: "Client admission failed")
+        case .hostAuthenticationFailed:
+            localized("diagnostics.event.hostAuthenticationFailed", defaultValue: "Host authentication failed")
+        case .rpcFailed:
+            localized("diagnostics.event.rpcFailed", defaultValue: "RPC session failed")
+        case .transportSessionLifecycle:
+            localized("diagnostics.event.transportSessionLifecycle", defaultValue: "Transport session state changed")
+        case .appLifecycleChanged:
+            localized("diagnostics.event.appLifecycleChanged", defaultValue: "App lifecycle changed")
+        case .reachabilityChanged:
+            localized("diagnostics.event.reachabilityChanged", defaultValue: "Network reachability changed")
+        case .transportCloseAttribution:
+            localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
+        case .transportPathEvent:
+            localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
         }
     }
 
@@ -312,7 +380,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .composerPresentedChanged:
             return Field(key: "composer_visible", value: booleanName(raw))
         case .composerInputTextChanged:
-            return Field(key: "draft_size", value: count(raw, singular: "byte"))
+            return Field(key: "draft_size", value: byteCount(raw))
         case .composerFieldFocusChanged:
             return Field(key: "focused", value: booleanName(raw))
         case .composerActiveTransition:
@@ -362,7 +430,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .transportCloseAttribution:
             return Field(key: "application_error_code", value: String(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
-            return Field(key: "keyboard_height", value: "\(raw) points")
+            return Field(key: "keyboard_height", value: pointCount(Int(raw)))
         default:
             return Field(key: "duration", value: duration(raw))
         }
@@ -384,35 +452,50 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func failureName(_ raw: Int) -> String {
         guard let value = DiagnosticFailureKind(rawValue: raw) else {
-            return "Unknown failure (\(raw))"
+            return localized(
+                "diagnostics.unknown.failure",
+                defaultValue: "Unknown failure (\(raw))"
+            )
         }
         return displayName(value)
     }
 
     private func transportName(_ raw: Int) -> String {
         guard let value = DiagnosticTransportKind(rawValue: raw) else {
-            return "Unknown transport (\(raw))"
+            return localized(
+                "diagnostics.unknown.transport",
+                defaultValue: "Unknown transport (\(raw))"
+            )
         }
         return displayName(value)
     }
 
     private func pathName(_ raw: Int) -> String {
         guard let value = DiagnosticPathKind(rawValue: raw) else {
-            return "Unknown path (\(raw))"
+            return localized(
+                "diagnostics.unknown.path",
+                defaultValue: "Unknown path (\(raw))"
+            )
         }
         return displayName(value)
     }
 
     private func sessionLifecycleName(_ raw: Int) -> String {
         guard let value = DiagnosticSessionLifecycleKind(rawValue: raw) else {
-            return "Unknown session state (\(raw))"
+            return localized(
+                "diagnostics.unknown.sessionState",
+                defaultValue: "Unknown session state (\(raw))"
+            )
         }
         return displayName(value)
     }
 
     private func appLifecycleName(_ raw: Int) -> String {
         guard let value = DiagnosticAppLifecyclePhase(rawValue: raw) else {
-            return "Unknown app phase (\(raw))"
+            return localized(
+                "diagnostics.unknown.appPhase",
+                defaultValue: "Unknown app phase (\(raw))"
+            )
         }
         return displayName(value)
     }
@@ -421,136 +504,204 @@ public struct DiagnosticEventPresentation: Sendable {
         guard let byte = UInt8(exactly: raw),
               let purpose = CmxTransportSessionPurpose(rawValue: byte)
         else {
-            return "Unknown session purpose (\(raw))"
+            return localized(
+                "diagnostics.unknown.sessionPurpose",
+                defaultValue: "Unknown session purpose (\(raw))"
+            )
         }
         switch purpose {
-        case .foregroundControl: return "Foreground control"
-        case .backgroundControl: return "Background control"
-        case .probe: return "Connection probe"
-        case .featureLane: return "Feature lane"
+        case .foregroundControl:
+            return localized("diagnostics.purpose.foregroundControl", defaultValue: "Foreground control")
+        case .backgroundControl:
+            return localized("diagnostics.purpose.backgroundControl", defaultValue: "Background control")
+        case .probe:
+            return localized("diagnostics.purpose.probe", defaultValue: "Connection probe")
+        case .featureLane:
+            return localized("diagnostics.purpose.featureLane", defaultValue: "Feature lane")
         }
     }
 
     private func responderName(_ raw: Int) -> String {
         guard let identity = InputResponderIdentity(rawValue: raw) else {
-            return "Unknown responder (\(raw))"
+            return localized(
+                "diagnostics.unknown.responder",
+                defaultValue: "Unknown responder (\(raw))"
+            )
         }
         switch identity {
-        case .none: return "None"
-        case .terminalInputProxy: return "Terminal input"
-        case .ghosttySurface: return "Terminal surface"
-        case .uiTextField: return "Text field"
-        case .uiTextView: return "Text view"
-        case .other: return "Other responder"
+        case .none:
+            return localized("diagnostics.responder.none", defaultValue: "None")
+        case .terminalInputProxy:
+            return localized("diagnostics.responder.terminalInput", defaultValue: "Terminal input")
+        case .ghosttySurface:
+            return localized("diagnostics.responder.terminalSurface", defaultValue: "Terminal surface")
+        case .uiTextField:
+            return localized("diagnostics.responder.textField", defaultValue: "Text field")
+        case .uiTextView:
+            return localized("diagnostics.responder.textView", defaultValue: "Text view")
+        case .other:
+            return localized("diagnostics.responder.other", defaultValue: "Other responder")
         }
     }
 
     private func booleanName(_ raw: Int) -> String {
         switch raw {
-        case 0: "No"
-        case 1: "Yes"
-        default: "Unknown state (\(raw))"
+        case 0: localized("diagnostics.boolean.no", defaultValue: "No")
+        case 1: localized("diagnostics.boolean.yes", defaultValue: "Yes")
+        default:
+            localized("diagnostics.unknown.state", defaultValue: "Unknown state (\(raw))")
         }
     }
 
     private func reachabilityName(_ raw: Int) -> String {
         switch raw {
-        case 0: "Offline"
-        case 1: "Online"
-        default: "Unknown network state (\(raw))"
+        case 0: localized("diagnostics.reachability.offline", defaultValue: "Offline")
+        case 1: localized("diagnostics.reachability.online", defaultValue: "Online")
+        default:
+            localized(
+                "diagnostics.unknown.networkState",
+                defaultValue: "Unknown network state (\(raw))"
+            )
         }
     }
 
     private func recoveryTriggerName(_ raw: Int) -> String {
         switch raw {
-        case 1: "Network changed"
-        case 2: "Manual retry"
-        case 3: "Presence notification"
-        case 4: "App returned to foreground"
-        case 5: "Liveness check failed"
-        case 6: "Event stream ended"
-        case 7: "Subscription failed to start"
-        case 8: "Transport write timed out"
-        case 9: "Automatic retry delay expired"
-        default: "Unknown recovery trigger (\(raw))"
+        case 1: localized("diagnostics.recoveryTrigger.networkChanged", defaultValue: "Network changed")
+        case 2: localized("diagnostics.recoveryTrigger.manualRetry", defaultValue: "Manual retry")
+        case 3: localized("diagnostics.recoveryTrigger.presenceNotification", defaultValue: "Presence notification")
+        case 4: localized("diagnostics.recoveryTrigger.foreground", defaultValue: "App returned to foreground")
+        case 5: localized("diagnostics.recoveryTrigger.livenessFailed", defaultValue: "Liveness check failed")
+        case 6: localized("diagnostics.recoveryTrigger.streamEnded", defaultValue: "Event stream ended")
+        case 7: localized("diagnostics.recoveryTrigger.subscriptionFailed", defaultValue: "Subscription failed to start")
+        case 8: localized("diagnostics.recoveryTrigger.writeTimedOut", defaultValue: "Transport write timed out")
+        case 9: localized("diagnostics.recoveryTrigger.retryDelayExpired", defaultValue: "Automatic retry delay expired")
+        default:
+            localized(
+                "diagnostics.unknown.recoveryTrigger",
+                defaultValue: "Unknown recovery trigger (\(raw))"
+            )
         }
     }
 
     private func closeInitiatorName(_ raw: Int) -> String {
         switch raw {
-        case 0: "Unknown initiator"
-        case 1: "Local app"
-        case 2: "Remote peer"
-        case 3: "Timed out"
-        default: "Unknown close initiator (\(raw))"
+        case 0: localized("diagnostics.closeInitiator.unknown", defaultValue: "Unknown initiator")
+        case 1: localized("diagnostics.closeInitiator.localApp", defaultValue: "Local app")
+        case 2: localized("diagnostics.closeInitiator.remotePeer", defaultValue: "Remote peer")
+        case 3: localized("diagnostics.closeInitiator.timedOut", defaultValue: "Timed out")
+        default:
+            localized(
+                "diagnostics.unknown.closeInitiator",
+                defaultValue: "Unknown close initiator (\(raw))"
+            )
         }
     }
 
     private func pathEventName(_ raw: Int) -> String {
         switch raw {
-        case 1: "Opened"
-        case 2: "Closed"
-        case 3: "Selected"
-        case 4: "Lagged"
-        default: "Unknown path operation (\(raw))"
+        case 1: localized("diagnostics.pathOperation.opened", defaultValue: "Opened")
+        case 2: localized("diagnostics.pathOperation.closed", defaultValue: "Closed")
+        case 3: localized("diagnostics.pathOperation.selected", defaultValue: "Selected")
+        case 4: localized("diagnostics.pathOperation.lagged", defaultValue: "Lagged")
+        default:
+            localized(
+                "diagnostics.unknown.pathOperation",
+                defaultValue: "Unknown path operation (\(raw))"
+            )
         }
     }
 
     private func duration(_ milliseconds: UInt32) -> String {
-        guard milliseconds >= 1_000 else { return "\(milliseconds) ms" }
-        let seconds = Double(milliseconds) / 1_000
-        if milliseconds.isMultiple(of: 1_000) {
-            let whole = milliseconds / 1_000
-            return count(Int(whole), singular: "second")
+        guard milliseconds >= 1_000 else {
+            return localized(
+                "diagnostics.duration.milliseconds",
+                defaultValue: "\(Int(milliseconds)) ms"
+            )
         }
-        return String(
-            format: "%.3f seconds",
-            locale: Locale(identifier: "en_US_POSIX"),
-            seconds
+        if milliseconds.isMultiple(of: 1_000) {
+            return secondCount(Int(milliseconds / 1_000))
+        }
+        let seconds = milliseconds / 1_000
+        let remainder = milliseconds % 1_000
+        let value = "\(seconds).\(paddedMilliseconds(remainder))"
+        return localized(
+            "diagnostics.duration.fractionalSeconds",
+            defaultValue: "\(value) seconds"
         )
     }
 
-    private func count(_ value: Int, singular: String) -> String {
-        "\(value) \(value == 1 ? singular : singular + "s")"
+    private func secondCount(_ value: Int) -> String {
+        if value == 1 {
+            return localized("diagnostics.duration.seconds", defaultValue: "\(value) second")
+        }
+        return localized("diagnostics.duration.seconds", defaultValue: "\(value) seconds")
+    }
+
+    private func byteCount(_ value: Int) -> String {
+        if value == 1 {
+            return localized("diagnostics.count.bytes", defaultValue: "\(value) byte")
+        }
+        return localized("diagnostics.count.bytes", defaultValue: "\(value) bytes")
+    }
+
+    private func pointCount(_ value: Int) -> String {
+        if value == 1 {
+            return localized("diagnostics.count.points", defaultValue: "\(value) point")
+        }
+        return localized("diagnostics.count.points", defaultValue: "\(value) points")
+    }
+
+    private func paddedMilliseconds(_ value: UInt32) -> String {
+        if value < 10 { return "00\(value)" }
+        if value < 100 { return "0\(value)" }
+        return String(value)
     }
 
     private func label(for key: String) -> String {
         switch key {
-        case "surface": "Surface"
-        case "transport": "Transport"
-        case "failure": "Failure"
-        case "attempt": "Attempt"
-        case "retry_delay": "Retry delay"
-        case "initiator": "Initiator"
-        case "application_error_code": "Application error code"
-        case "session": "Session"
-        case "phase": "Phase"
-        case "network": "Network"
-        case "trigger": "Trigger"
-        case "state": "State"
-        case "purpose": "Purpose"
-        case "path": "Path"
-        case "operation": "Operation"
-        case "duration": "Duration"
-        case "lag": "Lag"
-        case "silent_for": "Silent for"
-        case "composer_visible": "Composer visible"
-        case "draft_size": "Draft size"
-        case "draft_empty": "Draft empty"
-        case "focused": "Focused"
-        case "composer_active": "Composer active"
-        case "first_responder": "First responder"
-        case "keyboard_height": "Keyboard height"
-        case "terminal_input_focused": "Terminal input focused"
-        case "local_sequence": "Local sequence"
-        case "remote_sequence": "Remote sequence"
-        case "delivered_sequence": "Delivered sequence"
-        case "next_sequence": "Next sequence"
-        case "detail_1": "Detail 1"
-        case "detail_2": "Detail 2"
-        case "detail_3": "Detail 3"
+        case "surface": localized("diagnostics.field.surface", defaultValue: "Surface")
+        case "transport": localized("diagnostics.field.transport", defaultValue: "Transport")
+        case "failure": localized("diagnostics.field.failure", defaultValue: "Failure")
+        case "attempt": localized("diagnostics.field.attempt", defaultValue: "Attempt")
+        case "retry_delay": localized("diagnostics.field.retryDelay", defaultValue: "Retry delay")
+        case "initiator": localized("diagnostics.field.initiator", defaultValue: "Initiator")
+        case "application_error_code": localized("diagnostics.field.applicationErrorCode", defaultValue: "Application error code")
+        case "session": localized("diagnostics.field.session", defaultValue: "Session")
+        case "phase": localized("diagnostics.field.phase", defaultValue: "Phase")
+        case "network": localized("diagnostics.field.network", defaultValue: "Network")
+        case "trigger": localized("diagnostics.field.trigger", defaultValue: "Trigger")
+        case "state": localized("diagnostics.field.state", defaultValue: "State")
+        case "purpose": localized("diagnostics.field.purpose", defaultValue: "Purpose")
+        case "path": localized("diagnostics.field.path", defaultValue: "Path")
+        case "operation": localized("diagnostics.field.operation", defaultValue: "Operation")
+        case "duration": localized("diagnostics.field.duration", defaultValue: "Duration")
+        case "lag": localized("diagnostics.field.lag", defaultValue: "Lag")
+        case "silent_for": localized("diagnostics.field.silentFor", defaultValue: "Silent for")
+        case "composer_visible": localized("diagnostics.field.composerVisible", defaultValue: "Composer visible")
+        case "draft_size": localized("diagnostics.field.draftSize", defaultValue: "Draft size")
+        case "draft_empty": localized("diagnostics.field.draftEmpty", defaultValue: "Draft empty")
+        case "focused": localized("diagnostics.field.focused", defaultValue: "Focused")
+        case "composer_active": localized("diagnostics.field.composerActive", defaultValue: "Composer active")
+        case "first_responder": localized("diagnostics.field.firstResponder", defaultValue: "First responder")
+        case "keyboard_height": localized("diagnostics.field.keyboardHeight", defaultValue: "Keyboard height")
+        case "terminal_input_focused": localized("diagnostics.field.terminalInputFocused", defaultValue: "Terminal input focused")
+        case "local_sequence": localized("diagnostics.field.localSequence", defaultValue: "Local sequence")
+        case "remote_sequence": localized("diagnostics.field.remoteSequence", defaultValue: "Remote sequence")
+        case "delivered_sequence": localized("diagnostics.field.deliveredSequence", defaultValue: "Delivered sequence")
+        case "next_sequence": localized("diagnostics.field.nextSequence", defaultValue: "Next sequence")
+        case "detail_1": localized("diagnostics.field.detail1", defaultValue: "Detail 1")
+        case "detail_2": localized("diagnostics.field.detail2", defaultValue: "Detail 2")
+        case "detail_3": localized("diagnostics.field.detail3", defaultValue: "Detail 3")
         default:
-            key.replacingOccurrences(of: "_", with: " ").capitalized
+            key
         }
+    }
+
+    private func localized(
+        _ key: StaticString,
+        defaultValue: String.LocalizationValue
+    ) -> String {
+        localization.string(key, defaultValue: defaultValue)
     }
 }

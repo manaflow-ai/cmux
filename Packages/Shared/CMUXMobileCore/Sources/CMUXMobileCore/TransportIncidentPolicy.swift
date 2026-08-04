@@ -101,11 +101,21 @@ public struct TransportIncidentPolicy: Sendable {
         public let appPhase: DiagnosticAppLifecyclePhase?
     }
 
-    public init(configuration: Configuration = Configuration()) {
+    /// Creates an incident policy with localized titles.
+    ///
+    /// - Parameters:
+    ///   - configuration: Thresholds and budgets used by the policy.
+    ///   - locale: Locale used for human-readable incident titles.
+    public init(
+        configuration: Configuration = Configuration(),
+        locale: Locale = .current
+    ) {
         self.configuration = configuration
+        self.titleFormatter = DiagnosticIncidentTitleFormatter(locale: locale)
     }
 
     private let configuration: Configuration
+    private let titleFormatter: DiagnosticIncidentTitleFormatter
 
     // MARK: Streak and environment state (event-time domain, nanoseconds).
 
@@ -260,10 +270,11 @@ public struct TransportIncidentPolicy: Sendable {
         }
         outageFiredTNanos = event.tNanos
         let duration = Int(elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded())
-        let durationUnit = duration == 1 ? "second" : "seconds"
-        let title = "Transport outage: \(streakCount) consecutive failures "
-            + "over \(duration) \(durationUnit). Latest: "
-            + DiagnosticEventPresentation().summary(event)
+        let title = titleFormatter.outageTitle(
+            event: event,
+            consecutiveFailures: streakCount,
+            durationSeconds: duration
+        )
         return Incident(
             signature: "transport-outage",
             title: title,
@@ -323,10 +334,10 @@ public struct TransportIncidentPolicy: Sendable {
         let dropped = droppedByBudget
         droppedByBudget = 0
 
-        var title = DiagnosticEventPresentation().summary(event)
-        if coalescedCount > 1 {
-            title += " (\(coalescedCount) occurrences)"
-        }
+        let title = titleFormatter.failureTitle(
+            event: event,
+            occurrenceCount: coalescedCount
+        )
         return Incident(
             signature: signature,
             title: title,

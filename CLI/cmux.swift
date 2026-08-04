@@ -15583,12 +15583,15 @@ struct CMUXCLI {
             Check connectivity to the cmux socket server.
             """
         case "iroh-diag":
-            return """
-            Usage: cmux iroh-diag
+            return String(
+                localized: "cli.help.irohDiag",
+                defaultValue: """
+                Usage: cmux iroh-diag
 
-            Print the host's Iroh Connection Report as a plain-language timeline,
-            the same data as Settings > Networking > Connection Report.
-            """
+                Print the host's Iroh Connection Report as a plain-language timeline,
+                the same data as Settings > Networking > Connection Report.
+                """
+            )
         case "capabilities":
             return """
             Usage: cmux capabilities

@@ -187,38 +187,86 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
     /// Absolute UTC timestamps are used when the snapshot has a wall-clock
     /// anchor. Archived or synthetic reports without an anchor use elapsed
     /// seconds from their first event. Both forms require no external decoder.
-    public func humanReadableExport() -> Data {
+    /// - Parameter locale: Locale used for report headings and event text.
+    /// - Returns: UTF-8 data containing the complete report.
+    public func humanReadableExport(locale: Locale = .current) -> Data {
+        let localization = DiagnosticLocalization(locale: locale)
+        let presentation = DiagnosticEventPresentation(locale: locale)
         let formatter = Self.makeUTCDateFormatter()
-        var out = "cmux Iroh and transport report\n"
-        out += "Report format: \(Self.currentHumanReadableFormatVersion)\n"
-        out += "Generated: \(formatter.string(from: generatedAt))\n"
-        out += "Source: \(DiagnosticEventPresentation().displayName(role))\n"
+        var out = ""
+        out.reserveCapacity(320 + events.count * 160)
+        out += localization.string(
+            "diagnostics.report.title",
+            defaultValue: "cmux Iroh and transport report"
+        ) + "\n"
+        out += localization.string(
+            "diagnostics.report.format",
+            defaultValue: "Report format: \(Self.currentHumanReadableFormatVersion)"
+        ) + "\n"
+        let generated = formatter.string(from: generatedAt)
+        out += localization.string(
+            "diagnostics.report.generated",
+            defaultValue: "Generated: \(generated)"
+        ) + "\n"
+        let source = presentation.displayName(role)
+        out += localization.string(
+            "diagnostics.report.source",
+            defaultValue: "Source: \(source)"
+        ) + "\n"
         if !buildStamp.isEmpty {
-            out += "Build: \(buildStamp)\n"
+            out += localization.string(
+                "diagnostics.report.build",
+                defaultValue: "Build: \(buildStamp)"
+            ) + "\n"
         }
-        out += "Event count: \(events.count)\n\n"
-        out += "Timeline (oldest first)\n"
+        out += localization.string(
+            "diagnostics.report.eventCount",
+            defaultValue: "Event count: \(events.count)"
+        ) + "\n\n"
+        out += localization.string(
+            "diagnostics.report.timeline",
+            defaultValue: "Timeline (oldest first)"
+        ) + "\n"
 
         guard let firstEvent = events.first else {
-            out += "No events recorded.\n"
+            out += localization.string(
+                "diagnostics.report.empty",
+                defaultValue: "No events recorded."
+            ) + "\n"
             return Data(out.utf8)
         }
 
+        let relativeSecondsUnit = localization.string(
+            "diagnostics.report.relativeSecondsUnit",
+            defaultValue: "seconds"
+        )
         for event in events {
             let timestamp: String
             if let date = wallDate(for: event) {
                 timestamp = formatter.string(from: date)
             } else {
-                let elapsed = Double(event.tNanos - firstEvent.tNanos) / 1_000_000_000
-                timestamp = String(
-                    format: "+%.3f seconds",
-                    locale: Locale(identifier: "en_US_POSIX"),
-                    elapsed
+                timestamp = Self.relativeTimestamp(
+                    from: firstEvent.tNanos,
+                    to: event.tNanos,
+                    secondsUnit: relativeSecondsUnit
                 )
             }
-            out += "\(timestamp) | \(DiagnosticEventPresentation().summary(event))\n"
+            out += "\(timestamp) | \(presentation.summary(event))\n"
         }
         return Data(out.utf8)
+    }
+
+    /// Formats this report away from a caller's actor executor.
+    ///
+    /// - Parameter locale: Locale used for report headings and event text.
+    /// - Returns: The complete UTF-8 report decoded as a string.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    public nonisolated func humanReadableText(locale: Locale = .current) async -> String {
+        String(decoding: humanReadableExport(locale: locale), as: UTF8.self)
     }
 
     /// Source-compatible spelling retained for existing report consumers.
@@ -259,6 +307,28 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS 'UTC'"
         return formatter
+    }
+
+    private static func relativeTimestamp(
+        from firstNanos: UInt64,
+        to eventNanos: UInt64,
+        secondsUnit: String
+    ) -> String {
+        let elapsedNanos = eventNanos >= firstNanos ? eventNanos - firstNanos : 0
+        let wholeMilliseconds = elapsedNanos / 1_000_000
+        let roundedMilliseconds = wholeMilliseconds
+            + (elapsedNanos % 1_000_000 >= 500_000 ? 1 : 0)
+        let seconds = roundedMilliseconds / 1_000
+        let milliseconds = roundedMilliseconds % 1_000
+        let fraction: String
+        if milliseconds < 10 {
+            fraction = "00\(milliseconds)"
+        } else if milliseconds < 100 {
+            fraction = "0\(milliseconds)"
+        } else {
+            fraction = String(milliseconds)
+        }
+        return "+\(seconds).\(fraction) \(secondsUnit)"
     }
 }
 

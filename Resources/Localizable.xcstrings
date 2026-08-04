@@ -36826,6 +36826,23 @@
         }
       }
     },
+    "cli.help.irohDiag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nPrint the host's Iroh Connection Report as a plain-language timeline,\nthe same data as Settings > Networking > Connection Report."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nホストのIroh接続レポートを読みやすいタイムラインとして出力します。\n設定 > ネットワーク > 接続レポートと同じデータです。"
+          }
+        }
+      }
+    },
     "cli.help.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {

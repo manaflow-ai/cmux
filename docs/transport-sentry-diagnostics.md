@@ -11,8 +11,10 @@ pipeline turns the existing `DiagnosticLog` ring
 any new PII egress: the ring's vocabulary is fixed integer codes
 (`DiagnosticEventCode`, `DiagnosticFailureKind`, ...), so the bridge ships
 plain-language titles and decoded values, never error strings, peers,
-addresses, accounts, or terminal content. Stable case names remain only in
-Sentry tags and fingerprints used for search and issue grouping.
+addresses, accounts, or terminal content. Stable case names remain in
+breadcrumb `event_code`, structured-log `transport.event_code` and
+`transport.role_code`, and Sentry tags and fingerprints used for search and
+issue grouping.
 
 ## Pipeline
 
@@ -61,5 +63,6 @@ Attempt: 7)`). Tags:
 `transport.event`, `transport.failure`, `transport.kind`, `transport.role`,
 `transport.incident` (`failure` | `outage`). The `cmux.transport` context
 holds streak counts and suppression counters. The attachment holds the full
-ring as an oldest-first timeline with UTC timestamps and labeled values. The
-breadcrumb trail holds the same event summaries, in order.
+ring as an oldest-first timeline with labeled values. Events use UTC timestamps
+when a wall date is available and `+<seconds>` relative timestamps otherwise.
+The breadcrumb trail holds the same event summaries, in order.
