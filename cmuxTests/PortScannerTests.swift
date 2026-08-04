@@ -10,21 +10,10 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Port scanner process capture", .serialized)
+@Suite("Port scanner process capture")
 struct PortScannerProcessCaptureTests {
     @Test("lsof avoids blocking kernel calls and suppresses warnings")
     func lsofUsesNonblockingFlags() async {
-        let defaults = UserDefaults.standard
-        let showPortsKey = SidebarWorkspaceDetailDefaults.showPortsKey
-        let previousShowPorts = defaults.object(forKey: showPortsKey)
-        defaults.set(true, forKey: showPortsKey)
-        defer {
-            if let previousShowPorts {
-                defaults.set(previousShowPorts, forKey: showPortsKey)
-            } else {
-                defaults.removeObject(forKey: showPortsKey)
-            }
-        }
         let runner = StubCommandRunner(result: CommandResult(
             stdout: "",
             stderr: "",
@@ -33,7 +22,10 @@ struct PortScannerProcessCaptureTests {
             executionError: nil
         ))
 
-        _ = await PortScanner(commandRunner: runner).runLsof(pidsCsv: "123,456")
+        _ = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123,456")
 
         #expect(await runner.recordedInvocations() == [
             StubCommandInvocation(
@@ -50,17 +42,6 @@ struct PortScannerProcessCaptureTests {
 
     @Test("Hidden sidebar ports execute no scan subprocesses")
     func hiddenSidebarPortsSkipScanSubprocesses() async {
-        let defaults = UserDefaults.standard
-        let showPortsKey = SidebarWorkspaceDetailDefaults.showPortsKey
-        let previousShowPorts = defaults.object(forKey: showPortsKey)
-        defaults.set(false, forKey: showPortsKey)
-        defer {
-            if let previousShowPorts {
-                defaults.set(previousShowPorts, forKey: showPortsKey)
-            } else {
-                defaults.removeObject(forKey: showPortsKey)
-            }
-        }
         let runner = StubCommandRunner(result: CommandResult(
             stdout: "",
             stderr: "",
@@ -68,7 +49,40 @@ struct PortScannerProcessCaptureTests {
             timedOut: false,
             executionError: nil
         ))
-        let scanner = PortScanner(commandRunner: runner)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { false }
+        )
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(await runner.recordedInvocations().isEmpty)
+    }
+
+    @Test("Hide all sidebar details suppresses scan subprocesses")
+    func hideAllSidebarDetailsSkipsScanSubprocesses() async {
+        let suiteName = "PortScannerProcessCaptureTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sidebar = SettingCatalog().sidebar
+        defaults.set(true, forKey: sidebar.showPorts.userDefaultsKey)
+        defaults.set(true, forKey: sidebar.hideAllDetails.userDefaultsKey)
+        let scanEnabled = SidebarWorkspaceDetailDefaults
+            .auxiliaryDetailVisibility(defaults: defaults)
+            .showsPorts
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { scanEnabled }
+        )
 
         _ = await scanner.runPS(ttyList: "ttys001")
         _ = await scanner.runAllProcesses()

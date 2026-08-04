@@ -81,7 +81,9 @@ final class PortScanner: @unchecked Sendable {
             TerminalTTYSessionIdentity(ttyName: $0)
         },
         portScanningEnabledProvider: @escaping @Sendable () -> Bool = {
-            SidebarWorkspaceDetailSettings(defaults: .standard).showPorts
+            SidebarWorkspaceDetailDefaults
+                .auxiliaryDetailVisibility(defaults: .standard)
+                .showsPorts
         }
     ) {
         self.commandRunner = commandRunner
