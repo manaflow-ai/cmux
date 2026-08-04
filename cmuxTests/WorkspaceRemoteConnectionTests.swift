@@ -2083,7 +2083,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             destination: "test@hpc.example",
             port: 2222,
             identityFile: "/Users/test/.ssh/id_ed25519",
-            sshOptions: [],
+            // This fixture owns daemon bootstrap, not ControlMaster resolution. Keeping the
+            // transport standalone prevents an unrelated implicit `ssh -G` preflight from
+            // becoming another scripted process owner.
+            sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
@@ -2218,7 +2221,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             destination: "test@hpc.example",
             port: nil,
             identityFile: nil,
-            sshOptions: [],
+            // The capability-reinstall path is the behavior under test. A standalone SSH
+            // transport keeps ControlMaster resolution out of this fixture's process script.
+            sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
