@@ -24,6 +24,27 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
         self.second = second
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case first
+        case second
+    }
+
+    /// Decodes the current nested format or the flat format written by cmux 0.64.10 and earlier.
+    ///
+    /// - Parameter decoder: The decoder containing a persisted shortcut binding.
+    /// - Throws: A decoding error when the payload matches neither supported format or contains
+    ///   invalid field values.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.first) {
+            first = try container.decode(ShortcutStroke.self, forKey: .first)
+            second = try container.decodeIfPresent(ShortcutStroke.self, forKey: .second)
+            return
+        }
+
+        self = try LegacyStoredShortcutPayload(from: decoder).storedShortcut
+    }
+
     /// True when this binding is the explicit "no shortcut" marker.
     public var isUnbound: Bool { first.key.isEmpty && second == nil }
 
