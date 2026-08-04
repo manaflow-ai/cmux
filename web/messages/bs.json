@@ -1100,6 +1100,7 @@
       "surfaceCwd": "Radni direktorij za ovu površinu",
       "surfaceEnv": "Varijable okruženja kao parovi ključ-vrijednost",
       "surfaceUrl": "URL za otvaranje (samo preglednik)",
+      "surfaceSelected": "Odaberi ovu karticu unutar njenog okna kada se radni prostor otvori",
       "surfaceFocus": "Fokusiraj ovu površinu nakon kreiranja",
       "cwdResolution": "Razrješavanje radnog direktorija",
       "omitted": "izostavljeno",

@@ -1100,6 +1100,7 @@
       "surfaceCwd": "Diretório de trabalho para esta superfície",
       "surfaceEnv": "Variáveis de ambiente como pares chave-valor",
       "surfaceUrl": "URL para abrir (apenas navegador)",
+      "surfaceSelected": "Selecionar esta aba dentro do painel ao abrir o espaço de trabalho",
       "surfaceFocus": "Focar nesta superfície após a criação",
       "cwdResolution": "Resolução do diretório de trabalho",
       "omitted": "omitido",

@@ -1100,6 +1100,7 @@
       "surfaceCwd": "Bu yüzey için çalışma dizini",
       "surfaceEnv": "Anahtar-değer çiftleri olarak ortam değişkenleri",
       "surfaceUrl": "Açılacak URL (yalnızca tarayıcı)",
+      "surfaceSelected": "Çalışma alanı açıldığında bu sekmeyi kendi bölmesinde seç",
       "surfaceFocus": "Oluşturulduktan sonra bu yüzeye odaklan",
       "cwdResolution": "Çalışma dizini çözümlemesi",
       "omitted": "atlanmış",

@@ -1100,6 +1100,7 @@
       "surfaceCwd": "此 surface 的工作目录",
       "surfaceEnv": "以键值对形式表示的环境变量",
       "surfaceUrl": "要打开的 URL（仅限浏览器）",
+      "surfaceSelected": "打开工作区时在所在窗格中选择此标签页",
       "surfaceFocus": "创建后聚焦此 surface",
       "cwdResolution": "工作目录解析",
       "omitted": "省略",

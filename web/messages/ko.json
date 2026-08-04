@@ -1100,6 +1100,7 @@
       "surfaceCwd": "이 서피스의 작업 디렉터리",
       "surfaceEnv": "키-값 쌍으로 된 환경 변수",
       "surfaceUrl": "열 URL (브라우저 전용)",
+      "surfaceSelected": "워크스페이스를 열 때 해당 분할 영역에서 이 탭 선택",
       "surfaceFocus": "생성 후 이 서피스에 포커스",
       "cwdResolution": "작업 디렉터리 해석",
       "omitted": "생략됨",

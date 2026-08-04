@@ -1101,6 +1101,7 @@
       "surfaceCwd": "Katalog roboczy dla tej powierzchni",
       "surfaceEnv": "Zmienne środowiskowe jako pary klucz-wartość",
       "surfaceUrl": "URL do otwarcia (tylko przeglądarka)",
+      "surfaceSelected": "Wybierz tę kartę w jej panelu po otwarciu obszaru roboczego",
       "surfaceFocus": "Sfokusuj tę powierzchnię po utworzeniu",
       "cwdResolution": "Rozwiązanie katalogu roboczego",
       "omitted": "pominięty",
