@@ -23,6 +23,7 @@ host_target="$demo_root/host-target"
 host_binary="$host_target/debug/cmux-tui-iroh"
 linux_target="$demo_root/linux-target"
 linux_cargo_home="$demo_root/linux-cargo-home"
+linux_resolv_conf="$demo_root/linux-resolv.conf"
 linux_zig_cache="$demo_root/linux-zig-cache"
 runtime_context="$demo_root/runtime-context"
 build_commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -103,6 +104,14 @@ docker build \
     --tag "$builder_image" \
     "$REPO_ROOT"
 
+docker run --rm "$builder_image" \
+    awk '/^nameserver[[:space:]]/ { print "nameserver " $2; exit }' \
+    > "$linux_resolv_conf"
+if ! grep -Eq '^nameserver [0-9a-fA-F:.]+$' "$linux_resolv_conf"; then
+    echo "failed to derive a clean Docker resolver configuration" >&2
+    exit 1
+fi
+
 docker run --rm \
     --env "CARGO_HOME=/build/cargo-home" \
     --env "CARGO_TARGET_DIR=/build/target" \
@@ -111,6 +120,7 @@ docker run --rm \
     --env "ZIG_LOCAL_CACHE_DIR=/build/zig-cache/local" \
     --mount "type=bind,source=$REPO_ROOT,target=/source,readonly" \
     --mount "type=bind,source=$linux_cargo_home,target=/build/cargo-home" \
+    --mount "type=bind,source=$linux_resolv_conf,target=/etc/resolv.conf,readonly" \
     --mount "type=bind,source=$linux_target,target=/build/target" \
     --mount "type=bind,source=$linux_zig_cache,target=/build/zig-cache" \
     --workdir /source \
