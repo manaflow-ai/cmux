@@ -1532,6 +1532,93 @@ mod tests {
         .unwrap()
     }
 
+    fn test_colors_payload() -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2u16.to_le_bytes());
+        payload.extend_from_slice(&8u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&[1, 0]);
+        payload
+    }
+
+    fn styled_test_colors_payload() -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2u16.to_le_bytes());
+        payload.extend_from_slice(&15u16.to_le_bytes());
+        payload.extend_from_slice(&1u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&[0x11, 0x22, 0x33]);
+        payload.extend_from_slice(&[0x44, 0x55, 0x66]);
+        payload.extend_from_slice(&[0x77, 0x88, 0x99]);
+        payload.extend_from_slice(&[3, 1]);
+        payload.extend_from_slice(&[5, 0xaa, 0xbb, 0xcc]);
+        payload
+    }
+
+    #[test]
+    fn smart_renderer_bootstrap_preserves_vt_styles_and_event_order() {
+        let color_vt = decode_terminal_color_state_as_vt(&styled_test_colors_payload()).unwrap();
+        assert_eq!(
+            color_vt,
+            b"\x1b[0 q\x1b]10;rgb:11/22/33\x1b\\\x1b]11;rgb:44/55/66\x1b\\\x1b]12;rgb:77/88/99\x1b\\\x1b[5 q\x1b]4;5;rgb:aa/bb/cc\x1b\\"
+        );
+
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        let boundary = 40;
+        let replay = b"\x1b[1;31mstyled snapshot\x1b[0m";
+        assert_eq!(
+            state
+                .apply(Frame {
+                    sequence: boundary,
+                    ..Frame::new(MessageKind::Snapshot, test_snapshot_payload(replay))
+                })
+                .unwrap(),
+            FrameEffect::Continue
+        );
+        assert_eq!(
+            state
+                .apply(Frame {
+                    sequence: boundary,
+                    ..Frame::new(MessageKind::Colors, styled_test_colors_payload())
+                })
+                .unwrap(),
+            FrameEffect::Continue
+        );
+        assert_eq!(
+            state
+                .apply(Frame { sequence: boundary, ..Frame::new(MessageKind::Ready, Vec::new()) })
+                .unwrap(),
+            FrameEffect::Continue
+        );
+        for (sequence, kind, payload) in [
+            (boundary + 1, MessageKind::Output, b"\x1b[32mlive\x1b[0m".to_vec()),
+            (boundary + 2, MessageKind::Resized, vec![100, 0, 30, 0]),
+            (boundary + 3, MessageKind::Exit, Vec::new()),
+        ] {
+            state.apply(Frame { sequence, ..Frame::new(kind, payload) }).unwrap();
+        }
+
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(
+            events.iter().map(|event| event.kind).collect::<Vec<_>>(),
+            [
+                NativeRenderEventKind::Reset,
+                NativeRenderEventKind::Bytes,
+                NativeRenderEventKind::Ready,
+                NativeRenderEventKind::Bytes,
+                NativeRenderEventKind::Resize,
+                NativeRenderEventKind::Exit,
+            ]
+        );
+        assert_eq!(events[0].payload, replay);
+        assert_eq!(events[1].payload, color_vt);
+        assert_eq!(events[3].payload, b"\x1b[32mlive\x1b[0m");
+        assert_eq!((events[4].cols, events[4].rows), (100, 30));
+    }
+
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
         stream
             .send_on(Lane::Interactive, Bytes::from(encode_frame(&frame).unwrap()))
