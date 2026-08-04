@@ -26,6 +26,7 @@ final class FilePreviewTextEditorView: NSView {
         )
         super.init(frame: .zero)
 
+        textView.filePreviewEditorView = self
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true

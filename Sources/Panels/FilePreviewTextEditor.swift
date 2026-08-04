@@ -228,7 +228,7 @@ extension NSTextView {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        (scrollView.superview as? FilePreviewTextEditorView)?.refreshLayout()
+        filePreviewEditorView?.refreshLayout()
     }
 
     func applyFilePreviewTextEditorInsets() {
@@ -253,6 +253,7 @@ final class SavingTextView: NSTextView {
     ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
+    weak var filePreviewEditorView: FilePreviewTextEditorView?
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
@@ -360,7 +361,7 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
-        (enclosingScrollView?.superview as? FilePreviewTextEditorView)?.refreshFont()
+        filePreviewEditorView?.refreshFont()
     }
 
     private func clearPendingShortcutChordPrefixes() {
