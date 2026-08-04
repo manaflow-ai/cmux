@@ -276,7 +276,12 @@ struct SidebarAppKitRowCellTests {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
-    private static func brightInkBounds(in view: NSView) throws -> NSRect {
+    private struct BrightInkMetrics {
+        let bounds: NSRect
+        let pixelCount: Int
+    }
+
+    private static func brightInkMetrics(in view: NSView) throws -> BrightInkMetrics {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         let bounds = view.bounds.integral
@@ -302,6 +307,7 @@ struct SidebarAppKitRowCellTests {
         var minimumY = bitmap.pixelsHigh
         var maximumX = -1
         var maximumY = -1
+        var brightPixelCount = 0
 
         for x in 0..<bitmap.pixelsWide {
             for y in 0..<bitmap.pixelsHigh {
@@ -314,16 +320,24 @@ struct SidebarAppKitRowCellTests {
                 minimumY = min(minimumY, y)
                 maximumX = max(maximumX, x)
                 maximumY = max(maximumY, y)
+                brightPixelCount += 1
             }
         }
 
         try #require(maximumX >= minimumX && maximumY >= minimumY)
-        return NSRect(
-            x: CGFloat(minimumX) / scaleX,
-            y: CGFloat(minimumY) / scaleY,
-            width: CGFloat(maximumX - minimumX + 1) / scaleX,
-            height: CGFloat(maximumY - minimumY + 1) / scaleY
+        return BrightInkMetrics(
+            bounds: NSRect(
+                x: CGFloat(minimumX) / scaleX,
+                y: CGFloat(minimumY) / scaleY,
+                width: CGFloat(maximumX - minimumX + 1) / scaleX,
+                height: CGFloat(maximumY - minimumY + 1) / scaleY
+            ),
+            pixelCount: brightPixelCount
         )
+    }
+
+    private static func brightInkBounds(in view: NSView) throws -> NSRect {
+        try brightInkMetrics(in: view).bounds
     }
 
     private static func fontTraits(in field: NSTextField) -> [NSFontTraitMask] {
@@ -476,21 +490,60 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func unreadBadgeUsesCompactCapsuleAndCentersGlyphInk() throws {
-        let badge = SidebarRowUnreadBadgeView()
-        badge.configure(
-            count: 2,
-            fillColor: .black,
-            textColor: .white,
-            font: .systemFont(ofSize: 8.5, weight: .semibold)
+    func unreadBadgesUseCirclesAndRegularCenteredCounts() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 2)
         )
-        let size = badge.fittingSize(horizontalPadding: 4, minimumHeight: 14)
-        badge.frame = NSRect(origin: .zero, size: size)
-        let inkBounds = try Self.brightInkBounds(in: badge)
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
 
-        #expect(size.width >= size.height + 2)
-        #expect(abs(inkBounds.midX - badge.bounds.midX) <= 0.25)
-        #expect(abs(inkBounds.midY - badge.bounds.midY) <= 0.25)
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 2))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        for (badge, fillColor) in [
+            (workspaceBadge, cmuxAccentNSColor()),
+            (groupBadge, NSColor.controlAccentColor),
+        ] {
+            let actualInk = try Self.brightInkMetrics(in: badge)
+            let regularReference = SidebarRowUnreadBadgeView()
+            regularReference.configure(
+                count: 2,
+                fillColor: fillColor,
+                textColor: .white,
+                font: .systemFont(ofSize: 8.5, weight: .regular)
+            )
+            regularReference.frame = NSRect(origin: .zero, size: badge.bounds.size)
+            let regularInk = try Self.brightInkMetrics(in: regularReference)
+
+            let semiboldReference = SidebarRowUnreadBadgeView()
+            semiboldReference.configure(
+                count: 2,
+                fillColor: fillColor,
+                textColor: .white,
+                font: .systemFont(ofSize: 8.5, weight: .semibold)
+            )
+            semiboldReference.frame = NSRect(origin: .zero, size: badge.bounds.size)
+            let semiboldInk = try Self.brightInkMetrics(in: semiboldReference)
+
+            #expect(abs(badge.bounds.width - badge.bounds.height) < 0.001)
+            #expect(abs(actualInk.bounds.midX - badge.bounds.midX) <= 0.25)
+            #expect(abs(actualInk.bounds.midY - badge.bounds.midY) <= 0.25)
+            #expect(abs(actualInk.pixelCount - regularInk.pixelCount)
+                < abs(actualInk.pixelCount - semiboldInk.pixelCount))
+        }
     }
 
     @Test
