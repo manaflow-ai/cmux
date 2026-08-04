@@ -8,6 +8,7 @@ extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        let focusedPaneIdBeforeLayout = bonsplitController.focusedPaneId
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
@@ -32,6 +33,10 @@ extension Workspace {
 
         if let focusPanelId {
             focusPanel(focusPanelId)
+        } else if let focusedPaneIdBeforeLayout,
+                  bonsplitController.focusedPaneId != focusedPaneIdBeforeLayout,
+                  bonsplitController.allPaneIds.contains(focusedPaneIdBeforeLayout) {
+            bonsplitController.focusPane(focusedPaneIdBeforeLayout)
         }
     }
 
