@@ -1009,4 +1009,31 @@ mod tests {
             "'/opt/cmux tui' relay --session 'agent'\"'\"'s work'"
         );
     }
+
+    #[test]
+    fn ssh_machine_connection_uses_managed_bootstrap_and_fail_closed_policy() {
+        let options = managed_ssh_options(
+            "mini.local",
+            Some("lawrence"),
+            Some(2200),
+            Some(Path::new("/tmp/cloud key")),
+            "agents",
+            "/opt/cmux tui",
+        )
+        .unwrap();
+
+        assert_eq!(options.destination, "lawrence@mini.local:2200");
+        assert_eq!(options.session, "agents");
+        assert_eq!(options.remote_binary, "/opt/cmux tui");
+        for option in [
+            "BatchMode=yes",
+            "StrictHostKeyChecking=yes",
+            "ForwardAgent=no",
+            "ForwardX11=no",
+            "ClearAllForwardings=yes",
+        ] {
+            assert!(options.ssh_args.windows(2).any(|pair| pair == ["-o", option]));
+        }
+        assert!(options.ssh_args.windows(2).any(|pair| pair == ["-i", "/tmp/cloud key"]));
+    }
 }
