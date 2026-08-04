@@ -174,7 +174,7 @@ describe("Subrouter dashboard", () => {
     });
     const html = renderToStaticMarkup(page);
 
-    expect(html).toContain("AI accounts are not configured");
+    expect(html).toContain("AI account management isn&#x27;t available yet");
     expect(hostedExchangeCalls).toBe(0);
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "@/services/subrouter/routeHelpers";
 import {
   isSubrouterAuthorizationError,
+  SubrouterAuthorizationUnavailableError,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
 } from "@/services/vms/auth";
@@ -69,9 +70,15 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect("/");
   }
   const requestHeaders = await headers();
-  let authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>> | null;
+  const tokenStore = {
+    headers: { get: (name: string) => requestHeaders.get(name) },
+  };
+  let authenticated: {
+    readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
+    readonly accessToken: string | null;
+  } | null;
   try {
-    authorized = await withSubrouterAuthorizationDeadline(
+    authenticated = await withSubrouterAuthorizationDeadline(
       async (signal) => {
         const user = await verifySubrouterRequest(
           new Request("https://cmux.com/dashboard/subrouter", {
@@ -80,7 +87,20 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
           signal,
           { allowCookie: true, listAllTeams: true },
         );
-        return user ? authorizedSubrouterTeams(user) : null;
+        if (!user) return null;
+        const authorized = await authorizedSubrouterTeams(user);
+        let authJson: Awaited<ReturnType<ReturnType<typeof getStackServerApp>["getAuthJson"]>>;
+        try {
+          authJson = await getStackServerApp().getAuthJson({ tokenStore });
+        } catch {
+          throw new SubrouterAuthorizationUnavailableError(
+            "Stack session refresh unavailable",
+          );
+        }
+        return {
+          authorized,
+          accessToken: authJson?.accessToken ?? null,
+        };
       },
     );
   } catch (error) {
@@ -99,14 +119,10 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
       </div>
     );
   }
-  if (!authorized) {
+  if (!authenticated) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
-  const tokenStore = {
-    headers: { get: (name: string) => requestHeaders.get(name) },
-  };
-  const authJson = await getStackServerApp().getAuthJson({ tokenStore });
-  if (!authJson.accessToken) {
+  if (!authenticated.accessToken) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
 
@@ -114,7 +130,7 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     getTranslations({ locale, namespace: "dashboard.subrouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
   ]);
-  const teams = authorized
+  const teams = authenticated.authorized
     .filter((candidate) => candidate.use || candidate.manageAccounts)
     .map((candidate) => ({
       id: candidate.teamId,
@@ -126,7 +142,7 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect("/dashboard");
   }
   const selectedTeam = selectTeam(teams, team);
-  const accountState = await loadAccounts(selectedTeam, authJson.accessToken);
+  const accountState = await loadAccounts(selectedTeam, authenticated.accessToken);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -279,6 +295,9 @@ async function loadAccounts(
       return { kind: "migrationPending" };
     }
     const client = createHostedSubrouterClient();
+    if (!client.tenantControlConfigured) {
+      return { kind: "notConfigured" };
+    }
     const tenant = await client.exchangeTeam(accessToken, {
       teamId: team.id,
       teamName: team.name,

@@ -29,6 +29,7 @@ export type HostedTeam = {
 };
 
 export type HostedSubrouterClient = {
+  readonly tenantControlConfigured: boolean;
   readonly assertTenantDeletionConfigured: () => void;
   readonly exchangeTeam: (
     accessToken: string,
@@ -132,6 +133,7 @@ export function createHostedSubrouterClient(options: {
   };
 
   return {
+    tenantControlConfigured: tenantDeleteToken.length > 0,
     assertTenantDeletionConfigured: assertTenantControlConfigured,
     exchangeTeam: async (accessToken, team) => {
       assertTenantControlConfigured();
