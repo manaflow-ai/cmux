@@ -9135,20 +9135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self, weak controller] in
-            let onCancel = controller?.takePendingCloseCancellationAction()
-            let shouldClose = self?.handleMainTerminalWindowShouldClose(onCancel: onCancel) ?? true
-            if !shouldClose {
-                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
-                // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
-                // kill-on-close marker so a later window/quit close detaches. A
-                // CONFIRMED quit of the last tab keeps the marker set so
-                // applicationWillTerminate kills the session before exit.
-                if self?.isTerminatingApp != true {
-                    self?.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
-                }
-            }
-            return shouldClose
+        controller.shouldClose = { [weak self] in
+            self?.handleMainTerminalWindowCloseRequest(windowId: windowId, onCancel: nil) ?? true
         }
         window.delegate = controller
         mainWindowControllers.append(controller)
@@ -16764,6 +16752,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func handleMainTerminalWindowCloseRequest(
+        windowId: UUID,
+        onCancel: (() -> Void)?
+    ) -> Bool {
+        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: onCancel)
+        if !shouldClose {
+            closedWindowHistorySuppressedWindowIds.remove(windowId)
+            // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
+            // kill-on-close marker so a later window/quit close detaches. A
+            // CONFIRMED quit of the last tab keeps the marker set so
+            // applicationWillTerminate kills the session before exit.
+            if !isTerminatingApp {
+                remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+            }
+        }
+        return shouldClose
+    }
+
     private func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
@@ -16931,8 +16937,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return
         }
-        mainWindowControllers.first(where: { $0.window === window })?
-            .setPendingCloseCancellationAction(onCancelled)
+        if let onCancelled,
+           !handleMainTerminalWindowCloseRequest(windowId: context.windowId, onCancel: onCancelled) {
+            return
+        }
         window.performClose(nil)
     }
 

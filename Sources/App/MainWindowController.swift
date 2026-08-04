@@ -6,16 +6,6 @@ final class MainWindowController: ReleasingWindowController {
     var onClose: (() -> Void)?
     var shouldClose: (() -> Bool)?
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
-    private var pendingCloseCancellationAction: (() -> Void)?
-
-    func setPendingCloseCancellationAction(_ action: (() -> Void)?) {
-        pendingCloseCancellationAction = action
-    }
-
-    func takePendingCloseCancellationAction() -> (() -> Void)? {
-        defer { pendingCloseCancellationAction = nil }
-        return pendingCloseCancellationAction
-    }
 
 #if DEBUG
     private func logWindowEvent(_ event: String, notification: Notification) {
@@ -28,7 +18,6 @@ final class MainWindowController: ReleasingWindowController {
 #endif
 
     override func managedWindowWillClose(_ window: NSWindow) {
-        pendingCloseCancellationAction = nil
         onClose?()
     }
 
