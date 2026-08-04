@@ -186,10 +186,16 @@ actor CmxConnectivityPeerSession {
             }
 
             if let installed = activeConnection {
-                if installed.id != pending.id {
-                    await connected.close()
+                if installed.id == pending.id {
+                    return installed.session
                 }
-                return installed.session
+                if let winner = await settleRedundantDial(
+                    connected,
+                    installedID: installed.id
+                ) {
+                    return winner
+                }
+                continue redial
             }
             if await connected.isClosed() {
                 await connected.close()
@@ -205,10 +211,16 @@ actor CmxConnectivityPeerSession {
             // installing over it would leak its session and double-record
             // an established lifecycle for the same peer.
             if let installed = activeConnection {
-                if installed.id != pending.id {
-                    await connected.close()
+                if installed.id == pending.id {
+                    return installed.session
                 }
-                return installed.session
+                if let winner = await settleRedundantDial(
+                    connected,
+                    installedID: installed.id
+                ) {
+                    return winner
+                }
+                continue redial
             }
             install(
                 connected,
@@ -276,6 +288,25 @@ actor CmxConnectivityPeerSession {
         )
         self.failure = failure
         publishSnapshot()
+    }
+
+    /// Closes a redundant dial that lost to an installed winner.
+    ///
+    /// Closing suspends this actor, so the winner can be invalidated,
+    /// replaced, or remotely closed before the close settles. Only a
+    /// still-installed live winner may be handed out; a nil result means
+    /// the caller must redial.
+    private func settleRedundantDial(
+        _ connected: any CmxConnectivitySession,
+        installedID: UUID
+    ) async -> (any CmxConnectivitySession)? {
+        await connected.close()
+        guard let current = activeConnection,
+              current.id == installedID,
+              !(await current.session.isClosed()) else {
+            return nil
+        }
+        return current.session
     }
 
     private func install(

@@ -12,10 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `88357634c`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/175. It combines the initial cmux
-theme-picker render fix at `5068b3a37` with terminal-owned semantic-prompt row
-lifecycle enforcement through `2d6e944e3` from
+The submodule pinned by this branch is `19d03fa4d`, suppressing empty opener
+stderr diagnostics on top of `f0f8273b7`, which adds the iOS startup
+locale/crash-reporting order fix. That commit follows `88357634c`, the fork-main
+merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
+the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
+semantic-prompt row lifecycle enforcement through `2d6e944e3` from
 https://github.com/manaflow-ai/ghostty/pull/176.
 The earlier integration combines the hidden-renderer reclamation and
 retry-deadline line through `4d6f0014f` with the resolved font-binding action
@@ -42,6 +44,44 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### iOS startup locale before crash reporting
+
+- Commit: `f0f8273b7` (Initialize locale before crash reporting)
+- File: `src/global.zig`
+- Summary:
+  - Moves `ensureLocale()` and `syncEnviron()` before Ghostty's crash reporting
+    init so Darwin `setlocale` completes before Sentry starts its background
+    initialization thread.
+  - Fixes the cmux INTERNAL TestFlight crash from August 2, 2026, where build
+    `20260801151612` crashed in `ghostty_init + 1388` while the main thread was
+    in `setlocale` from `GhosttyRuntime.init`.
+- Conflict note:
+  - Preserve this ordering during future `global.init` merges: process-wide
+    locale mutation must stay before any Ghostty-owned background thread starts.
+
+### Empty opener stderr diagnostics
+
+- Commits:
+  - `45aec50de` (test: cover spawned open stderr reader log bound)
+  - `19d03fa4d` (os/open: skip empty stderr diagnostics)
+- File: `src/os/open.zig`
+- Summary:
+  - Runs the stderr drain against a real spawned process that writes 40 blank
+    lines and exits, with a one-second timeout proving the reader thread reaches
+    EOF instead of spinning.
+  - Requires fewer than 10 repeated blank-line diagnostics in that capture
+    window.
+  - Continues consuming blank stderr lines so the opener can exit, but does not
+    send content-free `open stderr=` records to macOS unified logging.
+- Conflict note:
+  - Preserve delimiter consumption, the EOF timeout coverage, and draining
+    after the reporting cap. Suppressing a log must never suppress the read
+    that advances the pipe.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-19d03fa4d0161e60e02de2e42601992be0c001c3-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `d2842bb7778a4e8d5a5a5f57ce6a85508630e3184ba46c1ca1ae5cbe1655472f`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Initial cmux theme-picker render
 

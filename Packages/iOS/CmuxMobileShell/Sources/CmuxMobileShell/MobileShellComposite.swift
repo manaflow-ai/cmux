@@ -121,6 +121,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let taskCreateCapability = "workspace.task_create.v1"
+    static let taskAttachmentCapability = "task.attachments.v1"
+    static let taskModelsCapability = "task.models.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -429,6 +431,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
+    /// Mac/provider model responses observed by the task composer.
+    var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -526,14 +530,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var composerDismissedTerminalIDs: Set<String> = []
     /// Monotonic focus-request token for the iMessage-style composer field.
     ///
-    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
-    /// which neither the terminal surface nor the representable coordinator can set
-    /// directly. When the surface needs the field re-focused without re-presenting the
-    /// composer — the reveal-after-hide case, where the chrome and draft are already
-    /// back but the terminal proxy stole first responder — it bumps this token through
-    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` observes the change and
-    /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
-    /// for who holds the keyboard.
+    /// The surface input session owns first-responder commands; SwiftUI `@FocusState`
+    /// mirrors their result. When the surface needs the field re-focused without
+    /// re-presenting the composer, it bumps this token through
+    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` consumes the keyed
+    /// intent and forwards it to that session owner.
     public private(set) var composerFocusRequest: Int = 0
     /// True while a ``composerFocusRequest`` has been issued but not yet consumed
     /// by the composer field. The field's `onChange` of the token only observes
@@ -1617,6 +1618,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
         taskTemplateStore?.clearAllUserData()
+        taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
@@ -5206,7 +5208,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         secondaryMacEstablishmentFlights[flightKey] =
-            SecondaryMacEstablishmentFlight(id: flightID, task: task)
+            SecondaryMacEstablishmentFlight(
+                id: flightID,
+                mac: mac,
+                task: task
+            )
         let outcome = await task.value
         if secondaryMacEstablishmentFlights[flightKey]?.id == flightID {
             secondaryMacEstablishmentFlights[flightKey] = nil
@@ -11979,12 +11985,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // to leave the existing sections intact. Authoritative groups are passed
         // through the device-local collapse store before entering the per-Mac
         // source of truth, so derived groups keep this phone's collapse choices.
-        let groups: [MobileWorkspaceGroupPreview]? =
-            (mergeExistingWorkspaces || !groupsAreAuthoritative)
-                ? nil
-                : groupCollapseStore.apply(
-                    to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-                )
+        // Empty or missing group metadata during reconnect/rebind is not enough to
+        // remove sections; only a healthy, complete ungrouped snapshot can do that.
+        let groups = remoteWorkspaceGroups(
+            from: response,
+            mergeExistingWorkspaces: mergeExistingWorkspaces,
+            groupsAreAuthoritative: groupsAreAuthoritative
+        )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
         #if DEBUG
@@ -12026,6 +12033,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
+    }
+
+    private func remoteWorkspaceGroups(
+        from response: MobileSyncWorkspaceListResponse,
+        mergeExistingWorkspaces: Bool,
+        groupsAreAuthoritative: Bool
+    ) -> [MobileWorkspaceGroupPreview]? {
+        guard !mergeExistingWorkspaces, groupsAreAuthoritative else { return nil }
+        guard response.groupsFieldWasPresent else { return nil }
+        let groups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        guard groups.isEmpty else {
+            return groupCollapseStore.apply(to: groups)
+        }
+        guard canAcceptEmptyGroupSnapshot(from: response) else { return nil }
+        return []
+    }
+
+    private func canAcceptEmptyGroupSnapshot(
+        from response: MobileSyncWorkspaceListResponse
+    ) -> Bool {
+        guard connectionState == .connected, macConnectionStatus == .connected else {
+            return false
+        }
+        let responseStillReferencesGroups = response.workspaces.contains { workspace in
+            workspace.groupID?.isEmpty == false
+        }
+        guard !responseStillReferencesGroups else { return false }
+        return true
     }
 
     private func remoteWorkspacesPreservingSnapshots(

@@ -2728,6 +2728,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Removes proxy-only daemon log entries appended by
+    /// `applyRemoteDaemonStatusUpdate`, without touching the connection-state
+    /// artifacts owned by `applyRemoteConnectionStateUpdate`.
+    func clearProxyOnlyRemoteDaemonSidebarArtifacts() {
+        logEntries.removeAll { entry in
+            entry.source == "remote-daemon" && Self.isProxyOnlyRemoteError(entry.message)
+        }
+    }
+
     private func remoteNotificationCooldownKey(target: String) -> String? {
         let rawTarget = (remoteConfiguration?.destination ?? target)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6910,6 +6919,12 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
+            if status.state == .ready {
+                // #8917: a transport bounce that re-bootstrapped successfully is
+                // not a workspace failure, so retract its sidebar error the same
+                // way the connection-state path retracts on `.connected`.
+                clearProxyOnlyRemoteDaemonSidebarArtifacts()
+            }
             return
         }
         let trimmedDetail = status.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "remote daemon error"
@@ -8235,10 +8250,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
+    /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
-        command: String,
+        command: String?,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
         focus: Bool? = nil,
@@ -8253,8 +8269,8 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return nil }
+        let trimmedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if command != nil, trimmedCommand?.isEmpty != false { return nil }
 
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()

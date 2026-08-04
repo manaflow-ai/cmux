@@ -7150,6 +7150,17 @@ struct CMUXCLI {
         if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
         }
+        if let unknownFlag = remaining.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
+            let knownFlags = Self.surfaceResumeSetValueOptions.sorted().joined(separator: ", ")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.surfaceResume.set.error.unknownFlag",
+                    defaultValue: "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+                ),
+                unknownFlag,
+                knownFlags
+            ))
+        }
         if splitArgs.argv != nil, let unexpected = remaining.first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
         }
@@ -15582,12 +15593,15 @@ struct CMUXCLI {
             Check connectivity to the cmux socket server.
             """
         case "iroh-diag":
-            return """
-            Usage: cmux iroh-diag
+            return String(
+                localized: "cli.help.irohDiag",
+                defaultValue: """
+                Usage: cmux iroh-diag
 
-            Print the host's iroh Connection Report (cmuxdiag v1 compact export),
-            the same data as Settings > Networking > Connection Report.
-            """
+                Print the host's Iroh Connection Report as a plain-language timeline,
+                the same data as Settings > Networking > Connection Report.
+                """
+            )
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -22538,7 +22552,12 @@ struct CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the binary would otherwise shadow the real executable (#8743).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
@@ -28683,7 +28702,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,

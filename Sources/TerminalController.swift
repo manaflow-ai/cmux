@@ -123,6 +123,8 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
+    /// Actor-isolated ten-minute cache for mobile task model discovery.
+    nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
@@ -365,6 +367,10 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
+        mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
@@ -379,6 +385,7 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
+        self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -1062,6 +1069,34 @@ class TerminalController {
                     return Self.v2Encoder.response(id: parsedRequest.id, result)
                 case .encoded(let response):
                     return response
+                }
+            }
+            if request.method == "mobile.task.models.list" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 7
+                ) {
+                    guard let result = await self.controlCommandCoordinator
+                        .handleMobileHostAsync(
+                            parsedRequest,
+                            context: self
+                        ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown method",
+                            data: nil
+                        )
+                    }
+                    switch result {
+                    case .ok(let payload):
+                        return .ok(payload.foundationObject)
+                    case let .err(code, message, data):
+                        return .err(
+                            code: code,
+                            message: message,
+                            data: data?.foundationObject
+                        )
+                    }
                 }
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
@@ -2434,6 +2469,8 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.task.attachment.upload",
+            "mobile.task.models.list",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
@@ -4484,7 +4521,14 @@ class TerminalController {
                     focusWorkspace: v2FocusAllowed(),
                     debugSource: "cli.workspaceAction.mobileConnect"
                 ) else {
-                    result = .err(code: "unavailable", message: "Mobile Connect is unavailable", data: nil)
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.workspaceAction.tailscalePairingUnavailable",
+                            defaultValue: "Tailscale Pairing is unavailable"
+                        ),
+                        data: nil
+                    )
                     return
                 }
                 result = .ok([
@@ -10881,10 +10925,10 @@ class TerminalController {
     /// base64 encode/decode round-trip — kept verbatim so the reply bytes
     /// match the legacy `readTerminalTextBase64` pipeline exactly — run off
     /// the main actor.
-    /// Serves the v1 `iroh_diag` socket command: the host's iroh Connection
-    /// Report in the same `cmuxdiag v1` compact format the Settings pane
-    /// exports, read from the same `DiagnosticLog` snapshot path so the two
-    /// can never disagree. Empty ring prints just the header (count=0).
+    /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
+    /// Report in the same plain-language format the Settings pane exports,
+    /// read from the same `DiagnosticLog` snapshot path so the two can never
+    /// disagree.
     private nonisolated func irohDiagText() -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
@@ -10895,7 +10939,7 @@ class TerminalController {
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
             let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            export = String(decoding: report.compactExport(), as: UTF8.self)
+            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
         semaphore.wait()
@@ -14001,6 +14045,10 @@ class TerminalController {
             )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.task.attachment.upload":
+            result = v2MobileTaskAttachmentUpload(params: request.params)
+        case "mobile.task.models.list":
+            result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
