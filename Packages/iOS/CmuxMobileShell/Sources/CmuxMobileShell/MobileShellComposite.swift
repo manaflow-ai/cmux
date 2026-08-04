@@ -304,7 +304,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
     )?
-    var presencePushRecoveryThrottle = MobilePresencePushRecoveryThrottle()
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1597,7 +1596,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // projections.
         resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
-        presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
         pendingInactiveDeadRecoveryClient = nil
         connectionRecoveryOwner.cancel()
@@ -10921,13 +10919,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 requestData,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            guard let object = try JSONSerialization.jsonObject(with: data)
-                    as? [String: Any],
-                  object["stream_id"] as? String == terminalEventStreamID,
-                  let subscribed = object["subscribed"] as? Bool else {
+            let response = try MobileEventProbeResponse.decode(data)
+            guard response.streamID == terminalEventStreamID else {
                 return .failed
             }
-            return subscribed ? .active : .missing
+            return response.subscribed ? .active : .missing
         } catch MobileShellConnectionError.rpcError(let code, _)
             where code == "method_not_found" {
             return .unsupported

@@ -216,14 +216,10 @@ extension MobileShellComposite {
         }
         // Presence is only a wake-up signal. The recovery pass still obtains
         // first-pair candidates from the authenticated personal broker.
-        // Unchanged heartbeats are throttled so a persistent outage cannot
-        // restart an in-flight recovery on the presence cadence.
-        guard presencePushRecoveryThrottle.shouldRecover(
-            evidenceChanged: evidenceChanged,
-            now: runtime?.now() ?? Date()
-        ) else {
-            return
-        }
+        // A failed recovery records its transient cooldown in the shared
+        // automatic-reconnect owner. `recoverMobileConnection` consults that
+        // same authority for unchanged presence heartbeats, while changed
+        // route evidence clears the cooldown above.
         recoverMobileConnection(trigger: .presencePush)
     }
 

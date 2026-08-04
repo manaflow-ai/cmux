@@ -755,6 +755,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */ = {isa = PBXBuildFile; productRef = C1A072000000000000000002 /* CmuxMobileRPC */; };
+		C1A072000000000000000004 /* CmuxMobileRPC in Frameworks */ = {isa = PBXBuildFile; productRef = C1A072000000000000000002 /* CmuxMobileRPC */; };
 		1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */; };
 		1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
@@ -5232,6 +5233,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
+				C1A072000000000000000004 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
@@ -8035,6 +8037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				C1A072000000000000000002 /* CmuxMobileRPC */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 			);
 			productName = cmux;

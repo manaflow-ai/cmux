@@ -193,6 +193,7 @@ struct MobileHostIrohStartupRetryTests {
     @Test
     func bindingRemainsUnavailableUntilMatchingHostRuntimeIsActive() throws {
         let runtime = MobileHostIrohRuntime.shared
+        let publicStatusStore = MobileHostService.shared.publicStatusStore
         let originalRevision = runtime.lifecycleRevision
         let revision: UInt64 = 4_200
         let binding = try CmxIrohBrokerBindingMetadata(
@@ -209,25 +210,25 @@ struct MobileHostIrohStartupRetryTests {
         defer {
             runtime.lifecycleRevision = originalRevision
             runtime.clearIrohRoutePublication()
-            MobileHostPublicStatusCache.removeAll()
+            publicStatusStore.removeAll()
         }
-        MobileHostPublicStatusCache.removeAll()
+        publicStatusStore.removeAll()
         runtime.lifecycleRevision = revision
 
         runtime.beginIrohRouteActivation(revision: revision)
         runtime.stageIrohRoute(binding, pathHints: [], revision: revision)
 
-        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(!publicStatusStore.hasIrohRoute())
         #expect(runtime.routePublicationPhase == .starting(revision: revision))
         #expect(!runtime.publishIrohRouteIfActive(revision: revision - 1))
-        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(!publicStatusStore.hasIrohRoute())
         #expect(runtime.publishIrohRouteIfActive(revision: revision))
-        #expect(MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(publicStatusStore.hasIrohRoute())
 
         runtime.lifecycleRevision = revision + 1
         runtime.beginIrohRouteActivation(revision: revision + 1)
 
-        #expect(!MobileHostPublicStatusCache.hasIrohRoute())
+        #expect(!publicStatusStore.hasIrohRoute())
         #expect(runtime.routePublicationPhase == .starting(revision: revision + 1))
     }
 

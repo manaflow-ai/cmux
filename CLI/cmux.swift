@@ -15796,36 +15796,31 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
-            let timeoutDescription = String(
-                localized: "cli.events.help.timeout",
-                defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
+            return String(
+                localized: "cli.events.usage",
+                defaultValue: """
+                Usage: cmux events [options]
+
+                Stream cmux events as newline-delimited JSON.
+
+                Options:
+                  --after <seq>          Replay retained events after this sequence
+                  --cursor-file <path>   Read the starting sequence from a file and update it after each event
+                  --name <event>         Filter by event name, repeatable
+                  --category <name>      Filter by category, repeatable
+                  --reconnect            Reconnect forever and resume from the last received sequence
+                  --limit <n>            Exit after printing n event frames
+                  --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline
+                  --snapshot             Print the subscription snapshot and exit
+                  --no-ack               Do not print the subscription ack frame
+                  --no-heartbeat         Do not print heartbeat frames
+
+                Examples:
+                  cmux events --category notification
+                  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+                  cmux events --after 42 --name feed.item.received
+                """
             )
-            let snapshotDescription = String(
-                localized: "cli.events.help.snapshot",
-                defaultValue: "Print the subscription snapshot and exit"
-            )
-            return """
-            Usage: cmux events [options]
-
-            Stream cmux events as newline-delimited JSON.
-
-            Options:
-              --after <seq>          Replay retained events after this sequence
-              --cursor-file <path>   Read the starting sequence from a file and update it after each event
-              --name <event>         Filter by event name, repeatable
-              --category <name>      Filter by category, repeatable
-              --reconnect            Reconnect forever and resume from the last received sequence
-              --limit <n>            Exit after printing n event frames
-              --timeout <seconds>    \(timeoutDescription)
-              --snapshot             \(snapshotDescription)
-              --no-ack               Do not print the subscription ack frame
-              --no-heartbeat         Do not print heartbeat frames
-
-            Examples:
-              cmux events --category notification
-              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
-              cmux events --after 42 --name feed.item.received
-            """
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
