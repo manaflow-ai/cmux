@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "cmux Release-Notes und Versionshistorie. Neue Funktionen, Fehlerbehebungen und Änderungen für das native macOS-Terminal.",
-      "metaTitle": "Änderungsprotokoll"
+      "metaTitle": "Änderungsprotokoll",
+      "versionTitle": "cmux {version} · Änderungsprotokoll",
+      "releaseNavLabel": "Versionen rund um cmux {version}",
+      "sections": {
+        "added": "Hinzugefügt",
+        "changed": "Geändert",
+        "fixed": "Behoben",
+        "removed": "Entfernt",
+        "contributors": "Mitwirkende"
+      }
     },
     "navItems": {
       "gettingStarted": "Erste Schritte",
