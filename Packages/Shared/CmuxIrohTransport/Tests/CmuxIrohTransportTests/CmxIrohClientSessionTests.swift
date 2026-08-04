@@ -98,6 +98,51 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func closeDoesNotWaitForChildStreamCleanup() async throws {
+        let receive = TestGatedStopIrohReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec().encodeFrame(
+                .acceptedPendingNatTraversal
+            ) + admissionFrame(status: 3)
+        )
+        let control = CmxIrohBidirectionalStream(
+            receiveStream: receive,
+            sendStream: TestIrohSendStream()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+        try await session.connect()
+        let completion = TestAsyncCompletionProbe()
+
+        let close = Task {
+            await session.close()
+            await completion.complete()
+        }
+        await receive.waitUntilStopStarted()
+        for _ in 0 ..< 100 { await Task.yield() }
+        let parentClosedBeforeChildCleanup =
+            await connection.observedCloseCallCount() == 1
+        let closeReturnedBeforeChildCleanup = await completion.isComplete()
+
+        await receive.releaseStop()
+        await close.value
+
+        #expect(parentClosedBeforeChildCleanup)
+        #expect(closeReturnedBeforeChildCleanup)
+    }
+
+    @Test
     func repeatedConnectDoesNotRepeatNatTraversalAuthorization() async throws {
         let control = controlStream(decision: .accepted)
         let connection = TestIrohConnection(

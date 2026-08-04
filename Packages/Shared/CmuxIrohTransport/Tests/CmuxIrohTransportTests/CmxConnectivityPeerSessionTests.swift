@@ -75,6 +75,55 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func physicalCloseCannotRetainControlOwnership() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 15,
+            gatesFirstClose: true
+        )
+        let replacement = TestConnectivitySession(continuityID: 16)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let firstOwner = UUID()
+        let replacementOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        let release = Task {
+            await peer.releaseControl(ownerID: firstOwner)
+        }
+        try await Self.waitUntil { await firstSession.closeGateIsWaiting() }
+        let acquireReplacement = Task {
+            try await peer.acquireControl(
+                for: request,
+                ownerID: replacementOwner
+            )
+        }
+        let replacementStartedBeforeCloseFinished: Bool
+        do {
+            try await Self.waitUntil { await builder.callCount() == 2 }
+            replacementStartedBeforeCloseFinished = true
+        } catch {
+            replacementStartedBeforeCloseFinished = false
+        }
+
+        await firstSession.releaseCloseGate()
+        await release.value
+        _ = try await acquireReplacement.value
+
+        #expect(replacementStartedBeforeCloseFinished)
+        #expect(await peer.connectionContinuityID() == 16)
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
     func cancelledControlWaiterCannotBlockTheNextOwner() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
