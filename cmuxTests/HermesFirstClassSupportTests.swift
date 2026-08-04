@@ -35,12 +35,13 @@ struct HermesFirstClassSupportTests {
 
     @Test("A bare Hermes process binds the unique active state.db session")
     func bareProcessBindsUniqueActiveSession() throws {
-        let fixture = try makeFixture(rows: [
-            StateRow("ended-newer", cwd: nil, startedAt: 30, endedAt: 40),
-            StateRow("live-session", cwd: nil, source: "tui", startedAt: 20),
-        ])
+        let fixture = try makeFixture { repo in
+            [
+                StateRow("ended-newer", cwd: repo.path, startedAt: 30, endedAt: 40),
+                StateRow("live-session", cwd: repo.path, source: "tui", startedAt: 20),
+            ]
+        }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
 
         let detected = try detectedHermesSnapshots(
             fixture: fixture,
@@ -73,12 +74,13 @@ struct HermesFirstClassSupportTests {
         ]
     )
     func explicitResumeFlagsWin(arguments: [String]) throws {
-        let fixture = try makeFixture(rows: [
-            StateRow("explicit-session", cwd: nil, startedAt: 10),
-            StateRow("other-active-session", cwd: nil, startedAt: 20),
-        ])
+        let fixture = try makeFixture { repo in
+            [
+                StateRow("explicit-session", cwd: repo.path, startedAt: 10),
+                StateRow("other-active-session", cwd: repo.path, startedAt: 20),
+            ]
+        }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
 
         let processArguments = [fixture.hermesExecutable] + arguments + ["--tui"]
         let detected = try detectedHermesSnapshots(
@@ -98,12 +100,13 @@ struct HermesFirstClassSupportTests {
 
     @Test("A bare Hermes process fails closed when active state.db rows are ambiguous")
     func bareProcessRejectsAmbiguousActiveSessions() throws {
-        let fixture = try makeFixture(rows: [
-            StateRow("active-a", cwd: nil, startedAt: 10),
-            StateRow("active-b", cwd: nil, startedAt: 20),
-        ])
+        let fixture = try makeFixture { repo in
+            [
+                StateRow("active-a", cwd: repo.path, startedAt: 10),
+                StateRow("active-b", cwd: repo.path, startedAt: 20),
+            ]
+        }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
 
         let detected = try detectedHermesSnapshots(
             fixture: fixture,
@@ -122,9 +125,8 @@ struct HermesFirstClassSupportTests {
     @Test("Two bare Hermes panes in one cwd do not claim the same state.db session")
     func coLocatedBareProcessesDoNotShareOneSession() throws {
         let secondPanelID = UUID()
-        let fixture = try makeFixture(rows: [StateRow("only-active", cwd: nil)])
+        let fixture = try makeFixture { [StateRow("only-active", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
         let processes = [
             hermesProcess(pid: 9_523, workspaceID: fixture.workspaceID, panelID: fixture.panelID),
             hermesProcess(pid: 9_524, workspaceID: fixture.workspaceID, panelID: secondPanelID),
@@ -145,9 +147,8 @@ struct HermesFirstClassSupportTests {
 
     @Test("Session index entries preserve Hermes cwd for filtering and resume")
     func sessionIndexPreservesCwd() throws {
-        let fixture = try makeFixture(rows: [StateRow("indexed-session", cwd: nil)])
+        let fixture = try makeFixture { [StateRow("indexed-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
 
         let outcome = SessionIndexStore.loadHermesAgentEntriesForTesting(
             stateDBPath: fixture.stateDB.path,
@@ -162,9 +163,8 @@ struct HermesFirstClassSupportTests {
 
     @Test("User-configured detectors take precedence over the built-in Hermes detector")
     func userDetectorTakesPrecedence() throws {
-        let fixture = try makeFixture(rows: [StateRow("built-in-session", cwd: nil)])
+        let fixture = try makeFixture { [StateRow("built-in-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        try rewriteCwds(in: fixture.stateDB, cwd: fixture.repo.path)
         let builtInRegistry = CmuxVaultAgentRegistry.load(
             homeDirectory: fixture.root.path,
             environment: ["HOME": fixture.root.path],
@@ -212,7 +212,7 @@ struct HermesFirstClassSupportTests {
         let pinnedCLI = root.appendingPathComponent("cmux pinned cli", isDirectory: false)
         try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
-        let socketPath = "/tmp/cmux-debug-hermes-first-class.sock"
+        let socketPath = root.appendingPathComponent("cmux-debug-hermes-first-class.sock").path
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
         let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
         let legacyCommand = #"sh -c 'cmux_cli=cmux; "$cmux_cli" hooks hermes-agent prompt-submit'"#
@@ -289,14 +289,14 @@ struct HermesFirstClassSupportTests {
         let hermesExecutable: String
     }
 
-    private func makeFixture(rows: [StateRow]) throws -> Fixture {
+    private func makeFixture(rows: (URL) -> [StateRow]) throws -> Fixture {
         let root = try temporaryDirectory(prefix: "cmux-hermes-first-class")
         let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
         let repo = root.appendingPathComponent("repo", isDirectory: true)
         try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
-        try writeStateDB(at: stateDB, rows: rows)
+        try writeStateDB(at: stateDB, rows: rows(repo))
         return Fixture(
             root: root,
             hermesHome: hermesHome,
@@ -411,15 +411,6 @@ struct HermesFirstClassSupportTests {
         }
     }
 
-    private func rewriteCwds(in stateDB: URL, cwd: String) throws {
-        var database: OpaquePointer?
-        guard sqlite3_open(stateDB.path, &database) == SQLITE_OK, let database else {
-            throw HermesFirstClassTestError.sqlite("open failed")
-        }
-        defer { sqlite3_close(database) }
-        try execute(database, sql: "UPDATE sessions SET cwd = \(sqlLiteral(cwd));")
-    }
-
     private func execute(_ database: OpaquePointer, sql: String) throws {
         var error: UnsafeMutablePointer<Int8>?
         let result = sqlite3_exec(database, sql, nil, nil, &error)
@@ -447,8 +438,8 @@ struct HermesFirstClassSupportTests {
         process.standardOutput = output
         process.standardError = output
         try process.run()
-        process.waitUntilExit()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return (
             status: process.terminationStatus,
             output: String(data: data, encoding: .utf8) ?? ""
