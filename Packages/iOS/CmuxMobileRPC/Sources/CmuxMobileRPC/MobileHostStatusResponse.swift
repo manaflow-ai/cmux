@@ -25,6 +25,9 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// The Mac app instance's authoritative route tag. `nil` from older Macs
     /// that predate per-instance route authority.
     public let macInstanceTag: String?
+    /// Process-unique epoch for the Mac's terminal-theme revision counter.
+    /// A changed value tells iOS that low revisions belong to a new producer.
+    public let terminalThemeRevisionEpoch: String?
     /// The Mac app's marketing version, for warning-only compatibility checks.
     public let macAppVersion: String?
     /// The Mac app's build number, for warning display.
@@ -42,6 +45,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
         case macInstanceTag = "mac_instance_tag"
+        case terminalThemeRevisionEpoch = "terminal_theme_revision_epoch"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
         case theme
@@ -53,7 +57,9 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+            .map(cmxCanonicalDeviceID)
         macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        terminalThemeRevisionEpoch = try container.decodeIfPresent(String.self, forKey: .terminalThemeRevisionEpoch)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
         // A present-but-malformed `theme` must not fail the whole status decode.

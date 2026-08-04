@@ -15,6 +15,7 @@ struct CompactAttachEndpoint: Codable {
     let rh: String?
     let da: [String]?
     let ru: String?
+    let ph: [CmxIrohPathHint]?
     let u: String?
 
     init(_ endpoint: CmxAttachEndpoint) {
@@ -27,14 +28,19 @@ struct CompactAttachEndpoint: Codable {
             rh = nil
             da = nil
             ru = nil
+            ph = nil
             u = nil
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, _):
             h = nil
             p = nil
-            i = id
-            rh = relayHint
-            da = directAddrs.isEmpty ? nil : directAddrs
-            ru = relayURL
+            i = identity.endpointID
+            // A scannable payload discloses Iroh identity only. Managed relays
+            // are app configuration, online discovery is authenticated, and
+            // first-time offline pairing resolves this EndpointID locally.
+            rh = nil
+            da = nil
+            ru = nil
+            ph = nil
             u = nil
         case let .url(url):
             h = nil
@@ -43,6 +49,7 @@ struct CompactAttachEndpoint: Codable {
             rh = nil
             da = nil
             ru = nil
+            ph = nil
             u = url
         }
     }
@@ -58,7 +65,13 @@ struct CompactAttachEndpoint: Codable {
             guard let i else {
                 throw Self.corruptedEndpoint("peer endpoint requires i")
             }
-            return .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
+            if let ph {
+                return .peer(
+                    identity: try CmxIrohPeerIdentity(endpointID: i),
+                    pathHints: ph
+                )
+            }
+            return try .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
         case "url":
             guard let u else {
                 throw Self.corruptedEndpoint("url endpoint requires u")

@@ -28,8 +28,8 @@ public struct MobileAuthComposition {
     /// development and Release to production, but an ``authEnvironmentOverrideKey``
     /// entry (from `LocalConfig.plist`, or the Info.plist value
     /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
-    /// dev build can run production auth and pair with a release Mac
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
+    /// dev build can test production account behavior. Build compatibility is
+    /// enforced separately and remains exact-tag DEV to DEV. Exposed so the
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
 
@@ -60,7 +60,12 @@ public struct MobileAuthComposition {
 
         let overrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
-            bakedAuthEnvironment: bundle.object(forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey) as? String
+            bakedAuthEnvironment: bundle.object(
+                forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
+            ) as? String,
+            bakedAPIBaseURL: bundle.object(
+                forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey
+            ) as? String
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -176,6 +181,12 @@ public struct MobileAuthComposition {
     /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
     nonisolated static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
 
+    /// The Info.plist key carrying the tagged build's isolated web origin.
+    /// `ios/scripts/reload.sh` bakes the same port used by the matching macOS
+    /// tag so auth, trust-broker, and device routes cannot drift to another
+    /// agent's localhost server.
+    nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
@@ -183,13 +194,20 @@ public struct MobileAuthComposition {
     /// `$(CMUX_IOS_AUTH_ENV)` expansion in a normal build contributes nothing.
     nonisolated static func authOverrides(
         localConfig: [String: String],
-        bakedAuthEnvironment: String?
+        bakedAuthEnvironment: String?,
+        bakedAPIBaseURL: String? = nil
     ) -> [String: String] {
         var overrides = localConfig
         if overrides[authEnvironmentOverrideKey] == nil,
            let baked = bakedAuthEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
            !baked.isEmpty {
             overrides[authEnvironmentOverrideKey] = baked
+        }
+        if overrides["ApiBaseURL"] == nil,
+           let baked = bakedAPIBaseURL?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !baked.isEmpty {
+            overrides["ApiBaseURL"] = baked
         }
         return overrides
     }

@@ -16,10 +16,9 @@ import SwiftUI
 /// inspects an in-flight pairing. It only reads durable signals (signed in,
 /// known paired Mac) to pick which gate to highlight, and renders static
 /// guidance for each of the four setup gates classified by
-/// ``MobileSetupGuidancePolicy``. The honest network section states the real
-/// constraint: QR pairing needs Tailscale on the Mac, and same-Wi-Fi without
-/// Tailscale only works by typing the Mac's local address by hand over an
-/// unencrypted link.
+/// ``MobileSetupGuidancePolicy``. The network section explains Iroh's default
+/// direct-or-relay path and keeps Tailscale and other private networks as
+/// optional fallbacks.
 struct SetupHelpView: View {
     /// The gate to emphasize, or `nil` when the user has no current blocker (for
     /// example Settings opened while connected). When set, that gate floats to the
@@ -30,8 +29,7 @@ struct SetupHelpView: View {
     /// Optional dismiss for sheet presentation. `nil` when pushed onto a stack.
     let onDone: (() -> Void)?
 
-    /// Tailscale install page (App Store entry plus per-platform downloads). Used
-    /// for both the phone and the Mac since the page links every platform.
+    /// Optional Tailscale setup links for private-network fallback.
     private static let tailscaleURL = URL(string: "https://tailscale.com/download")!
     /// Tailscale on the App Store, for the phone-side install step.
     private static let tailscaleAppStoreURL = URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!
@@ -75,11 +73,11 @@ struct SetupHelpView: View {
             Text(highlight == nil
                 ? L10n.string(
                     "mobile.setupHelp.introReference",
-                    defaultValue: "To see your computer's terminals here, four things have to line up."
+                    defaultValue: "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. Connection is automatic after that."
                 )
                 : L10n.string(
                     "mobile.setupHelp.intro",
-                    defaultValue: "To see your computer's terminals here, four things have to line up. The step you are on is marked below."
+                    defaultValue: "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. The step you are on is marked below."
                 ))
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -126,7 +124,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+                    defaultValue: "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -134,7 +132,7 @@ struct SetupHelpView: View {
 
                 Link(destination: Self.tailscaleAppStoreURL) {
                     Label(
-                        L10n.string("mobile.setupHelp.tailscaleAppStore", defaultValue: "Get Tailscale for iPhone"),
+                        L10n.string("mobile.setupHelp.tailscaleAppStore", defaultValue: "Optional: Tailscale for iPhone"),
                         systemImage: "arrow.up.right.square"
                     )
                     .font(.callout.weight(.medium))
@@ -143,7 +141,7 @@ struct SetupHelpView: View {
 
                 Link(destination: Self.tailscaleURL) {
                     Label(
-                        L10n.string("mobile.setupHelp.tailscaleMac", defaultValue: "Set up Tailscale on the computer"),
+                        L10n.string("mobile.setupHelp.tailscaleMac", defaultValue: "Optional: Tailscale for the computer"),
                         systemImage: "arrow.up.right.square"
                     )
                     .font(.callout.weight(.medium))
@@ -152,7 +150,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
+                    defaultValue: "If both devices are on Tailscale, another VPN, or the same network, cmux can use it as a faster direct path. The connection stays encrypted and verified either way."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -164,12 +162,12 @@ struct SetupHelpView: View {
             HStack(spacing: 8) {
                 Image(systemName: "lock.laptopcomputer")
                     .foregroundStyle(.tint)
-                Text(L10n.string("mobile.setupHelp.networkTitle", defaultValue: "Get them on the same network"))
+                Text(L10n.string("mobile.setupHelp.networkTitle", defaultValue: "How it connects"))
             }
         } footer: {
             Text(L10n.string(
                 "mobile.setupHelp.sameAccountFooter",
-                defaultValue: "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+                defaultValue: "Both devices must be signed in to the same cmux account. A private network never replaces that check."
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")

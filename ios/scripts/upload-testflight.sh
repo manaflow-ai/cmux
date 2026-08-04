@@ -127,6 +127,108 @@ verify_ipa_bundle_identity() {
   return 0
 }
 
+# App Store Connect rejects embedded iOS frameworks whose bundle metadata omits
+# MinimumOSVersion (90530/90360). Validate the final IPA, after export and any
+# re-sign, so a malformed binary Swift package fails here with its framework
+# name instead of after a slow upload.
+verify_ipa_framework_minimum_os_versions() {
+  local ipa="$1"
+  local workdir app framework plist minimum framework_name major
+
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  while IFS= read -r -d '' framework; do
+    framework_name="$(basename "$framework")"
+    # ASC validates the framework BINARY, not just Info.plist: an embedded
+    # framework whose executable is a static archive, a stripped-out shell
+    # (Info.plist with no binary — Xcode's export processing leaves these
+    # behind for static SPM binaryTargets), or any other non-dylib blob is
+    # rejected in processing (ITMS-90208) even when its Info.plist declares
+    # MinimumOSVersion. The manual re-sign path strips those, so reaching
+    # this check with one still embedded is a hard error: an embedded
+    # framework must be a dynamically linked Mach-O, full stop.
+    framework_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$framework/Info.plist" 2>/dev/null || basename "$framework" .framework)"
+    framework_binary="$framework/$framework_exec_name"
+    if [[ ! -f "$framework_binary" ]]; then
+      echo "error: $framework_name is embedded in the app bundle but has no executable ($framework_exec_name); ASC rejects invalid framework shells (ITMS-90208). Strip it from Frameworks/." >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if ! file -b "$framework_binary" | grep -q 'dynamically linked shared library'; then
+      echo "error: $framework_name is embedded in the app bundle but its executable is not a dynamic library ($(file -b "$framework_binary")); ASC rejects this (ITMS-90208). Strip it from Frameworks/ (static code is already linked into the app executable)." >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    plist="$framework/Info.plist"
+    if [[ ! -f "$plist" ]]; then
+      echo "error: $framework_name is missing Info.plist" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    minimum="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$plist" 2>/dev/null || true)"
+    if [[ -z "$minimum" ]]; then
+      echo "error: $framework_name is missing MinimumOSVersion" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if [[ ! "$minimum" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+      echo "error: $framework_name has invalid MinimumOSVersion '$minimum'" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    major="${minimum%%.*}"
+    if (( major < 8 )); then
+      echo "error: $framework_name MinimumOSVersion '$minimum' must be 8.0 or later" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    # The plist must not claim a LOWER minimum than the binary actually
+    # supports: ASC rejects that internal inconsistency as ITMS-90208 ("the
+    # bundle does not support the minimum OS Version specified in the
+    # Info.plist"). This is exactly how Xcode-synthesized dylibs for static
+    # SPM binaryTargets shipped broken (binary minos = app deployment target,
+    # plist copied from the xcframework).
+    binary_minos="$(xcrun vtool -show-build "$framework_binary" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+    if [[ -n "$binary_minos" && "$binary_minos" != "$minimum" ]]; then
+      lowest="$(printf '%s\n%s\n' "$minimum" "$binary_minos" | sort -V | head -n 1)"
+      if [[ "$lowest" == "$minimum" ]]; then
+        echo "error: $framework_name Info.plist MinimumOSVersion '$minimum' is lower than its binary's minos '$binary_minos'; ASC rejects this (ITMS-90208)" >&2
+        rm -rf "$workdir"
+        return 1
+      fi
+    fi
+  done < <(find "$app" -type d -name '*.framework' -print0)
+
+  rm -rf "$workdir"
+  return 0
+}
+
+# App Store Connect symbolicates TestFlight/App Store crashes from the
+# .symbols files that an app-store-connect export places in the IPA's
+# top-level Symbols/ directory (extracted from the archive's dSYMs when the
+# export options carry uploadSymbols=YES). Without them ASC reports "No dSYM
+# files available" and every crash arrives as raw `cmux + offset` frames.
+# Check the IPA that actually ships: a re-zip that packs only Payload/
+# silently drops Symbols/, which is exactly how every beta through build
+# 20260730090940 shipped unsymbolicatable.
+verify_ipa_contains_app_symbols() {
+  local ipa="$1"
+  # No `grep -q` here: under `set -o pipefail`, -q's early exit can kill
+  # zipinfo with SIGPIPE and fail a VALID IPA. Plain grep drains its input.
+  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/[^/]*\.symbols$' >/dev/null
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -235,9 +337,10 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the selected
-                            external beta group (single external group by
-                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            also assigns the processed build to the Founder's
+                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
+                            _NAME) and the Pro group
+                            (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
                             Also set via
@@ -251,8 +354,8 @@ Options:
                             CMUX_TESTFLIGHT_SKIP_NOTES=1.
   --notes-from-range <base> Auto-generate the "What to Test" notes from the
                             iOS-affecting commits in <base>..HEAD instead of the
-                            ios/CHANGELOG.md top entry (used by the every-2h beta
-                            lane so each build's notes reflect what changed since
+                            ios/CHANGELOG.md top entry (used by the every-main-push
+                            beta lane so each build's notes reflect what changed since
                             the previous beta for the selected audience). Skips
                             the changelog preflight and version-match guard.
   --auto-version            Stamp the beta build's MARKETING_VERSION at archive time
@@ -344,10 +447,9 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
-# Whether this invocation should assign an uploaded external build to the
-# external beta group itself. The scheduled GitHub Actions lane disables this and
-# runs assignment in a separate post-upload job so a distribution failure cannot
-# cause duplicate uploads of the same SHA on the next schedule.
+# Whether this invocation should assign an uploaded external build to its
+# subscriber groups. Internal-only automation disables this; manual external
+# cuts keep assignment inline after upload.
 ASSIGN_EXTERNAL_GROUP=1
 if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
   ASSIGN_EXTERNAL_GROUP=0
@@ -361,7 +463,7 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-main-push beta
 # lane so each build's notes reflect what actually changed since the previous
 # beta for whichever audience is being shipped. When set, the changelog
 # preflight + version-match guard are skipped (the notes no longer come from the
@@ -430,7 +532,7 @@ done
 
 case "$LANE" in
   beta)
-    PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.beta"
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}"
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     CRASH_REPORTING_ENABLED="YES"
@@ -584,6 +686,17 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+fi
+
+# An external lane is incomplete unless the uploaded build is assigned to both
+# subscriber groups and submitted for Beta App Review when required. Validate
+# the credentials before archiving so a missing key cannot leave an uploaded but
+# undistributed build behind.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: external TestFlight distribution requires configured App Store Connect credentials for subscriber-group assignment and Beta App Review. Configure the external distribution credentials before rerunning the external lane." >&2
+    exit 2
+  fi
 fi
 
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
@@ -802,6 +915,18 @@ if [[ "$ARCHIVE_MARKETING_VERSION" != "$EXPECTED_MARKETING_VERSION" ]]; then
   exit 1
 fi
 
+# The archive's dSYMs are the source of both symbol paths for this build: the
+# Symbols/ files the export embeds in the IPA for App Store Connect crash
+# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# local symbolication after ASC's copy is unavailable. An archive without
+# dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
+# download) would ship a build whose crashes can never be symbolicated by
+# anyone, so fail before the expensive export.
+if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 2>/dev/null | grep -q .; then
+  echo "error: archive has no dSYM bundles at $ARCHIVE_PATH/dSYMs; crashes for this build could never be symbolicated. Archive Release with DEBUG_INFORMATION_FORMAT=dwarf-with-dsym (or re-fetch the archive if it was downloaded)." >&2
+  exit 1
+fi
+
 # Now that the archive exists, its marketing version (CFBundleShortVersionString)
 # is the version testers will see. Re-run the notes preflight WITH that version so
 # a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
@@ -940,6 +1065,73 @@ if [[ "$SIGNING" == "manual" ]]; then
     exit 1
   fi
 
+  # Xcode embeds SPM binaryTarget frameworks into Frameworks/ even when the
+  # framework's binary is a STATIC archive (ar), e.g. iroh-ffi's Iroh.framework.
+  # The linker already folded that code into the app executable, so the embedded
+  # copy is inert — and App Store Connect rejects it in processing with
+  # ITMS-90208 regardless of the app's deployment target or the framework's
+  # Info.plist. Depending on the Xcode version, export-time distribution
+  # processing may also strip the static executable and leave an INVALID SHELL
+  # (Info.plist with no binary), which ASC rejects the same way; build
+  # 20260716043221 shipped exactly that past an ar-archive-only check here.
+  # So the keep policy is a whitelist, not a blacklist: an embedded framework
+  # stays ONLY if its executable exists and is a dynamically linked Mach-O.
+  # Everything else is stripped, gated on the app executable not referencing
+  # the framework in its dynamic load commands. Every framework's state is
+  # logged first so a future ASC rejection comes with ground truth.
+  RESIGN_APP_EXECUTABLE="$RESIGN_APP/$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$RESIGN_APP/Info.plist")"
+  if [[ -d "$RESIGN_APP/Frameworks" ]]; then
+    echo "embedded Frameworks/ contents before static-framework strip:"
+    find "$RESIGN_APP/Frameworks" -maxdepth 2 -print | sed "s|$RESIGN_APP/||"
+  fi
+  while IFS= read -r -d '' embedded_fw; do
+    embedded_fw_name="$(basename "$embedded_fw" .framework)"
+    embedded_fw_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$embedded_fw/Info.plist" 2>/dev/null || echo "$embedded_fw_name")"
+    embedded_fw_bin="$embedded_fw/$embedded_fw_exec_name"
+    if [[ -f "$embedded_fw_bin" ]]; then
+      embedded_fw_kind="$(file -b "$embedded_fw_bin")"
+    else
+      embedded_fw_kind="<executable missing>"
+    fi
+    echo "embedded framework ${embedded_fw_name}.framework binary: $embedded_fw_kind"
+    if [[ "$embedded_fw_kind" == *"dynamically linked shared library"* ]]; then
+      # ROOT CAUSE of the ITMS-90208 rejections (proven by build
+      # 20260716050845's diagnostics): Xcode synthesizes the embedded dylib
+      # for a static SPM binaryTarget at build time and stamps it with the
+      # APP's deployment target (minos 18.4), but copies the xcframework's
+      # Info.plist unchanged (MinimumOSVersion 17.5). ASC rejects the
+      # internally inconsistent bundle: its binary cannot run on the minimum
+      # OS its own Info.plist declares. Reconcile the plist to the binary's
+      # actual minos, then re-sign the framework (its seal covers Info.plist);
+      # the app itself is force-re-signed right after this block.
+      embedded_fw_minos="$(xcrun vtool -show-build "$embedded_fw_bin" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+      embedded_fw_plist_min="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$embedded_fw/Info.plist" 2>/dev/null || true)"
+      echo "embedded framework ${embedded_fw_name}.framework: binary minos=${embedded_fw_minos:-<none>} Info.plist MinimumOSVersion=${embedded_fw_plist_min:-<absent>}"
+      if [[ -n "$embedded_fw_minos" ]]; then
+        embedded_fw_lowest="$(printf '%s\n%s\n' "${embedded_fw_plist_min:-0}" "$embedded_fw_minos" | sort -V | head -n 1)"
+        if [[ -z "$embedded_fw_plist_min" || ( "$embedded_fw_plist_min" != "$embedded_fw_minos" && "$embedded_fw_lowest" == "$embedded_fw_plist_min" ) ]]; then
+          echo "reconciling ${embedded_fw_name}.framework Info.plist MinimumOSVersion ${embedded_fw_plist_min:-<absent>} -> $embedded_fw_minos (must match the binary or ASC rejects with ITMS-90208)"
+          if [[ -z "$embedded_fw_plist_min" ]]; then
+            "$PLISTBUDDY" -c "Add :MinimumOSVersion string $embedded_fw_minos" "$embedded_fw/Info.plist"
+          else
+            "$PLISTBUDDY" -c "Set :MinimumOSVersion $embedded_fw_minos" "$embedded_fw/Info.plist"
+          fi
+          codesign --force --sign "$RESIGN_IDENTITY" --timestamp "$embedded_fw"
+        fi
+      fi
+      continue
+    fi
+    if otool -L "$RESIGN_APP_EXECUTABLE" | grep -qF "/${embedded_fw_name}.framework/"; then
+      echo "error: app executable dynamically links ${embedded_fw_name}.framework but the embedded copy is not a valid dynamic library ($embedded_fw_kind); refusing to strip or upload" >&2
+      exit 1
+    fi
+    echo "stripping embedded framework without a valid dynamic-library executable ($embedded_fw_kind); its code is statically linked into the app executable and ASC rejects the leftover bundle (ITMS-90208): Frameworks/${embedded_fw_name}.framework"
+    rm -rf "$embedded_fw"
+  done < <(find "$RESIGN_APP/Frameworks" -maxdepth 1 -type d -name '*.framework' -print0 2>/dev/null)
+  # An empty Frameworks/ dir after stripping is pointless; remove it so the
+  # bundle matches the historical no-Frameworks layout.
+  rmdir "$RESIGN_APP/Frameworks" 2>/dev/null || true
+
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
   # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
@@ -1005,11 +1197,24 @@ PY
   fi
   codesign --verify --strict --verbose=2 "$RESIGN_APP"
 
-  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
-  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  # Re-zip with the exact IPA layout and repoint $IPA_PATH so the existing
+  # upload step ships the re-signed IPA. Payload/ is not the only top-level
+  # member that matters: the export also produced Symbols/ (the .symbols files
+  # App Store Connect needs to symbolicate crash reports) and may produce
+  # SwiftSupport/. A Payload-only re-zip shipped every beta without symbols
+  # ("No dSYM files available" on ASC), so pack every Apple package directory
+  # the export put in the IPA. The include list stays explicit because this
+  # script also writes loose entitlements/profile plists into $RESIGN_DIR that
+  # must never ship.
   RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
   rm -f "$RESIGNED_IPA"
-  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$RESIGN_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" "${IPA_MEMBERS[@]}" )
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
   # silently, and the whole point is that aps-environment survives. Re-verify the
@@ -1047,6 +1252,18 @@ else
   fi
   echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
+
+if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
+  echo "error: signed IPA contains invalid framework deployment metadata; refusing to upload" >&2
+  exit 1
+fi
+echo "signed IPA framework deployment metadata verified"
+
+if ! verify_ipa_contains_app_symbols "$IPA_PATH"; then
+  echo "error: final IPA carries no Symbols/*.symbols, so App Store Connect would report 'No dSYM files available' and every crash for this build would be unsymbolicatable; refusing to upload. The export must run with uploadSymbols=YES against an archive that has dSYMs, and any re-zip must preserve the Symbols/ directory." >&2
+  exit 1
+fi
+echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash symbolication)"
 
 echo "IPA_PATH=$IPA_PATH"
 
@@ -1308,24 +1525,32 @@ else
   fi
 fi
 
-# --external means "ship to founders", not merely "make this build externally
-# eligible in principle". After upload, assign the processed build to the app's
-# external beta group so external testers actually receive it, and create the
-# Beta App Review submission when Apple requires one for a new
-# beta marketing version. This is fatal: a red CI/upload is preferable to
-# claiming the external lane tracked main when the build never reached the
-# founders lane.
+# --external means "ship to subscribers", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the
+# Founder's Edition and Pro beta groups so both audiences receive it, and create
+# the Beta App Review submission when Apple requires one for a new beta marketing
+# version. This is fatal: a red CI/upload is preferable to claiming the external
+# lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
-    exit 0
+    echo "error: App Store Connect credentials are unavailable; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Configure the external distribution credentials, then rerun the external lane." >&2
+    exit 1
   fi
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  EXTERNAL_GROUP_SELECTOR=()
+  if [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-id "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID" )
+  elif [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" ]]; then
+    EXTERNAL_GROUP_SELECTOR=( --group-name "$CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME" )
+  else
+    EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
+  fi
+  PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
-    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-      --build-number "$SHIPPED_BUILD_NUMBER"
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi

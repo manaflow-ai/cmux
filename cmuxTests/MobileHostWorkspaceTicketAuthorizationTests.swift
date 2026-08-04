@@ -10,6 +10,8 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostWorkspaceTicketAuthorizationTests {
+    private let endpointID = String(repeating: "a", count: 64)
+
     private func loopbackRoute() throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
@@ -32,6 +34,30 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
+    private func irohRoute(withPathHint: Bool = true) throws -> CmxAttachRoute {
+        let pathHints = if withPathHint {
+            [
+                try CmxIrohPathHint(
+                    kind: .relayURL,
+                    value: "https://relay.should-not-leak.example/",
+                    source: .native,
+                    privacyScope: .publicInternet
+                ),
+            ]
+        } else {
+            [CmxIrohPathHint]()
+        }
+        return try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: endpointID),
+                pathHints: pathHints
+            ),
+            priority: 5
+        )
+    }
+
     private func compactTicket(from attachURL: String) throws -> CmxAttachTicket {
         let components = try #require(URLComponents(string: attachURL))
         var encoded = try #require(
@@ -44,14 +70,72 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
-    @Test func attachTargetsSelectOnlyRoutesValidForTheirDestination() throws {
+    @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
-        let routes = [loopback, tailscale]
+        let iroh = try irohRoute()
+        let sanitizedIroh = try irohRoute(withPathHint: false)
+        let routes = [loopback, tailscale, iroh]
 
-        #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [loopback])
-        #expect(try MobileAttachTarget.physicalDevice.selectRoutes(from: routes) == [tailscale])
+        #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [sanitizedIroh])
+        #expect(try MobileAttachTarget.physicalDevice.selectRoutes(from: routes) == [sanitizedIroh])
         #expect(try MobileAttachTarget.ticketOnly.selectRoutes(from: routes) == routes)
+        #expect(
+            try MobileAttachTarget.simulatorInjection.selectRoutes(from: [loopback, tailscale])
+                == [loopback]
+        )
+        #expect(
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: [loopback, tailscale])
+                == [tailscale]
+        )
+    }
+
+    @Test func endpointIDOnlyIrohAttachURLsAreLosslessAndCarryNoSecretOrPathHint() throws {
+        let store = MobileAttachTicketStore()
+        let originalRoute = try irohRoute()
+
+        for target in [MobileAttachTarget.simulatorInjection, .physicalDevice] {
+            let selectedRoutes = try target.selectRoutes(from: [
+                try loopbackRoute(),
+                try tailscaleRoute(),
+                originalRoute,
+            ])
+            let ticket = try store.createTicket(
+                workspaceID: "",
+                terminalID: nil,
+                routes: selectedRoutes,
+                ttl: 3600
+            )
+
+            let payload = try store.payload(for: ticket, target: target)
+            let attachURL = try #require(payload["attach_url"] as? String)
+            let decoded: CmxAttachTicket
+            switch target {
+            case .simulatorInjection:
+                #expect(attachURL.contains("?v=1&payload="))
+                decoded = try compactTicket(from: attachURL)
+            case .physicalDevice:
+                #expect(attachURL.contains("?v=3&i="))
+                #expect(!attachURL.contains("payload="))
+                let components = try #require(URLComponents(string: attachURL))
+                decoded = try CmxPairingQRCode().decode(components)
+            case .ticketOnly:
+                Issue.record("Ticket-only target does not produce an attach URL")
+                continue
+            }
+            let authToken = try #require(ticket.authToken)
+            #expect(decoded.routes.count == selectedRoutes.count)
+            #expect(decoded.routes.first?.endpoint == selectedRoutes.first?.endpoint)
+            #expect(decoded.authToken == nil)
+            #expect(!attachURL.contains("relay.should-not-leak.example"))
+            #expect(!attachURL.contains(authToken))
+            guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
+                Issue.record("Expected an EndpointID-only Iroh attach route")
+                continue
+            }
+            #expect(identity.endpointID == endpointID)
+            #expect(pathHints.isEmpty)
+        }
     }
 
     @Test func emptyHostRoutesPreserveNoRoutesBeforeTargetFiltering() {
@@ -60,7 +144,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
-    @Test func simulatorInjectionPayloadIsLosslessV1WithLoopbackToken() throws {
+    @Test func simulatorInjectionPayloadIsLosslessV1WithoutBearerToken() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
             workspaceID: "",
@@ -74,7 +158,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(attachURL.contains("?v=1&payload="))
         let decoded = try compactTicket(from: attachURL)
         #expect(decoded.routes == ticket.routes)
-        #expect(decoded.authToken == ticket.authToken)
+        #expect(decoded.authToken == nil)
     }
 
     @Test func physicalDevicePayloadIsV2WithExactTailscaleRoutes() throws {
@@ -239,6 +323,53 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             )
             let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
             #expect(error?.code == testCase.expectedCode)
+        }
+    }
+
+    @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+        let requests = [
+            MobileHostRPCRequest(
+                id: "feed-list",
+                method: "notification.feed.list",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-read",
+                method: "notification.feed.mark_read",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-unread",
+                method: "notification.feed.mark_unread",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-all",
+                method: "notification.feed.mark_all_read",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-events",
+                method: "mobile.events.subscribe",
+                params: ["topics": ["notification.feed.changed"]],
+                auth: nil
+            ),
+        ]
+
+        for request in requests {
+            #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: macWideTicket,
+                    request: request
+                ) == nil
+            )
         }
     }
 

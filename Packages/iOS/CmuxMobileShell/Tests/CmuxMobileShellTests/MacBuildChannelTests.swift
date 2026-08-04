@@ -24,8 +24,20 @@ struct MacBuildChannelTests {
         #expect(MacBuildChannel().label(bundleID: "com.cmuxterm.app.rc.candidate1", tag: nil) == "RC")
     }
 
+    @Test func canonicalTagIdentifiesAppWithoutLivePresenceBundleMetadata() {
+        let channel = MacBuildChannel()
+
+        #expect(channel.label(bundleID: nil, tag: "default") == "Stable")
+        #expect(channel.label(bundleID: nil, tag: "nightly") == "Nightly")
+        #expect(channel.label(bundleID: nil, tag: "staging") == "Staging")
+        #expect(channel.label(bundleID: nil, tag: "rc") == "RC")
+        #expect(channel.label(bundleID: nil, tag: "future-one") == "DEV · future-one")
+        #expect(channel.appDisplayName(bundleID: nil, tag: "default") == "cmux")
+        #expect(channel.appDisplayName(bundleID: nil, tag: "nightly") == "cmux Nightly")
+        #expect(channel.appDisplayName(bundleID: nil, tag: "future-one") == "cmux DEV future-one")
+    }
+
     @Test func nilWhenNotIdentifiable() {
-        #expect(MacBuildChannel().label(bundleID: nil, tag: "default") == nil)
         #expect(MacBuildChannel().label(bundleID: nil, tag: nil) == nil)
         #expect(MacBuildChannel().label(bundleID: "com.example.other", tag: "default") == nil)
         // Unknown future channel component is not guessed at.

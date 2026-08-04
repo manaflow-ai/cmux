@@ -310,7 +310,7 @@ private final class SettingsNavigationTargetRecorder: NSObject {
 /// `SettingsWindowRoot.sidebarToggleRequestName`) so the test target does not
 /// depend on package-symbol visibility, which differs across toolchains.
 @MainActor
-private final class SettingsSidebarToggleRecorder: NSObject {
+final class SettingsSidebarToggleRecorder: NSObject {
     private(set) var receivedCount = 0
 
     override init() {

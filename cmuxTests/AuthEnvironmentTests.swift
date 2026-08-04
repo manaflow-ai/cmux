@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -9,6 +10,80 @@ import Testing
 
 @Suite("Auth environment")
 struct AuthEnvironmentTests {
+    @Test("macOS production auth override selects the production Stack project")
+    func macOSProductionAuthOverrideSelectsProductionStackProject() {
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": " production "],
+            isDebugBuild: true
+        ) == .production)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: true
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: true
+        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
+    }
+
+    @Test("invalid macOS auth override fails toward the build channel")
+    func invalidMacOSAuthOverrideFailsTowardBuildChannel() {
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "staging"],
+            isDebugBuild: true
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "staging"],
+            isDebugBuild: false
+        ) == .production)
+    }
+
+    @Test("explicit Stack values override the selected auth channel")
+    func explicitStackValuesOverrideSelectedAuthChannel() {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_STACK_PROJECT_ID": "test-project",
+            "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "test-key",
+        ]
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: true
+        ) == "test-project")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: true
+        ) == "test-key")
+    }
+
+    @Test("Iroh broker uses shared staging in debug without moving other APIs")
+    func irohBrokerUsesSharedStagingInDebugWithoutMovingOtherAPIs() {
+        let defaultURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_VM_API_BASE_URL": "http://localhost:9450"],
+            isDebugBuild: true
+        )
+        #expect(defaultURL?.absoluteString == "https://cmux-staging.vercel.app")
+
+        let overrideURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_IROH_BROKER_BASE_URL": "https://broker.example.test/root/",
+                "CMUX_VM_API_BASE_URL": "http://localhost:9450",
+            ],
+            isDebugBuild: true
+        )
+        #expect(overrideURL?.absoluteString == "https://broker.example.test/root/")
+
+        let releaseURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false
+        )
+        #expect(releaseURL?.absoluteString == "https://cmux.com")
+
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_IROH_BROKER_BASE_URL": ":// malformed"],
+            isDebugBuild: true
+        ) == nil)
+    }
+
     @Test("debug callback scheme uses sanitized tag")
     func debugCallbackSchemeUsesSanitizedTag() {
         #expect(
@@ -234,6 +309,122 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.host == "localhost")
         #expect(appProWelcomeURL.port == 9210)
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
+    }
+
+    @MainActor
+    @Test("app web URLs carry the Ghostty colors and cmux product accent")
+    func appWebURLsCarryGhosttyColorsAndCmuxProductAccent() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?interval=year&accent=%23000000"))
+        let theme = AppWebThemeSnapshot(
+            appearance: "dark",
+            background: "#112233",
+            foreground: "#DDEEFF",
+            accent: "#0091FF"
+        )
+
+        let url = ProUpgradePresenter.decoratedAppWebURL(base, theme: theme)
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let values = Dictionary(uniqueKeysWithValues: query.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        #expect(values["interval"] == "year")
+        #expect(values["appearance"] == "dark")
+        #expect(values["background"] == "#112233")
+        #expect(values["foreground"] == "#DDEEFF")
+        #expect(values["accent"] == "#0091FF")
+        #expect(values["accent_on_background"] == theme.accentOnBackground)
+        #expect(values["accent_on_foreground"] == theme.accentOnForeground)
+        #expect(values["cmux_app"] == "1")
+    }
+
+    @MainActor
+    @Test("app web appearance and product accent follow the Ghostty background")
+    func appWebAppearanceAndProductAccentFollowGhosttyBackground() throws {
+        let darkSnapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#101010")),
+            foregroundColor: try #require(NSColor(hex: "#F0F0F0"))
+        )
+        let lightSnapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#F0F0F0")),
+            foregroundColor: try #require(NSColor(hex: "#101010"))
+        )
+
+        #expect(darkSnapshot.appearance == "dark")
+        #expect(darkSnapshot.background == "#101010")
+        #expect(darkSnapshot.foreground == "#F0F0F0")
+        #expect(darkSnapshot.accent == "#0091FF")
+        #expect(lightSnapshot.appearance == "light")
+        #expect(lightSnapshot.background == "#F0F0F0")
+        #expect(lightSnapshot.foreground == "#101010")
+        #expect(lightSnapshot.accent == "#0088FF")
+        #expect(darkSnapshot.accentOnBackground == "#0091FF")
+        #expect(darkSnapshot.accentOnForeground != darkSnapshot.accent)
+        #expect(lightSnapshot.accentOnBackground != lightSnapshot.accent)
+        #expect(lightSnapshot.accentOnForeground == "#0088FF")
+    }
+
+    @MainActor
+    @Test("app web theme serializes translucent native colors as opaque RGB")
+    func appWebThemeSerializesTranslucentNativeColorsAsOpaqueRGB() {
+        let snapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: NSColor(
+                srgbRed: 17.0 / 255.0,
+                green: 34.0 / 255.0,
+                blue: 51.0 / 255.0,
+                alpha: 0.25
+            ),
+            foregroundColor: NSColor(
+                srgbRed: 221.0 / 255.0,
+                green: 238.0 / 255.0,
+                blue: 255.0 / 255.0,
+                alpha: 0.5
+            )
+        )
+
+        #expect(snapshot.background == "#112233")
+        #expect(snapshot.foreground == "#DDEEFF")
+    }
+
+    @MainActor
+    @Test("app web theme JavaScript updates every shared theme variable")
+    func appWebThemeJavaScriptUpdatesEverySharedThemeVariable() throws {
+        let theme = AppWebThemeSnapshot(
+            appearance: "light",
+            background: "#FAFAFA",
+            foreground: "#171717",
+            accent: "#0088FF"
+        )
+        let browserTheme = theme.browserTheme
+        let script = try #require(browserTheme.applyingJavaScript())
+
+        #expect(script.contains("[data-cmux-app-theme]"))
+        #expect(script.contains("--ghostty-background"))
+        #expect(script.contains("--ghostty-foreground"))
+        #expect(script.contains("--cmux-product-blue"))
+        #expect(script.contains("--cmux-product-blue-on-background"))
+        #expect(script.contains("--cmux-product-blue-on-foreground"))
+    }
+
+    @Test("app session handoff pins credentials to production or debug loopback")
+    func appSessionHandoffPinsCredentialOrigin() {
+        let production = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: false
+        )
+        #expect(production.absoluteString == "https://cmux.com")
+
+        let rejectedDebugRemote = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_AUTH_WWW_ORIGIN": "https://attacker.example"],
+            isDebugBuild: true
+        )
+        #expect(rejectedDebugRemote.absoluteString == "https://cmux.com")
+
+        let debugLoopback = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: ["CMUX_WWW_ORIGIN": "http://127.0.0.1:4347"],
+            isDebugBuild: true
+        )
+        #expect(debugLoopback.absoluteString == "http://localhost:4347")
     }
 
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")

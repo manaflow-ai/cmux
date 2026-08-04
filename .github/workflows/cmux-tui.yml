@@ -1,17 +1,8 @@
 name: cmux-tui
 
 on:
-  pull_request:
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - ".github/workflows/cmux-tui.yml"
-  push:
-    branches: [main]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - ".github/workflows/cmux-tui.yml"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  workflow_dispatch:
 
 concurrency:
   group: cmux-tui-${{ github.workflow }}-${{ github.ref }}
@@ -115,6 +106,14 @@ jobs:
 
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
+        env:
+          # Valgrind's ~30x slowdown breaks the 50ms ws-latency budget on an
+          # otherwise-correct build; the guarded regression (events serialized
+          # behind a 100ms read poll) inflates far past this bound anyway.
+          CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
+          # Process-exit and PTY-reader tests also use bounded polling. Keep
+          # their normal deadlines strict while allowing for instrumentation.
+          CMUX_TEST_TIMEOUT_SCALE: "4"
         run: |
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
@@ -173,6 +172,10 @@ jobs:
       - name: cargo test
         working-directory: cmux-tui
         run: cargo test --workspace --locked
+
+      - name: crossterm parser tests
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
         working-directory: cmux-tui
@@ -240,10 +243,17 @@ jobs:
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install Rust GNU target
         shell: bash

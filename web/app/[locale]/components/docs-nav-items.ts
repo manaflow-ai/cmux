@@ -1,5 +1,9 @@
 import type { Locale } from "../../../i18n/routing";
 import {
+  docsPathAvailableInChannel,
+  type DocsChannel,
+} from "@/app/lib/docs-channel";
+import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
@@ -25,19 +29,23 @@ export function flatNavItems(entries: NavEntry[]): NavLink[] {
   return entries.flatMap((e) => (isSection(e) ? e.children : [e]));
 }
 
-function isLinkVisible(item: NavLink, locale: string): boolean {
-  return !item.locales || item.locales.includes(locale as Locale);
+function isLinkVisible(item: NavLink, locale: string, channel: DocsChannel): boolean {
+  return docsPathAvailableInChannel(channel, item.href)
+    && (!item.locales || item.locales.includes(locale as Locale));
 }
 
-export function navItemsForLocale(locale: string): NavEntry[] {
+export function navItemsForLocale(
+  locale: string,
+  channel: DocsChannel = "release",
+): NavEntry[] {
   const entries: NavEntry[] = [];
   for (const entry of navItems) {
     if (!isSection(entry)) {
-      if (isLinkVisible(entry, locale)) entries.push(entry);
+      if (isLinkVisible(entry, locale, channel)) entries.push(entry);
       continue;
     }
     const children = entry.children.filter((child) =>
-      isLinkVisible(child, locale)
+      isLinkVisible(child, locale, channel)
     );
     if (children.length > 0) entries.push({ ...entry, children });
   }
@@ -58,6 +66,12 @@ export function hasNavItemContent(item: NavLink, locale: string): boolean {
 
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
+  {
+    titleKey: "tui",
+    href: "/docs/tui",
+    locales: fallbackContentLocales,
+    contentLocales: fallbackContentLocales,
+  },
   { titleKey: "concepts", href: "/docs/concepts" },
   { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },

@@ -4,6 +4,108 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite(.serialized) struct MobileCoreRPCConnectWaiterTests {
+    @Test func successfulConnectNeverPublishesHalfInstalledWriterState() async throws {
+        let arrivals = ConnectedCandidateBarrier(expectedCount: 2)
+        let transport = ReleasableConnectTransport()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            didReceiveConnectedCandidate: { _ in
+                await arrivals.arrive()
+            }
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "first-install-waiter"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "second-install-waiter"
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "first-install-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(await transport.waitUntilConnectStarted())
+        let secondTask = Task {
+            try await session.send(
+                payload: second,
+                requestID: "second-install-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        await transport.releaseConnect()
+
+        do {
+            _ = try await secondTask.value
+            _ = try await firstTask.value
+        } catch {
+            firstTask.cancel()
+            _ = try? await firstTask.value
+            throw error
+        }
+
+        #expect(!(await transport.closed()))
+        #expect(try await Set(transport.sentRequests().compactMap(\.id)) == [
+            "first-install-waiter",
+            "second-install-waiter",
+        ])
+        await session.tearDown(error: .connectionClosed)
+    }
+
+    @Test func concurrentPurposeUpdatesCannotCloseTheInstalledCandidate()
+        async throws {
+        let transport = PurposeBarrierConnectTransport()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            initialTransportSessionPurpose: .backgroundControl
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "first-purpose-waiter"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "second-purpose-waiter"
+        )
+        let deadline =
+            DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "first-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(await transport.waitUntilConnectStarted())
+        let secondTask = Task {
+            try await session.send(
+                payload: second,
+                requestID: "second-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        await transport.releaseConnect()
+
+        _ = try await firstTask.value
+        _ = try await secondTask.value
+        #expect(!(await transport.closed()))
+        #expect(try await Set(transport.sentRequests().compactMap(\.id)) == [
+            "first-purpose-waiter",
+            "second-purpose-waiter",
+        ])
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func connectTimeoutDoesNotCancelOtherWaiters() async throws {
         let transport = ReleasableConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59130)
@@ -128,10 +230,12 @@ import Testing
 
     @Test func cancelledPostConnectWaiterDoesNotCloseTransportForSurvivor() async throws {
         let cancellation = ConnectCancellationBox()
+        let arrivals = ConnectedCandidateBarrier(expectedCount: 2)
         let transport = ReleasableConnectTransport()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             didReceiveConnectedCandidate: { _ in
+                await arrivals.arrive()
                 await cancellation.cancelWhenSet()
             }
         )
@@ -163,7 +267,6 @@ import Testing
         }
         await cancellation.set(cancelledTask)
         #expect(await transport.waitUntilConnectStarted())
-        #expect(await waitUntilConnectWaiters(session, count: 2))
 
         await transport.releaseConnect()
 
@@ -260,22 +363,37 @@ import Testing
     }
 
     private func waitUntilClosed(_ transport: ReleasableConnectTransport) async -> Bool {
-        for _ in 0..<100 {
+        // Time-bounded polling, not bare yields: under suite load 100 yields
+        // can elapse before the session's async close task is ever scheduled.
+        for _ in 0..<200 {
             if await transport.closed() {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return await transport.closed()
     }
+}
 
-    private func waitUntilConnectWaiters(_ session: MobileCoreRPCSession, count: Int) async -> Bool {
-        for _ in 0..<100 {
-            if await session.connectWaiterCountForTesting() >= count {
-                return true
-            }
-            await Task.yield()
+private actor ConnectedCandidateBarrier {
+    private let expectedCount: Int
+    private var arrivalCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(expectedCount: Int) {
+        self.expectedCount = expectedCount
+    }
+
+    func arrive() async {
+        arrivalCount += 1
+        guard arrivalCount < expectedCount else {
+            let pending = waiters
+            waiters.removeAll()
+            for waiter in pending { waiter.resume() }
+            return
         }
-        return await session.connectWaiterCountForTesting() >= count
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }

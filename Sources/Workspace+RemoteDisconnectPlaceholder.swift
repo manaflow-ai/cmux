@@ -198,11 +198,18 @@ extension Workspace {
         cmux_disconnect_reconnect_unavailable_line="$(cmux_disconnect_decode '\(encodedReconnectUnavailableLine)')"
         cmux_disconnect_reconnect_command="$(cmux_disconnect_decode '\(encodedReconnectCommand)')"
         cmux_disconnect_scrollback_file="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
-        if [ -n "$cmux_disconnect_scrollback_file" ] && [ -f "$cmux_disconnect_scrollback_file" ]; then
-          /bin/cat -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
-          printf '\\n'
-          /bin/rm -f -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+        if [ -n "$cmux_disconnect_scrollback_file" ]; then
+          cmux_disconnect_scrollback_token="${cmux_disconnect_scrollback_file##*/}"
+          cmux_disconnect_host="$(/bin/hostname)"
           unset CMUX_RESTORE_SCROLLBACK_FILE
+          printf '\\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\\007' "$cmux_disconnect_host" "$cmux_disconnect_scrollback_token"
+          if [ -f "$cmux_disconnect_scrollback_file" ]; then
+            /bin/cat -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+            printf '\\n'
+          fi
+          /bin/rm -f -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+          printf '\\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\\007' "$cmux_disconnect_host" "$cmux_disconnect_scrollback_token"
+          printf '\\033]1337;CurrentDir=kitty-shell-cwd://%s%s\\007' "$cmux_disconnect_host" "$PWD"
         fi
         # Append newline + color codes ourselves rather than trusting the translator to
         # preserve them in every locale.

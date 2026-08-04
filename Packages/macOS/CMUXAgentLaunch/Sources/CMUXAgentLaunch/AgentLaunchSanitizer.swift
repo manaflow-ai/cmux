@@ -19,6 +19,10 @@ public enum AgentLaunchSanitizer {
     struct Policy {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
+        /// Flags known to never consume a value. Exactly one token wide, so the
+        /// unknown-option value heuristic can never promote a following prompt
+        /// positional to the flag's "value" and replay it on resume.
+        var booleanOptions: Set<String> = []
         var variadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
@@ -189,6 +193,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "kimi":
+            return preserveOptions(args, policy: kimiPolicy)
         case "ollama":
             return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:

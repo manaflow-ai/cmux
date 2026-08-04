@@ -16,6 +16,173 @@ import Testing
         )
     }
 
+    /// A single-pane surface can be seeded while its tab is still headless, then
+    /// gain rows when the real window mounts. Only the verified pane-rect reply
+    /// proves that every client-size constraint has landed; repairing from the
+    /// earlier per-window send can race the separate session-envelope send and
+    /// capture the old short grid again. This is the exact verified 99x35 ->
+    /// 94x37 transition observed over Tailscale SSH in issue #7990.
+    @Test func verifiedSinglePaneGridGrowQueuesVisibleRepaint() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "seed-grow.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-single-pane-grow-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+        connection.pendingAttachRedrawKick = false
+
+        let pane = RemoteTmuxLayoutNode(
+            width: 99, height: 35, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            3: RemoteTmuxWindow(id: 3, width: 99, height: 35, layout: pane)
+        ]
+        connection.windowOrder = [3]
+        connection.publishedWindowIdByPane = [7: 3]
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "work", into: manager))
+        defer {
+            controller.detach(host: host, sessionName: "work")
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        _ = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        let capturesBefore = connection.pendingCommandKindsForTesting.reduce(into: 0) {
+            if case .capturePane(7, _) = $1 { $0 += 1 }
+        }
+
+        let grownPane = RemoteTmuxLayoutNode(
+            width: 94, height: 37, x: 0, y: 0, content: .pane(7)
+        )
+        connection.pendingLayouts[3] = RemoteTmuxPendingLayout(
+            node: grownPane,
+            visibleNode: nil,
+            zoomed: false,
+            name: "main",
+            generation: 1,
+            inFlight: true
+        )
+        connection.handlePaneRectsReply(
+            windowId: 3,
+            generation: 1,
+            lines: ["%7 0 0 94 37 1 off :"]
+        )
+
+        let relevant = connection.pendingCommandKindsForTesting.compactMap { kind -> String? in
+            switch kind {
+            case .capturePane(7, _): return "capture"
+            case .paneState(7, _): return "state"
+            default: return nil
+            }
+        }
+        #expect(relevant.filter { $0 == "capture" }.count == capturesBefore + 1)
+        #expect(Array(relevant.suffix(2)) == ["capture", "state"])
+    }
+
+    /// Repeated verified grows can arrive while the first visible repaint is
+    /// still queued behind a slow control-channel round trip. Keep the burst to
+    /// one in-flight repaint and one coalesced follow-up so seed state and the
+    /// command FIFO stay bounded without dropping the latest grid repair.
+    @Test func verifiedPaneGrowthCoalescesRepaintWhileSeedIsPending() throws {
+        let connection = makeConnection()
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-pane-grow-coalescing-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+        connection.pendingAttachRedrawKick = false
+        defer {
+            connection.stop()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        let initialPane = RemoteTmuxLayoutNode(
+            width: 99, height: 35, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            3: RemoteTmuxWindow(id: 3, width: 99, height: 35, layout: initialPane)
+        ]
+        connection.windowOrder = [3]
+        connection.publishedWindowIdByPane = [7: 3]
+
+        let capturesBefore = connection.pendingCommandKindsForTesting.reduce(into: 0) {
+            if case .capturePane(7, _) = $1 { $0 += 1 }
+        }
+        for (generation, height) in zip(1...3, 37...39) {
+            let grownPane = RemoteTmuxLayoutNode(
+                width: 94, height: height, x: 0, y: 0, content: .pane(7)
+            )
+            connection.pendingLayouts[3] = RemoteTmuxPendingLayout(
+                node: grownPane,
+                visibleNode: nil,
+                zoomed: false,
+                name: "main",
+                generation: generation,
+                inFlight: true
+            )
+            connection.handlePaneRectsReply(
+                windowId: 3,
+                generation: generation,
+                lines: ["%7 0 0 94 \(height) 1 off :"]
+            )
+        }
+
+        #expect(connection.pendingPaneSeeds[7]?.count == 1)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 1
+        )
+
+        let firstSeedID = try #require(connection.pendingPaneSeeds[7]?.first?.id)
+        connection.installPaneSeedCapture(paneId: 7, seedID: firstSeedID, data: Data())
+        connection.finishPaneSeed(paneId: 7, seedID: firstSeedID, state: Data())
+
+        #expect(connection.pendingPaneSeeds[7]?.count == 1)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 2
+        )
+
+        let followUpSeedID = try #require(connection.pendingPaneSeeds[7]?.first?.id)
+        #expect(followUpSeedID != firstSeedID)
+        connection.installPaneSeedCapture(paneId: 7, seedID: followUpSeedID, data: Data())
+        connection.finishPaneSeed(paneId: 7, seedID: followUpSeedID, state: Data())
+
+        #expect(connection.pendingPaneSeeds[7] == nil)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 2
+        )
+    }
+
     @Test func windowSizesAreTrackedPerWindow() {
         let connection = makeConnection()
         connection.setWindowSize(windowId: 0, columns: 98, rows: 35)
@@ -64,6 +231,93 @@ import Testing
         #expect(Set(connection.lastWindowSizes.keys) == [1])
         #expect(connection.maximumWindowClaimColumns == 80)
         #expect(connection.maximumWindowClaimRows == 20)
+    }
+
+    /// tmux is the only authority on whether a size claim actually landed.
+    /// The sent-pins ledger dedups resends, so a pin the server never
+    /// honored wedges silently. The reply was lost across a transport gap,
+    /// or a co-client raced it, or the window-size mode changed — either
+    /// way the ledger says delivered and dedup suppresses every retry. The
+    /// window then sits columns wide of the claim and mirrors render short
+    /// of the assignment; the live fuzz caught panes rendering 83 columns
+    /// against an assignment of 86, persisting through settle. Every
+    /// %layout-change names the window's actual size. A layout that
+    /// disagrees with a delivered claim re-arms the claim.
+    @Test func layoutDisagreeingWithDeliveredClaimRearmsThePin() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "a delivered claim tmux disagrees with must clear the ledger so the next send is not deduped away"
+        )
+        #expect(connection.lastWindowSizes[3]?.0 == 83, "the desired claim itself must not change")
+    }
+
+    /// The re-arm is budgeted per disagreement episode: an infeasible claim
+    /// (tmux clamps a window up to its tree minimum) disagrees forever, and
+    /// an unbounded re-arm would ping the server once per layout event for
+    /// the rest of the session. Agreement or a new claim value opens the
+    /// next episode.
+    @Test func claimParityRearmIsBudgetedPerEpisode() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        for round in 1...5 {
+            connection.sentWindowSizes[3] = (83, 40)
+            connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+            if round <= 3 {
+                #expect(
+                    connection.sentWindowSizes[3] == nil,
+                    "round \(round) is within the episode budget and must re-arm"
+                )
+            } else {
+                #expect(
+                    connection.sentWindowSizes[3] != nil,
+                    "round \(round) must not re-arm — the episode budget is spent"
+                )
+            }
+        }
+
+        // Agreement closes the episode and restores the budget.
+        connection.applyLayout(windowId: 3, layout: "f92f,83x40,0,0,7")
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "agreement resets the budget for the next episode"
+        )
+
+        // A new claim value opens a fresh episode too.
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        connection.setWindowSize(windowId: 3, columns: 90, rows: 40)
+        connection.sentWindowSizes[3] = (90, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "a changed claim value must open a fresh episode with a fresh budget"
+        )
+    }
+
+    /// Attach floods deliver layouts before any claim is sent. Those
+    /// disagreements have no delivered claim to re-arm and must not spend
+    /// the episode budget, or the budget would be gone before the first
+    /// real wedge.
+    @Test func layoutDisagreementWithoutDeliveredClaimSpendsNoBudget() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        for _ in 0..<5 {
+            connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        }
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "no budget may be spent while no delivered claim existed"
+        )
     }
 
     @Test func clientEnvelopeTracksLiveClaimMaximaDownward() {
@@ -128,6 +382,7 @@ import Testing
         ["list-panes", "-t", "sizing:@0", "-F", "#{pane_width} #{pane_top}"],
         ["list-windows", "-t", "sizing", "-F", "#{window_id} #{window_name}"],
         ["display-message", "-p", "-t", "sizing:@0", "#{window_width}x#{window_height}"],
+        ["start-ruler", "-t", "%1"],
     ])
     func uiTestTmuxPolicyAllowsOnlyHarnessCommands(_ arguments: [String]) {
         #expect(TerminalController.isAllowedRemoteTmuxTestCommand(arguments))

@@ -28,13 +28,19 @@ describe("apns payload", () => {
       body: "Agent finished",
       workspaceId: "ws-1",
       surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
       macDeviceId: "mac-3",
-    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string | boolean> };
 
     expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
     expect(payload.aps.sound).toBe("default");
-    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2", macDeviceId: "mac-3" });
+    expect(payload.cmux).toEqual({
+      workspaceId: "ws-1",
+      surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
+      macDeviceId: "mac-3",
+    });
   });
 
   test("omits cmux block when no ids", () => {
@@ -170,6 +176,10 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.app.beta",
       environment: "production",
     });
+    expect(normalizeApnsBundle("com.cmux.app")).toEqual({
+      bundleId: "com.cmux.app",
+      environment: "production",
+    });
     expect(normalizeApnsBundle("dev.cmux.ios.push1")).toEqual({
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
@@ -178,6 +188,27 @@ describe("apns route policy", () => {
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.-bad")).toBeNull();
+  });
+
+  test("allows the internal TestFlight bundle id as a production APNs topic", () => {
+    // The scheduled internal TestFlight lane ships dev.cmux.app.internal
+    // (.github/workflows/ios-testflight.yml); TestFlight uses the production
+    // APNs environment. Rejecting it here makes every internal-beta phone fail
+    // device-token registration with invalid_bundle_id, so pushes never arrive.
+    expect(normalizeApnsBundle("dev.cmux.app.internal")).toEqual({
+      bundleId: "dev.cmux.app.internal",
+      environment: "production",
+    });
+  });
+
+  test("allows the demo TestFlight bundle id as a production APNs topic", () => {
+    // The manual demo lane variant ships dev.cmux.app.demo
+    // (.github/workflows/ios-testflight.yml, variant=demo); TestFlight uses the
+    // production APNs environment, same as the internal lane above.
+    expect(normalizeApnsBundle("dev.cmux.app.demo")).toEqual({
+      bundleId: "dev.cmux.app.demo",
+      environment: "production",
+    });
   });
 
   test("bounds and trims push payloads before sending to APNs", () => {
@@ -189,6 +220,7 @@ describe("apns route policy", () => {
       surfaceId: " sf-1 ",
       macDeviceId: " mac-1 ",
       notificationId: " n-1 ",
+      retargetsToLiveSurfaceOwner: false,
       hideContent: true,
     });
 
@@ -205,6 +237,7 @@ describe("apns route policy", () => {
         notificationId: "n-1",
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: true,
       },
     });
@@ -234,6 +267,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: true,
         hideContent: false,
       },
     });
@@ -263,6 +297,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: false,
       },
     });

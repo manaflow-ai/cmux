@@ -144,17 +144,15 @@ describe("isValidEndpointId", () => {
 });
 
 describe("relayUrls", () => {
-  test("defaults to the 7-region fleet", () => {
+  test("returns the canonical 7-region fleet", () => {
     const urls = relayUrls();
-    expect(urls).toContain("https://usw1.relay.cmux.dev");
-    expect(urls).toContain("https://use4.relay.cmux.dev");
+    expect(urls).toContain("https://usw1.relay.cmux.dev/");
+    expect(urls).toContain("https://use4.relay.cmux.dev/");
     expect(urls.length).toBe(7);
   });
-  test("honors the CMUX_RELAY_URLS override", () => {
+  test("does not allow a legacy environment override to substitute the fleet", () => {
     process.env.CMUX_RELAY_URLS = "https://a.example.com, https://b.example.com";
-    expect(relayUrls()).toEqual([
-      "https://a.example.com",
-      "https://b.example.com",
-    ]);
+    expect(relayUrls()).not.toContain("https://a.example.com");
+    expect(relayUrls().length).toBe(7);
   });
 });

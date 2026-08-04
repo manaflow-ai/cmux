@@ -1,7 +1,9 @@
 #if os(iOS)
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -17,11 +19,17 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    /// Optional so previews and hosts without the app root still render; the
+    /// Connection Method section is hidden when absent.
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
+    @Environment(ToastCenter.self) private var toasts
+    @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
-    let rescanQR: (() -> Void)?
+    let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
-    /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
-    /// where the "Switch Mac" entry is hidden.
+    /// The shell store, used for the live connection rows and the onboarding
+    /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
@@ -32,16 +40,20 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
-    @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
+    @State private var showingToastGallery = false
+    /// Seconds between tapping "Run Toast Demo" and the first toast, so you
+    /// can navigate to any screen (terminal, chat) and watch it play there.
+    @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
     #endif
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -77,41 +89,40 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
-                // screen's reuse of this sheet does not render an empty header.
-                if hasConnectionSection {
+                // Hidden when there is no live connection row to show, so the
+                // no-devices screen's reuse of this sheet does not render an
+                // empty header. Switching Macs lives in the workspace list's
+                // computer picker.
+                if hasConnectionRows {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if !connectedHostName.isEmpty {
+                        if let connections = store?.liveMacConnections,
+                           !connections.isEmpty {
+                            ForEach(connections) { connection in
+                                LabeledContent(
+                                    connection.displayName,
+                                    value: connection.role == .focused
+                                        ? L10n.string(
+                                            "mobile.settings.connectionFocused",
+                                            defaultValue: "Focused"
+                                        )
+                                        : L10n.string(
+                                            "mobile.settings.connectionReady",
+                                            defaultValue: "Ready"
+                                        )
+                                )
+                                .accessibilityIdentifier(
+                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
+                                )
+                            }
+                        } else if !connectedHostName.isEmpty {
                             LabeledContent(
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
                         }
-                        if store != nil {
-                            Button {
-                                showingHostPicker = true
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
-                                    systemImage: "macbook.and.iphone"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsSwitchMac")
-                        }
-                        if let rescanQR {
-                            Button {
-                                rescanQR()
-                                dismiss()
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                    systemImage: "qrcode.viewfinder"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsRescanQR")
-                        }
                     }
+                }
+                if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
                     } label: {
@@ -125,11 +136,35 @@ struct MobileSettingsView: View {
                         showingOnboarding = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
-                            systemImage: "questionmark.circle"
+                            L10n.string(
+                                "mobile.settings.viewIntroductionAgain",
+                                defaultValue: "View Introduction Again"
+                            ),
+                            systemImage: "sparkles"
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
+                }
+
+                if let connectionMethodStore {
+                    MobileConnectionMethodSection(
+                        store: connectionMethodStore,
+                        startPairingScanner: startPairingScanner
+                    )
+                }
+
+                if let irohSettingsController {
+                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+                        NavigationLink {
+                            MobileIrohSettingsView(controller: irohSettingsController)
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                systemImage: "network"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsIroh")
+                    }
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
@@ -141,6 +176,14 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
 
+                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFolderTap",
+                            defaultValue: "Open Folders on Tap"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -150,6 +193,49 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section {
+                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.hapticFeedback",
+                            defaultValue: "Haptic Feedback"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.hapticFeedbackFooter",
+                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
+                    ))
+                }
+
+                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
+
+                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFilesChip",
+                            defaultValue: "Terminal Files Chip"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+
+                    Toggle(isOn: $toasts.isEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.beta.toasts",
+                            defaultValue: "Toasts"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG
@@ -172,6 +258,44 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+                    Button {
+                        showingToastGallery = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
+                            systemImage: "rectangle.portrait.topthird.inset.filled"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastGallery")
+                    Button {
+                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
+                        dismiss()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
+                            systemImage: "play.rectangle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemo")
+                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
+                        HStack {
+                            Text(L10n.string(
+                                "mobile.settings.toastDemoDelay",
+                                defaultValue: "Toast Demo Delay"
+                            ))
+                            Spacer()
+                            Text(String.localizedStringWithFormat(
+                                L10n.string(
+                                    "mobile.settings.toastDemoDelayValueFormat",
+                                    defaultValue: "%d s"
+                                ),
+                                toastDemoDelaySeconds
+                            ))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
 
                     debugLayoutSlider(
                         title: L10n.string(
@@ -182,28 +306,49 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureLeftness",
-                            defaultValue: "Profile Picture Leftness"
-                        ),
-                        value: $displaySettings.profilePictureLeftShift,
-                        range: MobileDisplaySettings.profilePictureLeftShiftRange,
-                        identifier: "MobileSettingsProfilePictureLeftness"
-                    )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureSize",
-                            defaultValue: "Profile Picture Size"
-                        ),
-                        value: $displaySettings.profilePictureSize,
-                        range: MobileDisplaySettings.profilePictureSizeRange,
-                        identifier: "MobileSettingsProfilePictureSize"
-                    )
+                }
+
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        TaskComposerModelPickerLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.modelPickerLab",
+                                defaultValue: "New Task Model Lab"
+                            ),
+                            systemImage: "cpu"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
                 }
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
@@ -218,9 +363,23 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
                     }
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
+
+                    Picker(selection: $displaySettings.terminalScrollbackRows) {
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
+                            .tag(1000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
+                            .tag(4000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
+                            .tag(10000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
+                            .tag(20000)
+                    } label: {
+                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
                     Button {
                         Task {
                             if notificationsEnabled {
@@ -233,8 +392,8 @@ struct MobileSettingsView: View {
                     } label: {
                         Label(
                             notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
+                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
+                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
                             systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }
@@ -303,20 +462,32 @@ struct MobileSettingsView: View {
             .fullScreenCover(isPresented: $showingTerminalDemo) {
                 TerminalLogDemoScreen()
             }
-            #endif
-            .sheet(isPresented: $showingHostPicker) {
-                if let store {
-                    MobileHostPickerView(store: store)
-                }
+            .sheet(isPresented: $showingToastGallery) {
+                ToastGalleryView()
             }
+            #endif
             .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
+                // Re-entry never writes first-run progress. The final scene reads
+                // live connection state and can reopen pairing from offline Settings.
                 OnboardingFlowView(
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
+                    initialStage: .agents,
+                    context: .replay,
+                    isAuthenticated: true,
+                    connectionPhase: OnboardingConnectionPhase(
+                        isMacReady: store?.connectionState == .connected,
+                        isSearching: store?.isReconnectingStoredMac == true,
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                    ),
+                    connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onReachedConnection: {},
+                    onSkip: { showingOnboarding = false },
+                    onRetryConnection: retryAutomaticConnection,
+                    onStartFallbackPairing: {
+                        showingOnboarding = false
+                        startPairingScanner?()
+                    },
+                    onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
@@ -341,6 +512,14 @@ struct MobileSettingsView: View {
         }
     }
 
+    private func retryAutomaticConnection() {
+        guard let store else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
+        }
+    }
+
     /// Which setup gate to mark as the user's current blocker. Settings is reached
     /// only from the connected workspace list, so the user has cleared every gate
     /// and there is no "You are here" step; the help is a plain reference. `nil`
@@ -349,11 +528,17 @@ struct MobileSettingsView: View {
         nil
     }
 
-    /// Whether the Connection section has any rows to show. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac, no store to
-    /// switch with, and no rescan action, so the section is omitted entirely.
+    /// Whether the Connection section has any rows to show. When nothing is
+    /// connected the section is omitted entirely so its header never sits empty.
+    private var hasConnectionRows: Bool {
+        store?.liveMacConnections.isEmpty == false || !connectedHostName.isEmpty
+    }
+
+    /// Whether the setup and introduction entries apply. When this sheet is
+    /// reused from the no-devices screen there is no connected Mac or store,
+    /// so they are hidden.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil || rescanQR != nil
+        !connectedHostName.isEmpty || store != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,

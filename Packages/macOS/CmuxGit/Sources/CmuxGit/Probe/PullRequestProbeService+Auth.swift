@@ -2,8 +2,9 @@ import Foundation
 
 extension PullRequestProbeService {
     /// Resolves the API auth header: `GH_TOKEN`/`GITHUB_TOKEN` from the
-    /// environment, else `gh auth token` via the injected runner, else `nil`
-    /// (unauthenticated requests).
+    /// environment, else `gh auth token` via the injected runner. A `nil`
+    /// result suppresses transport; GitHub probes never fall back to anonymous
+    /// requests.
     nonisolated func authHeaderValue() async -> String? {
         let environment = ProcessInfo.processInfo.environment
         if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {

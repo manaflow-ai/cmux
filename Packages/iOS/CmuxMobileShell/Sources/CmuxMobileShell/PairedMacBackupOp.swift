@@ -32,4 +32,6 @@ public enum PairedMacBackupOp: Sendable, Equatable {
     )
     /// Tombstone the record with the given Mac device id.
     case delete(macDeviceID: String)
+    /// Tombstone one exact tagged app-instance record.
+    case deleteInstance(macDeviceID: String, instanceTag: String)
 }

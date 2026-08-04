@@ -350,7 +350,7 @@ Hard invariant:
 ### Phase 4: Advanced/Optional Parity (P2)
 
 - [ ] Evaluate feasibility of request interception/mocking in `WKWebView`; implement supported subset.
-- [ ] Add emulation settings that are feasible in `WKWebView`.
+- [x] Add exact 1...4096 CSS-pixel viewport emulation for `WKWebView`; aspect-fit the page without changing pane layout, preserve focus, and restore native sizing with `browser viewport reset`.
 - [ ] Add trace/recording equivalents where practical.
 - [x] Add script/style injection helpers.
 - [x] Document unsupported commands with explicit error `not_supported`.

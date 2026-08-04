@@ -37,7 +37,7 @@ public struct UpdateBadge: View {
             case .extracting(let extracting):
                 ProgressRingView(progress: min(1, max(0, extracting.progress)))
 
-            case .checking:
+            case .preparingCheck, .checking, .startingDownload:
                 BrowserStyleLoadingSpinner(size: 14, color: appearance.foregroundColor(for: model))
 
             default:

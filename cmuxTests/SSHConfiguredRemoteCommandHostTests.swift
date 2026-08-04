@@ -1,6 +1,7 @@
+import CmuxFoundation
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -23,46 +24,55 @@ import XCTest
 // semantics). It records one `invocation kind=<...> override=<...>` event per
 // spawn so assertions can distinguish config dumps, control operations,
 // interactive sessions, and command-carrying invocations.
-extension CLINotifyProcessIntegrationRegressionTests {
+@Suite(.serialized)
+struct SSHConfiguredRemoteCommandHostTests {
+    private typealias MockSocketServerState =
+        CLINotifyProcessIntegrationRegressionTests.MockSocketServerState
+
+    private let processSupport = CLINotifyProcessIntegrationRegressionTests(invocation: nil)
+
     /// `cmux ssh` default flow (ControlMaster/ControlPath defaults →
     /// foreground auth + persistent SSH PTY attach): the foreground auth hop
     /// runs `ssh ... <dest> true`, which a host-configured RemoteCommand used
     /// to break before the attach could ever start.
-    func testSSHStartupConnectsWhenHostConfigSetsRemoteCommandAndRequestTTY() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("ssh-rc-host")
-        let listenerFD = try bindUnixSocket(at: socketPath)
+    @Test
+    func sshStartupConnectsWhenHostConfigSetsRemoteCommandAndRequestTTY() throws {
+        let cliPath = try processSupport.bundledCLIPath()
+        let socketPath = processSupport.makeSocketPath("ssh-rc-host")
+        let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
         let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-default")
 
         defer {
+            harness.cleanup()
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
 
         // Phase 1: capture the generated startup command from the CLI.
         let captureState = MockSocketServerState()
-        let captureHandled = startMockServer(listenerFD: listenerFD, state: captureState) { line in
-            guard let payload = self.jsonObject(line),
+        let captureHandled = processSupport.startMockServer(listenerFD: listenerFD, state: captureState) { line in
+            guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
+                return processSupport.malformedRequestResponse(raw: line)
             }
             switch method {
             case "workspace.create":
-                return self.v2Response(id: id, ok: true, result: [
+                return processSupport.v2Response(id: id, ok: true, result: [
                     "workspace_id": workspaceID,
                     "surface_id": surfaceID,
                 ])
             case "workspace.remote.configure":
-                return self.v2Response(id: id, ok: true, result: [
+                return processSupport.v2Response(id: id, ok: true, result: [
                     "workspace_id": workspaceID,
                     "workspace_ref": "workspace:9",
                     "remote": ["enabled": true, "state": "connecting"],
                 ])
             default:
-                return self.v2Response(
+                return processSupport.v2Response(
                     id: id,
                     ok: false,
                     error: ["code": "unexpected", "message": "Unexpected method \(method)"]
@@ -75,38 +85,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = runProcess(
+        let captureResult = processSupport.runProcess(
             executablePath: cliPath,
-            arguments: ["ssh", "--no-focus", "cmux-remotecommand-host"],
+            arguments: [
+                "ssh",
+                "--no-focus",
+                "--ssh-option", "RemoteCommand=sudo su -",
+                "--ssh-option", "RequestTTY=yes",
+                "cmux-remotecommand-host",
+            ],
             environment: captureEnvironment,
-            timeout: 5
+            timeout: 20
         )
-        wait(for: [captureHandled], timeout: 5)
-        XCTAssertFalse(captureResult.timedOut, captureResult.stderr)
-        XCTAssertEqual(captureResult.status, 0, captureResult.stderr)
+        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
+        #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 
-        let requests = captureState.commands.compactMap(jsonObject)
-        let createParams = try XCTUnwrap(
+        let requests = captureState.commands.compactMap(processSupport.jsonObject)
+        let createParams = try #require(
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
-        let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let startupCommand = try #require(createParams["initial_command"] as? String)
+        let configureParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
+        )
+        #expect(configureParams["configured_remote_command"] as? String == "sudo su -")
+        let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
 
         // Phase 2: the attach leg of the startup script connects back for the
         // remote PTY bridge once foreground auth has succeeded.
-        let bridge = try bindLoopbackTCP()
+        let bridge = try processSupport.bindLoopbackTCP()
         defer { Darwin.close(bridge.fd) }
         let bridgeInput = MockBridgeInputCapture()
-        let bridgeHandled = startBridgeReadyCapturingInputUntilEOF(listenerFD: bridge.fd, capture: bridgeInput)
+        let bridgeHandled = processSupport.startBridgeReadyCapturingInputUntilEOF(
+            listenerFD: bridge.fd,
+            capture: bridgeInput
+        )
         let attachState = MockSocketServerState()
-        let attachHandled = startMockServer(listenerFD: listenerFD, state: attachState) { line in
-            guard let payload = self.jsonObject(line),
+        let attachHandled = processSupport.startMockServer(
+            listenerFD: listenerFD,
+            state: attachState
+        ) { line in
+            guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
+                return processSupport.malformedRequestResponse(raw: line)
             }
             switch method {
+            case "workspace.remote.foreground_auth_ready":
+                return processSupport.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:9",
+                    "remote": ["enabled": true, "state": "connecting"],
+                ])
             case "workspace.remote.pty_bridge":
-                return self.v2Response(id: id, ok: true, result: [
+                return processSupport.v2Response(id: id, ok: true, result: [
                     "host": "127.0.0.1",
                     "port": bridge.port,
                     "token": "bridge-token",
@@ -114,16 +147,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "attachment_id": surfaceID,
                 ])
             case "workspace.remote.pty_sessions":
-                return self.v2Response(id: id, ok: true, result: ["sessions": []])
+                return processSupport.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
-                return self.v2Response(id: id, ok: true, result: [
+                return processSupport.v2Response(id: id, ok: true, result: [
                     "workspace_id": workspaceID,
                     "surface_id": surfaceID,
                     "session_id": sessionID,
                     "cleared_remote_pty_session": true,
                 ])
             default:
-                return self.v2Response(
+                return processSupport.v2Response(
                     id: id,
                     ok: false,
                     error: ["code": "unexpected", "message": "Unexpected method \(method)"]
@@ -131,12 +164,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-default")
-        defer { harness.cleanup() }
-
-        let startupResult = runProcess(
+        let startupResult = processSupport.runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
                 socketPath: socketPath,
                 workspaceID: workspaceID,
@@ -145,69 +175,178 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 10
         )
 
-        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
-        XCTAssertFalse(
-            startupResult.stderr.contains("Cannot execute command-line and remote command."),
+        #expect(!startupResult.timedOut, Comment(rawValue: startupResult.stderr))
+        #expect(
+            !startupResult.stderr.contains("Cannot execute command-line and remote command."),
             "cmux-controlled ssh invocations must override a host-configured RemoteCommand; stderr: \(startupResult.stderr)"
         )
-        XCTAssertFalse(
-            startupResult.stderr.contains("[cmux] ssh exited with status"),
-            startupResult.stderr
+        #expect(
+            !startupResult.stderr.contains("[cmux] ssh exited with status"),
+            Comment(rawValue: startupResult.stderr)
         )
 
         let events = harness.recordedSSHEvents()
-        XCTAssertTrue(
+        #expect(
             events.contains("invocation kind=command override=none"),
             "The foreground auth hop must pass -o RemoteCommand=none so a host-configured RemoteCommand cannot conflict with its command-line command; events: \(events)"
         )
-        XCTAssertFalse(
-            events.contains("invocation kind=command override=absent"),
+        #expect(
+            !events.contains("invocation kind=command override=absent"),
             "A cmux-supplied command-line remote command reached ssh without a RemoteCommand override; events: \(events)"
         )
 
-        wait(for: [attachHandled], timeout: 5)
-        XCTAssertTrue(bridgeHandled.wait(timeout: .now() + 5) == .success)
-        let attachMethods = attachState.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertTrue(
+        processSupport.wait(for: [attachHandled], timeout: 5)
+        #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
+        let attachMethods = attachState.commands.compactMap {
+            processSupport.jsonObject($0)?["method"] as? String
+        }
+        #expect(
             attachMethods.contains("workspace.remote.pty_bridge"),
             "Foreground auth should succeed and hand off to ssh-pty-attach; observed methods: \(attachMethods)"
         )
     }
 
-    /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
-    /// installer hop + interactive session hop): the installer hop pipes the
-    /// bootstrap into `ssh ... <dest> <install command>` and used to hit the
-    /// same fatal; the session hop must keep carrying cmux's own
-    /// `-o RemoteCommand=<bootstrap>` rather than having it cleared.
-    func testSSHBootstrapStartupConnectsWhenHostConfigSetsRemoteCommand() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("ssh-rc-boot")
-        let listenerFD = try bindUnixSocket(at: socketPath)
+    @Test(arguments: [false, true])
+    func sshStartupFallsBackToUnmanagedSessionWhenConfigurationResolutionIsUnavailable(
+        usesMosh: Bool
+    ) throws {
+        let cliPath = try processSupport.bundledCLIPath()
+        let socketPath = processSupport.makeSocketPath(
+            usesMosh ? "mosh-config-unavailable" : "ssh-config-unavailable"
+        )
+        let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
         let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
 
-        let captureState = MockSocketServerState()
-        let captureHandled = startMockServer(listenerFD: listenerFD, state: captureState) { line in
-            guard let payload = self.jsonObject(line),
+        let state = MockSocketServerState()
+        let handled = processSupport.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = processSupport.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
+                return processSupport.malformedRequestResponse(raw: line)
             }
             switch method {
             case "workspace.create":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+                return processSupport.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ])
             case "workspace.remote.configure":
-                return self.v2Response(id: id, ok: true, result: [
+                return processSupport.v2Response(id: id, ok: true, result: [
                     "workspace_id": workspaceID,
                     "workspace_ref": "workspace:9",
                     "remote": ["enabled": true, "state": "connecting"],
                 ])
             default:
-                return self.v2Response(
+                return processSupport.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        var arguments = [
+            "ssh",
+            "--no-focus",
+        ]
+        if usesMosh {
+            arguments += ["--transport", "mosh"]
+        }
+        arguments += [
+            "--ssh-option", "RemoteCommand=printf explicit-fallback",
+            "--ssh-option", "CmuxTestInvalidOption=yes",
+            "cmux-config-unavailable-host",
+        ]
+        let result = processSupport.runProcess(
+            executablePath: cliPath,
+            arguments: arguments,
+            environment: environment,
+            timeout: 20
+        )
+        processSupport.wait(for: [handled], timeout: 5)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = state.commands.compactMap(processSupport.jsonObject)
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods.contains("workspace.create"), "\(methods)")
+        #expect(methods.contains("workspace.remote.configure"), "\(methods)")
+        let createParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.create" }?["params"]
+                as? [String: Any]
+        )
+        let startupCommand = try #require(createParams["initial_command"] as? String)
+        let startupURL = URL(fileURLWithPath: startupCommand)
+        let startupArtifact = FileManager.default.fileExists(atPath: startupURL.path)
+            ? try String(contentsOf: startupURL, encoding: .utf8)
+            : startupCommand
+        #expect(startupArtifact.contains("RemoteCommand=printf explicit-fallback"), "\(startupArtifact)")
+        #expect(!startupArtifact.contains("ssh-pty-attach"), "\(startupArtifact)")
+        #expect(!startupArtifact.contains("cmux_mosh"), "\(startupArtifact)")
+        let configureParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
+                as? [String: Any]
+        )
+        #expect(configureParams["configured_remote_command"] == nil)
+        #expect(
+            configureParams["terminal_transport"] as? String == "ssh",
+            "An unmanaged OpenSSH fallback must persist the transport it actually launched: \(configureParams)"
+        )
+    }
+
+    /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
+    /// installer hop + interactive session hop): a caller-supplied
+    /// `RemoteCommand` is captured as the program to chain and retained in
+    /// durable workspace options, while the session hop carries only cmux's
+    /// `-o RemoteCommand=<bootstrap>`.
+    @Test
+    func sshBootstrapStartupChainsExplicitRemoteCommandWithConnectionSharingDisabled() throws {
+        let cliPath = try processSupport.bundledCLIPath()
+        let socketPath = processSupport.makeSocketPath("ssh-rc-boot")
+        let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
+        let configuredRemoteCommand = #"printf 'caller %% %h %n %p %r'"#
+        let expandedRemoteCommand = #"printf 'caller % resolved.example cmux-remotecommand-host 2233 remote-token-user'"#
+
+        defer {
+            harness.cleanup()
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let captureState = MockSocketServerState()
+        let captureHandled = processSupport.startMockServer(
+            listenerFD: listenerFD,
+            state: captureState
+        ) { line in
+            guard let payload = processSupport.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return processSupport.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.create":
+                return processSupport.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "workspace.remote.configure":
+                return processSupport.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:9",
+                    "remote": ["enabled": true, "state": "connecting"],
+                ])
+            default:
+                return processSupport.v2Response(
                     id: id,
                     ok: false,
                     error: ["code": "unexpected", "message": "Unexpected method \(method)"]
@@ -220,34 +359,48 @@ extension CLINotifyProcessIntegrationRegressionTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = runProcess(
+        let captureResult = processSupport.runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
                 "--no-focus",
+                "--port", "2233",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
+                "--ssh-option", "HostName=resolved.example",
+                "--ssh-option", "User=remote-token-user",
+                "--ssh-option", "RemoteCommand=\(configuredRemoteCommand)",
                 "cmux-remotecommand-host",
             ],
             environment: captureEnvironment,
-            timeout: 5
+            timeout: 20
         )
-        wait(for: [captureHandled], timeout: 5)
-        XCTAssertFalse(captureResult.timedOut, captureResult.stderr)
-        XCTAssertEqual(captureResult.status, 0, captureResult.stderr)
+        processSupport.wait(for: [captureHandled], timeout: 5)
+        #expect(!captureResult.timedOut, Comment(rawValue: captureResult.stderr))
+        #expect(captureResult.status == 0, Comment(rawValue: captureResult.stderr))
 
-        let requests = captureState.commands.compactMap(jsonObject)
-        let createParams = try XCTUnwrap(
+        let requests = captureState.commands.compactMap(processSupport.jsonObject)
+        let createParams = try #require(
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
-        let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let startupCommand = try #require(createParams["initial_command"] as? String)
+        let configureParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
+        )
+        #expect(configureParams["configured_remote_command"] as? String == expandedRemoteCommand)
+        let forwardedOptions = configureParams["ssh_options"] as? [String] ?? []
+        #expect(
+            forwardedOptions.contains("RemoteCommand=\(configuredRemoteCommand)"),
+            """
+            Durable workspace options must preserve the caller's tokenized RemoteCommand \
+            so unmanaged OpenSSH fallbacks retain authoritative expansion: \(forwardedOptions)
+            """
+        )
+        let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
 
-        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
-        defer { harness.cleanup() }
-
-        let startupResult = runProcess(
+        let startupResult = processSupport.runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
                 socketPath: socketPath,
                 workspaceID: workspaceID,
@@ -256,35 +409,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 10
         )
 
-        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
-        XCTAssertFalse(
-            startupResult.stderr.contains("Cannot execute command-line and remote command."),
+        #expect(!startupResult.timedOut, Comment(rawValue: startupResult.stderr))
+        #expect(
+            !startupResult.stderr.contains("Cannot execute command-line and remote command."),
             "The bootstrap installer hop must override a host-configured RemoteCommand; stderr: \(startupResult.stderr)"
         )
-        XCTAssertFalse(
-            startupResult.stderr.contains("[cmux] ssh exited with status"),
-            startupResult.stderr
+        #expect(
+            !startupResult.stderr.contains("[cmux] ssh exited with status"),
+            Comment(rawValue: startupResult.stderr)
         )
-        XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
+        #expect(startupResult.status == 0, Comment(rawValue: startupResult.stderr))
 
         let events = harness.recordedSSHEvents()
-        XCTAssertTrue(
+        #expect(
             events.contains("invocation kind=command override=none"),
             "The bootstrap installer hop must pass -o RemoteCommand=none; events: \(events)"
         )
-        XCTAssertFalse(
-            events.contains("invocation kind=command override=absent"),
+        #expect(
+            !events.contains("invocation kind=command override=absent"),
             "A cmux-supplied command-line remote command reached ssh without a RemoteCommand override; events: \(events)"
         )
-        XCTAssertTrue(
+        #expect(
             events.contains("invocation kind=session override=custom"),
             "The interactive session hop must keep carrying cmux's own -o RemoteCommand=<bootstrap>, not have it cleared to none; events: \(events)"
+        )
+        #expect(
+            events.contains("remotecommand-options kind=session count=1"),
+            "The interactive session must carry only cmux's bootstrap RemoteCommand; events: \(events)"
         )
     }
 
     /// The app-side restore/reattach startup script builder shares the same
     /// foreground-auth `ssh ... <dest> true` shape as the CLI.
-    func testSSHPTYAttachForegroundAuthOverridesHostConfiguredRemoteCommand() throws {
+    @Test
+    func sshPTYAttachForegroundAuthOverridesHostConfiguredRemoteCommand() throws {
         let command = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-w-s",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
@@ -295,19 +453,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "ControlMaster=auto",
                     "ControlPersist=600",
                     "ControlPath=/tmp/cmux-ssh-%C",
+                    "RemoteCommand=printf caller-command",
                 ],
                 token: "auth-token"
             ),
             remoteCommand: "printf ready"
         )
-        XCTAssertTrue(
+        #expect(
             command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
         )
-        XCTAssertEqual(command.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, command)
-        XCTAssertFalse(command.contains("-$$"), command)
-        XCTAssertTrue(command.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), command)
-        XCTAssertTrue(command.contains("ssh-session-end --lifecycle-only"), command)
+        #expect(
+            command.contains("/usr/bin/ssh -o"),
+            "Restore foreground auth must use the same system OpenSSH executable as config resolution; command: \(command)"
+        )
+        #expect(
+            !command.contains("RemoteCommand=printf caller-command"),
+            """
+            Restore foreground auth must not forward the durable caller RemoteCommand \
+            alongside cmux's override; command: \(command)
+            """
+        )
+        #expect(
+            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 2,
+            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
+        )
+        #expect(!command.contains("-$$"), Comment(rawValue: command))
+        #expect(
+            command.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""),
+            Comment(rawValue: command)
+        )
+        #expect(command.contains("ssh-session-end --lifecycle-only"), Comment(rawValue: command))
     }
 
     // MARK: - Fake RemoteCommand-host harness
@@ -324,7 +500,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             surfaceID: String
         ) -> [String: String] {
             var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = "\(binDirectory.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+            environment["PATH"] = "/usr/bin:/bin"
             environment["CMUX_BUNDLED_CLI_PATH"] = binDirectory.appendingPathComponent("cmux").path
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_WORKSPACE_ID"] = workspaceID
@@ -338,6 +514,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return environment
         }
 
+        func startupCommandUsingFakeSSH(_ startupCommand: String) throws -> String {
+            let systemSSHPath = "/usr/bin/ssh"
+            let fakeSSHPath = binDirectory.appendingPathComponent("ssh").path
+            let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            let commandURL = URL(fileURLWithPath: trimmedCommand)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            var isDirectory: ObjCBool = false
+
+            if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue {
+                let contents = try String(contentsOf: commandURL, encoding: .utf8)
+                guard contents.contains(systemSSHPath) else {
+                    throw NSError(
+                        domain: "SSHConfiguredRemoteCommandHostTests",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin \(systemSSHPath)"]
+                    )
+                }
+                let rewrittenURL = root.appendingPathComponent("startup-with-fake-ssh.sh")
+                try contents
+                    .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+                    .write(to: rewrittenURL, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o700],
+                    ofItemAtPath: rewrittenURL.path
+                )
+                return rewrittenURL.path
+            }
+
+            guard startupCommand.contains(systemSSHPath) else {
+                let encodedPrefix = "(printf %s "
+                let encodedSuffix = " | base64"
+                if let prefixRange = startupCommand.range(of: encodedPrefix),
+                   let suffixRange = startupCommand.range(
+                       of: encodedSuffix,
+                       range: prefixRange.upperBound..<startupCommand.endIndex
+                   ) {
+                    let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
+                    let encodedScript = String(startupCommand[encodedRange])
+                    if let scriptData = Data(base64Encoded: encodedScript),
+                       let script = String(data: scriptData, encoding: .utf8),
+                       script.contains(systemSSHPath) {
+                        let rewrittenScript = script.replacingOccurrences(
+                            of: systemSSHPath,
+                            with: fakeSSHPath
+                        )
+                        var rewrittenCommand = startupCommand
+                        rewrittenCommand.replaceSubrange(
+                            encodedRange,
+                            with: Data(rewrittenScript.utf8).base64EncodedString()
+                        )
+                        return rewrittenCommand
+                    }
+                }
+                throw NSError(
+                    domain: "SSHConfiguredRemoteCommandHostTests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin \(systemSSHPath)"]
+                )
+            }
+            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+        }
+
         func recordedSSHEvents() -> [String] {
             ((try? String(contentsOf: eventsFile, encoding: .utf8)) ?? "")
                 .split(separator: "\n")
@@ -349,9 +589,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    /// Installs a fake `ssh` simulating a host whose ssh_config sets
-    /// `RequestTTY yes` + `RemoteCommand sudo su -`, and a fake `cmux` for the
-    /// startup script's session-end reporting.
+    /// Installs a fake `ssh` that enforces OpenSSH's configured-command
+    /// conflict semantics, and a fake `cmux` for the startup script's
+    /// session-end reporting. Tests first assert that the production artifact
+    /// pins `/usr/bin/ssh`, then substitute this executable in that artifact.
     func makeRemoteCommandHostHarness(prefix: String) throws -> RemoteCommandHostHarness {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -374,10 +615,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #!/bin/sh
         events="${CMUX_FAKE_SSH_EVENTS:?}"
         override=absent
+        remotecommand_value=
+        remotecommand_options=0
         mode=session
         while [ $# -gt 0 ]; do
           case "$1" in
             -o)
+              case "$2" in
+                RemoteCommand=*|remotecommand=*)
+                  remotecommand_options=$((remotecommand_options + 1))
+                  remotecommand_value="${2#*=}"
+                  ;;
+              esac
               if [ "$override" = absent ]; then
                 case "$2" in
                   RemoteCommand=none|remotecommand=none) override=none ;;
@@ -386,6 +635,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
               fi
               shift 2 ;;
             -o*)
+              case "${1#-o}" in
+                RemoteCommand=*|remotecommand=*)
+                  remotecommand_options=$((remotecommand_options + 1))
+                  remotecommand_value="${1#*=}"
+                  ;;
+              esac
               if [ "$override" = absent ]; then
                 case "${1#-o}" in
                   RemoteCommand=none|remotecommand=none) override=none ;;
@@ -404,6 +659,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if [ "$mode" = config ]; then
           printf 'invocation kind=config override=%s\\n' "$override" >> "$events"
           printf 'controlpath none\\n'
+          case "$override" in
+            custom) printf 'remotecommand %s\\n' "$remotecommand_value" ;;
+            none) printf 'remotecommand none\\n' ;;
+            *) printf 'remotecommand sudo su -\\n' ;;
+          esac
+          printf 'requesttty yes\\n'
           exit 0
         fi
         if [ "$mode" = controlop ]; then
@@ -412,6 +673,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fi
         if [ $# -gt 0 ]; then mode=command; fi
         printf 'invocation kind=%s override=%s\\n' "$mode" "$override" >> "$events"
+        printf 'remotecommand-options kind=%s count=%s\\n' "$mode" "$remotecommand_options" >> "$events"
         if [ "$mode" = command ] && [ "$override" = absent ]; then
           printf '%s\\n' 'Cannot execute command-line and remote command.' >&2
           exit 255

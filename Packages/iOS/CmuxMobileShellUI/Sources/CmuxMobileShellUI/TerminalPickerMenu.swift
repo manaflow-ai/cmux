@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
@@ -5,12 +6,13 @@ import SwiftUI
 struct TerminalPickerMenu: View, Equatable {
     let value: TerminalPickerMenuValue
     let actions: TerminalPickerMenuActions
+    let terminalTheme: TerminalTheme
     #if DEBUG
     private let diagnostics = TerminalPickerMenuDiagnostics()
     #endif
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.value == rhs.value
+        lhs.value == rhs.value && lhs.terminalTheme == rhs.terminalTheme
     }
 
     var body: some View {
@@ -23,7 +25,7 @@ struct TerminalPickerMenu: View, Equatable {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(value.selectedName ?? "")
@@ -46,12 +48,40 @@ struct TerminalPickerMenu: View, Equatable {
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == value.selectedID && !value.hasActiveBrowser
+                        systemImage: terminal.id == value.selectedID
+                            && !value.hasActiveBrowser
+                            && value.activeBrowserStreamPanelID == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+            }
+        }
+
+        if value.supportsBrowserStream {
+            if !value.browserStreamRows.isEmpty {
+                Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                    ForEach(value.browserStreamRows) { panel in
+                        Button { actions.selectBrowserStream(panel.id) } label: {
+                            Label(
+                                panel.label,
+                                systemImage: panel.id == value.activeBrowserStreamPanelID
+                                    ? "checkmark.circle.fill"
+                                    : "globe"
+                            )
+                        }
+                        .accessibilityIdentifier("BrowserStreamMenuItem-\(panel.id)")
+                    }
+                }
+            }
+        } else {
+            Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                Label(
+                    L10n.string("mobile.macUpdateHint.browserStream", defaultValue: "Update cmux on your Mac to stream browser panes"),
+                    systemImage: "arrow.down.circle"
+                )
+                .accessibilityIdentifier("BrowserStreamMacUpdateHint")
             }
         }
 

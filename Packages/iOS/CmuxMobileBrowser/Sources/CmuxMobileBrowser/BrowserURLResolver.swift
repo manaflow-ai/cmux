@@ -8,19 +8,26 @@ public import Foundation
 ///
 /// - A full URL with a scheme (`https://example.com`) loads verbatim.
 /// - A bare host or path that looks like a domain (`example.com`,
-///   `localhost:3000`) is treated as an `https://` URL.
+///   `localhost:3000`) becomes a web URL, defaulting local hosts to `http://`.
 /// - Anything else (free text, multiple words) becomes a web search.
 ///
 /// It is a pure value type with no I/O so it can be unit-tested in isolation,
 /// which is where the address-bar correctness actually lives.
-public struct BrowserURLResolver {
+public struct BrowserURLResolver: Sendable {
     /// The default search-engine query template. `%@` is replaced with the
     /// percent-encoded query.
     public static let defaultSearchTemplate = "https://duckduckgo.com/?q=%@"
 
-    /// The resolver is a unit of pure static functions; it is never
-    /// instantiated.
-    private init() {}
+    /// The search-engine query template used for free-text input.
+    public let searchTemplate: String
+
+    /// Creates a resolver with an injectable search-engine query template.
+    ///
+    /// - Parameter searchTemplate: A template whose `%@` placeholder receives
+    ///   the percent-encoded query.
+    public init(searchTemplate: String = defaultSearchTemplate) {
+        self.searchTemplate = searchTemplate
+    }
 
     /// Resolve raw address-bar text into a URL to load.
     ///
@@ -34,11 +41,26 @@ public struct BrowserURLResolver {
         _ input: String,
         searchTemplate: String = defaultSearchTemplate
     ) -> URL? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        BrowserURLResolver(searchTemplate: searchTemplate).resolve(input)
+    }
+
+    /// Resolves raw address-bar text into a URL to load.
+    ///
+    /// - Parameter input: The raw text the user submitted.
+    /// - Returns: A URL to load, or `nil` when `input` is empty after trimming.
+    public func resolve(_ input: String) -> URL? {
+        let searchText = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = canonicalNavigationText(searchText)
         guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains(where: { $0.isNewline || $0 == "\t" }) else {
+            return searchURL(for: searchText)
+        }
 
         if let schemed = schemedURL(from: trimmed) {
             return schemed
+        }
+        guard !hasSchemeLessUserInfo(in: trimmed) else {
+            return searchURL(for: searchText)
         }
         if looksLikeHost(trimmed) {
             // Local dev servers (localhost, loopback, private LAN) listen on
@@ -54,13 +76,107 @@ public struct BrowserURLResolver {
                 return host
             }
         }
-        return searchURL(for: trimmed, template: searchTemplate)
+        return searchURL(for: searchText)
+    }
+
+    private func canonicalNavigationText(_ trimmed: String) -> String {
+        let compacted = trimmed.filter { !$0.isNewline && $0 != "\t" }
+        guard compacted != trimmed,
+              isWhitespaceCompactionSafe(compacted, original: trimmed) else {
+            return trimmed
+        }
+        return compacted
+    }
+
+    private func isWhitespaceCompactionSafe(_ compacted: String, original: String) -> Bool {
+        guard !compacted.isEmpty else { return false }
+        if isWebURL(compacted) {
+            return hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in: original)
+        }
+        guard hasCompleteSchemeLessAuthorityBeforeFirstCompactedCharacter(in: original) else { return false }
+        return isSchemeLessHostWithStructure(compacted)
+    }
+
+    /// Allows wrap removal only after the explicit URL's authority is complete.
+    private func hasCompleteWebAuthorityBeforeFirstCompactedCharacter(in input: String) -> Bool {
+        guard let compactedCharacter = input.firstIndex(where: { $0.isNewline || $0 == "\t" }),
+              let schemeSeparator = input.range(of: "://"),
+              schemeSeparator.upperBound < compactedCharacter else {
+            return false
+        }
+        guard let authorityEnd = input[schemeSeparator.upperBound...].firstIndex(where: { character in
+            character == "/" || character == "?" || character == "#"
+        }) else {
+            return false
+        }
+        return authorityEnd < compactedCharacter
+    }
+
+    /// Allows scheme-less wrap removal only after the authority is complete.
+    private func hasCompleteSchemeLessAuthorityBeforeFirstCompactedCharacter(in input: String) -> Bool {
+        guard let compactedCharacter = input.firstIndex(where: { $0.isNewline || $0 == "\t" }),
+              let authorityEnd = input.firstIndex(where: { character in
+                  character == "/" || character == "?" || character == "#"
+              }) else {
+            return false
+        }
+        return authorityEnd < compactedCharacter
+    }
+
+    private func isWebURL(_ input: String) -> Bool {
+        guard hasWhitespaceFreeAuthority(in: input),
+              let components = URLComponents(string: input),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    /// Rejects whitespace that Foundation would otherwise encode inside URL userinfo.
+    private func hasWhitespaceFreeAuthority(in input: String) -> Bool {
+        guard let schemeSeparator = input.range(of: "://") else { return false }
+        let authority = input[schemeSeparator.upperBound...].prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return !authority.isEmpty && !authority.contains(where: \.isWhitespace)
+    }
+
+    /// Rejects scheme-less userinfo while allowing `@` in paths and queries.
+    private func hasSchemeLessUserInfo(in input: String) -> Bool {
+        guard !input.contains("://") else { return false }
+        let authority = input.prefix { character in
+            character != "/" && character != "?" && character != "#"
+        }
+        return authority.contains("@")
+    }
+
+    private func isSchemeLessHostWithStructure(_ input: String) -> Bool {
+        guard !input.contains("://"),
+              let components = URLComponents(string: "https://\(input)"),
+              let host = components.host,
+              !host.isEmpty else {
+            return false
+        }
+
+        let isHostLike = host == "localhost" ||
+            host.hasSuffix(".localhost") ||
+            host.contains(".") ||
+            host.contains(":")
+        guard isHostLike else { return false }
+
+        let hasPathQueryOrFragment = !components.path.isEmpty ||
+            components.query != nil ||
+            components.fragment != nil
+        return hasPathQueryOrFragment || components.port != nil
     }
 
     /// Whether `input` is an unbracketed IPv6 literal (two or more colons, not
     /// already bracketed and without a path), so it must be wrapped in `[...]`
     /// to form a valid URL authority.
-    private static func needsIPv6Brackets(_ input: String) -> Bool {
+    private func needsIPv6Brackets(_ input: String) -> Bool {
         guard !input.hasPrefix("["), !input.contains("/") else { return false }
         return input.filter { $0 == ":" }.count >= 2
     }
@@ -87,17 +203,26 @@ public struct BrowserURLResolver {
     ///     separators in the input are escaped).
     /// - Returns: The search URL, or `nil` if the template is malformed.
     public static func searchURL(for query: String, template: String = defaultSearchTemplate) -> URL? {
+        BrowserURLResolver(searchTemplate: template).searchURL(for: query)
+    }
+
+    /// Builds a search URL for free-text input using ``searchTemplate``.
+    ///
+    /// - Parameter query: The user's free-text query.
+    /// - Returns: The search URL, or `nil` if ``searchTemplate`` is malformed.
+    public func searchURL(for query: String) -> URL? {
         let encoded = query.addingPercentEncoding(
-            withAllowedCharacters: queryValueAllowed
+            withAllowedCharacters: Self.queryValueAllowed
         ) ?? query
-        return URL(string: template.replacingOccurrences(of: "%@", with: encoded))
+        return URL(string: searchTemplate.replacingOccurrences(of: "%@", with: encoded))
     }
 
     /// A URL with an explicit, http(s)-like scheme, or `nil` if `input` has no
     /// usable scheme. Schemes other than `http`/`https` are rejected so a typed
     /// `file:` or `javascript:` cannot be loaded from the address bar.
-    private static func schemedURL(from input: String) -> URL? {
-        guard let components = URLComponents(string: input),
+    private func schemedURL(from input: String) -> URL? {
+        guard hasWhitespaceFreeAuthority(in: input),
+              let components = URLComponents(string: input),
               let scheme = components.scheme?.lowercased() else {
             return nil
         }
@@ -112,8 +237,8 @@ public struct BrowserURLResolver {
     /// visit rather than a search query. A token is host-like when it has no
     /// spaces and contains a dot (`a.com`) or is a known local host
     /// (`localhost`, optionally with a port or path).
-    private static func looksLikeHost(_ input: String) -> Bool {
-        guard !input.contains(" ") else { return false }
+    private func looksLikeHost(_ input: String) -> Bool {
+        guard !input.contains(where: \.isWhitespace) else { return false }
         let host = bareHost(of: input)
         if host == "localhost" { return true }
         // An IPv6 literal (the bare-host extraction keeps the colons) is a host,
@@ -132,7 +257,7 @@ public struct BrowserURLResolver {
     /// IPv6 loopback `::1`, or a private-LAN address (`10.x`, `192.168.x`,
     /// `172.16-31.x`). Opening a local dev server is a central cmux workflow and
     /// those servers listen on plain HTTP.
-    private static func isLocalHost(_ input: String) -> Bool {
+    private func isLocalHost(_ input: String) -> Bool {
         let host = bareHost(of: input).lowercased()
         if host == "localhost" || host == "::1" { return true }
         let octets = host.split(separator: ".", omittingEmptySubsequences: false)
@@ -153,7 +278,7 @@ public struct BrowserURLResolver {
     /// token containing multiple colons is treated as a bare IPv6 literal
     /// (`::1`) so the loopback comparison can match. A single-colon token is a
     /// `host:port` pair and keeps only the host.
-    private static func bareHost(of input: String) -> String {
+    private func bareHost(of input: String) -> String {
         let hostAndPort = input.split(separator: "/", maxSplits: 1).first.map(String.init) ?? input
         if hostAndPort.hasPrefix("[") {
             // Bracketed IPv6: take everything inside the brackets.

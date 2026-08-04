@@ -126,7 +126,7 @@ public final class BrowserSurfaceState: Identifiable {
     ///   Defaults to ``BrowserURLResolver`` semantics.
     /// - Returns: `true` if a URL was resolved and a load was requested.
     @discardableResult
-    public func submitAddress(using resolve: (String) -> URL? = { BrowserURLResolver.resolve($0) }) -> Bool {
+    public func submitAddress(using resolve: (String) -> URL? = { BrowserURLResolver().resolve($0) }) -> Bool {
         guard let url = resolve(addressText) else { return false }
         load(url)
         return true

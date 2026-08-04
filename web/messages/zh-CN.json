@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "在终端中继续",
+    "returnBody": "请返回运行 ssh cmux.cloud 的终端以继续。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "付款已完成",
+        "body": "你的订阅已确认。新限额可能需要片刻才会显示。"
+      },
+      "checkoutCanceled": {
+        "title": "付款已取消",
+        "body": "付款流程已关闭，你的套餐未发生变化。"
+      },
+      "portalReturn": {
+        "title": "已从账单门户返回",
+        "body": "账单门户中的更改可能需要片刻才会显示。"
+      },
+      "default": {
+        "title": "账单流程已完成",
+        "body": "你的账单流程已结束。"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 专为多任务打造的终端",
     "description": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "cmux 和 Ghostty 是什么关系？",
     "faqGhosttyA": "cmux 不是 Ghostty 的 fork。它使用 <link>libghostty</link> 作为终端渲染库，就像应用使用 WebKit 来渲染网页一样。Ghostty 是一个独立的终端；cmux 是基于其渲染引擎构建的不同应用。",
     "faqPlatformQ": "支持哪些平台？",
-    "faqPlatformA": "目前仅支持 macOS。cmux 是原生 Swift + AppKit 应用。",
+    "faqPlatformA": "可在下载菜单中查看已推出的 cmux 版本。尚未发布的平台可以<waitlist>加入候补名单</waitlist>。",
     "faqAgentsQ": "cmux 支持哪些 coding agent？",
     "faqAgentsA": "全部都支持。cmux 是一个终端，所以任何在终端中运行的 agent 都可以直接使用：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent，以及任何可以从命令行启动的工具。",
     "faqNotificationsQ": "通知是如何工作的？",
@@ -434,6 +457,19 @@
         "cmuxP1": "cmux 不需要内置一个通用 worktree 管理器。它提供<customCommands>自定义命令</customCommands>、可编程的<api>CLI 和 socket API</api>，以及可复用的<skills>技能</skills>。加号按钮可以启动你自己的 worktree 命令、多仓库设置、非 Git 沙盒或远程环境。",
         "cmuxP2": "这就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是当工作流变化时你的代理也能修改的那个；而最适合这个循环的终端，会把通知、Cmd+Shift+U 和 Cmd+Control+U 接到界面里。"
       },
+      "cmuxFork": {
+        "title": "cmux Fork 正式推出",
+        "summary": "将智能体对话分叉到新的分屏、标签页或工作区，同时保留完整上下文。",
+        "date": "2026年7月14日",
+        "p1": "与编程智能体的对话经常会遇到适合分叉的节点。你可以保留一种方案，同时让另一个智能体尝试不同实现、调查支线问题，或从新角度审视同一个问题。",
+        "p2": "Fork Conversation 会基于当前对话创建新的智能体会话，并保留对话历史和工作目录。它支持 Codex、Claude Code、OpenCode、Pi、Hermes，以及其他提供可分叉会话的智能体。",
+        "destinationsTitle": "分叉到你想工作的地方",
+        "destinationsP": "右键点击终端或标签页并选择 Fork Conversation，或者按 <code>Cmd+Shift+P</code> 搜索 Fork Conversation。你可以将分叉放到任意方向的分屏、新标签页或新工作区。",
+        "parallelTitle": "同时探索多个方向",
+        "parallelP1": "多次分叉同一段对话，可以比较不同实现，也可以让多个智能体从相同的起始上下文分工处理问题。每个分叉独立继续，原始对话仍然保留。",
+        "parallelP2": "多个分叉可以在同一目录中工作。如果并发编辑可能重叠，请为它们分配不同的任务或文件。",
+        "release": "cmux Fork 已在 v0.64.19 中推出。"
+      },
       "showHnLaunch": {
         "title": "在 Show HN 发布 cmux",
         "summary": "cmux 登上 Hacker News 第二名，被 Mitchell Hashimoto 分享，并在日本走红。",
@@ -598,6 +634,10 @@
         "代理式开发"
       ]
     },
+    "cmuxFork": {
+      "metaTitle": "cmux Fork 正式推出",
+      "metaDescription": "将 Codex、Claude Code、OpenCode、Pi、Hermes 或其他受支持智能体的对话分叉到新的分屏、标签页或工作区，同时保留完整上下文。"
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "改变你与 cmux 交互方式的新键盘快捷键。"
@@ -728,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入门指南",
@@ -824,8 +867,8 @@
       "concepts": "核心概念",
       "anchorTitle": "锚点工作区",
       "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
-      "anchorNew": "创建分组时，锚点始终是全新的。它们永远不会从已有的工作区提升而来。锚点的工作目录：在对选中项进行分组时继承自第一个选中的工作区，在通过 CLI 创建而未指定 --cwd 时则继承自当前活动的工作区。",
-      "anchorClose": "关闭锚点工作区会解散该分组：其余每个成员都会变成未分组的工作区并保留在标签页列表中。除了锚点本身，不会关闭其他任何内容。在此操作发生前，应用会显示一个带有“不再询问”开关的确认对话框。",
+      "anchorNew": "分组的锚点在创建时始终是一个全新的工作区；无论是对所选工作区进行分组还是创建分组，都不会将现有工作区中的任何一个提升为锚点。（之后关闭锚点时，确实会提升分组中第一个仍保留的成员，见下文。）对所选工作区进行分组时，锚点的工作目录继承自第一个选中的工作区；通过 CLI 创建且未指定 --cwd 时，则继承自当前工作区。",
+      "anchorClose": "关闭锚点工作区时，只会关闭该工作区，并将分组中第一个仍保留的成员（按照分组顺序仍存在的成员中最靠前的一个）提升为新锚点，因此分组及其其他成员会保持不变（被提升的成员随后会在标题栏中显示分组名称）。当锚点是分组中唯一的工作区时，分组会被移除。要将分组展开为未分组的工作区，请使用取消工作区分组；要关闭分组中的所有工作区，请使用删除分组。",
       "identityTitle": "分组标识",
       "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
       "pinningTitle": "固定",
@@ -914,6 +957,8 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
+          "sessionContentMaxWidth": "终端和内置代理聊天内容的可选最大宽度，单位为点。设为 false 可使用整个窗格宽度。",
+          "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
@@ -950,7 +995,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
@@ -1363,7 +1408,16 @@
     "changelog": {
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
-      "metaTitle": "更新日志"
+      "metaTitle": "更新日志",
+      "versionTitle": "cmux {version} · 更新日志",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "更改",
+        "fixed": "修复",
+        "removed": "移除",
+        "contributors": "贡献者"
+      }
     },
     "navItems": {
       "gettingStarted": "入门指南",
@@ -1475,10 +1529,16 @@
       "flagName": "旗帜",
       "flagDesc": "描述",
       "flagNameVal": "设置工作区标题",
+      "flagCommand": "在 shell 启动后于初始远程终端中运行一次命令文本",
       "flagPort": "SSH 端口（默认 22）",
       "flagIdentity": "身份文件的路径",
       "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
+      "flagTransport": "交互式终端传输方式：ssh（默认）或 mosh",
       "flagNoFocus": "创建工作区而不切换到它",
+      "moshTitle": "Mosh 终端传输",
+      "moshDesc": "如果交互式终端需要在切换 Wi-Fi、VPN、热点或睡眠与唤醒后保持连接，请使用 cmux ssh user@remote --transport mosh。Mosh 仅承载终端 PTY；SSH 仍负责远程元数据、cmux 服务的设置与控制、浏览器代理、上传和重新连接。",
+      "moshFallback": "cmux 要求本地安装 Mosh 1.4 或更高版本，并在启动前检查远程 mosh-server。如果客户端缺失或不兼容、服务器缺失，或远程检查失败，cmux 会说明原因并继续使用 SSH。",
+      "moshTmux": "创建一个 Mosh 工作区，用于创建或附加命名的 tmux 会话（默认：main）。tmux 配置会在重连和应用会话恢复后保留。这是可漫游的 tmux 终端，而不是 cmux ssh-tmux 的原生镜像。--session <name> 选择会话；其他选项与 cmux mosh 相同。没有 Mosh 时，同一配置会通过 SSH 运行。",
       "deepLinksTitle": "SSH 深层链接",
       "deepLinksDesc": "当网站或工具想要提供“在 cmux 中打开”按钮时，请使用 cmux SSH 深层链接。该链接将打开 cmux，显示确认提示，然后在用户确认后运行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用网站按钮的 cmux.com 后备 URL。如果未安装 cmux，它将打开本机链接并显示下载。",
@@ -3475,7 +3535,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
+    "signedOutSignIn": "登录"
   },
   "platforms": {
     "macos": "macOS",
@@ -3488,8 +3550,8 @@
     "title": "加入 {platform} 候补名单",
     "titleAny": "加入候补名单",
     "description": "{platform} 支持即将推出。留下你的邮箱，准备好后我们会第一时间通知你。",
-    "descriptionAny": "目前 cmux 优先支持 macOS。留下邮箱，Linux、Windows 或 Android 版本就绪后我们会通知你。",
-    "calloutText": "即将支持 Linux、Windows 和 Android。",
+    "descriptionAny": "选择一个尚未发布的平台并留下邮箱。该版本准备好后，我们会通知你。",
+    "calloutText": "更多 cmux 版本即将推出。",
     "platformsLabel": "哪些平台？",
     "selectPlatform": "请至少选择一个平台。",
     "emailLabel": "邮箱",
@@ -3503,5 +3565,86 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux 浏览器",
+    "title": "适用于 {platform} 的 cmux",
+    "tagline": "将 Chromium 浏览器与智能体工作区融为一体。",
+    "logoAlt": "cmux 应用图标",
+    "portableCta": "便携版 ZIP",
+    "featuresTitle": "专为智能体工作打造",
+    "features": {
+      "chromium": {
+        "title": "真正的 Chromium",
+        "description": "：拥有 Chrome 级别的标签页、渲染、扩展和地址栏体验"
+      },
+      "workspaces": {
+        "title": "面向任务的工作区",
+        "description": "：按任务组织网页标签和工具，告别无限延伸的标签栏"
+      },
+      "terminals": {
+        "title": "终端界面",
+        "description": "：在同一窗口和合成器中使用 shell 与浏览器标签"
+      },
+      "openSource": {
+        "title": "免费且开源",
+        "description": "：可在 GitHub 上查看代码、提交问题并从源码构建"
+      }
+    },
+    "installTitle": "安装",
+    "releaseTitle": "版本与更新",
+    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新稳定版本。cmux 会在安装更新前验证已签名的更新清单。",
+    "sourceLink": "在 GitHub 上查看源代码",
+    "otherPlatform": "适用于 {platform} 的 cmux",
+    "macLink": "Mac 版 cmux 终端",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "下载 Windows 版 cmux",
+      "metaDescription": "下载 Windows x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和熟悉的 Windows 键盘操作。",
+      "primaryCta": "下载安装程序（.exe）",
+      "requirements": "Windows 10 或更高版本 · x64",
+      "installBody": "运行安装程序并按照 Windows 提示操作。如果希望将 cmux 保留在文件夹中而不进行全局安装，请选择便携版 ZIP。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "下载 Linux 版 cmux",
+      "metaDescription": "下载 Linux x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和集成终端界面。",
+      "primaryCta": "下载 .deb",
+      "requirements": "Debian 或 Ubuntu · x64",
+      "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "欢迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感谢你加入 cmux Pro！完整的 Pro 体验仍在完善中，Cloud 访问也即将推出。",
+      "cloudStatus": "Cloud 访问上线后，我们会根据你的订阅月数向账户添加使用额度。",
+      "currentBenefit": "在此期间，你的 Pro 权益是抢先体验 cmux iOS 版。请通过下方链接注册，注册完成后 Apple 会发送 TestFlight 邀请。",
+      "testflightLink": "注册 TestFlight：{url}",
+      "testflightLinkLabel": "注册 TestFlight",
+      "signoff": "很高兴有你加入！\ncmux 团队"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已启用",
+    "title": "欢迎加入 cmux Pro",
+    "body": "Pro 功能仍在开发中。Cloud 访问即将推出，订阅期间每个月都会累积使用额度。目前，Pro 包含通过 TestFlight 访问 cmux iOS 版的权益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手机上使用 cmux。",
+        "action": "加入 iOS 测试版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、账单和取消选项。",
+        "action": "管理方案"
+      }
+    }
   }
 }
