@@ -1,6 +1,5 @@
 import XCTest
 import Foundation
-import AppKit
 import Darwin
 
 final class AutomationSocketUITests: XCTestCase {
@@ -149,7 +148,7 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
-    func testLaunchRewritePreservesSocketPasswordForCLIAuthentication() async throws {
+    func testLaunchRewritePreservesSocketPasswordForCLIAuthentication() throws {
         let fileManager = FileManager.default
         let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-ui-test-password-launch-\(UUID().uuidString)",
@@ -174,17 +173,45 @@ final class AutomationSocketUITests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let runningApp = try await launchBundledApp(
-            mode: "password",
-            isolatedHome: isolatedHome,
-            debugLogURL: debugLogURL
+        let app = configuredApp(mode: "password")
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["HOME"] = isolatedHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = isolatedHome
+            .appendingPathComponent(".config", isDirectory: true).path
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = debugLogURL.path
+
+        // XCUIApplication requires activation even though this test is entirely
+        // socket-driven. Headless runners can leave a healthy app backgrounded;
+        // keep executing after that one known launch issue so the persistence
+        // assertions below still run against the live process.
+        let previousContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
+        defer { continueAfterFailure = previousContinueAfterFailure }
+        let activationOptions = XCTExpectedFailure.Options()
+        activationOptions.isStrict = false
+        activationOptions.issueMatcher = { issue in
+            issue.compactDescription.contains("Failed to activate application")
+                && issue.compactDescription.contains("current state: Running Background")
+        }
+        XCTExpectFailure(
+            "Headless runners can leave the socket-driven app in Running Background",
+            options: activationOptions
+        ) {
+            app.launch()
+        }
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app process to remain running. state=\(app.state.rawValue)"
         )
-        defer { terminateBundledApp(runningApp) }
 
         guard let resolvedPath = resolveSocketPath(timeout: 15.0, allowTmpFallback: false) else {
             XCTFail(
                 "Expected password-protected control socket to exist. "
-                    + "terminated=\(runningApp.isTerminated) diagnostics=\(loadDiagnostics()) "
+                    + "state=\(app.state.rawValue) diagnostics=\(loadDiagnostics()) "
                     + "debugLog=\(loadTextFile(at: debugLogURL))"
             )
             return
@@ -493,59 +520,6 @@ final class AutomationSocketUITests: XCTestCase {
             encoding: .utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return (process.terminationStatus, stdout, stderr)
-    }
-
-    private func launchBundledApp(
-        mode: String,
-        isolatedHome: URL,
-        debugLogURL: URL
-    ) async throws -> NSRunningApplication {
-        let cliURL = try XCTUnwrap(
-            bundledCLIURL(),
-            "Expected the UI test host's bundled cmux CLI"
-        )
-        let appURL = cliURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.addsToRecentItems = false
-        configuration.createsNewApplicationInstance = true
-        configuration.allowsRunningApplicationSubstitution = false
-        configuration.promptsUserIfNeeded = false
-        configuration.arguments = [
-            "-\(modeKey)", mode,
-            "-NSAppSleepDisabled", "YES",
-        ]
-        var environment = [
-            "HOME": isolatedHome.path,
-            "CFFIXED_USER_HOME": isolatedHome.path,
-            "XDG_CONFIG_HOME": isolatedHome
-                .appendingPathComponent(".config", isDirectory: true).path,
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
-            "CMUX_UI_TEST_SOCKET_SANITY": "1",
-            "CMUX_UI_TEST_DIAGNOSTICS_PATH": diagnosticsPath,
-            "CMUX_DEBUG_LOG": debugLogURL.path,
-            "CMUX_TAG": launchTag,
-        ]
-        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
-            environment["PATH"] = path
-        }
-        configuration.environment = environment
-        return try await NSWorkspace.shared.openApplication(
-            at: appURL,
-            configuration: configuration
-        )
-    }
-
-    private func terminateBundledApp(_ app: NSRunningApplication) {
-        guard !app.isTerminated else { return }
-        if !app.terminate() {
-            app.forceTerminate()
-        }
     }
 
     private func loadTextFile(at url: URL) -> String {
