@@ -154,22 +154,107 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(result["url"] as? String, "about:blank")
     }
 
-    /// Regression: page CSP without 'unsafe-eval' blocks page-world script
-    /// evaluation; browser.eval must fall back to the isolated content world
-    /// and still return a result.
-    func testEvalSucceedsUnderCSPWithoutUnsafeEval() throws {
+    /// Regression: page CSP without 'unsafe-eval' must not block browser.eval
+    /// or force ordinary expressions out of the page's JavaScript world.
+    func testEvalExpressionsPreservePageWorldWithAndWithoutStrictCSP() throws {
         try launchApp()
-        let sid = try openFixture("csp-no-unsafe-eval")
+        let server = try BrowserRecoveryHTTPServer(
+            fixtureDirectory: Self.fixtureURL("csp-no-unsafe-eval").deletingLastPathComponent(),
+            strictCSPFixture: "csp-no-unsafe-eval.html"
+        )
+        try server.start()
+        defer { server.stop() }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(server.port)/"))
+        let strictCSPSurfaceID = try openFixture("csp-no-unsafe-eval", baseURL: baseURL)
 
-        let result = try socketResult(
+        let cspEnforcementResult = try socketResult(
             method: "browser.eval",
-            params: ["surface_id": sid, "script": "document.title"],
+            params: [
+                "surface_id": strictCSPSurfaceID,
+                "script": "document.documentElement.dataset.pageEvalBlocked",
+            ],
             responseTimeout: 15.0
         )
         XCTAssertEqual(
-            result["value"] as? String,
+            cspEnforcementResult["value"] as? String,
+            "true",
+            "the fixture must prove its CSP blocks page-authored eval(): \(cspEnforcementResult)"
+        )
+
+        let arithmeticResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": strictCSPSurfaceID, "script": "1+1"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            (arithmeticResult["value"] as? NSNumber)?.intValue,
+            2,
+            "browser.eval 1+1 must succeed under CSP without 'unsafe-eval': \(arithmeticResult)"
+        )
+        XCTAssertNil(
+            arithmeticResult["content_world"],
+            "a simple expression should retain browser.eval's page-world semantics"
+        )
+
+        let titleResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": strictCSPSurfaceID, "script": "document.title"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            titleResult["value"] as? String,
             "csp-no-unsafe-eval",
-            "browser.eval must succeed under CSP without 'unsafe-eval': \(result)"
+            "browser.eval document.title must succeed under CSP without 'unsafe-eval': \(titleResult)"
+        )
+        XCTAssertNil(
+            titleResult["content_world"],
+            "a DOM expression should retain browser.eval's page-world semantics"
+        )
+
+        let pageGlobalResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": strictCSPSurfaceID, "script": "Array.isArray(window.__cmuxLog)"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            pageGlobalResult["value"] as? Bool,
+            true,
+            "browser.eval must retain access to page-defined globals under strict CSP: \(pageGlobalResult)"
+        )
+        XCTAssertNil(
+            pageGlobalResult["content_world"],
+            "page-defined globals cannot be read from an isolated content world"
+        )
+
+        let noCSPSurfaceID = try openFixture("sticky-input", baseURL: baseURL)
+        let noCSPArithmeticResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": noCSPSurfaceID, "script": "1+1"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            (noCSPArithmeticResult["value"] as? NSNumber)?.intValue,
+            2,
+            "browser.eval 1+1 must keep working on pages without CSP: \(noCSPArithmeticResult)"
+        )
+        XCTAssertNil(
+            noCSPArithmeticResult["content_world"],
+            "browser.eval must keep using the page world on pages without CSP"
+        )
+
+        let noCSPTitleResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": noCSPSurfaceID, "script": "document.title"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            noCSPTitleResult["value"] as? String,
+            "sticky-input",
+            "browser.eval document.title must keep working on pages without CSP: \(noCSPTitleResult)"
+        )
+        XCTAssertNil(
+            noCSPTitleResult["content_world"],
+            "browser.eval must keep using the page world on pages without CSP"
         )
     }
 

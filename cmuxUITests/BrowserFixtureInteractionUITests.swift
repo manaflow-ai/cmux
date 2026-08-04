@@ -182,17 +182,19 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     /// for `document.readyState === "complete"`.
     func openFixture(
         _ fixtureName: String,
+        baseURL: URL? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> String {
         let surfaceID = try openBrowserSurface(file: file, line: line)
-        let url = Self.fixtureURL(fixtureName)
+        let fixtureURL = Self.fixtureURL(fixtureName)
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: url.path),
-            "Missing browser fixture: \(url.path)",
+            FileManager.default.fileExists(atPath: fixtureURL.path),
+            "Missing browser fixture: \(fixtureURL.path)",
             file: file,
             line: line
         )
+        let url = baseURL?.appendingPathComponent("\(fixtureName).html") ?? fixtureURL
         try socketResult(
             method: "browser.navigate",
             params: ["surface_id": surfaceID, "url": url.absoluteString],
@@ -692,15 +694,19 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
-    /// Regression: on a page whose CSP has no 'unsafe-eval', the page-world
-    /// callAsyncJavaScript/eval is blocked; automation must fall back to the
-    /// isolated content world (which shares the DOM). Both eval and the
-    /// interaction methods must keep working. A browser.eval served from the
-    /// isolated world must also flag content_world so the agent knows page-world
-    /// JS globals were not visible (the value came from a different JS context).
+    /// Regression: on a page whose CSP has no 'unsafe-eval', browser.eval must
+    /// execute ordinary expressions directly in the page world. Interaction
+    /// methods must keep working on the same strict-CSP page.
     func testCSPNoUnsafeEval() throws {
         try launchApp()
-        let sid = try openFixture("csp-no-unsafe-eval")
+        let server = try BrowserRecoveryHTTPServer(
+            fixtureDirectory: Self.fixtureURL("csp-no-unsafe-eval").deletingLastPathComponent(),
+            strictCSPFixture: "csp-no-unsafe-eval.html"
+        )
+        try server.start()
+        defer { server.stop() }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(server.port)/"))
+        let sid = try openFixture("csp-no-unsafe-eval", baseURL: baseURL)
 
         let evalResult = try socketResult(
             method: "browser.eval",
@@ -710,12 +716,16 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(
             evalResult["value"] as? String,
             "csp-no-unsafe-eval",
-            "browser.eval must succeed under CSP without 'unsafe-eval' (isolated-world fallback)"
+            "browser.eval must succeed under CSP without 'unsafe-eval'"
+        )
+        XCTAssertNil(
+            evalResult["content_world"],
+            "ordinary expressions must retain browser.eval's page-world semantics"
         )
         XCTAssertEqual(
-            evalResult["content_world"] as? String,
-            "isolated",
-            "a CSP-blocked browser.eval served from the isolated world must flag content_world"
+            try evalBool("Array.isArray(window.__cmuxLog)", surfaceID: sid),
+            true,
+            "browser.eval must retain access to page-defined globals under strict CSP"
         )
 
         try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#csp-btn"])

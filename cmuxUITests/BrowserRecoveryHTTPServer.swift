@@ -4,14 +4,28 @@ import Foundation
 final class BrowserRecoveryHTTPServer {
     let port: UInt16
 
+    private let serverArguments: [String]
     private let inputPipe = Pipe()
     private let outputPipe = Pipe()
     private var outputBuffer = Data()
     private var process: Process?
     private var hasHeldRequest = false
 
-    init() throws {
+    convenience init() throws {
+        try self.init(serverArguments: ["recovery"])
+    }
+
+    convenience init(fixtureDirectory: URL, strictCSPFixture: String) throws {
+        try self.init(serverArguments: [
+            "fixtures",
+            fixtureDirectory.path,
+            strictCSPFixture,
+        ])
+    }
+
+    private init(serverArguments: [String]) throws {
         self.port = try Self.availablePort()
+        self.serverArguments = serverArguments
     }
 
     deinit {
@@ -28,7 +42,7 @@ final class BrowserRecoveryHTTPServer {
             "-c",
             Self.serverScript,
             String(port),
-        ]
+        ] + serverArguments
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
         process.standardError = Pipe()
@@ -126,19 +140,41 @@ final class BrowserRecoveryHTTPServer {
 
     private static let serverScript = #"""
 import sys
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import unquote, urlparse
 
 port = int(sys.argv[1])
+mode = sys.argv[2]
+fixture_root = Path(sys.argv[3]).resolve() if mode == 'fixtures' else None
+strict_csp_fixture = sys.argv[4] if mode == 'fixtures' else None
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        print('REQUEST', flush=True)
-        if sys.stdin.readline().strip() != 'RELEASE':
-            self.send_error(500)
-            return
-        body = b'<!doctype html><body data-cmux-recovered="true">recovered</body>'
+        if mode == 'recovery':
+            print('REQUEST', flush=True)
+            if sys.stdin.readline().strip() != 'RELEASE':
+                self.send_error(500)
+                return
+            body = b'<!doctype html><body data-cmux-recovered="true">recovered</body>'
+        else:
+            fixture_name = unquote(urlparse(self.path).path).lstrip('/')
+            if not fixture_name or '/' in fixture_name:
+                self.send_error(404)
+                return
+            fixture_path = (fixture_root / fixture_name).resolve()
+            if fixture_path.parent != fixture_root or not fixture_path.is_file():
+                self.send_error(404)
+                return
+            body = fixture_path.read_bytes()
+
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
+        if mode == 'fixtures' and fixture_name == strict_csp_fixture:
+            self.send_header(
+                'Content-Security-Policy',
+                "default-src 'none'; script-src 'nonce-cmux-fixture'; object-src 'none'",
+            )
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
