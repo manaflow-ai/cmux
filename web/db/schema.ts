@@ -778,7 +778,7 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
     check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
-    check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
+    check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios', 'linux')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
     check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
@@ -926,6 +926,30 @@ export const irohRelayTokenIssuances = pgTable(
     index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
     index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
     index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),
+  ],
+);
+
+/**
+ * One-use headless enrollment tokens. A signed-in user mints one, provisioning
+ * injects it into a container, and the unauthenticated exchange route consumes
+ * it exactly once for a Stack session. Only the SHA-256 hash of the random
+ * token is persisted; the plaintext is returned once at mint time.
+ */
+export const irohEnrollmentTokens = pgTable(
+  "iroh_enrollment_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_enrollment_tokens_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+    uniqueIndex("iroh_enrollment_tokens_token_hash_unique").on(table.tokenHash),
+    index("iroh_enrollment_tokens_user_expires_idx").on(table.userId, table.expiresAt),
+    index("iroh_enrollment_tokens_expires_idx").on(table.expiresAt, table.id),
   ],
 );
 

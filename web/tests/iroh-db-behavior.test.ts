@@ -673,11 +673,20 @@ describe("Iroh trust broker database behavior", () => {
     // share it (the slot is keyed on user + device + tag instead).
     await insertBinding({ userId: "user-b", appInstanceId, endpointId: "41".repeat(32) });
     await expectPostgresError(insertBinding({ userId: "user-a", endpointId: "not-an-endpoint" }), "23514");
-    await expectPostgresError(requiredSql()`
+    // 'linux' (headless cmux-tui session server) is a valid platform; anything
+    // outside the fixed mac/ios/linux set still trips the CHECK constraint.
+    await requiredSql()`
       insert into iroh_endpoint_bindings (
         user_id, device_uuid, app_instance_id, tag, platform, endpoint_id, identity_generation
       ) values (
         'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'linux', ${"42".repeat(32)}, 1
+      )
+    `;
+    await expectPostgresError(requiredSql()`
+      insert into iroh_endpoint_bindings (
+        user_id, device_uuid, app_instance_id, tag, platform, endpoint_id, identity_generation
+      ) values (
+        'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'windows', ${"49".repeat(32)}, 1
       )
     `, "23514");
     await expectPostgresError(requiredSql()`
@@ -1510,6 +1519,48 @@ describe("Iroh trust broker database behavior", () => {
     expect(total).toBe("0");
   });
 
+  dbTest("binds the pair-grant audit to the acceptor-platform profile inside the transaction", async () => {
+    const userId = "user-pair-tui-profile";
+    const initiatorId = await insertBinding({
+      userId,
+      platform: "mac",
+      endpointId: "57".repeat(32),
+    });
+    const acceptorId = await insertBinding({
+      userId,
+      platform: "linux",
+      endpointId: "58".repeat(32),
+    });
+    const initiator = await pairPeer(initiatorId);
+    const acceptor = await pairPeer(acceptorId);
+    const record = (alpn: string, scope: string) => requiredRepository().recordPairGrant({
+      userId,
+      jti: randomUUID(),
+      initiator,
+      acceptor,
+      signingKeyId: "current",
+      alpn,
+      scope,
+      issuedAt: NOW,
+      notBefore: NOW,
+      expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000),
+    });
+
+    // A linux TUI acceptor must never commit an audit row carrying the mobile
+    // profile, even if a raced platform change slipped past the route gate.
+    const mismatch = await Effect.runPromiseExit(record("cmux/mobile/1", "cmux.mobile.attach"));
+    expect(mismatch._tag).toBe("Failure");
+    expect(String(mismatch)).toContain("pair_grant_profile_mismatch");
+
+    await Effect.runPromise(record("cmux/tui/1", "cmux.tui.attach"));
+    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
+      select count(*)::text as total
+      from iroh_pair_grant_issuances
+      where user_id = ${userId} and alpn = 'cmux/tui/1' and scope = 'cmux.tui.attach'
+    `;
+    expect(total).toBe("1");
+  });
+
   dbTest("rejects pair-grant peers that resolve to one physical device", async () => {
     const userId = "user-pair-same-device";
     const deviceUuid = randomUUID();
@@ -1987,7 +2038,7 @@ async function insertBinding(input: {
   readonly deviceUuid?: string;
   readonly appInstanceId?: string;
   readonly endpointId: string;
-  readonly platform?: "mac" | "ios";
+  readonly platform?: "mac" | "ios" | "linux";
   readonly tag?: string;
   readonly pathHints?: unknown[];
 }): Promise<string> {
@@ -2017,7 +2068,7 @@ async function pairPeer(bindingId: string): Promise<PairGrantPeer> {
     bindingId: string;
     deviceId: string;
     tag: string;
-    platform: "mac" | "ios";
+    platform: "mac" | "ios" | "linux";
     endpointId: string;
     identityGeneration: number;
   }>>`

@@ -16,9 +16,15 @@ import {
   IrohRelayMintError,
 } from "../services/iroh/errors";
 import {
+  IROH_ALPN,
+  IROH_PAIR_SCOPE,
   IROH_RELAY_TOKEN_LIFETIME_SECONDS,
+  IROH_TUI_ALPN,
+  IROH_TUI_PAIR_SCOPE,
   MANAGED_RELAY_URLS,
+  pairGrantProfileForAcceptorPlatform,
   sha256,
+  type IrohPlatform,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
 import {
@@ -657,6 +663,61 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
+  test("keeps the mobile mac-acceptor grant on the mobile ALPN and scope", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({ userId: USER_A, platform: "ios" });
+    const acceptor = binding({ userId: USER_A, platform: "mac", pairingEnabled: true });
+    fixture.repository.bindings.push(initiator, acceptor);
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    }, NOW)) as { grant: string };
+    const claims = grantClaims(result.grant);
+    expect(claims.alpn).toBe(IROH_ALPN);
+    expect(claims.scope).toBe(IROH_PAIR_SCOPE);
+    expect(IROH_ALPN).toBe("cmux/mobile/1");
+    expect(IROH_PAIR_SCOPE).toBe("cmux.mobile.attach");
+  });
+
+  test("mints the TUI profile for a linux acceptor from mac, ios, and linux initiators", async () => {
+    const fixture = makeFixture();
+    const acceptor = binding({ userId: USER_A, platform: "linux", tag: "tui", pairingEnabled: true });
+    fixture.repository.bindings.push(acceptor);
+    for (const platform of ["mac", "ios", "linux"] as const) {
+      const initiator = binding({ userId: USER_A, platform });
+      fixture.repository.bindings.push(initiator);
+      const result = await Effect.runPromise(fixture.broker.issuePairGrant(USER_A, {
+        initiatorBindingId: initiator.id,
+        acceptorBindingId: acceptor.id,
+      }, NOW)) as { grant: string };
+      const claims = grantClaims(result.grant);
+      expect(claims.alpn).toBe(IROH_TUI_ALPN);
+      expect(claims.scope).toBe(IROH_TUI_PAIR_SCOPE);
+      expect(claims.acceptor.platform).toBe("linux");
+    }
+    // The memory repository rejects any audit whose ALPN/scope disagrees with
+    // the acceptor profile, so three recorded audits prove the broker sent the
+    // TUI profile to the repository as well as into the signed claims.
+    expect(fixture.repository.pairGrantAudits).toHaveLength(3);
+  });
+
+  test("never treats an iOS acceptor or a pairing-disabled linux acceptor as pairable", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({ userId: USER_A, platform: "mac" });
+    const iosAcceptor = binding({ userId: USER_A, platform: "ios", pairingEnabled: true });
+    const parkedTui = binding({ userId: USER_A, platform: "linux", pairingEnabled: false });
+    fixture.repository.bindings.push(initiator, iosAcceptor, parkedTui);
+    await expectEffectFailure(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: iosAcceptor.id,
+    }, NOW), "IrohForbiddenError");
+    await expectEffectFailure(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: parkedTui.id,
+    }, NOW), "IrohForbiddenError");
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
   test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios", identityGeneration: 4 });
@@ -1059,8 +1120,18 @@ class MemoryRepository implements IrohRepositoryShape {
     const acceptor = this.bindings.find((row) =>
       row.id === input.acceptor.bindingId && row.userId === input.userId && !row.revokedAt);
     if (!initiator || !acceptor) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+    // Mirror the live repository: the acceptor's platform selects the grant
+    // profile, and the audited ALPN/scope must match it exactly.
+    const profile = pairGrantProfileForAcceptorPlatform(acceptor.platform);
+    if (
+      !profile ||
+      !(profile.initiatorPlatforms as readonly string[]).includes(initiator.platform) ||
+      !acceptor.pairingEnabled
+    ) {
       return Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
+    }
+    if (input.alpn !== profile.alpn || input.scope !== profile.scope) {
+      return Effect.fail(new IrohConflictError({ code: "pair_grant_profile_mismatch" }));
     }
     this.pairGrantAudits.push(input);
     return Effect.void;
@@ -1072,7 +1143,7 @@ class MemoryRepository implements IrohRepositoryShape {
     readonly deviceId: string;
     readonly endpointId: string;
     readonly identityGeneration: number;
-    readonly platform: "mac" | "ios";
+    readonly platform: IrohPlatform;
   }) {
     this.beforeFinalizeEndpointAttestation?.();
     const active = this.bindings.find((row) =>
@@ -1296,6 +1367,17 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     revokedReason: null,
     ...overrides,
   };
+}
+
+function grantClaims(grant: string): {
+  alpn: string;
+  scope: string;
+  initiator: { platform: string };
+  acceptor: { platform: string };
+} {
+  const payload = grant.split(".")[1];
+  if (!payload) throw new Error("grant is not a compact JWS");
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 }
 
 async function expectEffectFailure(
