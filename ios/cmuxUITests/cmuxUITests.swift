@@ -55,6 +55,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
             "-dev.cmux.mobile.onboarding.redesign.progress.v1",
@@ -110,6 +111,9 @@ final class cmuxUITests: XCTestCase {
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
+            let appFrame = app.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(appFrame.contains(header.frame), file: file, line: line)
+            XCTAssertTrue(appFrame.contains(progress.frame), file: file, line: line)
             XCTAssertEqual(header.frame.minX, referenceHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(header.frame.minY, referenceHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(header.frame.width, referenceHeaderFrame.width, accuracy: 0.5, file: file, line: line)
@@ -117,6 +121,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(progress.frame.midX, referenceProgressFrame.midX, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(progress.frame.midY, referenceProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
+                XCTAssertTrue(appFrame.contains(footer.frame), file: file, line: line)
                 XCTAssertEqual(footer.frame.minY, referenceFooterFrame.minY, accuracy: 0.5, file: file, line: line)
                 XCTAssertEqual(footer.frame.maxY, referenceFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
