@@ -116,4 +116,42 @@ import Testing
 
         #expect(elapsed < .milliseconds(500))
     }
+
+    @Test func indexedImportPreservesFirstMatchingEntrySemantics() throws {
+        let (store, fileURL) = makeStore()
+        defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
+
+        let firstID = UUID()
+        let exactID = UUID()
+        let now = Date()
+        let existing = [
+            BrowserHistoryStore.Entry(
+                id: firstID,
+                url: "https://www.example.com:443/path/",
+                title: "First normalized match",
+                lastVisited: now.addingTimeInterval(-60),
+                visitCount: 1
+            ),
+            BrowserHistoryStore.Entry(
+                id: exactID,
+                url: "https://example.com/path",
+                title: "Later exact match",
+                lastVisited: now.addingTimeInterval(-120),
+                visitCount: 1
+            ),
+        ]
+        try JSONEncoder().encode(existing).write(to: fileURL, options: .atomic)
+
+        let imported = BrowserHistoryStore.Entry(
+            id: UUID(),
+            url: "https://example.com/path",
+            title: "Imported",
+            lastVisited: now,
+            visitCount: 7
+        )
+
+        #expect(store.mergeImportedEntries([imported]) == 1)
+        #expect(store.entries.first(where: { $0.id == firstID })?.visitCount == 7)
+        #expect(store.entries.first(where: { $0.id == exactID })?.visitCount == 1)
+    }
 }

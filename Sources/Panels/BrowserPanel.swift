@@ -1473,6 +1473,21 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
         guard !importedEntries.isEmpty else { return 0 }
 
+        var mergedEntries = entries
+        var exactIndexByURL: [String: Int] = [:]
+        var normalizedIndexByKey: [String: Int] = [:]
+        exactIndexByURL.reserveCapacity(mergedEntries.count)
+        normalizedIndexByKey.reserveCapacity(mergedEntries.count)
+        for (index, entry) in mergedEntries.enumerated() {
+            if exactIndexByURL[entry.url] == nil {
+                exactIndexByURL[entry.url] = index
+            }
+            if let key = suggestionEngine.normalizedHistoryKey(urlString: entry.url),
+               normalizedIndexByKey[key] == nil {
+                normalizedIndexByKey[key] = index
+            }
+        }
+
         var mergedCount = 0
         for imported in importedEntries {
             guard let parsedURL = URL(string: imported.url),
@@ -1496,42 +1511,48 @@ final class BrowserHistoryStore: ObservableObject {
             let importedTypedCount = max(0, imported.typedCount)
             let importedLastTypedAt = imported.lastTypedAt
 
-            if let idx = entries.firstIndex(where: {
-                if $0.url == urlString { return true }
-                guard let normalizedKey else { return false }
-                return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
-            }) {
+            let exactIndex = exactIndexByURL[urlString]
+            let normalizedIndex = normalizedKey.flatMap { normalizedIndexByKey[$0] }
+            let matchedIndex: Int?
+            switch (exactIndex, normalizedIndex) {
+            case let (exact?, normalized?): matchedIndex = min(exact, normalized)
+            case let (exact?, nil): matchedIndex = exact
+            case let (nil, normalized?): matchedIndex = normalized
+            case (nil, nil): matchedIndex = nil
+            }
+
+            if let idx = matchedIndex {
                 var didMutate = false
-                if importedLastVisited > entries[idx].lastVisited {
-                    entries[idx].lastVisited = importedLastVisited
+                if importedLastVisited > mergedEntries[idx].lastVisited {
+                    mergedEntries[idx].lastVisited = importedLastVisited
                     didMutate = true
                 }
-                if importedVisitCount > entries[idx].visitCount {
-                    entries[idx].visitCount = importedVisitCount
+                if importedVisitCount > mergedEntries[idx].visitCount {
+                    mergedEntries[idx].visitCount = importedVisitCount
                     didMutate = true
                 }
-                if importedTypedCount > entries[idx].typedCount {
-                    entries[idx].typedCount = importedTypedCount
+                if importedTypedCount > mergedEntries[idx].typedCount {
+                    mergedEntries[idx].typedCount = importedTypedCount
                     didMutate = true
                 }
                 if let importedLastTypedAt {
-                    if let existingLastTypedAt = entries[idx].lastTypedAt {
+                    if let existingLastTypedAt = mergedEntries[idx].lastTypedAt {
                         if importedLastTypedAt > existingLastTypedAt {
-                            entries[idx].lastTypedAt = importedLastTypedAt
+                            mergedEntries[idx].lastTypedAt = importedLastTypedAt
                             didMutate = true
                         }
                     } else {
-                        entries[idx].lastTypedAt = importedLastTypedAt
+                        mergedEntries[idx].lastTypedAt = importedLastTypedAt
                         didMutate = true
                     }
                 }
 
-                let existingTitle = entries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let existingTitle = mergedEntries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let incomingTitle = importedTitle ?? ""
                 if !incomingTitle.isEmpty,
-                   (existingTitle.isEmpty || importedLastVisited >= entries[idx].lastVisited) {
-                    if entries[idx].title != incomingTitle {
-                        entries[idx].title = incomingTitle
+                   (existingTitle.isEmpty || importedLastVisited >= mergedEntries[idx].lastVisited) {
+                    if mergedEntries[idx].title != incomingTitle {
+                        mergedEntries[idx].title = incomingTitle
                         didMutate = true
                     }
                 }
@@ -1540,7 +1561,8 @@ final class BrowserHistoryStore: ObservableObject {
                     mergedCount += 1
                 }
             } else {
-                entries.append(Entry(
+                let newIndex = mergedEntries.endIndex
+                mergedEntries.append(Entry(
                     id: UUID(),
                     url: urlString,
                     title: importedTitle,
@@ -1549,15 +1571,22 @@ final class BrowserHistoryStore: ObservableObject {
                     typedCount: importedTypedCount,
                     lastTypedAt: importedLastTypedAt
                 ))
+                if exactIndexByURL[urlString] == nil {
+                    exactIndexByURL[urlString] = newIndex
+                }
+                if let normalizedKey, normalizedIndexByKey[normalizedKey] == nil {
+                    normalizedIndexByKey[normalizedKey] = newIndex
+                }
                 mergedCount += 1
             }
         }
 
         guard mergedCount > 0 else { return 0 }
-        entries.sort(by: { $0.lastVisited > $1.lastVisited })
-        if entries.count > maxEntries {
-            entries.removeLast(entries.count - maxEntries)
+        mergedEntries.sort(by: { $0.lastVisited > $1.lastVisited })
+        if mergedEntries.count > maxEntries {
+            mergedEntries.removeLast(mergedEntries.count - maxEntries)
         }
+        entries = mergedEntries
         scheduleSave()
         return mergedCount
     }
