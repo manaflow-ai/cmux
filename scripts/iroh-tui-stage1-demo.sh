@@ -42,7 +42,7 @@ esac
 provider_socket="$demo_root/provider.sock"
 provider_log="$demo_root/provider.log"
 transcript="$demo_root/transcript.txt"
-host_target="$demo_root/host-target"
+host_target="$build_cache_root/host-target"
 host_binary="$host_target/debug/cmux-tui-iroh"
 linux_target="$build_cache_root/linux-target"
 linux_cargo_home="$build_cache_root/linux-cargo-home"
@@ -213,7 +213,10 @@ printf '%s\n' "$server_token" \
     | docker run "${docker_args[@]}" "$image" >/dev/null
 unset server_token
 
-wait_for_container_ready_count 1
+if ! wait_for_container_ready_count 1; then
+    docker logs "$container" >&2 || true
+    exit 1
+fi
 first_ready="$(docker logs "$container" 2>&1 | grep 'server ready' | head -n 1)"
 port_bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$container")"
 published_ports="$(docker port "$container")"
@@ -234,7 +237,10 @@ record "first_$first_ready"
     --display-name mac-stage1 \
     --socket "$provider_socket" >"$provider_log" 2>&1 &
 provider_pid=$!
-wait_for_file "$provider_socket"
+if ! wait_for_file "$provider_socket"; then
+    cat "$provider_log" >&2
+    exit 1
+fi
 grep 'provider ready' "$provider_log" | tee -a "$transcript"
 
 "$host_binary" probe \
@@ -242,7 +248,10 @@ grep 'provider ready' "$provider_log" | tee -a "$transcript"
 record "detach_reattach_before_restart=ok"
 
 docker restart "$container" >/dev/null
-wait_for_container_ready_count 2
+if ! wait_for_container_ready_count 2; then
+    docker logs "$container" >&2 || true
+    exit 1
+fi
 second_ready="$(docker logs "$container" 2>&1 | grep 'server ready' | tail -n 1)"
 record "second_$second_ready"
 if [ "$first_ready" != "$second_ready" ]; then
