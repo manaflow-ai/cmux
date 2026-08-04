@@ -50,7 +50,8 @@ pub use journal_extensions::{
 };
 pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalContentBlob, JournalHookAttempt, JournalHookDelivery,
-    JournalHookScan, JournalHookState, JournalSegmentSealCommit, JournalSegmentSealStart,
+    JournalHookDeliveryResult, JournalHookScan, JournalHookState, JournalSegmentSealCommit,
+    JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]

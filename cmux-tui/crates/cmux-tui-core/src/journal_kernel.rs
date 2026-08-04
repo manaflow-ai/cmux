@@ -312,6 +312,10 @@ impl JournalKernel {
         state.epoch
     }
 
+    pub(crate) fn wake_waiters(&self) {
+        self.changed.notify_all();
+    }
+
     pub(crate) fn read_after(&self, sequence: u64, limit: usize) -> SharedJournalRead {
         if !self.enabled || limit == 0 {
             return SharedJournalRead::Unavailable;

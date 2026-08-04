@@ -5,9 +5,8 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak, mpsc};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Weak, mpsc};
+use std::time::{Duration, Instant};
 
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
@@ -15,13 +14,14 @@ use wait_timeout::ChildExt;
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 use crate::workspace_registry::{
-    JournalHookAttempt, JournalHookDelivery, JournalHookScan, JournalHookState,
-    SessionJournalReader,
+    JournalHookAttempt, JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan,
+    JournalHookState, SessionJournalReader,
 };
 use crate::{JournalHookManifest, JournalSensitivity, Mux};
 
 const HOOK_SCAN_PAGE_SIZE: usize = 1024;
-const MAX_ACTIVE_DELIVERIES: usize = 128;
+const MIN_DELIVERY_WORKERS: usize = 4;
+const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
 const ACTIVE_WAIT: Duration = Duration::from_secs(1);
 
@@ -35,6 +35,23 @@ struct HookVersion {
 struct DeliveryKey {
     hook: HookVersion,
     event_id: String,
+}
+
+struct DeliveryJob {
+    key: DeliveryKey,
+    delivery: JournalHookDelivery,
+    attempt: JournalHookAttempt,
+}
+
+struct DeliveryCompletion {
+    key: DeliveryKey,
+    result: JournalHookDeliveryResult,
+}
+
+struct DeliveryWorkers {
+    sender: mpsc::Sender<DeliveryJob>,
+    completions: mpsc::Receiver<DeliveryCompletion>,
+    capacity: usize,
 }
 
 struct CompiledHook {
@@ -121,19 +138,97 @@ impl Drop for DispatcherClaim {
     }
 }
 
+fn delivery_worker_count(available_parallelism: usize) -> usize {
+    available_parallelism.saturating_mul(2).clamp(MIN_DELIVERY_WORKERS, MAX_DELIVERY_WORKERS)
+}
+
+fn start_delivery_workers(
+    journal: &Arc<crate::journal_kernel::JournalKernel>,
+) -> anyhow::Result<DeliveryWorkers> {
+    let requested = delivery_worker_count(
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
+    );
+    let (job_tx, job_rx) = mpsc::channel::<DeliveryJob>();
+    let job_rx = Arc::new(Mutex::new(job_rx));
+    let (completion_tx, completion_rx) = mpsc::channel::<DeliveryCompletion>();
+    let mut capacity = 0;
+    for index in 0..requested {
+        let jobs = job_rx.clone();
+        let completions = completion_tx.clone();
+        let journal = journal.clone();
+        let spawned = std::thread::Builder::new()
+            .name(format!("journal-hook-worker-{index}"))
+            .spawn(move || run_delivery_worker(&jobs, &completions, &journal));
+        match spawned {
+            Ok(_) => capacity += 1,
+            Err(error) if capacity == 0 => return Err(error.into()),
+            Err(_) => break,
+        }
+    }
+    drop(completion_tx);
+    Ok(DeliveryWorkers { sender: job_tx, completions: completion_rx, capacity })
+}
+
+fn run_delivery_worker(
+    jobs: &Mutex<mpsc::Receiver<DeliveryJob>>,
+    completions: &mpsc::Sender<DeliveryCompletion>,
+    journal: &crate::journal_kernel::JournalKernel,
+) {
+    loop {
+        let job = match jobs.lock().unwrap().recv() {
+            Ok(job) => job,
+            Err(_) => return,
+        };
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            execute_delivery(&job.delivery, &job.attempt)
+        }))
+        .unwrap_or_else(|_| (None, Some("hook worker panicked".into())));
+        let result = JournalHookDeliveryResult {
+            delivery: job.delivery,
+            attempt: job.attempt.attempt,
+            exit_code: outcome.0,
+            error: outcome.1,
+        };
+        if completions.send(DeliveryCompletion { key: job.key, result }).is_err() {
+            return;
+        }
+        journal.wake_waiters();
+    }
+}
+
 fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
-    let (completed_tx, completed_rx) = mpsc::channel::<DeliveryKey>();
+    let Some(initial_mux) = mux.upgrade() else { return };
+    let Ok(workers) = start_delivery_workers(&initial_mux.shared_journal_handle()) else {
+        return;
+    };
+    drop(initial_mux);
     let mut hooks = HashMap::<HookVersion, CompiledHook>::new();
     let mut active = HashSet::<DeliveryKey>::new();
+    let mut completed = Vec::<DeliveryCompletion>::new();
     let mut catch_up_reader = None;
     let mut epoch = 0;
 
     loop {
-        while let Ok(key) = completed_rx.try_recv() {
-            active.remove(&key);
-        }
         let Some(mux) = mux.upgrade() else { return };
         epoch = mux.shared_journal_epoch().max(epoch);
+
+        while let Ok(completion) = workers.completions.try_recv() {
+            completed.push(completion);
+        }
+        if !completed.is_empty() {
+            let results =
+                completed.iter().map(|completion| completion.result.clone()).collect::<Vec<_>>();
+            if mux.finish_journal_hook_deliveries(&results).is_ok() {
+                for completion in completed.drain(..) {
+                    active.remove(&completion.key);
+                }
+            } else {
+                let journal = mux.shared_journal_handle();
+                drop(mux);
+                epoch = journal.wait(epoch, ACTIVE_WAIT);
+                continue;
+            }
+        }
 
         let states = match mux.journal_hook_states() {
             Ok(states) => states,
@@ -161,13 +256,14 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
             catch_up_reader = None;
         }
 
-        if active.len() < MAX_ACTIVE_DELIVERIES {
-            let capacity = MAX_ACTIVE_DELIVERIES - active.len();
+        if active.len() < workers.capacity {
+            let capacity = workers.capacity - active.len();
             if let Ok(deliveries) = mux.pending_journal_hook_deliveries(capacity.max(1)) {
                 let mut per_hook = HashMap::<HookVersion, usize>::new();
                 for key in &active {
                     *per_hook.entry(key.hook.clone()).or_default() += 1;
                 }
+                let mut selected = Vec::with_capacity(deliveries.len().min(capacity));
                 for delivery in deliveries {
                     let hook = HookVersion {
                         hook_id: delivery.manifest.hook_id.clone(),
@@ -178,25 +274,38 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
                         event_id: delivery.event.event_id.clone(),
                     };
                     if active.contains(&key)
-                        || active.len() >= MAX_ACTIVE_DELIVERIES
+                        || active.len() + selected.len() >= workers.capacity
                         || per_hook.get(&hook).copied().unwrap_or_default()
                             >= usize::from(delivery.manifest.exec.max_parallel)
                     {
                         continue;
                     }
-                    let attempt = match mux.start_journal_hook_delivery(&delivery) {
-                        Ok(attempt) => attempt,
-                        Err(_) => continue,
-                    };
-                    active.insert(key.clone());
                     *per_hook.entry(hook).or_default() += 1;
-                    spawn_delivery(
-                        Arc::downgrade(&mux),
-                        delivery,
-                        attempt,
-                        key,
-                        completed_tx.clone(),
-                    );
+                    selected.push((key, delivery));
+                }
+                if !selected.is_empty() {
+                    let deliveries =
+                        selected.iter().map(|(_, delivery)| delivery.clone()).collect::<Vec<_>>();
+                    if let Ok(attempts) = mux.start_journal_hook_deliveries(&deliveries) {
+                        for ((key, delivery), attempt) in selected.into_iter().zip(attempts) {
+                            active.insert(key.clone());
+                            if let Err(error) = workers.sender.send(DeliveryJob {
+                                key: key.clone(),
+                                delivery: delivery.clone(),
+                                attempt: attempt.clone(),
+                            }) {
+                                completed.push(DeliveryCompletion {
+                                    key,
+                                    result: JournalHookDeliveryResult {
+                                        delivery,
+                                        attempt: attempt.attempt,
+                                        exit_code: None,
+                                        error: Some(format!("hook worker pool stopped: {error}")),
+                                    },
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -450,58 +559,6 @@ impl CompiledHookRegex {
     }
 }
 
-fn spawn_delivery(
-    mux: Weak<Mux>,
-    delivery: JournalHookDelivery,
-    attempt: JournalHookAttempt,
-    key: DeliveryKey,
-    completed: mpsc::Sender<DeliveryKey>,
-) {
-    let fallback_mux = mux.clone();
-    let fallback_delivery = delivery.clone();
-    let fallback_attempt = attempt.clone();
-    let fallback_key = key.clone();
-    let fallback_completed = completed.clone();
-    let spawned = std::thread::Builder::new()
-        .name(format!("journal-hook-{}", delivery.manifest.hook_id))
-        .spawn(move || {
-            let _completion = CompletionGuard { key: Some(key), sender: completed };
-            let (exit_code, error) = execute_delivery(&delivery, &attempt);
-            if let Some(mux) = mux.upgrade() {
-                let _ = mux.finish_journal_hook_delivery(
-                    &delivery,
-                    attempt.attempt,
-                    exit_code,
-                    error.as_deref(),
-                );
-            }
-        });
-    if let Err(error) = spawned {
-        if let Some(mux) = fallback_mux.upgrade() {
-            let _ = mux.finish_journal_hook_delivery(
-                &fallback_delivery,
-                fallback_attempt.attempt,
-                None,
-                Some(&format!("could not start hook worker: {error}")),
-            );
-        }
-        let _ = fallback_completed.send(fallback_key);
-    }
-}
-
-struct CompletionGuard {
-    key: Option<DeliveryKey>,
-    sender: mpsc::Sender<DeliveryKey>,
-}
-
-impl Drop for CompletionGuard {
-    fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
-            let _ = self.sender.send(key);
-        }
-    }
-}
-
 fn execute_delivery(
     delivery: &JournalHookDelivery,
     attempt: &JournalHookAttempt,
@@ -569,115 +626,173 @@ fn execute_delivery(
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };
     let process_group = child.id();
-    let Some(mut stdin) = child.stdin.take() else {
+    let Some(stdin) = child.stdin.take() else {
         terminate_hook_child(&mut child);
         return (None, Some("hook stdin pipe is unavailable".into()));
     };
-    let cancel_stdin = Arc::new(AtomicBool::new(false));
-    let writer_cancel = cancel_stdin.clone();
-    let stdin_writer = match std::thread::Builder::new()
-        .name("journal-hook-stdin".into())
-        .spawn(move || write_hook_input(&mut stdin, &input, &writer_cancel))
-    {
-        Ok(writer) => writer,
-        Err(error) => {
-            terminate_hook_child(&mut child);
-            return (None, Some(format!("could not start hook stdin writer: {error}")));
-        }
-    };
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
-    match child.wait_timeout(timeout) {
-        Ok(Some(status)) => {
-            terminate_hook_process_group(process_group);
-            cancel_stdin.store(true, Ordering::Release);
-            let code = status.code();
-            let _ = stdin_writer.join();
-            let error = if status.success() {
-                None
-            } else {
-                Some(match code {
-                    Some(code) => format!("hook exited with status {code}"),
-                    None => "hook terminated without an exit status".into(),
-                })
-            };
-            (code, error)
-        }
-        Ok(None) => {
-            cancel_stdin.store(true, Ordering::Release);
-            terminate_hook_child(&mut child);
-            let _ = stdin_writer.join();
-            (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
-        }
-        Err(error) => {
-            cancel_stdin.store(true, Ordering::Release);
-            terminate_hook_child(&mut child);
-            let _ = stdin_writer.join();
-            (None, Some(format!("wait for hook executable: {error}")))
-        }
-    }
+    #[cfg(unix)]
+    return execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
+    #[cfg(not(unix))]
+    execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout)
 }
 
 #[cfg(unix)]
-fn write_hook_input(
-    stdin: &mut std::process::ChildStdin,
+fn execute_hook_child_unix(
+    child: &mut std::process::Child,
+    mut stdin: std::process::ChildStdin,
     input: &[u8],
-    cancelled: &AtomicBool,
-) -> std::io::Result<()> {
+    process_group: u32,
+    timeout: Duration,
+) -> (Option<i32>, Option<String>) {
     let fd = stdin.as_raw_fd();
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 {
-        return Err(std::io::Error::last_os_error());
+        let error = std::io::Error::last_os_error();
+        terminate_hook_child(child);
+        return (None, Some(format!("configure hook stdin: {error}")));
     }
     if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(std::io::Error::last_os_error());
+        let error = std::io::Error::last_os_error();
+        terminate_hook_child(child);
+        return (None, Some(format!("configure hook stdin: {error}")));
     }
+    let deadline = Instant::now() + timeout;
     let mut offset = 0;
     while offset < input.len() {
-        if cancelled.load(Ordering::Acquire) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "hook stdin write cancelled",
-            ));
+        match child.try_wait() {
+            Ok(Some(status)) => return hook_exit_result(status, process_group),
+            Ok(None) => {}
+            Err(error) => {
+                terminate_hook_child(child);
+                return (None, Some(format!("wait for hook executable: {error}")));
+            }
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            terminate_hook_child(child);
+            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
         }
         match stdin.write(&input[offset..]) {
-            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(0) => {
+                return hook_stdin_closed_result(
+                    child,
+                    process_group,
+                    deadline,
+                    "hook stdin closed before accepting its event",
+                );
+            }
             Ok(written) => offset += written,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                wait_hook_stdin_writable(fd, cancelled)?;
+                if let Err(error) = wait_hook_stdin_writable(fd, deadline) {
+                    terminate_hook_child(child);
+                    return (None, Some(format!("write hook event: {error}")));
+                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
+            Err(error) => {
+                return hook_stdin_closed_result(
+                    child,
+                    process_group,
+                    deadline,
+                    &format!("write hook event: {error}"),
+                );
+            }
         }
     }
-    Ok(())
+    drop(stdin);
+    wait_for_hook_exit(child, process_group, deadline, timeout)
+}
+
+fn hook_stdin_closed_result(
+    child: &mut std::process::Child,
+    process_group: u32,
+    deadline: Instant,
+    fallback_error: &str,
+) -> (Option<i32>, Option<String>) {
+    let wait = deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(50));
+    match child.wait_timeout(wait) {
+        Ok(Some(status)) => hook_exit_result(status, process_group),
+        Ok(None) | Err(_) => {
+            terminate_hook_child(child);
+            (None, Some(fallback_error.into()))
+        }
+    }
 }
 
 #[cfg(unix)]
-fn wait_hook_stdin_writable(fd: std::os::fd::RawFd, cancelled: &AtomicBool) -> std::io::Result<()> {
-    while !cancelled.load(Ordering::Acquire) {
+fn wait_hook_stdin_writable(fd: std::os::fd::RawFd, deadline: Instant) -> std::io::Result<()> {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "hook timed out"));
+        }
         let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-        let result = unsafe { libc::poll(&mut descriptor, 1, 50) };
+        let poll_ms = remaining.min(Duration::from_millis(50)).as_millis().max(1) as libc::c_int;
+        let result = unsafe { libc::poll(&mut descriptor, 1, poll_ms) };
         if result > 0 {
             return Ok(());
         }
         if result == 0 {
-            continue;
+            return Ok(());
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::Interrupted {
             return Err(error);
         }
     }
-    Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "hook stdin write cancelled"))
 }
 
 #[cfg(not(unix))]
-fn write_hook_input(
-    stdin: &mut std::process::ChildStdin,
+fn execute_hook_child_portable(
+    child: &mut std::process::Child,
+    mut stdin: std::process::ChildStdin,
     input: &[u8],
-    _cancelled: &AtomicBool,
-) -> std::io::Result<()> {
-    stdin.write_all(input)
+    process_group: u32,
+    timeout: Duration,
+) -> (Option<i32>, Option<String>) {
+    if let Err(error) = stdin.write_all(input) {
+        terminate_hook_child(child);
+        return (None, Some(format!("write hook event: {error}")));
+    }
+    drop(stdin);
+    wait_for_hook_exit(child, process_group, Instant::now() + timeout, timeout)
+}
+
+fn wait_for_hook_exit(
+    child: &mut std::process::Child,
+    process_group: u32,
+    deadline: Instant,
+    timeout: Duration,
+) -> (Option<i32>, Option<String>) {
+    match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(Some(status)) => hook_exit_result(status, process_group),
+        Ok(None) => {
+            terminate_hook_child(child);
+            (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
+        }
+        Err(error) => {
+            terminate_hook_child(child);
+            (None, Some(format!("wait for hook executable: {error}")))
+        }
+    }
+}
+
+fn hook_exit_result(
+    status: std::process::ExitStatus,
+    process_group: u32,
+) -> (Option<i32>, Option<String>) {
+    terminate_hook_process_group(process_group);
+    let code = status.code();
+    let error = if status.success() {
+        None
+    } else {
+        Some(match code {
+            Some(code) => format!("hook exited with status {code}"),
+            None => "hook terminated without an exit status".into(),
+        })
+    };
+    (code, error)
 }
 
 fn terminate_hook_process_group(process_group: u32) {
@@ -854,10 +969,10 @@ mod tests {
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let (exit_code, error) = execute_delivery(&delivery, &attempt);
 
-        assert_eq!(exit_code, Some(0));
+        assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
         assert!(started.elapsed() < Duration::from_secs(1));
     }
@@ -876,12 +991,12 @@ mod tests {
         mux.put_journal_hook(&hook, "client_test", "hook_manifest_1").unwrap();
         mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut cursor = 0;
         let mut epoch = mux.journal_event_epoch();
         let mut started = false;
         let mut completed = false;
-        while std::time::Instant::now() < deadline && !completed {
+        while Instant::now() < deadline && !completed {
             let page = mux.session_journal_after(cursor, 1024).unwrap();
             for record in page.records {
                 cursor = record.sequence;
@@ -945,7 +1060,7 @@ mod tests {
                 "source_1",
             )
             .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let started_event_id = loop {
             let page = mux.session_journal_after(0, 1024).unwrap();
             if let Some(record) = page.records.into_iter().find(|record| {
@@ -954,7 +1069,7 @@ mod tests {
             }) {
                 break record.event_id;
             }
-            assert!(std::time::Instant::now() < deadline, "source delivery did not start");
+            assert!(Instant::now() < deadline, "source delivery did not start");
             let epoch = mux.journal_event_epoch();
             mux.wait_for_journal_event(epoch, Duration::from_millis(100));
         };
@@ -996,7 +1111,7 @@ mod tests {
             if cursor >= child.sequence {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "hook cursor did not scan child event");
+            assert!(Instant::now() < deadline, "hook cursor did not scan child event");
             let epoch = mux.shared_journal_epoch();
             mux.wait_for_shared_journal(epoch, Duration::from_millis(100));
         }

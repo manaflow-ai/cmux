@@ -4542,28 +4542,26 @@ impl Mux {
         self.workspace_registry.lock().unwrap().pending_journal_hook_deliveries(now_ms, limit)
     }
 
-    pub(crate) fn start_journal_hook_delivery(
+    pub(crate) fn start_journal_hook_deliveries(
         &self,
-        delivery: &crate::workspace_registry::JournalHookDelivery,
-    ) -> anyhow::Result<crate::workspace_registry::JournalHookAttempt> {
-        let attempt =
-            self.workspace_registry.lock().unwrap().start_journal_hook_delivery(delivery)?;
-        self.publish_journal_event();
-        Ok(attempt)
+        deliveries: &[crate::workspace_registry::JournalHookDelivery],
+    ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookAttempt>> {
+        let attempts =
+            self.workspace_registry.lock().unwrap().start_journal_hook_deliveries(deliveries)?;
+        if !attempts.is_empty() {
+            self.publish_journal_event();
+        }
+        Ok(attempts)
     }
 
-    pub(crate) fn finish_journal_hook_delivery(
+    pub(crate) fn finish_journal_hook_deliveries(
         &self,
-        delivery: &crate::workspace_registry::JournalHookDelivery,
-        attempt: u16,
-        exit_code: Option<i32>,
-        error: Option<&str>,
+        results: &[crate::workspace_registry::JournalHookDeliveryResult],
     ) -> anyhow::Result<()> {
-        self.workspace_registry
-            .lock()
-            .unwrap()
-            .finish_journal_hook_delivery(delivery, attempt, exit_code, error)?;
-        self.publish_journal_event();
+        self.workspace_registry.lock().unwrap().finish_journal_hook_deliveries(results)?;
+        if !results.is_empty() {
+            self.publish_journal_event();
+        }
         Ok(())
     }
 

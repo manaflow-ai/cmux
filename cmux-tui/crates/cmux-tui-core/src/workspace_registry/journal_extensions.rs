@@ -144,6 +144,14 @@ pub(crate) struct JournalHookAttempt {
     pub causation_id: String,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct JournalHookDeliveryResult {
+    pub delivery: JournalHookDelivery,
+    pub attempt: u16,
+    pub exit_code: Option<i32>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct JournalAppendCommit {
     pub sequence: u64,
@@ -1474,120 +1482,139 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    pub(crate) fn start_journal_hook_delivery(
+    pub(crate) fn start_journal_hook_deliveries(
         &mut self,
-        delivery: &JournalHookDelivery,
-    ) -> anyhow::Result<JournalHookAttempt> {
+        deliveries: &[JournalHookDelivery],
+    ) -> anyhow::Result<Vec<JournalHookAttempt>> {
+        if deliveries.is_empty() {
+            return Ok(Vec::new());
+        }
         let tx = self.connection.transaction()?;
-        let attempt = delivery.attempt.checked_add(1).context("hook attempt overflow")?;
         let now = unix_epoch_ms()?;
-        let changed = tx.execute(
-            "UPDATE journal_hook_deliveries
-             SET state = 'executing', attempt = ?4, started_at_ms = ?5,
-                 completed_at_ms = NULL, exit_code = NULL, error = NULL
-             WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
-               AND state IN ('scheduled','executing')",
-            params![
-                delivery.manifest.hook_id,
-                i64::from(delivery.manifest.manifest_version),
-                delivery.event.event_id,
-                i64::from(attempt),
-                i64::try_from(now)?,
-            ],
-        )?;
-        anyhow::ensure!(changed == 1, "hook delivery is no longer pending");
-        let (_, causation_id) = append_hook_delivery_event(
-            &tx,
-            "hook.delivery.started",
-            delivery,
-            attempt,
-            json!({"attempt":attempt}),
-            now,
-        )?;
-        tx.execute(
-            "UPDATE journal_hook_deliveries
-             SET started_event_id = ?4
-             WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
-            params![
-                delivery.manifest.hook_id,
-                i64::from(delivery.manifest.manifest_version),
-                delivery.event.event_id,
-                causation_id,
-            ],
-        )?;
+        let mut attempts = Vec::with_capacity(deliveries.len());
+        for delivery in deliveries {
+            let attempt = delivery.attempt.checked_add(1).context("hook attempt overflow")?;
+            let changed = tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET state = 'executing', attempt = ?4, started_at_ms = ?5,
+                     completed_at_ms = NULL, exit_code = NULL, error = NULL
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                   AND state IN ('scheduled','executing')",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    i64::from(attempt),
+                    i64::try_from(now)?,
+                ],
+            )?;
+            anyhow::ensure!(changed == 1, "hook delivery is no longer pending");
+            let (_, causation_id) = append_hook_delivery_event(
+                &tx,
+                "hook.delivery.started",
+                delivery,
+                attempt,
+                json!({"attempt":attempt}),
+                now,
+            )?;
+            tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET started_event_id = ?4
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    causation_id,
+                ],
+            )?;
+            attempts.push(JournalHookAttempt { attempt, causation_id });
+        }
         tx.commit()?;
-        Ok(JournalHookAttempt { attempt, causation_id })
+        Ok(attempts)
     }
 
-    pub(crate) fn finish_journal_hook_delivery(
+    pub(crate) fn finish_journal_hook_deliveries(
         &mut self,
-        delivery: &JournalHookDelivery,
-        attempt: u16,
-        exit_code: Option<i32>,
-        error: Option<&str>,
+        results: &[JournalHookDeliveryResult],
     ) -> anyhow::Result<()> {
+        if results.is_empty() {
+            return Ok(());
+        }
         let tx = self.connection.transaction()?;
         let now = unix_epoch_ms()?;
-        let success = error.is_none() && exit_code == Some(0);
-        if success {
-            tx.execute(
-                "UPDATE journal_hook_deliveries
-                 SET state = 'completed', completed_at_ms = ?4, exit_code = ?5, error = NULL
-                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
-                params![
-                    delivery.manifest.hook_id,
-                    i64::from(delivery.manifest.manifest_version),
-                    delivery.event.event_id,
-                    i64::try_from(now)?,
-                    exit_code,
-                ],
-            )?;
-            append_hook_delivery_event(
-                &tx,
-                "hook.delivery.completed",
-                delivery,
-                attempt,
-                json!({"attempt":attempt,"exit_code":exit_code}),
-                now,
-            )?;
-        } else {
-            let exhausted = attempt >= delivery.manifest.delivery.retry.max_attempts;
-            let next_attempt_at = now.saturating_add(
-                delivery.manifest.delivery.retry.backoff_ms.saturating_mul(u64::from(attempt)),
-            );
-            tx.execute(
-                "UPDATE journal_hook_deliveries
-                 SET state = ?4, next_attempt_at_ms = ?5, completed_at_ms = ?6,
-                     exit_code = ?7, error = ?8
-                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
-                params![
-                    delivery.manifest.hook_id,
-                    i64::from(delivery.manifest.manifest_version),
-                    delivery.event.event_id,
-                    if exhausted { "abandoned" } else { "scheduled" },
-                    i64::try_from(next_attempt_at)?,
-                    i64::try_from(now)?,
-                    exit_code,
-                    error,
-                ],
-            )?;
-            append_hook_delivery_event(
-                &tx,
-                "hook.delivery.failed",
-                delivery,
-                attempt,
-                json!({"attempt":attempt,"exit_code":exit_code,"error":error,"retrying":!exhausted}),
-                now,
-            )?;
-            if exhausted {
+        for result in results {
+            let delivery = &result.delivery;
+            let attempt = result.attempt;
+            let exit_code = result.exit_code;
+            let error = result.error.as_deref();
+            let success = error.is_none() && exit_code == Some(0);
+            if success {
+                let changed = tx.execute(
+                    "UPDATE journal_hook_deliveries
+                     SET state = 'completed', completed_at_ms = ?5, exit_code = ?6, error = NULL
+                     WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                       AND state = 'executing' AND attempt = ?4",
+                    params![
+                        delivery.manifest.hook_id,
+                        i64::from(delivery.manifest.manifest_version),
+                        delivery.event.event_id,
+                        i64::from(attempt),
+                        i64::try_from(now)?,
+                        exit_code,
+                    ],
+                )?;
+                anyhow::ensure!(changed == 1, "hook delivery attempt is no longer executing");
                 append_hook_delivery_event(
                     &tx,
-                    "hook.delivery.abandoned",
+                    "hook.delivery.completed",
                     delivery,
                     attempt,
-                    json!({"attempt":attempt,"exit_code":exit_code,"error":error}),
+                    json!({"attempt":attempt,"exit_code":exit_code}),
                     now,
                 )?;
+            } else {
+                let exhausted = attempt >= delivery.manifest.delivery.retry.max_attempts;
+                let next_attempt_at = now.saturating_add(
+                    delivery.manifest.delivery.retry.backoff_ms.saturating_mul(u64::from(attempt)),
+                );
+                let changed = tx.execute(
+                    "UPDATE journal_hook_deliveries
+                     SET state = ?5, next_attempt_at_ms = ?6, completed_at_ms = ?7,
+                         exit_code = ?8, error = ?9
+                     WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                       AND state = 'executing' AND attempt = ?4",
+                    params![
+                        delivery.manifest.hook_id,
+                        i64::from(delivery.manifest.manifest_version),
+                        delivery.event.event_id,
+                        i64::from(attempt),
+                        if exhausted { "abandoned" } else { "scheduled" },
+                        i64::try_from(next_attempt_at)?,
+                        i64::try_from(now)?,
+                        exit_code,
+                        error,
+                    ],
+                )?;
+                anyhow::ensure!(changed == 1, "hook delivery attempt is no longer executing");
+                append_hook_delivery_event(
+                    &tx,
+                    "hook.delivery.failed",
+                    delivery,
+                    attempt,
+                    json!({"attempt":attempt,"exit_code":exit_code,"error":error,"retrying":!exhausted}),
+                    now,
+                )?;
+                if exhausted {
+                    append_hook_delivery_event(
+                        &tx,
+                        "hook.delivery.abandoned",
+                        delivery,
+                        attempt,
+                        json!({"attempt":attempt,"exit_code":exit_code,"error":error}),
+                        now,
+                    )?;
+                }
             }
         }
         tx.commit()?;
