@@ -35811,6 +35811,23 @@
         }
       }
     },
+    "cli.surfaceResume.set.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: 不明なフラグ '%1$@'。利用可能なフラグ: %2$@。コマンド引数には -- <argv...> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
