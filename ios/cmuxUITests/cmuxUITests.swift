@@ -285,6 +285,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
         XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
         XCTAssertTrue(qrFallbackButton.isHittable)
+        recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Your Mac connects automatically"],
             visual: element("MobileOnboardingConnectionPreview"),
@@ -345,6 +346,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
         XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
         XCTAssertTrue(compactFallbackButton.isHittable)
+        recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Your Mac connects automatically"],
             visual: element("MobileOnboardingConnectionPreview"),
