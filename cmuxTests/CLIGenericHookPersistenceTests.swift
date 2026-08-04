@@ -905,16 +905,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
 
-        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
-        let preToolCommands = preToolUse
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-        XCTAssertTrue(
-            preToolCommands.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
-            },
-            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
+        XCTAssertNil(
+            cmuxGroup["PreToolUse"],
+            "Antigravity rejects PreToolUse hook output, so cmux must not install a tool-gating hook"
+        )
+        XCTAssertNil(
+            cmuxGroup["PostToolUse"],
+            "Antigravity tool lifecycle hooks must not be installed when they cannot safely fail neutral"
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
@@ -929,7 +926,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
-        XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {

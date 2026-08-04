@@ -10,12 +10,20 @@ public struct PairedMacBackupSnapshot: Sendable, Equatable {
     /// Legacy server tombstones retained only for wire compatibility.
     public var deletedMacDeviceIDs: [String]
 
+    /// The server-verified team this snapshot's collection was read from
+    /// (echoed by the presence worker), or `nil` when the worker predates the
+    /// echo. Every record in the snapshot lives in THAT team's backup, so a
+    /// restored record's later delete tombstone must route there.
+    public var resolvedTeamID: String?
+
     /// Create a restore snapshot from live records and compatibility tombstones.
     public init(
         records: [PairedMacBackupRecord],
-        deletedMacDeviceIDs: [String] = []
+        deletedMacDeviceIDs: [String] = [],
+        resolvedTeamID: String? = nil
     ) {
         self.records = records
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
+        self.resolvedTeamID = resolvedTeamID
     }
 }

@@ -46,6 +46,9 @@ struct TerminalComposerView: View {
     /// whenever the field's content changes (the only driver of this view's height);
     /// the host measures the ideal height via `sizeThatFits` and animates the band.
     let requestHeightRemeasure: () -> Void
+    /// Releases whichever surface input owns the keyboard before presenting a
+    /// system modal, keeping UIKit first-responder state aligned with the keyboard.
+    let prepareForModalPresentation: () -> Void
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
@@ -70,10 +73,16 @@ struct TerminalComposerView: View {
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
 
-    init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
+    init(
+        store: CMUXMobileShellStore,
+        terminalID: String,
+        requestHeightRemeasure: @escaping () -> Void,
+        prepareForModalPresentation: @escaping () -> Void
+    ) {
         self.store = store
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
+        self.prepareForModalPresentation = prepareForModalPresentation
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -293,7 +302,7 @@ struct TerminalComposerView: View {
                     accessibilityIdentifier: "MobileComposerAttach",
                     accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
                 ) {
-                    isPickerPresented = true
+                    presentPhotoPicker()
                 }
 
                 micButton
@@ -405,6 +414,16 @@ struct TerminalComposerView: View {
         ) {
             toggleDictation()
         }
+    }
+
+    /// Present the system picker only after both possible keyboard owners have
+    /// released first responder. Clearing `@FocusState` keeps SwiftUI's logical
+    /// field focus aligned; the host closure synchronously releases the UIKit
+    /// terminal proxy or hosted field before the modal suppresses the keyboard.
+    private func presentPhotoPicker() {
+        isFieldFocused = false
+        prepareForModalPresentation()
+        isPickerPresented = true
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge

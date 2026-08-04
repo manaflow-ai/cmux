@@ -128,6 +128,8 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "aarch64-apple-darwin" => Some("aarch64-macos"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
+        "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),
+        "aarch64-unknown-linux-musl" => Some("aarch64-linux-musl"),
         _ => None,
     }
 }

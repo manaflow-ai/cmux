@@ -12,8 +12,8 @@ import Observation
 /// Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
-/// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
-/// is observed by the view through the coordinator's `@Observable` state.
+/// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
+/// and completion is observed by the view through observable auth state.
 @MainActor
 @Observable
 final class MobilePairingModel {
@@ -230,13 +230,6 @@ final class MobilePairingModel {
                 )
             )
         }
-    }
-
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
     }
 
     /// Cancels the connection observation. Call when the window closes.

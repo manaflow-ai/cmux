@@ -52,6 +52,586 @@ import Testing
         }
     }
 
+    @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-ios-routing-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"simulator_id":"PAD","device_name":"iPad","runtime_id":"runtime","device_type_id":"type","family":"ipad","state":"booted"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "workspace:caller"
+        environment["CMUX_SURFACE_ID"] = "surface:terminal"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "ios", "context", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = responder.receivedRequests
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        let data = try #require(request.data(using: String.Encoding.utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["method"] as? String == "simulator.context")
+        let params = try #require(object["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == "workspace:caller")
+        #expect(params["pane_id"] == nil)
+        #expect(params["surface_id"] == nil)
+    }
+
+    @Test func testRestoreExecutesStructuredArgvEnvironmentAndCwdDirectly() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore 项目 'space' \(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("工作 dir", isDirectory: true)
+        let executable = root.appendingPathComponent("fake agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'pwd=%s\\n' "$PWD"
+        printf 'env=%s\\n' "$RESTORE_VALUE"
+        for argument in "$@"; do
+          printf 'arg=%s\\n' "$argument"
+        done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "checkpoint-\(UUID().uuidString)"
+        let arguments = [executable.path, "space value", "quote'\"", "日本語", String(repeating: "x", count: 4_000)]
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
+        let response = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9258",
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]],
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "source": "test",
+                "working_directory": workingDirectory.path,
+                "environment": ["RESTORE_VALUE": "値 with spaces"],
+                "launch_command": [
+                    "arguments": arguments,
+                    "executable_path": executable.path,
+                    "working_directory": workingDirectory.path,
+                    "environment": ["RESTORE_VALUE": "値 with spaces"],
+                ],
+                "prepared_arguments": arguments,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["TTY"] = "/dev/ttys9258"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("pwd=\(workingDirectory.path)\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("env=値 with spaces\n"), result.stdout)
+        for argument in arguments.dropFirst() {
+            XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
+        }
+        let methods = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+            return try XCTUnwrap(object["method"] as? String)
+        }
+        XCTAssertEqual(methods, ["debug.terminals", "surface.resume.get"])
+    }
+
+    @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore untrusted cwd \(UUID().uuidString)", isDirectory: true)
+        let executableName = "restore-agent"
+        let executable = root.appendingPathComponent(executableName, isDirectory: false)
+        let marker = root.appendingPathComponent("executed", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        touch \(shellSingleQuote(marker.path))
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "path-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["PATH": "/usr/bin:"],
+                "launch_command": [
+                    "arguments": [executableName],
+                    "executable_path": executableName,
+                    "working_directory": root.path,
+                    "environment": ["PATH": "/usr/bin:"],
+                ],
+                "prepared_arguments": [executableName],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-path-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "restore: the saved agent command is unavailable. "
+                    + "Make sure the agent is installed, then retry."
+            ),
+            result.stdout
+        )
+        XCTAssertFalse(result.stdout.contains(executableName), result.stdout)
+        XCTAssertFalse(result.stdout.contains(root.path), result.stdout)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func testRestorePreflightIsQuietAndTimesOut() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore preflight \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fake hermes", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        if [ "$1" = "config" ]; then
+          printf 'preflight stdout chatter\\n'
+          printf 'preflight stderr chatter\\n' >&2
+          exec /bin/sleep 60
+        fi
+        printf 'unexpected agent launch\\n'
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "preflight-\(UUID().uuidString)"
+        let launchEnvironment = ["CUSTOM_BASE_URL": "https://codex.example.test/v1"]
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "hermes-agent",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": launchEnvironment,
+                "launch_command": [
+                    "launcher": "hermes-agent",
+                    "arguments": [
+                        executable.path,
+                        "--provider",
+                        "openai-codex",
+                    ],
+                    "executable_path": executable.path,
+                    "working_directory": root.path,
+                    "environment": launchEnvironment,
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-preflight-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "hermes-agent", checkpointID],
+            environment: environment,
+            timeout: 15
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "restore: provider setup took too long. "
+                    + "Check the provider connection, then retry."
+            ),
+            result.stdout
+        )
+        XCTAssertFalse(result.stdout.contains("fake hermes"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("model.provider"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("preflight stdout chatter"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("preflight stderr chatter"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("unexpected agent launch"), result.stdout)
+    }
+
+    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
+        let missingDirectory = root.appendingPathComponent("deleted", isDirectory: true)
+        let capturedDirectory = root.appendingPathComponent("captured", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'pwd=%s\\n' "$PWD"
+        for argument in "$@"; do
+          printf 'arg=%s\\n' "$argument"
+        done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "cwd-\(UUID().uuidString)"
+        let preparedArguments = [
+            executable.path,
+            "--cwd",
+            capturedDirectory.path,
+            "--session",
+            checkpointID,
+        ]
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "cwd-agent",
+                "checkpoint_id": checkpointID,
+                "working_directory": missingDirectory.path,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": [executable.path],
+                    "executable_path": executable.path,
+                    "working_directory": capturedDirectory.path,
+                ],
+                "prepared_arguments": preparedArguments,
+                "prepared_arguments_working_directory": capturedDirectory.path,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-missing-cwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "cwd-agent", checkpointID],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("pwd=\(root.path)\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("arg=\(root.path)\n"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(missingDirectory.path), result.stdout)
+    }
+
+    @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux legacy restore \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "legacy-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "codex",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["LEGACY_RESTORE_VALUE": "kept"],
+                "legacy_command": #"printf 'legacy=%s|%s\n' "$PWD" "$LEGACY_RESTORE_VALUE""#,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-legacy-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["SHELL"] = "/bin/sh"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "codex", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.stdout)
+    }
+
+    @Test func testRestoreFallsBackWhenStructuredPlannerCannotBuildInvocation() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux structured fallback \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "fallback-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "relaunchAgent",
+                "kind": "custom-relaunch",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["FALLBACK_VALUE": "structured"],
+                "launch_command": [
+                    "arguments": ["/missing/custom-relaunch"],
+                    "executable_path": "/missing/custom-relaunch",
+                ],
+                "legacy_command": #"printf 'fallback=%s|%s\n' "$PWD" "$FALLBACK_VALUE""#,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fallback-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["SHELL"] = "/bin/sh"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom-relaunch", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("fallback=\(root.path)|structured"),
+            result.stdout
+        )
+    }
+
+    @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "codex", UUID().uuidString.lowercased()],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "restore: the current cmux surface could not be identified. "
+                    + "Retry from this terminal or pass --surface <id|ref>."
+            ),
+            result.stdout
+        )
+    }
+
+    @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
+        let cliPath = try bundledCLIPath()
+        let currentCheckpointID = UUID().uuidString.lowercased()
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "codex",
+                "checkpoint_id": currentCheckpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-drift-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        for arguments in [
+            ["restore", "claude", currentCheckpointID],
+            ["restore", "codex", UUID().uuidString.lowercased()],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertEqual(result.status, 1, result.stdout)
+            XCTAssertTrue(
+                result.stdout.contains("Run 'cmux restore --surface'"),
+                result.stdout
+            )
+        }
+    }
+
+    @Test func testRestoreExplicitSocketFailureReportsTheSocketError() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-restore-offline-\(UUID().uuidString.prefix(8)).sock"
+        unlink(socketPath)
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket",
+                socketPath,
+                "restore",
+                "codex",
+                UUID().uuidString.lowercased(),
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("Socket not found at \(socketPath)"),
+            result.stdout
+        )
+        XCTAssertFalse(
+            result.stdout.contains("Retry the visible restore command after cmux finishes opening."),
+            result.stdout
+        )
+    }
+
+    @Test func testRestoreWaitsForControlSocketDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = UUID().uuidString.lowercased()
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-startup-\(UUID().uuidString.prefix(8)).sock"
+        unlink(socketPath)
+        var responder: UnixSocketResponder?
+        defer { responder?.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "restore",
+                "custom",
+                checkpointID,
+            ],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
+                usleep(100_000)
+                responder = try? UnixSocketResponder(path: socketPath, response: response)
+            }
+        )
+
+        let requiredResponder = try #require(responder)
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -1283,6 +1863,14 @@ import Testing
         return home
     }
 
+    private func jsonResponse(result: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(
+            withJSONObject: ["ok": true, "result": result],
+            options: []
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
     /// The stable control-socket path under an injected (temp) home, resolved via
     /// the canonical ``CmuxStateDirectory`` so the test exercises the real layout.
     private func stableSocketURL(home: URL) throws -> URL {
@@ -1427,7 +2015,8 @@ import Testing
         arguments: [String],
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
@@ -1444,6 +2033,7 @@ import Testing
         } catch {
             return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
         }
+        afterLaunch?()
 
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1612,33 +2202,32 @@ final class UnixSocketResponder {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
-        var request = Data()
         while true {
-            var byte: UInt8 = 0
-            let count = read(clientFD, &byte, 1)
-            if count <= 0 {
-                return
+            var request = Data()
+            while true {
+                var byte: UInt8 = 0
+                let count = read(clientFD, &byte, 1)
+                if count <= 0 {
+                    return
+                }
+                request.append(byte)
+                if byte == 0x0A {
+                    break
+                }
             }
-            request.append(byte)
-            if byte == 0x0A {
-                break
+            if let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) {
+                lock.lock()
+                requests.append(line)
+                lock.unlock()
             }
-        }
-        guard !request.isEmpty else {
-            return
-        }
-        if let line = String(data: request, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
-            lock.lock()
-            requests.append(line)
-            lock.unlock()
-        }
-        if responseDelay > 0 {
-            Thread.sleep(forTimeInterval: responseDelay)
-        }
-        let payload = response + "\n"
-        payload.withCString { pointer in
-            _ = write(clientFD, pointer, strlen(pointer))
+            if responseDelay > 0 {
+                Thread.sleep(forTimeInterval: responseDelay)
+            }
+            let payload = response + "\n"
+            payload.withCString { pointer in
+                _ = write(clientFD, pointer, strlen(pointer))
+            }
         }
     }
 

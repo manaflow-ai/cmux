@@ -254,7 +254,7 @@ private func registrationPathHints(
     return try decoder.decode([CmxIrohPathHint].self, from: encodedHints)
 }
 
-private func registrationDirectPorts(
+func registrationDirectPorts(
     _ prepared: CmxIrohPreparedRegistration
 ) throws -> CmxIrohDirectPorts? {
     let value = prepared.encodedPayload
