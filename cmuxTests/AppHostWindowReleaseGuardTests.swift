@@ -25,8 +25,10 @@ struct AppHostWindowReleaseGuardTests {
         )
         #expect(
             !window.isReleasedWhenClosed,
-            "Test-process windows must not be released on close: ARC already owns them, " +
-            "and the extra release crashes the app host in the post-test pool drain"
+            Comment(
+                rawValue: "Test-process windows must not be released on close: ARC already owns them, " +
+                    "and the extra release crashes the app host in the post-test pool drain"
+            )
         )
         #expect(
             window.animationBehavior == .none,
