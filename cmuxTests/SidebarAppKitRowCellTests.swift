@@ -869,6 +869,32 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }
+
+    @Test(arguments: [3, 6, 0])
+    func storedMetadataCollapseLimitControlsCollapsedAppKitRows(_ configuredLimit: Int) {
+        let defaults = Self.makeDefaults()
+        defaults.set(configuredLimit, forKey: "sidebarMetadataCollapseLimit")
+        let entries = (1...5).map {
+            SidebarStatusEntry(key: "metadata-\($0)", value: "value-\($0)")
+        }
+        let cell = Self.configuredCell(
+            model: Self.makeModel(
+                settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+                metadataEntries: entries
+            )
+        )
+
+        let visibleMetadataRows = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowIconTextLine }
+            .filter { !$0.isHidden }
+        let showsMoreToggle = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowLinkButton }
+            .contains { !$0.isHidden && $0.attributedTitle.string == "Show more" }
+        let expectedVisibleCount = configuredLimit == 3 ? 3 : entries.count
+
+        #expect(visibleMetadataRows.count == expectedVisibleCount)
+        #expect(showsMoreToggle == (configuredLimit == 3))
+    }
 }
 
 @Suite
