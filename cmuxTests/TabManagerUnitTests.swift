@@ -10,7 +10,7 @@ import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
-import CmuxTerminal
+@testable import CmuxTerminal
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -1564,7 +1564,9 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         }
 
         let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        // This test only needs a non-nil teardown token. The runtime-install
+        // helper initializes native TTY/font state and requires a real surface.
+        terminalPanel.surface.surface = fakeSurface
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
