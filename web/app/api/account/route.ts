@@ -300,10 +300,10 @@ export async function DELETE(request: Request): Promise<Response> {
     if (!hostedDeletion.complete) {
       await markAccountDeletionTombstoneHostedDeletePending(userId);
       return jsonResponse({
-        ok: true,
-        deletionPending: true,
+        error: "account_delete_retryable",
+        retryable: true,
         destroyedVms,
-      }, 202);
+      }, 503);
     }
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
@@ -460,7 +460,8 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
       })
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (existing?.status === "completed") return { kind: "completed" };
     if (existing?.status === "cleanup_incomplete") return { kind: "cleanupIncomplete" };
     if (existing?.status === "hosted_delete_pending") {
