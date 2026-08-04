@@ -1207,6 +1207,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		14FE4CD3BCAD423796E56EE5 /* SidebarAgentRowsVariantLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4722F35D10C94D12ADC4D017 /* SidebarAgentRowsVariantLab.swift */; };
 		2FB188449942360CAB895143 /* SidebarAgentStatusRowsSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2990638B9E75D4B02AF14F /* SidebarAgentStatusRowsSummary.swift */; };
 		7A11AA057A11AA057A11AA05 /* SidebarAgentStatusRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11AA067A11AA067A11AA06 /* SidebarAgentStatusRowViews.swift */; };
+		9322B0019322B0019322B001 /* SidebarAgentSurfaceNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9322B0029322B0029322B002 /* SidebarAgentSurfaceNameTests.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
@@ -2859,6 +2860,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		4722F35D10C94D12ADC4D017 /* SidebarAgentRowsVariantLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentRowsVariantLab.swift; sourceTree = "<group>"; };
 		1D2990638B9E75D4B02AF14F /* SidebarAgentStatusRowsSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentStatusRowsSummary.swift; sourceTree = "<group>"; };
 		7A11AA067A11AA067A11AA06 /* SidebarAgentStatusRowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentStatusRowViews.swift; sourceTree = "<group>"; };
+		9322B0029322B0029322B002 /* SidebarAgentSurfaceNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentSurfaceNameTests.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabDropDelegate.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
@@ -4695,6 +4697,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B21C4E25B21C4E25B21C4E2 /* PerAgentSidebarStatusDisplacementTests.swift */,
 				3EDCC62AF23B380D1227E261 /* PerAgentSidebarStatusPersistenceTests.swift */,
 				EF3A0288F87945DC8889FE91 /* PerAgentSidebarStatusRowTests.swift */,
+				9322B0029322B0029322B002 /* SidebarAgentSurfaceNameTests.swift */,
 				D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */,
 				C58410010000000000000002 /* RenderableSystemSymbolTests.swift */,
 				DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */,
@@ -6981,6 +6984,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6042A0016042A0016042A001 /* ShortcutHintModifierPolicyTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */,
+				9322B0019322B0019322B001 /* SidebarAgentSurfaceNameTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,
 				D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */,
