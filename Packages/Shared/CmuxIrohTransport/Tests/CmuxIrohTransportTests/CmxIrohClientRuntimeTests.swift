@@ -855,8 +855,8 @@ struct CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
         let terminal = CmxIrohTrustBrokerClientError.rejected(
-            statusCode: 400,
-            code: "bad_request"
+            statusCode: 401,
+            code: "unauthorized"
         )
         await broker.setRegistrationError(terminal)
 
@@ -916,7 +916,6 @@ struct CmxIrohClientRuntimeTests {
             code: "challenge_rate_limited"
         ),
         .rejected(statusCode: 503, code: "unavailable"),
-        .rejected(statusCode: 401, code: "unauthorized"),
     ])
     func foregroundAvailabilityFailureKeepsLastVerifiedPolicy(
         _ failure: CmxIrohTrustBrokerClientError
