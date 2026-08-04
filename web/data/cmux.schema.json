@@ -1135,6 +1135,7 @@
           "enum": [
             "leftRail",
             "solidFill",
+            "outline",
             "rail",
             "border",
             "wash",
@@ -1149,7 +1150,7 @@
         "selectionColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
-          "description": "Override the selected workspace background color."
+          "description": "Override the selected workspace background or outline color."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",

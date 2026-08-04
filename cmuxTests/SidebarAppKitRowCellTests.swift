@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSidebar
 import Testing
 @testable import cmux_DEV
@@ -11,6 +12,7 @@ struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
         isPinned: Bool = false,
+        customColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -21,7 +23,7 @@ struct SidebarAppKitRowCellTests {
             title: title,
             customDescription: nil,
             isPinned: isPinned,
-            customColorHex: nil,
+            customColorHex: customColorHex,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -58,15 +60,21 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        customColorHex: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil
+        shortcutHintText: String? = nil,
+        colorSchemeIsDark: Bool = true
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(isPinned: isPinned, metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                isPinned: isPinned,
+                customColorHex: customColorHex,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -83,7 +91,7 @@ struct SidebarAppKitRowCellTests {
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
-            colorSchemeIsDark: true,
+            colorSchemeIsDark: colorSchemeIsDark,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -147,7 +155,7 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func makeDefaults() -> UserDefaults {
+    fileprivate static func makeDefaults() -> UserDefaults {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
 
@@ -923,5 +931,37 @@ struct SidebarPinnedIndicatorColorTests {
         )
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
+    }
+}
+
+@Suite
+@MainActor
+struct SidebarOutlineIndicatorTests {
+    @Test
+    func outlineIndicatorPreservesWorkspaceFillAndUsesSelectionColorForStroke() throws {
+        let defaults = SidebarAppKitRowCellTests.makeDefaults()
+        defaults.set("outline", forKey: "sidebarActiveTabIndicatorStyle")
+        defaults.set("#123456", forKey: "sidebarSelectionColorHex")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = SidebarAppKitRowCellTests.makeModel(
+            isActive: true,
+            settings: settings,
+            customColorHex: "#C0392B",
+            colorSchemeIsDark: false
+        )
+
+        let cell = SidebarAppKitRowCellTests.configuredCell(model: model)
+        let backgroundView = try #require(
+            cell.subviews.first { $0.layer?.cornerRadius == 6 }
+        )
+        let fillCGColor = try #require(backgroundView.layer?.backgroundColor)
+        let fillColor = try #require(NSColor(cgColor: fillCGColor))
+        let strokeCGColor = try #require(backgroundView.layer?.borderColor)
+        let strokeColor = try #require(NSColor(cgColor: strokeCGColor))
+
+        #expect(settings.activeTabIndicatorStyle.rawValue == "outline")
+        #expect(fillColor.hexString(includeAlpha: true) == "#C0392BB2")
+        #expect(backgroundView.layer?.borderWidth == 1.5)
+        #expect(strokeColor.hexString(includeAlpha: true) == "#123456FF")
     }
 }

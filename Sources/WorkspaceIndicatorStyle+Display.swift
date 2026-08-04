@@ -11,6 +11,8 @@ extension WorkspaceIndicatorStyle {
             return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill:
             return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
+        case .outline:
+            return String(localized: "sidebar.activeTabIndicator.outline", defaultValue: "Outline")
         }
     }
 }

@@ -272,6 +272,20 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     static let clear = Self(color: nil, opacity: 0)
 }
 
+struct SidebarWorkspaceRowBorderStyle: Equatable, Hashable {
+    let color: NSColor?
+    let width: CGFloat
+
+    static let clear = Self(color: nil, width: 0)
+}
+
+func sidebarWorkspaceRowUsesInvertedForeground(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    isActive: Bool
+) -> Bool {
+    isActive && activeTabIndicatorStyle != .outline
+}
+
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
@@ -309,6 +323,19 @@ func sidebarWorkspaceRowBackgroundStyle(
         )
     }
 
+    func workspaceColorBackground() -> SidebarWorkspaceRowBackgroundStyle {
+        if let customBackground {
+            return SidebarWorkspaceRowBackgroundStyle(
+                color: customBackground,
+                opacity: isMultiSelected ? 0.35 : 0.7
+            )
+        }
+        if isMultiSelected {
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+        }
+        return .clear
+    }
+
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
@@ -329,15 +356,36 @@ func sidebarWorkspaceRowBackgroundStyle(
                 opacity: 1
             )
         }
-        if let customBackground {
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: customBackground,
-                opacity: isMultiSelected ? 0.35 : 0.7
-            )
-        }
-        if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
-        }
+        return workspaceColorBackground()
+
+    case .outline:
+        return workspaceColorBackground()
+    }
+}
+
+func sidebarWorkspaceRowBorderStyle(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    isActive: Bool,
+    colorScheme: ColorScheme,
+    sidebarSelectionColorHex: String?
+) -> SidebarWorkspaceRowBorderStyle {
+    guard isActive else { return .clear }
+
+    switch activeTabIndicatorStyle {
+    case .leftRail:
         return .clear
+    case .solidFill:
+        return SidebarWorkspaceRowBorderStyle(
+            color: NSColor.labelColor.withAlphaComponent(0.5),
+            width: 1.5
+        )
+    case .outline:
+        return SidebarWorkspaceRowBorderStyle(
+            color: sidebarSelectedWorkspaceBackgroundNSColor(
+                for: colorScheme,
+                sidebarSelectionColorHex: sidebarSelectionColorHex
+            ),
+            width: 1.5
+        )
     }
 }

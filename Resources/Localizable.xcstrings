@@ -201704,13 +201704,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Background color of the selected workspace in the sidebar."
+            "value": "Background or outline color of the selected workspace in the sidebar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーで選択中のワークスペースの背景色。"
+            "value": "サイドバーで選択中のワークスペースの背景色またはアウトラインの色。"
           }
         }
       }
@@ -214168,6 +214168,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "Лівий рейл"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.outline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アウトライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윤곽선"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контур"
           }
         }
       }

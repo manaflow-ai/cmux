@@ -12,6 +12,13 @@ struct SidebarRowPalette {
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
+    var usesInvertedActiveForeground: Bool {
+        sidebarWorkspaceRowUsesInvertedForeground(
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            isActive: model.isActive
+        )
+    }
+
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
@@ -24,11 +31,11 @@ struct SidebarRowPalette {
     }
 
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : .labelColor
+        usesInvertedActiveForeground ? selectedForeground(1.0) : .labelColor
     }
 
     func secondary(_ opacity: CGFloat = 0.75) -> NSColor {
-        model.isActive ? selectedForeground(opacity) : .secondaryLabelColor
+        usesInvertedActiveForeground ? selectedForeground(opacity) : .secondaryLabelColor
     }
 
     static func attributed(_ source: AttributedString, font: NSFont, color: NSColor) -> NSAttributedString {
@@ -342,7 +349,7 @@ final class SidebarRowIconTextLine: NSView {
         case .error: iconName = "xmark.circle.fill"
         }
         let color: NSColor
-        if model.isActive {
+        if palette.usesInvertedActiveForeground {
             switch log.level {
             case .info: color = palette.secondary(0.5)
             case .progress: color = palette.secondary(0.8)
@@ -524,7 +531,9 @@ final class SidebarRowPullRequestLine: NSView {
         clickable: Bool,
         onOpen: @escaping () -> Void
     ) {
-        let color = model.isActive ? palette.secondary(0.75) : NSColor.secondaryLabelColor
+        let color = palette.usesInvertedActiveForeground
+            ? palette.secondary(0.75)
+            : NSColor.secondaryLabelColor
         let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
