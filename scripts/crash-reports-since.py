@@ -47,17 +47,24 @@ REPORT_DIR = "~/Library/Logs/DiagnosticReports"
 def timestamp_in_utc(value: str) -> datetime:
     """Parse a crash timestamp, treating an offset-free value as local time."""
     timestamp = value.strip()
-    # Crash headers separate the numeric UTC offset with a space, while
-    # datetime.fromisoformat expects it immediately after the time when a
-    # fractional second is present.
-    if (
-        len(timestamp) >= 6
-        and timestamp[-6] == " "
-        and timestamp[-5] in "+-"
-        and timestamp[-4:].isdigit()
-    ):
-        timestamp = timestamp[:-6] + timestamp[-5:]
-    parsed = datetime.fromisoformat(timestamp)
+    # Python 3.9's fromisoformat rejects both the crash header's separated
+    # offset and the equivalent basic offset after normalization. Parse the
+    # finite set of timestamp forms explicitly so CI and newer Python agree.
+    formats = (
+        "%Y-%m-%d %H:%M:%S.%f %z",
+        "%Y-%m-%d %H:%M:%S %z",
+        "%Y-%m-%d %H:%M:%S.%f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S",
+    )
+    for timestamp_format in formats:
+        try:
+            parsed = datetime.strptime(timestamp, timestamp_format)
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError(f"unsupported crash timestamp: {value!r}")
     if parsed.tzinfo is None:
         parsed = parsed.astimezone()
     return parsed.astimezone(timezone.utc)
