@@ -1,10 +1,11 @@
 //! The verified managed relay catalog.
 //!
-//! `relay-catalog.json` is a compiled-in copy of the committed server-owned
-//! source of truth at `config/iroh/managed-relay-catalog.json`; a golden test
-//! keeps the copy in sync when building inside the cmux repo. Per the
-//! transport architecture, relay URLs never come from the environment and the
-//! n0 defaults are never used.
+//! The runtime reads the crate-local `relay-catalog.json` via `include_str!`;
+//! it is a compiled-in copy of the committed server-owned source of truth at
+//! `config/iroh/managed-relay-catalog.json`, and the golden test below fails
+//! when the copy drifts from that canonical file. Per the transport
+//! architecture, relay URLs never come from the environment and the n0
+//! defaults are never used.
 
 use std::sync::Arc;
 
@@ -75,6 +76,8 @@ mod tests {
     /// file; the test skips there instead of failing packaging builds.
     #[test]
     fn embedded_catalog_matches_committed_source_of_truth() {
+        // CARGO_MANIFEST_DIR = <repo>/cmux-tui/crates/cmux-tui-iroh; the
+        // canonical catalog lives at <repo>/config/iroh/.
         let canonical = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../config/iroh/managed-relay-catalog.json");
         let Ok(canonical_contents) = std::fs::read_to_string(&canonical) else {

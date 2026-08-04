@@ -100,7 +100,7 @@ async fn run_control(args: ProviderArgs) -> anyhow::Result<()> {
     let credential = load_credential(&root)?.context(
         "no device credential; run `cmux-tui-iroh enroll --token <enrollment-token>` first",
     )?;
-    let config = BrokerConfig::resolve(args.broker.as_deref());
+    let config = BrokerConfig::resolve(args.broker.as_deref())?;
     let broker = Arc::new(BrokerClient::new(config, credential, root.clone())?);
 
     // Private rendezvous directory for this control generation.
@@ -152,8 +152,11 @@ async fn run_control(args: ProviderArgs) -> anyhow::Result<()> {
                     });
                 }
                 Err(error) => {
+                    // Accept errors are usually transient (EMFILE, aborted
+                    // client); ending the loop would permanently disable
+                    // transport streams for this control generation.
                     eprintln!("cmux-tui-iroh: rendezvous accept failed: {error}");
-                    break;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
                 }
             }
         }
@@ -462,17 +465,11 @@ async fn open_machine(
         .ok_or_else(|| Failure::new(proto::ProviderErrorCode::NotFound, "unknown machine", false))?
         .clone();
 
-    ensure_connection(state, &binding).await.map_err(|error| {
+    let connection_id = ensure_connection(state, &binding).await.map_err(|error| {
         Failure::new(proto::ProviderErrorCode::Unavailable, format!("{error:#}"), true)
     })?;
 
     let mut state_guard = state.lock().await;
-    let connection_id = state_guard
-        .connections
-        .iter()
-        .find(|(_, conn)| conn.machine_binding_id == binding.binding_id)
-        .map(|(id, _)| id.clone())
-        .expect("connection ensured above");
     let secret = new_secret().map_err(|error| {
         Failure::new(proto::ProviderErrorCode::Internal, format!("{error:#}"), false)
     })?;
@@ -510,8 +507,8 @@ async fn open_machine(
 async fn ensure_connection(
     state: &Arc<tokio::sync::Mutex<ControlState>>,
     binding: &DiscoveredBinding,
-) -> anyhow::Result<()> {
-    // Drop a dead cached connection for this machine.
+) -> anyhow::Result<String> {
+    // Drop a dead cached connection for this machine; reuse a live one.
     {
         let mut state = state.lock().await;
         let dead: Vec<String> = state
@@ -526,10 +523,13 @@ async fn ensure_connection(
         for id in &dead {
             state.connections.remove(id);
         }
-        let alive =
-            state.connections.values().any(|conn| conn.machine_binding_id == binding.binding_id);
-        if alive {
-            return Ok(());
+        let alive = state
+            .connections
+            .iter()
+            .find(|(_, conn)| conn.machine_binding_id == binding.binding_id)
+            .map(|(id, _)| id.clone());
+        if let Some(id) = alive {
+            return Ok(id);
         }
     }
 
@@ -610,7 +610,7 @@ async fn ensure_connection(
     let connection_id = random_uuid()?;
     let mut state = state.lock().await;
     state.connections.insert(
-        connection_id,
+        connection_id.clone(),
         MachineConn {
             connection,
             _admission_send: admission_send,
@@ -618,7 +618,7 @@ async fn ensure_connection(
             machine_binding_id: binding.binding_id.clone(),
         },
     );
-    Ok(())
+    Ok(connection_id)
 }
 
 /// One rendezvous connection: validate the forwarded handshake, open a fresh
@@ -637,7 +637,10 @@ async fn serve_rendezvous(
     let handshake: proto::TransportHandshake =
         serde_json::from_str(line.trim()).context("parsing transport handshake")?;
 
-    let (send, recv) = {
+    // Validate the bearer and consume the one-use ticket under the lock, but
+    // open the stream outside it: open_bi() waits on remote stream credit and
+    // must not stall every other control request behind a slow machine.
+    let connection = {
         let mut state = state.lock().await;
         let expected_token = state.hello_token.clone().context("no hello generation")?;
         if handshake.token.expose() != expected_token {
@@ -660,7 +663,14 @@ async fn serve_rendezvous(
             deny(&mut write_half).await;
             bail!("transport ticket references a closed connection");
         };
-        machine.connection.open_bi().await.context("opening session stream")?
+        machine.connection.clone()
+    };
+    let (send, recv) = match connection.open_bi().await {
+        Ok(halves) => halves,
+        Err(error) => {
+            deny(&mut write_half).await;
+            return Err(error).context("opening session stream");
+        }
     };
 
     let result = serde_json::to_string(&proto::TransportHandshakeResult { accepted: true })?;
@@ -737,7 +747,9 @@ async fn run_stream() -> anyhow::Result<()> {
 fn run_stream_blocking() -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let mut stdin_lock = stdin.lock();
-    let mut line = String::new();
+    // Collect raw bytes: pushing bytes as chars would re-encode >0x7F values
+    // as multi-byte UTF-8 and corrupt the forwarded frame.
+    let mut line: Vec<u8> = Vec::new();
     loop {
         let mut byte = [0u8; 1];
         stdin_lock.read_exact(&mut byte).context("reading transport handshake")?;
@@ -745,10 +757,10 @@ fn run_stream_blocking() -> anyhow::Result<()> {
             break;
         }
         anyhow::ensure!(line.len() < HANDSHAKE_MAX_BYTES, "transport handshake too large");
-        line.push(byte[0] as char);
+        line.push(byte[0]);
     }
     let handshake: proto::TransportHandshake =
-        serde_json::from_str(line.trim()).context("parsing transport handshake")?;
+        serde_json::from_slice(&line).context("parsing transport handshake")?;
     let payload: TicketPayload = serde_json::from_slice(
         &URL_SAFE_NO_PAD.decode(handshake.ticket.expose()).context("decoding transport ticket")?,
     )
@@ -756,7 +768,7 @@ fn run_stream_blocking() -> anyhow::Result<()> {
 
     let mut socket = std::os::unix::net::UnixStream::connect(&payload.p)
         .with_context(|| format!("connecting to provider control at {}", payload.p))?;
-    socket.write_all(line.as_bytes())?;
+    socket.write_all(&line)?;
     socket.write_all(b"\n")?;
     socket.flush()?;
 

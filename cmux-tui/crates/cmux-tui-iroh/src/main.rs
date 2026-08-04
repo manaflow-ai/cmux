@@ -87,6 +87,12 @@ impl Flags {
         let mut index = 0;
         while index < args.len() {
             let arg = &args[index];
+            if arg == "--" {
+                // Separator: everything after it is positional (wrapper
+                // invocations may append it before the provider role).
+                positional.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             if value_flags.contains(&arg.as_str()) {
                 let value = args
                     .get(index + 1)

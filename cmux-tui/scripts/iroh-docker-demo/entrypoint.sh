@@ -23,13 +23,26 @@ echo "entrypoint: starting headless cmux-tui session '$SESSION'"
 cmux-tui --headless --session "$SESSION" &
 MUX_PID=$!
 
-# Wait for the session socket before starting the listener.
-for _ in $(seq 1 50); do
-  if [[ -S "${TMPDIR:-/tmp}/cmux-tui-$(id -u)/$SESSION.sock" ]]; then
+# Gate the listener on session-socket readiness and fail closed: starting
+# the listener against a missing socket would advertise a dead machine.
+SOCKET_PATH="${TMPDIR:-/tmp}/cmux-tui-$(id -u)/$SESSION.sock"
+ready=0
+for _ in $(seq 1 100); do
+  if [[ -S "$SOCKET_PATH" ]]; then
+    ready=1
     break
+  fi
+  if ! kill -0 "$MUX_PID" 2>/dev/null; then
+    echo "entrypoint: cmux-tui exited before its socket appeared" >&2
+    exit 1
   fi
   sleep 0.2
 done
+if [[ "$ready" != "1" ]]; then
+  echo "entrypoint: session socket $SOCKET_PATH never appeared" >&2
+  kill "$MUX_PID" 2>/dev/null || true
+  exit 1
+fi
 
 echo "entrypoint: starting iroh listener"
 cmux-tui-iroh listen --session "$SESSION" --tag "$TAG" &

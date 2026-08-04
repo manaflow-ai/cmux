@@ -70,12 +70,23 @@ pub fn spawn_relay_maintenance(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut down_checks = 0u32;
+        // Exponential backoff between rotation attempts keeps a persistently
+        // down relay inside the 3-per-10-minute mint quota: 30s of confirmed
+        // downtime triggers attempt 1, then 2, 4, 8... minute gaps (capped).
+        let mut failed_rotations = 0u32;
+        let mut cooldown_checks = 0u32;
         loop {
             tokio::time::sleep(Duration::from_secs(15)).await;
             let mut status = endpoint.home_relay_status();
             let connected = status.get().iter().any(|st| st.is_connected());
             if connected {
                 down_checks = 0;
+                failed_rotations = 0;
+                cooldown_checks = 0;
+                continue;
+            }
+            if cooldown_checks > 0 {
+                cooldown_checks -= 1;
                 continue;
             }
             down_checks += 1;
@@ -84,24 +95,28 @@ pub fn spawn_relay_maintenance(
             }
             down_checks = 0;
             eprintln!("cmux-tui-iroh: relay disconnected; rotating fleet credential");
-            let token = match fresh_relay_token(&broker, &identity, &state_root).await {
-                Ok(token) => token,
+            let rotated = async {
+                let token = fresh_relay_token(&broker, &identity, &state_root).await?;
+                for url in relays::relay_urls()? {
+                    let config =
+                        iroh::RelayConfig::from(url.clone()).with_auth_token(token.token.clone());
+                    endpoint.remove_relay(&url).await;
+                    endpoint.insert_relay(url, Arc::new(config)).await;
+                }
+                anyhow::Ok(())
+            }
+            .await;
+            match rotated {
+                Ok(()) => {
+                    eprintln!("cmux-tui-iroh: relay credential rotated");
+                    failed_rotations = 0;
+                }
                 Err(error) => {
                     eprintln!("cmux-tui-iroh: relay credential rotation failed: {error:#}");
-                    continue;
+                    failed_rotations = failed_rotations.saturating_add(1);
+                    // 2^n minutes of 15s checks, capped at 32 minutes.
+                    cooldown_checks = 4u32 << failed_rotations.min(5);
                 }
-            };
-            match relays::relay_urls() {
-                Ok(urls) => {
-                    for url in urls {
-                        let config = iroh::RelayConfig::from(url.clone())
-                            .with_auth_token(token.token.clone());
-                        endpoint.remove_relay(&url).await;
-                        endpoint.insert_relay(url, Arc::new(config)).await;
-                    }
-                    eprintln!("cmux-tui-iroh: relay credential rotated");
-                }
-                Err(error) => eprintln!("cmux-tui-iroh: relay catalog reload failed: {error:#}"),
             }
         }
     })

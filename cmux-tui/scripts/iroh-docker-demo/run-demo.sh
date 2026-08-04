@@ -108,8 +108,7 @@ log "7. detach happened at the end of round 1; attach round 2 (reattach) must se
   --machine-tag "$SERVER_TAG" --expect-workspace "$MARKER" 2>&1 | tee -a "$EVIDENCE"
 
 log "8. restarting the container; identity must re-register the same slot"
-BINDING_BEFORE="$(docker exec "$CONTAINER" sh -c 'python3 -c "import json;print(json.load(open(\"/home/cmux/state/device/iroh-identity.json\"))[\"binding_id\"])" 2>/dev/null' || true)"
-[[ -n "$BINDING_BEFORE" ]] || BINDING_BEFORE="$(docker exec "$CONTAINER" sh -c 'grep -o "\"binding_id\": *\"[^\"]*\"" /home/cmux/state/device/iroh-identity.json | head -1 | sed "s/.*: *\"//; s/\"//"')"
+BINDING_BEFORE="$(docker exec "$CONTAINER" sh -c 'grep -o "\"binding_id\": *\"[^\"]*\"" /home/cmux/state/device/iroh-identity.json | head -1 | sed "s/.*: *\"//; s/\"//"')"
 run docker restart "$CONTAINER"
 for _ in $(seq 1 60); do
   if docker logs --since 1m "$CONTAINER" 2>&1 | grep -q "cmux-tui-iroh: listening"; then break; fi

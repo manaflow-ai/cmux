@@ -66,7 +66,7 @@ pub async fn run(args: ListenArgs) -> anyhow::Result<()> {
     let credential = load_credential(&root)?.context(
         "no device credential; run `cmux-tui-iroh enroll --token <enrollment-token>` first",
     )?;
-    let config = BrokerConfig::resolve(args.broker.as_deref());
+    let config = BrokerConfig::resolve(args.broker.as_deref())?;
     let broker = Arc::new(BrokerClient::new(config, credential, root.clone())?);
     let socket_path = args.socket.clone().unwrap_or_else(|| default_session_socket(&args.session));
 
@@ -216,28 +216,33 @@ async fn handle_connection(shared: ListenerShared, connection: Connection) -> an
         .context("writing admission ack")?;
 
     // The admission stream stays open as the connection's liveness channel:
-    // its EOF (client went away) tears the connection down.
+    // its EOF (client went away) tears the connection down. The bound applies
+    // during the read, not after, so a peer cannot force a large buffer.
     let watchdog_connection = connection.clone();
     tokio::spawn(async move {
-        let mut reader = BufReader::new(admission_recv);
+        let mut reader = BufReader::new(admission_recv).take(ADMISSION_MAX_BYTES as u64);
         let mut sink = String::new();
         loop {
             sink.clear();
             match reader.read_line(&mut sink).await {
                 Ok(0) | Err(_) => break,
-                Ok(_) if sink.len() > ADMISSION_MAX_BYTES => break,
-                Ok(_) => {}
+                Ok(_) => reader.set_limit(ADMISSION_MAX_BYTES as u64),
             }
         }
         watchdog_connection.close(0u32.into(), b"admission stream closed");
     });
 
-    // Grant expiry closes the session even if idle.
+    // Grant expiry closes the session even if idle; the task exits early when
+    // the connection closes so detached peers do not accumulate sleepers.
     let expiry_connection = connection.clone();
     let expiry_delay = (grant_exp_unix - unix_seconds_now()).max(0) as u64;
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(expiry_delay)).await;
-        expiry_connection.close(0u32.into(), b"grant expired");
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(expiry_delay)) => {
+                expiry_connection.close(0u32.into(), b"grant expired");
+            }
+            _ = expiry_connection.closed() => {}
+        }
     });
 
     // Session streams: each is one protocol v10 JSON-lines client bridged to

@@ -57,6 +57,10 @@ if (!signIn.ok) {
   process.exit(1);
 }
 const session = await signIn.json();
+if (!session.access_token || !session.refresh_token) {
+  console.error("stack sign-in response missing access_token/refresh_token");
+  process.exit(1);
+}
 
 const mint = await fetch(`${BROKER}/api/devices/iroh/enrollment-tokens`, {
   method: "POST",

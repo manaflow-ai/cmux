@@ -24,6 +24,11 @@ COPY ghostty ghostty
 COPY cmux-tui cmux-tui
 
 WORKDIR /src/cmux-tui
+# The context has no .git (see .dockerignore); cmux-remote's build script
+# needs the source revision explicitly. Pass the real SHA with
+# --build-arg CMUX_TUI_BUILD_COMMIT=$(git rev-parse HEAD).
+ARG CMUX_TUI_BUILD_COMMIT=docker-demo
+ENV CMUX_TUI_BUILD_COMMIT=$CMUX_TUI_BUILD_COMMIT
 # Docker's generated resolv.conf trips zig's resolver (ResolvConfParseFailed)
 # during ghostty dependency fetch, and the file is read-only in build
 # containers here, so bind-mount a plain one over it for this step.
@@ -43,6 +48,10 @@ COPY --from=builder /usr/local/bin/cmux-tui /usr/local/bin/cmux-tui
 COPY --from=builder /usr/local/bin/cmux-tui-iroh /usr/local/bin/cmux-tui-iroh
 COPY cmux-tui/scripts/iroh-docker-demo/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
+
+# Pre-create the state dir owned by cmux so a fresh named volume inherits
+# that ownership when Docker first populates it.
+RUN mkdir -p /home/cmux/state && chown cmux:cmux /home/cmux/state && chmod 0700 /home/cmux/state
 
 USER cmux
 ENV CMUX_TUI_STATE_DIR=/home/cmux/state

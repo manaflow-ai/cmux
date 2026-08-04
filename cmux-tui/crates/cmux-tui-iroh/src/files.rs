@@ -104,6 +104,14 @@ pub fn write_private_atomic(path: &Path, contents: &[u8]) -> anyhow::Result<()> 
         let _ = fs::remove_file(&temp);
         return Err(error).with_context(|| format!("replacing {}", path.display()));
     }
+    // The rename is not durable until the directory entry is synced; losing
+    // power right after enrollment must not lose the identity file.
+    #[cfg(unix)]
+    {
+        let dir = fs::File::open(parent)
+            .with_context(|| format!("opening {} for sync", parent.display()))?;
+        dir.sync_all().with_context(|| format!("syncing {}", parent.display()))?;
+    }
     Ok(())
 }
 

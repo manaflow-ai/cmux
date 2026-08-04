@@ -36,9 +36,9 @@ pub struct BrokerConfig {
 }
 
 impl BrokerConfig {
-    pub fn resolve(base_url_flag: Option<&str>) -> Self {
+    pub fn resolve(base_url_flag: Option<&str>) -> anyhow::Result<Self> {
         let env = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-        Self {
+        let config = Self {
             base_url: base_url_flag
                 .map(str::to_string)
                 .or_else(|| env("CMUX_TUI_IROH_BROKER"))
@@ -51,8 +51,40 @@ impl BrokerConfig {
                 .unwrap_or_else(|| DEFAULT_STACK_PROJECT_ID.to_string()),
             stack_publishable_key: env("CMUX_TUI_IROH_STACK_PCK")
                 .unwrap_or_else(|| DEFAULT_STACK_PUBLISHABLE_KEY.to_string()),
-        }
+        };
+        assert_credential_safe_origin(&config.base_url, "broker URL")?;
+        assert_credential_safe_origin(&config.stack_base, "stack base URL")?;
+        Ok(config)
     }
+}
+
+/// A client for credential-bearing requests: bounded timeout and no redirect
+/// following, so a bearer header can never be replayed to a redirect target.
+pub fn credential_http_client() -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("building http client")
+}
+
+/// Every broker and Stack request carries bearer credentials, so the origin
+/// must be HTTPS. Loopback HTTP is allowed for local development brokers.
+fn assert_credential_safe_origin(url: &str, what: &str) -> anyhow::Result<()> {
+    if url.starts_with("https://") {
+        return Ok(());
+    }
+    let loopback = url.strip_prefix("http://").is_some_and(|rest| {
+        let host = rest.split(['/', ':']).next().unwrap_or("");
+        host == "localhost"
+            || host == "127.0.0.1"
+            || host == "[::1]"
+            || host == "host.docker.internal"
+    });
+    if loopback {
+        return Ok(());
+    }
+    bail!("{what} {url:?} must be https (or loopback http for local development)");
 }
 
 pub struct BrokerClient {
@@ -101,11 +133,12 @@ impl BrokerClient {
         credential: Credential,
         state_root: PathBuf,
     ) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .context("building http client")?;
-        Ok(Self { http, config, credential: Mutex::new(credential), state_root })
+        Ok(Self {
+            http: credential_http_client()?,
+            config,
+            credential: Mutex::new(credential),
+            state_root,
+        })
     }
 
     /// Exchanges a one-use enrollment token for a Stack session credential.

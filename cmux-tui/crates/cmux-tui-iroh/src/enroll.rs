@@ -2,7 +2,6 @@
 //! credential, mint the device identity, and register the binding slot.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::{Context, bail};
 
@@ -24,7 +23,7 @@ pub struct EnrollArgs {
 
 pub async fn run(args: EnrollArgs) -> anyhow::Result<()> {
     let root = state_root(args.state.as_deref())?;
-    let config = BrokerConfig::resolve(args.broker.as_deref());
+    let config = BrokerConfig::resolve(args.broker.as_deref())?;
     let mut identity = load_or_mint_identity(&root, args.tag.as_deref())?;
 
     let credential = match load_credential(&root)? {
@@ -34,10 +33,7 @@ pub async fn run(args: EnrollArgs) -> anyhow::Result<()> {
         }
         None => {
             let token = enrollment_token(&args)?;
-            let http = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .context("building http client")?;
+            let http = crate::broker::credential_http_client()?;
             let credential = BrokerClient::enroll(&http, &config, token.trim()).await?;
             save_credential(&root, &credential)?;
             eprintln!("cmux-tui-iroh: enrolled; device credential stored in the state root");
