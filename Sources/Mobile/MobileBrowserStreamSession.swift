@@ -221,8 +221,12 @@ final class MobileBrowserStreamSession {
         format: MobileBrowserFrameFormat,
         dirtyGeneration: UInt64
     ) async -> Bool {
+        // Captured once so the snapshot, its measured page size, and the
+        // committed-frame bookkeeping all describe the SAME web view even
+        // if the panel replaces its web view while the capture awaits.
+        let capturedWebView = panel.webView
         do {
-            let pageSize = panel.webView.bounds.size
+            let pageSize = capturedWebView.bounds.size
             // Continuous JPEG frames drive motion (scroll, drag, animation). The
             // active dirty loop must not block each snapshot on a synchronized
             // screen-update cycle. `false` captures the currently committed render
@@ -240,12 +244,15 @@ final class MobileBrowserStreamSession {
             let captureStart = DispatchTime.now()
             #endif
             let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                from: panel.webView,
+                from: capturedWebView,
                 afterScreenUpdates: waitForScreenUpdate,
                 timeout: forceSynchronizedFirstCapture ? Self.firstCaptureTimeout : Self.captureTimeout
             )
             guard !isStopped, !Task.isCancelled else { return false }
-            if waitForScreenUpdate {
+            // A capture that raced a web view replacement proves nothing about
+            // the panel's CURRENT web view: its first synchronized capture is
+            // still owed, or the next first frame is the blank bitmap again.
+            if waitForScreenUpdate, panel.webView === capturedWebView {
                 hasCapturedCommittedFrame = true
                 synchronizedFirstCaptureFailures = 0
             }
@@ -295,7 +302,9 @@ final class MobileBrowserStreamSession {
         } catch is CancellationError {
             return false
         } catch {
-            if !hasCapturedCommittedFrame {
+            // A stale capture's failure must not consume the replacement web
+            // view's bounded synchronized-first-capture attempts.
+            if !hasCapturedCommittedFrame, panel.webView === capturedWebView {
                 synchronizedFirstCaptureFailures += 1
             }
             return false
