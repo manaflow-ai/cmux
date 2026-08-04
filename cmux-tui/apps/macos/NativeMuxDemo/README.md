@@ -46,4 +46,15 @@ and close either client without terminating the shared PTY.
 
 Pass `--swift-only` to omit the Ghostty client. Either client can detach while
 the other keeps using the session. The launcher stops the isolated daemon and
-removes its temporary state after both clients close.
+closes every seeded terminal before removing its temporary state, so durable
+terminal hosts and PTYs do not survive the demo.
+
+Run the lifecycle regression against the reusable artifacts with:
+
+```bash
+worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-demo-lifecycle.sh
+```
+
+The verifier launches the real Swift-only demo, closes the app, and fails if a
+new terminal-host process survives. The launcher also checks that macOS has the
+eight free PTYs needed by the seeded layout before it starts the daemon.

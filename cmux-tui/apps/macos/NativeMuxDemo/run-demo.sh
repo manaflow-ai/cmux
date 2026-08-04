@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 REUSE_BUILD=0
 LAUNCH_GHOSTTY=1
 GHOSTTY_APP="${GHOSTTY_APP:-/Applications/Ghostty.app}"
+REQUIRED_DEMO_PTYS=8
 
 usage() {
   cat <<'USAGE'
@@ -48,7 +49,7 @@ if [[ "$LAUNCH_GHOSTTY" == "1" && ! -x "$GHOSTTY_APP/Contents/MacOS/ghostty" ]];
   exit 1
 fi
 
-for command in jq open openssl pgrep; do
+for command in jq lsof open openssl pgrep sysctl; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "NativeMuxDemo needs $command on PATH." >&2
     exit 1
@@ -109,9 +110,101 @@ APP_PID=""
 OPEN_PID=""
 GHOSTTY_PID=""
 GHOSTTY_OPEN_PID=""
+CLEANUP_STARTED=0
+
+pty_capacity() {
+  local maximum
+  local allocated
+  local available
+  maximum="$(sysctl -n kern.tty.ptmx_max 2>/dev/null || true)"
+  if [[ ! "$maximum" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  allocated="$(
+    { lsof /dev/ptmx 2>/dev/null || true; } \
+      | awk 'NR > 1 && !seen[$6]++ { count++ } END { print count + 0 }'
+  )"
+  available=$((maximum - allocated))
+  if (( available < 0 )); then
+    available=0
+  fi
+  printf '%s %s\n' "$available" "$maximum"
+}
+
+require_pty_capacity() {
+  local capacity
+  local available
+  local maximum
+  if ! capacity="$(pty_capacity)"; then
+    echo "Could not read macOS PTY capacity." >&2
+    exit 1
+  fi
+  read -r available maximum <<<"$capacity"
+  if (( available < REQUIRED_DEMO_PTYS )); then
+    echo "NativeMuxDemo needs $REQUIRED_DEMO_PTYS free macOS PTYs; only $available of $maximum are free." >&2
+    echo "Close unused terminal windows or an earlier NativeMuxDemo, then retry." >&2
+    exit 1
+  fi
+  echo "PTY capacity: $available of $maximum free; demo needs $REQUIRED_DEMO_PTYS."
+}
+
+recorded_host_pids() {
+  if [[ ! -d "$MUX_STATE" ]]; then
+    return 0
+  fi
+  find "$MUX_STATE" -type f -name '*.json' \
+    -exec jq -r 'select(.host_pid != null) | .host_pid' {} \; 2>/dev/null \
+    | sort -u
+}
+
+close_demo_terminals() {
+  local terminals
+  local terminal_id
+  if [[ -z "$DAEMON_PID" ]] || ! kill -0 "$DAEMON_PID" 2>/dev/null \
+    || [[ ! -S "$MUX_SOCKET" ]]; then
+    return 0
+  fi
+  terminals="$("$CMUX_TUI" --socket "$MUX_SOCKET" terminal list --json 2>/dev/null || true)"
+  if ! printf '%s' "$terminals" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    return 0
+  fi
+  for terminal_id in $(printf '%s' "$terminals" | jq -r '.[].id'); do
+    "$CMUX_TUI" --socket "$MUX_SOCKET" terminal "$terminal_id" close --json \
+      >/dev/null 2>&1 || true
+  done
+}
+
+stop_recorded_hosts() {
+  local host_pids="$1"
+  local host_pid
+  local command
+  local expected="$CMUX_TUI __terminal-host --bootstrap-stdio"
+  for _ in $(seq 1 50); do
+    local alive=0
+    for host_pid in $host_pids; do
+      if kill -0 "$host_pid" 2>/dev/null; then
+        alive=$((alive + 1))
+      fi
+    done
+    (( alive == 0 )) && return 0
+    sleep 0.1
+  done
+  for host_pid in $host_pids; do
+    command="$(ps -p "$host_pid" -o command= 2>/dev/null || true)"
+    if [[ "$command" == "$expected" ]]; then
+      kill "$host_pid" 2>/dev/null || true
+    fi
+  done
+}
 
 cleanup() {
+  if [[ "$CLEANUP_STARTED" == "1" ]]; then
+    return
+  fi
+  CLEANUP_STARTED=1
   set +e
+  local host_pids
+  host_pids="$(recorded_host_pids)"
   if [[ -n "$GHOSTTY_PID" ]] && kill -0 "$GHOSTTY_PID" 2>/dev/null; then
     kill "$GHOSTTY_PID" 2>/dev/null
     wait "$GHOSTTY_PID" 2>/dev/null
@@ -128,6 +221,8 @@ cleanup() {
     kill "$OPEN_PID" 2>/dev/null
     wait "$OPEN_PID" 2>/dev/null
   fi
+  close_demo_terminals
+  stop_recorded_hosts "$host_pids"
   if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
     kill "$DAEMON_PID" 2>/dev/null
     wait "$DAEMON_PID" 2>/dev/null
@@ -196,6 +291,8 @@ else
   codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 fi
 APP_PROCESS_TOKEN="target/native-mux-demo/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
+
+require_pty_capacity
 
 echo "Starting an isolated ephemeral Iroh daemon..."
 "$CMUX_TUI" daemon \
