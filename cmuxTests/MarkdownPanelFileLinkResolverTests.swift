@@ -257,6 +257,7 @@ struct MarkdownPanelFileLinkResolverTests {
         ))
         #expect(attachedPanelId == panel.id)
         #expect(panel.workspaceId == destinationWorkspace.id)
+        #expect(coordinator.resolvedMarkdownFilePath("raw/plan.md") == destinationTarget.path)
 
         let movedCoordinator = panel.rendererSession.coordinator(
             panelId: panel.id,

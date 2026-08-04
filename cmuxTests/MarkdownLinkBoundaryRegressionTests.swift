@@ -129,7 +129,7 @@ final class MarkdownLinkBoundaryRegressionTests {
     }
 
     @Test
-    func markdownFileContextChangeInvalidatesResolvedLinkCache() async throws {
+    func markdownFileContextChangeRejectsStaleResolverReplies() async throws {
         try await withLoadedMarkdownShellAndRoutes { webView, bridge, _ in
             let relativePath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
             _ = try await renderLinkBoundarySnapshot(
@@ -138,18 +138,6 @@ final class MarkdownLinkBoundaryRegressionTests {
             )
             let initialRequest = await bridge.nextBody(action: "resolveMarkdownFile")
             let initialRequestId = try #require(initialRequest["requestId"] as? String)
-            let responseData = try JSONSerialization.data(withJSONObject: [
-                "requestId": initialRequestId,
-                "exists": true,
-                "path": "/old-workspace/\(relativePath)"
-            ])
-            let responseLiteral = try #require(String(data: responseData, encoding: .utf8))
-            _ = try await webView.evaluateJavaScript(
-                """
-                window.__cmuxMarkdownFileResolved(\(responseLiteral));
-                true;
-                """
-            )
             bridge.reset()
 
             let refreshResult = try await webView.evaluateJavaScript(
@@ -171,12 +159,57 @@ final class MarkdownLinkBoundaryRegressionTests {
             )
             let refreshSnapshot = try #require(refreshResult as? [String: Any])
             try #require(refreshSnapshot["didRefresh"] as? Bool == true)
-            #expect(refreshSnapshot["existedBefore"] as? Bool == true)
+            #expect(refreshSnapshot["existedBefore"] as? Bool == false)
             #expect(refreshSnapshot["existsAfter"] as? Bool == false)
 
             let refreshedRequest = await bridge.nextBody(action: "resolveMarkdownFile")
+            let refreshedRequestId = try #require(refreshedRequest["requestId"] as? String)
             #expect(refreshedRequest["path"] as? String == relativePath)
-            #expect(refreshedRequest["requestId"] as? String != initialRequestId)
+            #expect(refreshedRequestId != initialRequestId)
+
+            let staleResponseData = try JSONSerialization.data(withJSONObject: [
+                "requestId": initialRequestId,
+                "exists": true,
+                "path": "/old-workspace/\(relativePath)"
+            ])
+            let staleResponseLiteral = try #require(String(data: staleResponseData, encoding: .utf8))
+            let staleResponseResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  window.__cmuxMarkdownFileResolved(\(staleResponseLiteral));
+                  var anchor = document.querySelector('a');
+                  return {
+                    checked: anchor && anchor.hasAttribute('data-cmux-file-checked'),
+                    exists: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let staleResponseSnapshot = try #require(staleResponseResult as? [String: Any])
+            #expect(staleResponseSnapshot["checked"] as? Bool == false)
+            #expect(staleResponseSnapshot["exists"] as? Bool == false)
+
+            let refreshedResponseData = try JSONSerialization.data(withJSONObject: [
+                "requestId": refreshedRequestId,
+                "exists": true,
+                "path": "/new-workspace/\(relativePath)"
+            ])
+            let refreshedResponseLiteral = try #require(String(data: refreshedResponseData, encoding: .utf8))
+            let refreshedResponseResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  window.__cmuxMarkdownFileResolved(\(refreshedResponseLiteral));
+                  var anchor = document.querySelector('a');
+                  return {
+                    checked: anchor && anchor.hasAttribute('data-cmux-file-checked'),
+                    exists: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let refreshedResponseSnapshot = try #require(refreshedResponseResult as? [String: Any])
+            #expect(refreshedResponseSnapshot["checked"] as? Bool == true)
+            #expect(refreshedResponseSnapshot["exists"] as? Bool == true)
         }
     }
 
