@@ -1554,8 +1554,16 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 
     func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
         let manager = TabManager()
-        let workspace = manager.addWorkspace()
+        // Start with a non-terminal placeholder so this fixture never creates a
+        // native Ghostty surface that could race the synthetic handle below.
+        let workspace = manager.addWorkspace(initialSurface: .cloudVMLoading)
         manager.selectWorkspace(workspace)
+
+        guard let panelId = workspace.focusedPanelId,
+              workspace.surfaceIdFromPanelId(panelId) != nil else {
+            XCTFail("Expected a focused panel in the workspace layout")
+            return
+        }
 
         let liveDependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
         let isolatedDependencies = TerminalSurfaceRuntimeDependencies(
@@ -1575,13 +1583,18 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
             globalFontMagnificationPercent: liveDependencies.globalFontMagnificationPercent
         )
         let surface = TerminalSurface(
+            id: panelId,
             tabId: workspace.id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: nil,
             dependencies: isolatedDependencies
         )
         let terminalPanel = TerminalPanel(workspaceId: workspace.id, surface: surface)
-        workspace.panels[terminalPanel.id] = terminalPanel
+        // Preserve the placeholder's panel identity. Workspace teardown walks
+        // `panels`, but its close lifecycle resolves each entry through the
+        // Bonsplit surface mapping; a new, unbound panel id is not owned by the
+        // layout and therefore cannot exercise the real close path.
+        workspace.panels[panelId] = terminalPanel
 
         let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
         // The test needs only a non-nil teardown token. Direct assignment avoids
