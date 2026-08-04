@@ -142,8 +142,8 @@ import Testing
             timeout: 5
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stdout))
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         let requests = responder.receivedRequests
         #expect(requests.count == 1)
         let request = try #require(requests.first)
@@ -218,12 +218,12 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("pwd=\(workingDirectory.path)\n"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("env=値 with spaces\n"), result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("pwd=\(workingDirectory.path)\n"), result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("env=値 with spaces\n"), result.diagnostics)
         for argument in arguments.dropFirst() {
-            XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
+            XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.diagnostics)
         }
         let methods = try responder.receivedRequests.map { request in
             let data = try XCTUnwrap(request.data(using: .utf8))
@@ -288,17 +288,17 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
         XCTAssertTrue(
-            result.stdout.contains(
+            result.stderr.contains(
                 "restore: the saved agent command is unavailable. "
                     + "Make sure the agent is installed, then retry."
             ),
-            result.stdout
+            result.diagnostics
         )
-        XCTAssertFalse(result.stdout.contains(executableName), result.stdout)
-        XCTAssertFalse(result.stdout.contains(root.path), result.stdout)
+        XCTAssertFalse(result.combinedOutput.contains(executableName), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains(root.path), result.diagnostics)
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 
@@ -363,20 +363,20 @@ import Testing
             timeout: 15
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
         XCTAssertTrue(
-            result.stdout.contains(
+            result.stderr.contains(
                 "restore: provider setup took too long. "
                     + "Check the provider connection, then retry."
             ),
-            result.stdout
+            result.diagnostics
         )
-        XCTAssertFalse(result.stdout.contains("fake hermes"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("model.provider"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("preflight stdout chatter"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("preflight stderr chatter"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("unexpected agent launch"), result.stdout)
+        XCTAssertFalse(result.combinedOutput.contains("fake hermes"), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains("model.provider"), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains("preflight stdout chatter"), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains("preflight stderr chatter"), result.diagnostics)
+        XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
     @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
@@ -443,11 +443,11 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("pwd=\(root.path)\n"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("arg=\(root.path)\n"), result.stdout)
-        XCTAssertFalse(result.stdout.contains(missingDirectory.path), result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("pwd=\(root.path)\n"), result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("arg=\(root.path)\n"), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains(missingDirectory.path), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
@@ -487,9 +487,9 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.diagnostics)
     }
 
     @Test func testRestoreFallsBackWhenStructuredPlannerCannotBuildInvocation() throws {
@@ -533,11 +533,11 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertTrue(
             result.stdout.contains("fallback=\(root.path)|structured"),
-            result.stdout
+            result.diagnostics
         )
     }
 
@@ -556,14 +556,14 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
         XCTAssertTrue(
-            result.stdout.contains(
+            result.stderr.contains(
                 "restore: the current cmux surface could not be identified. "
                     + "Retry from this terminal or pass --surface <id|ref>."
             ),
-            result.stdout
+            result.diagnostics
         )
     }
 
@@ -605,11 +605,11 @@ import Testing
                 timeout: 5
             )
 
-            XCTAssertFalse(result.timedOut, result.stdout)
-            XCTAssertEqual(result.status, 1, result.stdout)
+            XCTAssertFalse(result.timedOut, result.diagnostics)
+            XCTAssertEqual(result.status, 1, result.diagnostics)
             XCTAssertTrue(
-                result.stdout.contains("Run 'cmux restore --surface'"),
-                result.stdout
+                result.stderr.contains("Run 'cmux restore --surface'"),
+                result.diagnostics
             )
         }
     }
@@ -637,15 +637,17 @@ import Testing
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
         XCTAssertTrue(
-            result.stdout.contains("Socket not found at \(socketPath)"),
-            result.stdout
+            result.stderr.contains("Socket not found at \(socketPath)"),
+            result.diagnostics
         )
         XCTAssertFalse(
-            result.stdout.contains("Retry the visible restore command after cmux finishes opening."),
-            result.stdout
+            result.combinedOutput.contains(
+                "Retry the visible restore command after cmux finishes opening."
+            ),
+            result.diagnostics
         )
     }
 
@@ -693,8 +695,8 @@ import Testing
         )
 
         let requiredResponder = try #require(responder)
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
     }
 
