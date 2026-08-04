@@ -23,7 +23,7 @@ use cmux_tui_core::{
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
-        ProtocolKeyInput, VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        ProtocolKeyInput, VIEW_ATTACHMENT_DETACH_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -1715,6 +1715,9 @@ impl RemoteSession {
         if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
             negotiated.push(VIEW_ATTACHMENT_LEASE_CAPABILITY);
         }
+        if self.supports_capability(VIEW_ATTACHMENT_DETACH_CAPABILITY) {
+            negotiated.push(VIEW_ATTACHMENT_DETACH_CAPABILITY);
+        }
         if self.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
             negotiated.push(CREATION_RECEIPTS_CAPABILITY);
         }
@@ -3024,7 +3027,7 @@ impl RemoteSession {
         } else {
             None
         };
-        {
+        let discarded = {
             // Retirement can race the remote response. Commit the completed
             // attach only while this exact mirror is still the live entry.
             let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
@@ -3035,18 +3038,44 @@ impl RemoteSession {
                 .get(&id)
                 .is_some_and(|candidate| Arc::ptr_eq(candidate, &surface));
             if self.retired_surfaces.lock().unwrap().contains(&id) || !current {
-                return Ok(None);
+                true
+            } else {
+                if let Some(lease) = &attachment_lease {
+                    self.surface_leases.lock().unwrap().insert(id, lease.clone());
+                }
+                if let Some(size) = initial_size {
+                    surface.set_reported_size(size);
+                }
+                if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id)
+                {
+                    recovery.attached_at = Some(Instant::now());
+                    recovery.retry_after = None;
+                }
+                false
             }
-            if let Some(lease) = attachment_lease {
-                self.surface_leases.lock().unwrap().insert(id, lease);
+        };
+        if discarded {
+            if let Some(lease) = attachment_lease
+                && self.supports_capability(VIEW_ATTACHMENT_DETACH_CAPABILITY)
+            {
+                if let Err(error) = self.request(json!({
+                    "cmd": "detach-attached-view",
+                    "surface": id,
+                    "lease": lease,
+                })) {
+                    // If the targeted release cannot be confirmed, closing the
+                    // transport is the remaining cleanup fence for every
+                    // server-side attachment owned by this connection.
+                    self.disconnect_transport();
+                    return Err(anyhow::anyhow!(
+                        "could not release retired view attachment {id}: {error:#}"
+                    ));
+                }
+            } else {
+                // Older peers have no lease-addressed detach operation.
+                self.disconnect_transport();
             }
-            if let Some(size) = initial_size {
-                surface.set_reported_size(size);
-            }
-            if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
-                recovery.attached_at = Some(Instant::now());
-                recovery.retry_after = None;
-            }
+            return Ok(None);
         }
         Ok(Some(surface))
     }
@@ -3642,7 +3671,10 @@ fn test_session_with_deferred_leased_attach()
             requests: Some(request_tx),
         }),
         None,
-        HashSet::from([VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+        HashSet::from([
+            VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string(),
+            VIEW_ATTACHMENT_DETACH_CAPABILITY.to_string(),
+        ]),
     );
     *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
     session.tree_stale.store(false, Ordering::Release);
