@@ -121,10 +121,21 @@ export async function resolveSubrouterRequestContext(
       };
       // Stack may refresh a native session while verifying it. Forward the
       // authoritative token instead of the possibly stale request header.
-      const authoritativeTokens = await getStackServerApp().getAuthJson({
-        tokenStore,
-      });
-      const accessToken = authoritativeTokens?.accessToken;
+      let accessToken: string | null | undefined;
+      try {
+        const authoritativeTokens = await getStackServerApp().getAuthJson({
+          tokenStore,
+        });
+        accessToken = authoritativeTokens?.accessToken;
+      } catch (error) {
+        console.error("Subrouter Stack token refresh unavailable", {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return {
+          ok: false,
+          response: serviceUnavailableResponse(),
+        };
+      }
       if (!accessToken) {
         return {
           ok: false,

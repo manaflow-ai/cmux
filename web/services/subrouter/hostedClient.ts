@@ -203,7 +203,12 @@ export function createHostedSubrouterClient(options: {
           503,
         );
       }
-      if (response.ok !== true) {
+      if (
+        upstreamResponse.status !== 200 ||
+        response.ok !== true ||
+        typeof response.deleted !== "boolean" ||
+        "deletionPending" in response
+      ) {
         throw new HostedSubrouterError("invalid tenant deletion response", 502);
       }
     },
