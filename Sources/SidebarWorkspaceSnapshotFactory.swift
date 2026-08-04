@@ -80,6 +80,7 @@ struct SidebarWorkspaceSnapshotFactory {
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
+            notificationsMuted: workspace.notificationsMuted,
             customColorHex: workspace.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,

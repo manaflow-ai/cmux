@@ -83,6 +83,7 @@ struct SidebarWorkspaceRowInput {
                 allRemoteTargetsConnecting: targetAggregate.allRemoteTargetsConnecting,
                 allRemoteTargetsDisconnected: targetAggregate.allRemoteTargetsDisconnected,
                 pinState: contextMenuPinState,
+                allTargetsNotificationsMuted: targetAggregate.allTargetsNotificationsMuted,
                 groupMenuSnapshot: list.workspaceGroupMenuSnapshot,
                 canCreateEmptyGroup: list.canCreateEmptyGroup,
                 eligibleGroupTargetIds: targetAggregate.eligibleGroupTargetIds,

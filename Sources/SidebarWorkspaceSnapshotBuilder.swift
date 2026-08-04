@@ -36,6 +36,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        // Included so a mute toggle invalidates the row snapshot and the
+        // bell.slash glyph re-renders from the fresh `notificationsMuted` value.
+        let notificationsMuted: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String

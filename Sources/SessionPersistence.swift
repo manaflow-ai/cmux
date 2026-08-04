@@ -1801,6 +1801,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customizationDirectory: String? = nil
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Per-workspace "Mute Notifications" state. Optional with a `nil` default so
+    /// manifests written before this field decode cleanly (restore treats absent
+    /// as not muted).
+    var notificationsMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil

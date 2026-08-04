@@ -306,6 +306,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         guard let tabManager = commands.tabManager else { return menu }
 
         addPinItem(to: menu, tabManager: tabManager)
+        addMuteItem(to: menu, tabManager: tabManager)
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
         // Legacy parity: the todo section renders only while the feature is
@@ -367,6 +368,30 @@ struct SidebarWorkspaceRowMenuBuilder {
                 commands.refreshSnapshot()
             }
             commands.syncSelectionAfterMutation()
+        })
+    }
+
+    private func addMuteItem(to menu: NSMenu, tabManager: TabManager) {
+        // Menu-time live read (allowed here, see the type comment): aggregate
+        // mute state across every context-menu target.
+        let targetIds = commands.contextMenuWorkspaceIds.isEmpty
+            ? [commands.tab.id]
+            : commands.contextMenuWorkspaceIds
+        let targetIdSet = Set(targetIds)
+        let targets = tabManager.tabs.filter { targetIdSet.contains($0.id) }
+        let allMuted = !targets.isEmpty && targets.allSatisfy(\.notificationsMuted)
+        // Label text is count-independent (it never names the workspace), so a
+        // single key serves both single and multi selection.
+        let muteLabel = allMuted
+            ? String(localized: "contextMenu.unmuteWorkspaceNotifications", defaultValue: "Unmute Notifications")
+            : String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Notifications")
+        menu.addItem(item(muteLabel, enabled: !targets.isEmpty) { [commands] in
+            guard let tabManager = commands.tabManager else {
+                NSSound.beep()
+                return
+            }
+            tabManager.setNotificationsMuted(!allMuted, forWorkspaceIds: targetIds)
+            commands.refreshSnapshot()
         })
     }
 

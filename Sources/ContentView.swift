@@ -10894,6 +10894,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let selectedRemoteContextMenuWorkspaceIds: [UUID]
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
+        let allSelectedTargetsNotificationsMuted: Bool
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
@@ -10989,6 +10990,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        // Aggregate mute state of the whole selection, resolved once over
+        // `orderedSelectedTabs` so the context-menu label/action reflect every
+        // target (not just the anchor row) without an O(targets × workspaces) scan.
+        let allSelectedTargetsNotificationsMuted = !orderedSelectedTabs.isEmpty &&
+            orderedSelectedTabs.allSatisfy { $0.notificationsMuted }
         let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
@@ -11046,6 +11052,7 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
+            allSelectedTargetsNotificationsMuted: allSelectedTargetsNotificationsMuted,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
@@ -14237,6 +14244,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
                 syncWorkspaceRowSelectionAfterMutation()
             },
+            setNotificationsMuted: { muted, workspaceIds in
+                tabManager.setNotificationsMuted(muted, forWorkspaceIds: workspaceIds)
+            },
             createEmptyGroup: {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
             },
@@ -15417,6 +15427,21 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(magnified: "pin.fill", pointSize: scaledFontSize(9), weight: .semibold)
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                // Muted-workspace glyph: when "Mute Notifications" is on for this
+                // workspace, surface a small bell-slash on the row (styled like the
+                // pin indicator) so the silenced state is visible at a glance, not
+                // only via the context-menu label.
+                if workspaceSnapshot.notificationsMuted {
+                    let notificationsMutedTooltip = String(
+                        localized: "sidebar.notificationsMuted.tooltip",
+                        defaultValue: "Notifications muted"
+                    )
+                    CmuxSystemSymbolImage(magnified: "bell.slash.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(notificationsMutedTooltip)
+                        .accessibilityLabel(notificationsMutedTooltip)
                 }
 
                 // Chrome-style media-activity glyphs: a noisy or capturing

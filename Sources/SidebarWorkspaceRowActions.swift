@@ -26,6 +26,9 @@ struct SidebarWorkspaceRowActions {
     let closeTargetsBelow: () -> Void
     let closeTargetsAbove: () -> Void
     let performPin: () -> Void
+    /// Mutes or unmutes notifications for the given workspaces through the
+    /// single TabManager mutation path.
+    let setNotificationsMuted: (Bool, [UUID]) -> Void
     let createEmptyGroup: () -> Void
     let createGroup: ([UUID]) -> Void
     let addTargetsToGroup: ([UUID], UUID) -> Void
