@@ -10,8 +10,73 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Port scanner process capture")
+@Suite("Port scanner process capture", .serialized)
 struct PortScannerProcessCaptureTests {
+    @Test("lsof avoids blocking kernel calls and suppresses warnings")
+    func lsofUsesNonblockingFlags() async {
+        let defaults = UserDefaults.standard
+        let showPortsKey = SidebarWorkspaceDetailDefaults.showPortsKey
+        let previousShowPorts = defaults.object(forKey: showPortsKey)
+        defaults.set(true, forKey: showPortsKey)
+        defer {
+            if let previousShowPorts {
+                defaults.set(previousShowPorts, forKey: showPortsKey)
+            } else {
+                defaults.removeObject(forKey: showPortsKey)
+            }
+        }
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+
+        _ = await PortScanner(commandRunner: runner).runLsof(pidsCsv: "123,456")
+
+        #expect(await runner.recordedInvocations() == [
+            StubCommandInvocation(
+                directory: "/",
+                executable: "/usr/sbin/lsof",
+                arguments: [
+                    "-nP", "-b", "-w", "-a", "-p", "123,456",
+                    "-iTCP", "-sTCP:LISTEN", "-Fpn",
+                ],
+                timeout: PortScanner.processScanTimeout
+            ),
+        ])
+    }
+
+    @Test("Hidden sidebar ports execute no scan subprocesses")
+    func hiddenSidebarPortsSkipScanSubprocesses() async {
+        let defaults = UserDefaults.standard
+        let showPortsKey = SidebarWorkspaceDetailDefaults.showPortsKey
+        let previousShowPorts = defaults.object(forKey: showPortsKey)
+        defaults.set(false, forKey: showPortsKey)
+        defer {
+            if let previousShowPorts {
+                defaults.set(previousShowPorts, forKey: showPortsKey)
+            } else {
+                defaults.removeObject(forKey: showPortsKey)
+            }
+        }
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(commandRunner: runner)
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(await runner.recordedInvocations().isEmpty)
+    }
+
     @Test("Malformed ps rows preserve valid mappings but make the scan incomplete")
     func malformedPSRowsAreIncomplete() async {
         let runner = StubCommandRunner(result: CommandResult(
@@ -472,10 +537,18 @@ struct ProcessTerminationGateTests {
     }
 }
 
+private struct StubCommandInvocation: Equatable, Sendable {
+    let directory: String
+    let executable: String
+    let arguments: [String]
+    let timeout: TimeInterval?
+}
+
 private actor StubCommandRunner: CommandRunning {
     let result: CommandResult
     let onRun: (@Sendable () -> Void)?
     private(set) var lastTimeout: TimeInterval?
+    private var invocations: [StubCommandInvocation] = []
 
     init(result: CommandResult, onRun: (@Sendable () -> Void)? = nil) {
         self.result = result
@@ -489,7 +562,17 @@ private actor StubCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         lastTimeout = timeout
+        invocations.append(StubCommandInvocation(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        ))
         onRun?()
         return result
+    }
+
+    func recordedInvocations() -> [StubCommandInvocation] {
+        invocations
     }
 }
