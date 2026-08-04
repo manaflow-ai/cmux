@@ -966,16 +966,26 @@ jobs:
               --lost-limit 20
             source "$TEST_ANALYSIS"
           }
+          capture_unit_test_output() {
+            local -a capture_status
+            set +e
+            run_unit_tests | tee "$TEST_OUTPUT"
+            capture_status=("${PIPESTATUS[@]}")
+            set -e
+
+            EXIT_CODE="${capture_status[0]}"
+            if [ "${capture_status[1]}" -ne 0 ]; then
+              echo "::error::failed to retain complete unit-test output"
+              exit 1
+            fi
+          }
           # macOS writes crash reports to one fixed directory, so this shard cannot have its own.
           # Recording what is already there gives the same thing by subtraction: anything
           # cmux-named that appears later belongs to this run.
           CRASH_SNAPSHOT="$RUNNER_TEMP/cmux-crash-snapshot-shard-${{ matrix.shard }}.txt"
           CRASH_KEPT="$RUNNER_TEMP/cmux-crashes-shard-${{ matrix.shard }}"
           python3 scripts/crash-reports-since.py --snapshot "$CRASH_SNAPSHOT"
-          set +e
-          run_unit_tests | tee "$TEST_OUTPUT"
-          EXIT_CODE=${PIPESTATUS[0]}
-          set -e
+          capture_unit_test_output
           analyze_test_output
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
@@ -987,10 +997,7 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf "$CMUX_DERIVED_DATA_PATH"
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            set -e
+            capture_unit_test_output
             analyze_test_output
           fi
 
