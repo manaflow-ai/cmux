@@ -220,6 +220,112 @@ private actor LifecycleSyncGate {
     }
 
     @MainActor
+    @Test func authorizedEnableRecoversWithoutRequestingAuthorizationAgain() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-authorized-recovery-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorizationRequests = 0
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            requestAuthorization: {
+                authorizationRequests += 1
+                return false
+            },
+            registerForRemoteNotifications: { registrationRequests += 1 }
+        )
+
+        #expect(await coordinator.enable())
+        #expect(authorizationRequests == 0)
+        #expect(registrationRequests == 1)
+        #expect(coordinator.isEnabled)
+        #expect(await registration.snapshot.isEnabled)
+    }
+
+    @MainActor
+    @Test func deniedEnablePersistsIntentAndDoesNotReaskTheSystem() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-denied-intent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorizationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .denied },
+            requestAuthorization: {
+                authorizationRequests += 1
+                return false
+            }
+        )
+
+        #expect(!(await coordinator.enable()))
+        #expect(authorizationRequests == 0)
+        #expect(coordinator.isEnabled)
+        #expect(
+            defaults.object(forKey: "cmux.notifications.pushEnabled") as? Bool
+                == true
+        )
+        #expect(
+            coordinator.readiness(macStatus: nil)
+                == .blocked(.authorizationDenied)
+        )
+    }
+
+    @MainActor
+    @Test func foregroundRefreshRegistersAfterPermissionIsEnabledInSettings() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-settings-return-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        var status = UNAuthorizationStatus.denied
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { status },
+            registerForRemoteNotifications: { registrationRequests += 1 }
+        )
+
+        await coordinator.refreshReadiness()
+        #expect(registrationRequests == 0)
+        #expect(!(await registration.snapshot.isEnabled))
+
+        status = .authorized
+        await coordinator.refreshReadiness()
+
+        #expect(registrationRequests == 1)
+        #expect(await registration.snapshot.isEnabled)
+        #expect(coordinator.authorization == .authorized)
+    }
+
+    @MainActor
+    @Test func foregroundRefreshPreservesExplicitAppOptOut() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-explicit-optout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: "cmux.notifications.pushEnabled")
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .provisional },
+            registerForRemoteNotifications: { registrationRequests += 1 }
+        )
+
+        await coordinator.refreshReadiness()
+
+        #expect(registrationRequests == 0)
+        #expect(!(await registration.snapshot.isEnabled))
+        #expect(!coordinator.isEnabled)
+    }
+
+    @MainActor
     @Test func optInPersistsAcrossCoordinatorRecreation() async {
         let suiteName = "push-coordinator-persistence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

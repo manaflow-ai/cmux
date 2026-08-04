@@ -363,11 +363,29 @@ import Testing
         body(defaults)
     }
 
-    @Test func modeDefaultsToOnlyWhenAwayWhenUnset() throws {
-        // The default applies to everyone, including users who already had
-        // forwarding enabled before the mode existed.
+    @Test func absentPreferencesDefaultToEnabledAlwaysWithVisibleContent() throws {
         try withScratchDefaults { defaults in
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
+            let configuration = PhonePushConfiguration(defaults: defaults)
+
+            #expect(configuration.forwardingEnabled)
+            #expect(configuration.mode == .always)
+            #expect(!configuration.hideContent)
+        }
+    }
+
+    @Test func explicitPreferencesRemainAuthoritative() throws {
+        try withScratchDefaults { defaults in
+            defaults.set(false, forKey: PhonePushSettings.forwardEnabledKey)
+            defaults.set(
+                PhoneForwardingMode.onlyWhenAway.rawValue,
+                forKey: PhonePushSettings.forwardModeKey
+            )
+            defaults.set(true, forKey: PhonePushSettings.hideContentKey)
+
+            let configuration = PhonePushConfiguration(defaults: defaults)
+            #expect(!configuration.forwardingEnabled)
+            #expect(configuration.mode == .onlyWhenAway)
+            #expect(configuration.hideContent)
         }
     }
 
@@ -384,7 +402,7 @@ import Testing
     @Test func modeFallsBackToDefaultOnUnrecognizedValue() throws {
         try withScratchDefaults { defaults in
             defaults.set("sometimes", forKey: PhonePushSettings.forwardModeKey)
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
+            #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
         }
     }
 

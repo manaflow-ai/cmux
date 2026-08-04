@@ -6,6 +6,45 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
+    func testAuthorizationPromptWaitsForAuthenticatedWorkspaceList() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "welcome",
+        ]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+        ]
+        app.launch()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileOnboardingAgentsScene"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertFalse(springboard.buttons["Allow"].waitForExistence(timeout: 1))
+
+        app.terminate()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launchEnvironment = ["CMUX_UITEST_MOCK_DATA": "1"]
+        app.launch()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceShell"]
+                .waitForExistence(timeout: 8)
+        )
+        let allow = springboard.buttons["Allow"]
+        XCTAssertTrue(
+            allow.waitForExistence(timeout: 5),
+            "Notification authorization must wait until the workspace list is visible"
+        )
+        allow.tap()
+    }
+
+    @MainActor
     func testPushReadinessAndRepairStates() {
         assertPreview(
             "healthy",

@@ -102,6 +102,9 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
+        "forwardNotificationsToPhone",
+        "forwardNotificationsToPhoneMode",
+        "forwardNotificationsHideContent",
     ]
 
     override func setUp() {
@@ -143,6 +146,31 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     /// A static-text whose visible string equals `text`.
     private func subtitleText(_ window: XCUIElement, _ text: String) -> XCUIElement {
         window.staticTexts[text]
+    }
+
+    func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+        navigate(window, to: "Mobile")
+
+        let forwarding = toggle(
+            window,
+            id: "SettingsMobilePhonePushForwardingToggle"
+        )
+        XCTAssertEqual(forwarding.value as? String, "1")
+
+        let mode = requireElement(
+            candidates: [
+                window.popUpButtons["SettingsMobilePhonePushModePicker"],
+                window.menuButtons["SettingsMobilePhonePushModePicker"],
+                window.descendants(matching: .any)["SettingsMobilePhonePushModePicker"],
+            ],
+            timeout: 4,
+            description: "phone push forwarding mode picker"
+        )
+        XCTAssertTrue(mode.label.contains("Always") || mode.value as? String == "Always")
+        _ = toggle(window, id: "SettingsMobilePhonePushHideContentToggle")
     }
 
     // MARK: - TIER 1: Minimal Mode subtitle swap
