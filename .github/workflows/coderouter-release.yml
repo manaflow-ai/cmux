@@ -1,0 +1,141 @@
+name: coderouter release
+
+on:
+  push:
+    tags:
+      - "coderouter-v*"
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#coderouter-v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          actual="$(node coderouter/scripts/check-version.mjs)"
+          [[ "$actual" == "$version" ]] || {
+            echo "tag version $version does not match package version $actual" >&2
+            exit 1
+          }
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14-xlarge
+            rust_target: aarch64-apple-darwin
+            npm_target: darwin-arm64
+            executable: coderouter
+          - runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            npm_target: darwin-x64
+            executable: coderouter
+          - runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            npm_target: linux-x64
+            executable: coderouter
+          - runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            npm_target: win32-x64
+            executable: coderouter.exe
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: coderouter
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
+        with:
+          workspaces: coderouter
+          key: ${{ matrix.rust_target }}
+      - run: cargo test --release --target ${{ matrix.rust_target }}
+      - run: cargo build --release --target ${{ matrix.rust_target }} --bin coderouter
+      - name: Package npm platform binary
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          NPM_TARGET: ${{ matrix.npm_target }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm
+          node scripts/package-npm.mjs \
+            "$VERSION" "$NPM_TARGET" \
+            "target/$RUST_TARGET/release/$EXECUTABLE" dist/npm
+          npm pack "dist/npm/cli-$NPM_TARGET" --pack-destination dist
+          package="$(find dist -maxdepth 1 -name 'coderouter-cli-*.tgz' -print -quit)"
+          mv "$package" "dist/coderouter-npm-cli-$NPM_TARGET.tgz"
+      - name: Build PyPI wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # v1.49.4
+        with:
+          command: build
+          target: ${{ matrix.rust_target }}
+          args: --release --out coderouter/dist --manifest-path coderouter/Cargo.toml
+          manylinux: auto
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coderouter-${{ matrix.npm_target }}
+          path: |
+            coderouter/dist/coderouter-npm-cli-${{ matrix.npm_target }}.tgz
+            coderouter/dist/*.whl
+          if-no-files-found: error
+
+  release:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: coderouter-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+      - name: Package npm launcher
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$(node coderouter/scripts/check-version.mjs)" == "$VERSION" ]]
+          npm pack coderouter/npm --pack-destination dist
+          mv "dist/coderouter-$VERSION.tgz" dist/coderouter-npm-launcher.tgz
+          sha256sum dist/* > dist/SHA256SUMS
+      - name: Create immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "CodeRouter ${{ needs.validate.outputs.version }}" \
+            --generate-notes

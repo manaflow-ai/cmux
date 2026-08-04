@@ -1,0 +1,52 @@
+name: coderouter publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable X.Y.Z release version
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-coderouter
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+      - name: Validate release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$GITHUB_REF" == "refs/tags/coderouter-v$VERSION" ]]
+          [[ "$(jq -r .version coderouter/npm/package.json)" == "$VERSION" ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Download verified release packages
+        uses: robinraju/release-downloader@daf26c55d821e836577a15f77d86ddc078948b05 # v1.12
+        with:
+          tag: coderouter-v${{ inputs.version }}
+          fileName: "coderouter-npm-*.tgz"
+          out-file-path: dist
+      - run: npm install -g npm@11.5.1
+      - name: Publish platform packages, then launcher
+        run: |
+          set -euo pipefail
+          for package in dist/coderouter-npm-cli-*.tgz; do
+            npm publish --provenance "$package"
+          done
+          npm publish --provenance "dist/coderouter-npm-launcher.tgz"

@@ -1,0 +1,45 @@
+name: coderouter publish pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable X.Y.Z release version
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi-coderouter
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate protected release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$GITHUB_REF" == "refs/tags/coderouter-v$VERSION" ]]
+          [[ "$(node coderouter/scripts/check-version.mjs)" == "$VERSION" ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Download wheels from the signed GitHub release
+        uses: robinraju/release-downloader@daf26c55d821e836577a15f77d86ddc078948b05 # v1.12
+        with:
+          tag: coderouter-v${{ inputs.version }}
+          fileName: "coderouter-*.whl"
+          out-file-path: dist
+      - name: Publish through PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true
