@@ -112,7 +112,7 @@ extension Workspace {
 
         let firstSurface = surfaces[0]
         if let placeholderPanelId = existingPanelIds.first {
-            configureExistingSurface(
+            let configuredPanelId = configureExistingSurface(
                 panelId: placeholderPanelId,
                 inPane: paneId,
                 surface: firstSurface,
@@ -120,6 +120,11 @@ extension Workspace {
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
+            if firstSurface.selected == true,
+               let configuredPanelId,
+               let tabId = surfaceIdFromPanelId(configuredPanelId) {
+                bonsplitController.selectTab(tabId)
+            }
         }
 
         // The first surface either reuses or replaces the pane's placeholder.
@@ -129,14 +134,22 @@ extension Workspace {
         bonsplitController.configuration.newTabPosition = .end
         defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
 
+        var selectedPanelId: UUID?
         for surfaceIndex in 1..<surfaces.count {
-            createNewSurface(
+            let createdPanelId = createNewSurface(
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
             )
+            if surfaces[surfaceIndex].selected == true {
+                selectedPanelId = createdPanelId
+            }
+        }
+        if let selectedPanelId,
+           let tabId = surfaceIdFromPanelId(selectedPanelId) {
+            bonsplitController.selectTab(tabId)
         }
     }
 
@@ -165,7 +178,7 @@ extension Workspace {
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
-    ) {
+    ) -> UUID? {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
             // Placeholder can't change cwd/env — replace it
@@ -182,6 +195,7 @@ extension Workspace {
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
                 }
+                return panel.id
             }
 
         case .terminal:
@@ -191,6 +205,7 @@ extension Workspace {
                let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(input, to: terminal)
             }
+            return panelId
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
@@ -203,6 +218,7 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                return panel.id
             }
 
         case .project:
@@ -214,8 +230,10 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                return panel.id
             }
         }
+        return nil
     }
 
     private func createNewSurface(
@@ -224,7 +242,7 @@ extension Workspace {
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
-    ) {
+    ) -> UUID? {
         switch surface.type {
         case .terminal:
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
@@ -239,6 +257,7 @@ extension Workspace {
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
                 }
+                return panel.id
             }
 
         case .browser:
@@ -251,6 +270,7 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                return panel.id
             }
 
         case .project:
@@ -261,8 +281,10 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                return panel.id
             }
         }
+        return nil
     }
 
     private func applyCustomDividerPositions(

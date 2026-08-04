@@ -1930,6 +1930,7 @@
       "surfaceCwd": "このサーフェスの作業ディレクトリ",
       "surfaceEnv": "キーと値のペアとしての環境変数",
       "surfaceUrl": "開くURL（ブラウザのみ）",
+      "surfaceSelected": "ワークスペースを開いたときに、このタブをペイン内で選択する",
       "surfaceFocus": "作成後にこのサーフェスにフォーカスする",
       "cwdResolution": "作業ディレクトリの解決",
       "omitted": "省略",

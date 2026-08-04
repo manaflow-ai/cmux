@@ -1614,6 +1614,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
     var cwd: String?
     var env: [String: String]?
     var url: String?
+    var selected: Bool?
     var focus: Bool?
 }
 
