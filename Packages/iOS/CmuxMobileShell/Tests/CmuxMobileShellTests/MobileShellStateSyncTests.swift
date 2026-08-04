@@ -148,11 +148,6 @@ struct MobileShellStateSyncTests {
             store.workspaces.map(\.name).contains("synced-alpha")
         }
         #expect(projected, "snapshot projection must reach the published workspace list")
-        let projectedSurface = try #require(
-            store.workspaces.first(where: { $0.name == "synced-alpha" })?.surfaces.first
-        )
-        #expect(projectedSurface.kind == .other("future.canvas"))
-        #expect(projectedSurface.filePath == "/tmp/canvas")
         let customizedWorkspace = try #require(
             store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
         )
@@ -163,6 +158,9 @@ struct MobileShellStateSyncTests {
         #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceMetadata)
         #expect(customizedWorkspace.actionCapabilities.supportsReadStateActions)
         #expect(customizedWorkspace.actionCapabilities.supportsCloseActions)
+        let projectedSurface = try #require(customizedWorkspace.surfaces.first)
+        #expect(projectedSurface.kind == .other("future.canvas"))
+        #expect(projectedSurface.filePath == "/tmp/canvas")
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.

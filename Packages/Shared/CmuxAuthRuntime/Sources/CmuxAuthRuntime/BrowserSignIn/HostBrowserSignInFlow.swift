@@ -37,6 +37,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var activeSessionContinuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>?
     @ObservationIgnored private var activeSessionContinuationAttemptID: UInt64?
     @ObservationIgnored private var activeAttemptTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var activeAttemptTask: Task<Bool, Never>?
     @ObservationIgnored private var slowSignInHintTask: Task<Void, Never>?
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
@@ -59,6 +60,7 @@ public final class HostBrowserSignInFlow {
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -77,20 +79,24 @@ public final class HostBrowserSignInFlow {
         deadline = HostBrowserDeadline(clock: clock)
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
+            localSignOut: localSignOut,
             signOut: { await coordinator.signOut(onSignedOut: onSignedOut) }
         )
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
     /// Reuses a handed-off attempt; otherwise cancels the previous popup.
-    public func beginSignIn() {
+    @discardableResult
+    public func beginSignIn() -> Task<Bool, Never> {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
-        if let activeAttemptID, handedOffAttemptID == activeAttemptID {
+        if let activeAttemptID,
+           handedOffAttemptID == activeAttemptID,
+           let activeAttemptTask {
             isPresentingSignIn = true
             signInIsSlow = true
-            return
+            return activeAttemptTask
         }
-        _ = startAttempt()
+        return startAttempt()
     }
 
     /// The hosted sign-in URL for a manual fallback.
@@ -204,7 +210,7 @@ public final class HostBrowserSignInFlow {
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedAuthState(callbackState))")
         scheduleAttemptTimeout(attemptID)
         scheduleSlowSignInHint(attemptID)
-        return Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
             guard self.activeAttemptID == attemptID else { return false }
@@ -226,6 +232,8 @@ public final class HostBrowserSignInFlow {
                 return self.coordinator.isAuthenticated
             }
         }
+        activeAttemptTask = task
+        return task
     }
 
     private func runBrowserSession(attemptID: UInt64) async -> HostBrowserAuthSessionResult? {
@@ -303,6 +311,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        activeAttemptTask = nil
         handedOffAttemptID = nil
         activeCallbackState = nil
         activeSession = nil
@@ -321,6 +330,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        activeAttemptTask = nil
         handedOffAttemptID = nil
         activeCallbackState = nil
         pendingFallbackCallbackState = nil

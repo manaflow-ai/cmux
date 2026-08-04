@@ -11,6 +11,7 @@ import {
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
 } from "./lib/download";
+import { genericCodingAgents } from "../i18n/coding-agents";
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -97,11 +98,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/claude-code", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/codex", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/opencode", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/agents/pi", lastModified: "2026-08-03", changeFrequency: "monthly" as const, priority: 0.6 },
+    ...genericCodingAgents.map((agent) => ({
+      path: `/agents/${agent.slug}`,
+      lastModified: "2026-08-03",
+      changeFrequency: "monthly" as const,
+      priority: 0.5,
+    })),
     { path: "/agents/gemini-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/company-information", lastModified: "2026-07-30", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
@@ -110,7 +117,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Legal pages are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
   const englishOnly = new Set([
-    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);

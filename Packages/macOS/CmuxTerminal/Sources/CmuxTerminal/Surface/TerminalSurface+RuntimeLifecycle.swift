@@ -697,6 +697,7 @@ extension TerminalSurface {
             requiresRestoreSpawnPacing = false
         }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
+        cacheControllingTTYIdentity(for: createdSurface)
         recordRuntimeSurfaceCreation()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
@@ -732,7 +733,12 @@ extension TerminalSurface {
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(createdSurface, wpx, hpx)
+            applySurfaceSize(
+                createdSurface,
+                width: wpx,
+                height: hpx,
+                caller: "runtime.create.initial"
+            )
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             lastUncappedPixelWidth = wpx

@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
+            "value": "Install Tailscale on both devices and connect them to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacのIroh QRをスキャンしてください。ホストとポートの手入力は、シミュレータのループバック開発専用です。"
+            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。ホストとポートの手入力は、ペアリング済みのMacへ再接続するための高度な代替手段です。"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
+            "value": "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報はシミュレータのループバックでのみ送信できます。実機ではMacのIroh QRを使用してください。"
+            "value": "アカウント認証情報はシミュレータのループバックでのみ送信できます。実機では Tailscale を選択し、Mac の QR をスキャンしてください。"
           }
         }
       }
@@ -2092,6 +2092,23 @@
         }
       }
     },
+    "mobile.connection.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection is retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続を再試行しています"
+          }
+        }
+      }
+    },
     "mobile.computers.role.foreground": {
       "extractionState": "manual",
       "localizations": {
@@ -3125,244 +3142,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.dev": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.devTaggedFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEV %@"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.legacy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Legacy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "旧形式"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.nightly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Nightly"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Nightly"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.rc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux RC"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux RC"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.stable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.app.staging": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Staging"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Staging"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.active": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Active"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクティブ"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.addMac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pair Another Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のコンピュータをペアリング"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically. If it does not, tap Pair Another Computer and scan its QR code."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータはまだありません。コンピュータのcmuxにこのアカウントでサインインすると、ここに自動的に表示されます。表示されない場合は、「別のコンピュータをペアリング」からQRコードをスキャンしてください。"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch which computer this device controls. A computer joins this list automatically the first time this phone connects to it. Pair Another Computer adds more without removing the ones you have."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このデバイスが操作するコンピュータを切り替えます。コンピュータは、この端末が最初に接続したときに自動的にこの一覧に追加されます。「別のコンピュータをペアリング」で、今あるコンピュータを残したまま追加できます。"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.hide": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.header": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paired Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリング済みのコンピュータ"
-          }
-        }
-      }
-    },
-    "mobile.hostPicker.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを切り替え"
           }
         }
       }
@@ -4455,6 +4234,227 @@
         }
       }
     },
+    "mobile.onboarding.connect.method.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.automaticDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended. Finds your Mac with no setup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推奨。設定なしでMacを見つけます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.tailscaleDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses your Tailscale network. Scan the pairing code on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleネットワークを使用します。Macに表示されるペアリングコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.scanTailscaleCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードをスキャン"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect over Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleで接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.automaticFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects to your Mac automatically over an end-to-end encrypted connection, directly or through cmux relays. No setup needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドツーエンドで暗号化された接続でMacに自動接続します（直接またはcmuxリレー経由）。設定は不要です。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.scanCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードをスキャン"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.tailscaleFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここで一度スキャンします。"
+          }
+        }
+      }
+    },
     "mobile.settings.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -4472,6 +4472,27 @@
         }
       }
     },
+    "mobile.surface.explainer.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This agent session is running in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションはMacのcmuxで実行中です。"}}}},
+    "mobile.surface.explainer.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This browser tab is open in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このブラウザタブはMacのcmuxで開かれています。"}}}},
+    "mobile.surface.explainer.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Cloud VM is still starting up on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このクラウドVMはMac側で起動中です。"}}}},
+    "mobile.surface.explainer.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This panel is drawn by a sidebar extension on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このパネルはMacのサイドバー拡張機能によって描画されます。"}}}},
+    "mobile.surface.explainer.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This extension view opens in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この拡張機能ビューはMacのcmuxで開きます。"}}}},
+    "mobile.surface.explainer.generic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This view is rendered by cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このビューはMacのcmuxでレンダリングされます。"}}}},
+    "mobile.surface.explainer.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This surface needs a newer version of the iOS app."}},"ja":{"stringUnit":{"state":"translated","value":"このサーフェスを表示するには、iOSアプリの新しいバージョンが必要です。"}}}},
+    "mobile.surface.explainer.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This pane browses the project's files on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このパネルはMac上のプロジェクトファイルを参照します。"}}}},
+    "mobile.surface.explainer.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This tool lives in the right sidebar on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このツールはMacの右サイドバーにあります。"}}}},
+    "mobile.surface.fileMissing.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The file is no longer available on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルはMac上で利用できなくなりました。"}}}},
+    "mobile.surface.fileMissing.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File not found"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが見つかりません"}}}},
+    "mobile.surface.forbidden.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file isn't displayed by the selected panel."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは選択中のパネルに表示されていません。"}}}},
+    "mobile.surface.forbidden.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preview unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを利用できません"}}}},
+    "mobile.surface.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading preview"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを読み込み中"}}}},
+    "mobile.surface.macUnreachable.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check the connection to your Mac and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macとの接続を確認して、もう一度お試しください。"}}}},
+    "mobile.surface.macUnreachable.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できません"}}}},
+    "mobile.surface.retry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}}}},
+    "mobile.surface.tooLarge.limitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This preview is limited to %@."}},"ja":{"stringUnit":{"state":"translated","value":"プレビューは%@までに制限されています。"}}}},
+    "mobile.surface.tooLarge.messageFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file is %1$@; previews are limited to %2$@."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは%1$@です。プレビューは%2$@までに制限されています。"}}}},
+    "mobile.surface.tooLarge.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File too large to preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが大きすぎてプレビューできません"}}}},
+    "mobile.surface.workspaceContextFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · In “%2$@”"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ ·「%2$@」内"}}}},
     "mobile.tabs.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -4604,23 +4625,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "次へ"
-          }
-        }
-      }
-    },
-    "mobile.onboarding.pairBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。Tailscale、別のVPN、または同じLANにより、認証済みのIroh接続が高速になる場合があります。"
           }
         }
       }
@@ -5373,6 +5377,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに接続処理が進行中です。完了まで少しお待ちください。接続されないままの場合のみ再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.routeCleanupBlocked": {
       "extractionState": "manual",
       "localizations": {
@@ -5413,13 +5434,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the pairing window on your Mac and scan a fresh QR or link."
+            "value": "Open Tailscale Pairing on your Mac and scan a fresh QR or link."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでペアリングウィンドウを開き、新しいQRコードまたはリンクをスキャンしてください。"
+            "value": "Macで「Tailscaleペアリング」を開き、新しいQRコードまたはリンクをスキャンしてください。"
           }
         }
       }
@@ -5481,13 +5502,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
+            "value": "This isn't a cmux pairing QR. Scan the code shown in Tailscale Pairing on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはcmuxのペアリングQRコードではありません。Macの「iPhoneをペアリング」ウインドウに表示されているコードをスキャンしてください。"
+            "value": "これはcmuxのペアリングQRコードではありません。Macの「Tailscaleペアリング」に表示されているコードをスキャンしてください。"
           }
         }
       }
@@ -5532,13 +5553,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Open Tailscale Pairing on the Mac and scan a fresh code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。Macのcmuxを更新し、Irohコードをスキャンしてください。"
+            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。Macで「Tailscaleペアリング」を開き、新しいコードをスキャンしてください。"
           }
         }
       }
@@ -5573,6 +5594,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already reconnecting to this computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータには再接続中です。"
           }
         }
       }
@@ -6716,6 +6754,329 @@
         }
       }
     },
+    "mobile.settings.modelPickerLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Task Model Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タスク・モデルラボ"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a layout and model variant, then reopen New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウトとモデルのバリエーションを選び、「新規タスク」を開き直してください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウト"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.classic.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card sheet with Start button."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始ボタン付きのカード形式シートです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.classic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.composer.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-screen prompt with a bottom control bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下部にコントロールバーを備えた全画面プロンプトです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.layout.composer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンポーザー"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.combined.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick agent and model in one menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントとモデルを1つのメニューで選びます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.combined.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combined Agent Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメニューに統合"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.contextRow.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model row beside Mac and directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macとディレクトリの並びにモデル行を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.contextRow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context Row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト行"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.off.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No model selection in New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タスクではモデルを選択しません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.off.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.pillStrip.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One-tap model pills under the agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの下にワンタップ式のモデル選択肢を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.pillStrip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Pills"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルピル"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.separateRow.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dedicated model row under the agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの下にモデル専用の行を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.separateRow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル行"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.trailingChip.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact model chip on the agent row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント行にコンパクトなモデルチップを表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.trailingChip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Chip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルチップ"
+          }
+        }
+      }
+    },
     "mobile.settings.connectionFocused": {
       "extractionState": "manual",
       "localizations": {
@@ -6967,23 +7328,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux iOS サポート"
-          }
-        }
-      }
-    },
-    "mobile.settings.switchMac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch Computer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータを切り替え"
           }
         }
       }
@@ -7294,6 +7638,10 @@
         }
       }
     },
+    "mobile.todo.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Anything you add here stays in sync with your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"ここに追加した項目はMacと同期されます。"}}}},
+    "mobile.todo.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No items yet"}},"ja":{"stringUnit":{"state":"translated","value":"項目はまだありません"}}}},
+    "mobile.todo.progressFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$d of %2$d done"}},"ja":{"stringUnit":{"state":"translated","value":"%2$d件中%1$d件完了"}}}},
+    "mobile.todo.status.menuTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータス"}}}},
     "mobile.workspaceAction.failure.legacyFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -7487,13 +7835,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. If it does not, open Pair iPhone in cmux on the computer and scan its QR code."
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. Then open Tailscale Pairing in cmux on the computer to show the QR and scan it here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。表示されない場合は、コンピュータのcmuxで「iPhone をペアリング」を開き、QRコードをスキャンしてください。"
+            "value": "コンピュータにcmuxをインストールし、同じcmuxアカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale経由でペアリングするには、両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。その後、コンピュータのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。"
           }
         }
       }
@@ -9572,6 +9920,111 @@
         }
       }
     },
+    "mobile.taskComposer.attachments.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加" } }
+      }
+    },
+    "mobile.taskComposer.attachments.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.taskComposer.attachments.chooseFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択" } }
+      }
+    },
+    "mobile.taskComposer.attachments.fileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.imageRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That image couldn’t be compressed below 8 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像を8 MB未満に圧縮できませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.limit.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 items to a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1つのタスクに添付できる項目は10件までです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.limit.totalSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task attachments can use up to 64 MB in total." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクの添付ファイルは合計64 MBまでです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.photoLibrary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Photo Library" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
+      }
+    },
+    "mobile.taskComposer.attachments.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを削除" } }
+      }
+    },
+    "mobile.taskComposer.attachments.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That file couldn’t be read. Choose another file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み込めませんでした。別のファイルを選択してください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.authorization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That Mac did not authorize the attachment upload." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macが添付ファイルのアップロードを承認しませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded. Check the files and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをアップロードできませんでした。ファイルを確認して、もう一度お試しください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded because that Mac is not connected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macが接続されていないため、添付ファイルをアップロードできませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac did not finish uploading the attachments in time." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでの添付ファイルのアップロードが時間内に完了しませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That Mac does not support task attachments." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのMacはタスクの添付ファイルに対応していません。" } }
+      }
+    },
     "mobile.taskComposer.agent": {
       "extractionState": "manual",
       "localizations": {
@@ -9653,6 +10106,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいタスク"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.composer.promptPlaceholderFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Describe a coding task in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で行うコーディングタスクを入力"
           }
         }
       }
@@ -10864,6 +11334,57 @@
         }
       }
     },
+    "mobile.taskComposer.model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.model.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses the model this agent runs with."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントで使用するモデルを選択します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.model.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.openingShell": {
       "extractionState": "manual",
       "localizations": {
@@ -10894,6 +11415,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェルを開く"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.options.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Options"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクオプション"
           }
         }
       }
@@ -11596,6 +12134,23 @@
       }
     },
     "mobile.taskComposer.startTask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを開始"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.submit": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -13002,6 +13557,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.statusLine.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.statusLine.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
           }
         }
       }
@@ -17585,13 +18174,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Position the Mac's QR code in the frame."
+            "value": "On your Mac, open Tailscale Pairing in cmux to show the QR. Install Tailscale on both devices and connect them to the same Tailscale network first."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacのQRコードが枠内に収まるようにしてください。"
+            "value": "Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示します。両方のデバイスにTailscaleをインストールし、先に同じTailscaleネットワークへ接続してください。"
           }
         }
       }
@@ -17630,67 +18219,6 @@
         }
       }
     },
-    "mobile.surface.explainer.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This agent session is running in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションはMacのcmuxで実行中です。"}}}},
-    "mobile.surface.explainer.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This browser tab is open in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このブラウザタブはMacのcmuxで開かれています。"}}}},
-    "mobile.surface.explainer.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Cloud VM is still starting up on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このクラウドVMはMac側で起動中です。"}}}},
-    "mobile.surface.explainer.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This panel is drawn by a sidebar extension on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このパネルはMacのサイドバー拡張機能によって描画されます。"}}}},
-    "mobile.surface.explainer.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This extension view opens in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"この拡張機能ビューはMacのcmuxで開きます。"}}}},
-    "mobile.surface.explainer.generic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This view is rendered by cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このビューはMacのcmuxでレンダリングされます。"}}}},
-    "mobile.surface.explainer.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This surface needs a newer version of the iOS app."}},"ja":{"stringUnit":{"state":"translated","value":"このサーフェスを表示するには、iOSアプリの新しいバージョンが必要です。"}}}},
-    "mobile.surface.explainer.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This pane browses the project's files on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このパネルはMac上のプロジェクトファイルを参照します。"}}}},
-    "mobile.surface.explainer.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This tool lives in the right sidebar on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このツールはMacの右サイドバーにあります。"}}}},
-    "mobile.surface.fileMissing.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The file is no longer available on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルはMac上で利用できなくなりました。"}}}},
-    "mobile.surface.fileMissing.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File not found"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが見つかりません"}}}},
-    "mobile.surface.forbidden.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file isn't displayed by the selected panel."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは選択中のパネルに表示されていません。"}}}},
-    "mobile.surface.forbidden.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Preview unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを利用できません"}}}},
-    "mobile.surface.kind.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent Session"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントセッション"}}}},
-    "mobile.surface.kind.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザ"}}}},
-    "mobile.surface.kind.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドVM"}}}},
-    "mobile.surface.kind.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Sidebar"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムサイドバー"}}}},
-    "mobile.surface.kind.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Extension Browser"}},"ja":{"stringUnit":{"state":"translated","value":"拡張機能ブラウザ"}}}},
-    "mobile.surface.kind.filePreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File Preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビュー"}}}},
-    "mobile.surface.kind.markdown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Markdown"}},"ja":{"stringUnit":{"state":"translated","value":"Markdown"}}}},
-    "mobile.surface.kind.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Other Surface"}},"ja":{"stringUnit":{"state":"translated","value":"その他のサーフェス"}}}},
-    "mobile.surface.kind.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Project"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクト"}}}},
-    "mobile.surface.kind.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sidebar Tool"}},"ja":{"stringUnit":{"state":"translated","value":"サイドバーツール"}}}},
-    "mobile.surface.kind.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル"}}}},
-    "mobile.surface.kind.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
-    "mobile.surface.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading preview"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを読み込み中"}}}},
-    "mobile.surface.macUnreachable.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Check the connection to your Mac and try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macとの接続を確認して、もう一度お試しください。"}}}},
-    "mobile.surface.macUnreachable.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できません"}}}},
-    "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
-    "mobile.surface.openOnMacFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach your Mac. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できませんでした。もう一度お試しください。"}}}},
-    "mobile.surface.renderedOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendered on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Mac上でレンダリングされています"}}}},
-    "mobile.surface.retry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}}}},
-    "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}},
-    "mobile.surface.tooLarge.limitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This preview is limited to %@."}},"ja":{"stringUnit":{"state":"translated","value":"プレビューは%@までに制限されています。"}}}},
-    "mobile.surface.tooLarge.messageFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file is %1$@; previews are limited to %2$@."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは%1$@です。プレビューは%2$@までに制限されています。"}}}},
-    "mobile.surface.tooLarge.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File too large to preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルが大きすぎてプレビューできません"}}}},
-    "mobile.surface.workspaceContextFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · In “%2$@”"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ ·「%2$@」内"}}}},
-    "mobile.todo.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目を追加"}}}},
-    "mobile.todo.addPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"新しいチェックリスト項目"}}}},
-    "mobile.todo.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Anything you add here stays in sync with your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"ここに追加した項目はMacと同期されます。"}}}},
-    "mobile.todo.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No items yet"}},"ja":{"stringUnit":{"state":"translated","value":"項目はまだありません"}}}},
-    "mobile.todo.emptyChecklist": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No checklist items yet."}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目はまだありません。"}}}},
-    "mobile.todo.item.agentOrigin": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Created by an agent"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントが作成"}}}},
-    "mobile.todo.item.delete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delete"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
-    "mobile.todo.item.editPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Item text"}},"ja":{"stringUnit":{"state":"translated","value":"項目のテキスト"}}}},
-    "mobile.todo.item.markCompleted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as completed"}},"ja":{"stringUnit":{"state":"translated","value":"完了にする"}}}},
-    "mobile.todo.item.markInProgress": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as in progress"}},"ja":{"stringUnit":{"state":"translated","value":"進行中にする"}}}},
-    "mobile.todo.item.markPending": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as pending"}},"ja":{"stringUnit":{"state":"translated","value":"保留にする"}}}},
-    "mobile.todo.progressFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$d of %2$d done"}},"ja":{"stringUnit":{"state":"translated","value":"%2$d件中%1$d件完了"}}}},
-    "mobile.todo.status.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
-    "mobile.todo.status.choose": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを選択"}}}},
-    "mobile.todo.status.cycle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cycle status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを次へ"}}}},
-    "mobile.todo.status.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
-    "mobile.todo.status.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスなし"}}}},
-    "mobile.todo.status.menuTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータス"}}}},
-    "mobile.todo.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"要確認"}}}},
-    "mobile.todo.status.review": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Review"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}}}},
-    "mobile.todo.status.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
-    "mobile.todo.status.working": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Working"}},"ja":{"stringUnit":{"state":"translated","value":"作業中"}}}},
-    "mobile.todo.updateFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your change was undone. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"変更を元に戻しました。もう一度お試しください。"}}}},
-    "mobile.todo.updateFailed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Update Checklist"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリストを更新できませんでした"}}}},
     "mobile.settings.terminalScrollback": {
       "extractionState": "manual",
       "localizations": {
@@ -17792,7 +18320,43 @@
           }
         }
       }
-    }
+    },
+    "mobile.surface.kind.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent Session"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントセッション"}}}},
+    "mobile.surface.kind.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browser"}},"ja":{"stringUnit":{"state":"translated","value":"ブラウザ"}}}},
+    "mobile.surface.kind.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドVM"}}}},
+    "mobile.surface.kind.customSidebar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Sidebar"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムサイドバー"}}}},
+    "mobile.surface.kind.extensionBrowser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Extension Browser"}},"ja":{"stringUnit":{"state":"translated","value":"拡張機能ブラウザ"}}}},
+    "mobile.surface.kind.filePreview": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"File Preview"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビュー"}}}},
+    "mobile.surface.kind.markdown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Markdown"}},"ja":{"stringUnit":{"state":"translated","value":"Markdown"}}}},
+    "mobile.surface.kind.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Other Surface"}},"ja":{"stringUnit":{"state":"translated","value":"その他のサーフェス"}}}},
+    "mobile.surface.kind.project": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Project"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクト"}}}},
+    "mobile.surface.kind.rightSidebarTool": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sidebar Tool"}},"ja":{"stringUnit":{"state":"translated","value":"サイドバーツール"}}}},
+    "mobile.surface.kind.terminal": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Terminal"}},"ja":{"stringUnit":{"state":"translated","value":"ターミナル"}}}},
+    "mobile.surface.kind.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
+    "mobile.surface.openOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open on Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Macで開く"}}}},
+    "mobile.surface.openOnMacFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach your Mac. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できませんでした。もう一度お試しください。"}}}},
+    "mobile.surface.renderedOnMac": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Rendered on your Mac"}},"ja":{"stringUnit":{"state":"translated","value":"Mac上でレンダリングされています"}}}},
+    "mobile.surface.section": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac Surfaces"}},"ja":{"stringUnit":{"state":"translated","value":"Macのサーフェス"}}}},
+    "mobile.todo.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目を追加"}}}},
+    "mobile.todo.addPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New checklist item"}},"ja":{"stringUnit":{"state":"translated","value":"新しいチェックリスト項目"}}}},
+    "mobile.todo.emptyChecklist": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No checklist items yet."}},"ja":{"stringUnit":{"state":"translated","value":"チェックリスト項目はまだありません。"}}}},
+    "mobile.todo.item.agentOrigin": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Created by an agent"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントが作成"}}}},
+    "mobile.todo.item.delete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Delete"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
+    "mobile.todo.item.editPlaceholder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Item text"}},"ja":{"stringUnit":{"state":"translated","value":"項目のテキスト"}}}},
+    "mobile.todo.item.markCompleted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as completed"}},"ja":{"stringUnit":{"state":"translated","value":"完了にする"}}}},
+    "mobile.todo.item.markInProgress": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as in progress"}},"ja":{"stringUnit":{"state":"translated","value":"進行中にする"}}}},
+    "mobile.todo.item.markPending": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mark as pending"}},"ja":{"stringUnit":{"state":"translated","value":"保留にする"}}}},
+    "mobile.todo.status.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.todo.status.choose": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを選択"}}}},
+    "mobile.todo.status.cycle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cycle status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスを次へ"}}}},
+    "mobile.todo.status.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
+    "mobile.todo.status.hidden": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Status"}},"ja":{"stringUnit":{"state":"translated","value":"ステータスなし"}}}},
+    "mobile.todo.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"要確認"}}}},
+    "mobile.todo.status.review": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Review"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}}}},
+    "mobile.todo.status.todo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"ja":{"stringUnit":{"state":"translated","value":"ToDo"}}}},
+    "mobile.todo.status.working": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Working"}},"ja":{"stringUnit":{"state":"translated","value":"作業中"}}}},
+    "mobile.todo.updateFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your change was undone. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"変更を元に戻しました。もう一度お試しください。"}}}},
+    "mobile.todo.updateFailed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Update Checklist"}},"ja":{"stringUnit":{"state":"translated","value":"チェックリストを更新できませんでした"}}}}
   },
   "version": "1.0"
 }

@@ -249,6 +249,16 @@ fn key_event_params(event: CdpKeyEvent<'_>) -> Value {
     params
 }
 
+fn wheel_event_params(x: f64, y: f64, delta_x: f64, delta_y: f64) -> Value {
+    json!({
+        "type": "mouseWheel",
+        "x": x,
+        "y": y,
+        "deltaX": delta_x,
+        "deltaY": delta_y,
+    })
+}
+
 fn cdp_debug() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("CMUX_MUX_CDP_DEBUG").is_some())
@@ -1308,17 +1318,12 @@ impl CdpClient {
         session_id: &str,
         x: f64,
         y: f64,
+        delta_x: f64,
         delta_y: f64,
     ) -> anyhow::Result<()> {
         self.call(
             "Input.dispatchMouseEvent",
-            json!({
-                "type": "mouseWheel",
-                "x": x,
-                "y": y,
-                "deltaX": 0,
-                "deltaY": delta_y,
-            }),
+            wheel_event_params(x, y, delta_x, delta_y),
             Some(session_id),
         )
         .map(|_| ())
@@ -2029,6 +2034,20 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    fn wheel_event_preserves_horizontal_and_vertical_deltas() {
+        assert_eq!(
+            wheel_event_params(12.5, 9.25, -3.75, 8.5),
+            json!({
+                "type": "mouseWheel",
+                "x": 12.5,
+                "y": 9.25,
+                "deltaX": -3.75,
+                "deltaY": 8.5,
+            })
+        );
     }
 
     #[test]

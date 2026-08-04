@@ -661,6 +661,78 @@ pub fn home_dir() -> Option<PathBuf> {
     })
 }
 
+/// Convert a terminal-reported OSC 7 working directory into a local path.
+///
+/// Shells normally report `file://host/path`. A URI from another host cannot
+/// name a safe local spawn directory, so callers should fall back to the
+/// surface's original working directory when this returns `None`.
+pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if terminal_pwd_path_is_safe(plain) {
+        return Some(plain.to_owned());
+    }
+
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    if let Some(host) = url.host_str()
+        && !terminal_pwd_host_is_local(host)
+    {
+        return None;
+    }
+    if url.host_str().is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+fn terminal_pwd_path_is_safe(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        path.to_str().is_some_and(windows_path_is_rooted_local_drive)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Windows namespaces can make an "absolute" path name a network share or
+/// device. OSC 7 inheritance only needs ordinary drive-rooted directories.
+#[cfg(any(windows, test))]
+fn windows_path_is_rooted_local_drive(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && bytes.get(2).is_some_and(|separator| matches!(*separator, b'\\' | b'/'))
+}
+
+fn terminal_pwd_host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || local_hostname().is_some_and(|local| host.eq_ignore_ascii_case(&local))
+}
+
+#[cfg(unix)]
+fn local_hostname() -> Option<String> {
+    let mut hostname = [0_u8; 256];
+    if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
+        return None;
+    }
+    let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+}
+
+#[cfg(windows)]
+fn local_hostname() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
+}
+
 fn env_path(name: &str) -> Option<PathBuf> {
     let value = std::env::var_os(name)?;
     (!value.is_empty()).then(|| PathBuf::from(value))
@@ -764,6 +836,54 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_rejects_unc_verbatim_and_device_paths() {
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "file://server/share/src",
+            "file:////server/share/src",
+        ] {
+            assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
+        }
+        assert_eq!(
+            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+    }
+
+    #[test]
+    fn windows_path_classifier_accepts_only_rooted_local_drives() {
+        for path in [r"C:\Users\alice\src", "z:/src/cmux", r"D:\"] {
+            assert!(windows_path_is_rooted_local_drive(path), "{path}");
+        }
+        for path in [
+            r"\\server\share\src",
+            "//server/share/src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+            r"C:drive-relative",
+            r"\rooted-without-drive",
+            "/unix/absolute",
+            "",
+        ] {
+            assert!(!windows_path_is_rooted_local_drive(path), "{path}");
+        }
+    }
+
     #[test]
     fn explicit_ghostty_installation_remains_authoritative() {
         let explicit = PathBuf::from("/custom/pinned/bin/ghostty");
@@ -853,5 +973,25 @@ mod tests {
             )),
             Some(PathBuf::from("/Applications/cmux-browser.app/Contents/Resources/ghostty"))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_converts_local_osc7_urls_without_trusting_remote_hosts() {
+        let mut hostname = [0_u8; 256];
+        assert_eq!(unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) }, 0);
+        let hostname_end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+        let hostname = std::str::from_utf8(&hostname[..hostname_end]).unwrap();
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("file://{hostname}/tmp/a%20b")),
+            Some(PathBuf::from("/tmp/a b"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file://localhost/tmp/local"),
+            Some(PathBuf::from("/tmp/local"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
+        assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
     }
 }

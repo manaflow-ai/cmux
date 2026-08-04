@@ -123,11 +123,15 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
+    /// Actor-isolated ten-minute cache for mobile task model discovery.
+    nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
-    /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
+    /// The shared auth coordinator + account flow, injected once via
+    /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
+    /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
-    @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
+    @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     let panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore
@@ -382,6 +386,10 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
+        mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
@@ -397,6 +405,7 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
+        self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
@@ -879,9 +888,9 @@ class TerminalController {
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
-    func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+    func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
         self.authCoordinator = coordinator
-        self.browserSignInFlow = browserSignIn
+        self.accountFlow = accountFlow
     }
 
     func startSimulatorMutationRecovery() {
@@ -1081,6 +1090,34 @@ class TerminalController {
                     return Self.v2Encoder.response(id: parsedRequest.id, result)
                 case .encoded(let response):
                     return response
+                }
+            }
+            if request.method == "mobile.task.models.list" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 7
+                ) {
+                    guard let result = await self.controlCommandCoordinator
+                        .handleMobileHostAsync(
+                            parsedRequest,
+                            context: self
+                        ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown method",
+                            data: nil
+                        )
+                    }
+                    switch result {
+                    case .ok(let payload):
+                        return .ok(payload.foundationObject)
+                    case let .err(code, message, data):
+                        return .err(
+                            code: code,
+                            message: message,
+                            data: data?.foundationObject
+                        )
+                    }
                 }
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
@@ -1298,7 +1335,7 @@ class TerminalController {
             var signInURL: String?
             v2MainSync {
                 MainActor.assumeIsolated {
-                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
+                    signInURL = self.accountFlow?.manualSignInURL.absoluteString
                 }
             }
             var result: [String: Any] = [:]
@@ -1311,7 +1348,7 @@ class TerminalController {
             let semaphore = DispatchSemaphore(value: 0)
             nonisolated(unsafe) var signedIn = false
             Task { @MainActor [weak self] in
-                signedIn = await self?.browserSignInFlow?.signIn(
+                signedIn = await self?.accountFlow?.signIn(
                     timeout: timeoutSeconds
                 ) ?? false
                 semaphore.signal()
@@ -1321,7 +1358,7 @@ class TerminalController {
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
-                await self?.browserSignInFlow?.signOut(timeout: 5)
+                await self?.accountFlow?.signOut(timeout: 5)
                 semaphore.signal()
             }
             semaphore.wait()
@@ -1451,6 +1488,29 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.mobile.transport.disconnect":
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                let closed = await MobileHostConnectionRegistry.shared
+                    .debugCloseConnections(connectionID: selectedConnectionID)
+                return .ok([
+                    "closed_connection_ids": closed.map(\.uuidString),
+                    "closed_count": closed.count,
+                ])
+            }
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1464,7 +1524,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.mobile.transport.disconnect" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2011,6 +2072,12 @@ class TerminalController {
             InternalFlagsPresenter.present()
             return "OK"
 
+#if DEBUG
+        case "__sidebar_footer_icon_balance":
+            AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
+            return "OK"
+#endif
+
         case "list_windows":
             return listWindows()
 
@@ -2450,6 +2517,8 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.task.attachment.upload",
+            "mobile.task.models.list",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
@@ -3327,7 +3396,7 @@ class TerminalController {
                     ]
                     return
                 }
-                let isSigningIn = self.browserSignInFlow?.isSigningIn ?? false
+                let isSigningIn = self.accountFlow?.isPresentingSignIn ?? false
                 var status: [String: Any] = [
                     "signed_in": coordinator.isAuthenticated,
                     "is_restoring_session": coordinator.isRestoringSession,
@@ -4518,7 +4587,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color", "mobile_connect"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4527,6 +4596,34 @@ class TerminalController {
         ])
 
         v2MainSync {
+            if action == "mobile_connect" {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: tabManager,
+                    preferredWindow: windowId.flatMap { AppDelegate.shared?.mainWindow(for: $0) },
+                    focusWorkspace: v2FocusAllowed(),
+                    debugSource: "cli.workspaceAction.mobileConnect"
+                ) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.workspaceAction.tailscalePairingUnavailable",
+                            defaultValue: "Tailscale Pairing is unavailable"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                result = .ok([
+                    "action": action,
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+                return
+            }
+
             let requestedWorkspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
             guard let workspaceId = requestedWorkspaceId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -8067,22 +8164,27 @@ class TerminalController {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
-        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0) else {
+        let timingBudget = BrowserScreenshotTimingBudget()
+        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
+            browserPanel,
+            timeout: timingBudget.socketResponseTimeout
+        ) else {
             return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
         }
         let imageData: Data
         switch snapshotAttempt.result {
         case .success(let data):
             imageData = data
-        case .failure(let message):
-            return .err(code: "internal_error", message: message, data: nil)
-        case .timedOut:
+        case .failure(let code, let message):
+            return .err(code: code, message: message, data: nil)
+        case .timedOut(let originalMessage):
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
-                originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
+                originalMessage: originalMessage,
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,
-                channel: .screenshot
+                channel: .screenshot,
+                livenessTimeout: timingBudget.livenessProbeAllowance
             )
             return .err(code: "timeout", message: message, data: nil)
         }
@@ -14025,6 +14127,10 @@ class TerminalController {
             )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.task.attachment.upload":
+            result = v2MobileTaskAttachmentUpload(params: request.params)
+        case "mobile.task.models.list":
+            result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

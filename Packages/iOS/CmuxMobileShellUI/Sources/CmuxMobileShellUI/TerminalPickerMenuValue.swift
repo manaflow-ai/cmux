@@ -51,7 +51,8 @@ struct TerminalPickerMenuValue: Equatable {
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local
-    /// browser or a Mac browser stream overlays the workspace; a Mac-surface
+    /// browser or a Mac browser stream overlays the workspace (the stream row
+    /// draws its own check from `activeBrowserStreamPanelID`); a Mac-surface
     /// selection whose row has disappeared falls back to the resolved
     /// terminal, matching `selectedName`.
     var checkedRowID: TerminalPickerMenuRow.ID? {

@@ -133,11 +133,27 @@ struct WorkspaceListView: View {
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     /// The workspace whose UIKit context-menu rename action is presenting the
-    /// list-scoped SwiftUI rename sheet.
+    /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// Stable text storage for the list-scoped workspace rename alert.
+    @State var workspaceRenameDraft = ""
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
+    /// The group whose UIKit context-menu action is presenting the shared
+    /// rename alert.
+    @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
+    /// Stable text storage for the list-scoped group rename alert.
+    @State var workspaceGroupRenameDraft = ""
+    /// The group and destructive operation awaiting confirmation from a UIKit
+    /// context-menu action.
+    @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
+    var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID? {
+        workspaceGroupDestructiveRequest.groupID
+    }
+    var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction? {
+        workspaceGroupDestructiveRequest.action
+    }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -284,16 +300,21 @@ struct WorkspaceListView: View {
                     Section {
                         MobileConnectionRecoveryBanner(
                             connectionRequiresReauth: store.connectionRequiresReauth,
-                            connectionRecoveryFailed: store.connectionRecoveryFailed,
-                            isRecoveringConnection: store.isRecoveringConnection,
                             connectionError: store.connectionError,
-                            retry: { store.retryMobileConnection() },
                             signOut: signOut,
                             rendersInline: true
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                     }
+                }
+            case .statusLine(let line):
+                // On macOS there is no principal computers picker to host the
+                // status line, so render it as a slim inline row instead.
+                Section {
+                    WorkspaceConnectionStatusLineView(line: line)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowSeparator(.hidden)
                 }
             case .macStatusRow:
                 Section {
@@ -419,12 +440,13 @@ struct WorkspaceListView: View {
                 )
             }
         }
-        .sheet(isPresented: workspaceRenameIsPresented) {
-            if let workspaceID = workspacePendingRenameID,
-               let workspace = workspaces.first(where: { $0.id == workspaceID }) {
-                WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                    renameWorkspace?(workspaceID, newName)
-                }
+        .workspaceRenameDialog(
+            isPresented: workspaceRenameIsPresented,
+            text: $workspaceRenameDraft
+        ) {
+            let trimmed = workspaceRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let workspaceID = workspacePendingRenameID, !trimmed.isEmpty {
+                renameWorkspace?(workspaceID, trimmed)
             }
         }
         .sheet(isPresented: workspaceCustomizationIsPresented) {
@@ -433,6 +455,14 @@ struct WorkspaceListView: View {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                     await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? .failure()
                 }
+            }
+        }
+        .workspaceGroupRenameDialog(
+            isPresented: workspaceGroupRenameIsPresented,
+            text: $workspaceGroupRenameDraft
+        ) { newName in
+            if let groupID = workspaceGroupPendingRenameID {
+                renameWorkspaceGroup?(groupID, newName)
             }
         }
         .sheet(item: $changesSheetTarget) { target in
@@ -470,6 +500,39 @@ struct WorkspaceListView: View {
                     defaultValue: "This will close the workspace on your Mac."
                 )
             )
+        }
+        .confirmationDialog(
+            workspaceGroupDestructiveDialogTitle,
+            isPresented: workspaceGroupDestructiveConfirmationIsPresented,
+            titleVisibility: .visible
+        ) {
+            if workspaceGroupPendingDestructiveAction == .ungroup,
+               let groupID = workspaceGroupPendingDestructiveID,
+               ungroupWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(groupID.rawValue)")
+            }
+            if workspaceGroupPendingDestructiveAction == .delete,
+               let groupID = workspaceGroupPendingDestructiveID,
+               deleteWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupDeleteConfirmButton-\(groupID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearWorkspaceGroupDestructiveRequest()
+            }
+        } message: {
+            Text(workspaceGroupDestructiveDialogMessage)
         }
         #endif
     }
@@ -590,7 +653,9 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
-            connectionStatus: connectionStatus
+            connectionStatus: connectionStatus,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut
         )
     }
 

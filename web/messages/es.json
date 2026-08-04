@@ -867,6 +867,8 @@
       "concepts": "Conceptos",
       "anchorTitle": "Workspace de anclaje",
       "anchorDesc": "Cada grupo pertenece a exactamente un workspace llamado el anclaje. El encabezado del grupo en la barra lateral es la representación del anclaje: no hay una fila separada para él. Al hacer clic en el área del nombre del encabezado se enfocan los paneles del anclaje; al hacer clic en el chevrón se alterna el plegado.",
+      "anchorNew": "El anclaje de un grupo siempre es un workspace completamente nuevo en el momento de su creación; ni agrupar una selección ni crear un grupo convierte uno de tus workspaces existentes en el anclaje. (Cerrar el anclaje más adelante sí convierte al primer miembro restante del grupo en el nuevo anclaje; consulta más abajo). El directorio de trabajo del anclaje se hereda del primer workspace seleccionado al agrupar una selección, o del workspace activo al crear mediante la CLI sin --cwd.",
+      "anchorClose": "Al cerrar el workspace de anclaje, solo se cierra ese workspace y el primer miembro restante del grupo (el primero que aún figure en el orden del grupo) pasa a ser el nuevo anclaje. Así, el grupo y sus demás miembros permanecen intactos (el miembro ascendido muestra entonces el nombre del grupo como encabezado). Cuando el anclaje es el único workspace del grupo, se elimina el grupo. Para convertir un grupo en workspaces sin agrupar, usa Desagrupar espacios de trabajo; para cerrar todos los workspaces de un grupo, usa Eliminar grupo.",
       "identityTitle": "Identidad del grupo",
       "identityDesc": "Un grupo tiene un nombre, un icono (un SF Symbol, por defecto folder.fill) y un color personalizado opcional. Estos son independientes de las personalizaciones propias del workspace de anclaje. El color y el icono del anclaje se inicializan a partir del grupo al crearlo, pero pueden divergir posteriormente.",
       "pinningTitle": "Fijado",
@@ -3523,7 +3525,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde."
+    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
+    "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
+    "signedOutSignIn": "Iniciar sesión"
   },
   "platforms": {
     "macos": "macOS",
@@ -3600,6 +3604,37 @@
       "primaryCta": "Descargar .deb",
       "requirements": "Debian o Ubuntu · x64",
       "installBody": "Descarga el paquete de Debian e instálalo con tu gestor de paquetes. Elige el ZIP portátil para una instalación por usuario y actualizaciones dentro de la aplicación."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Te damos la bienvenida a cmux Pro 🎉",
+      "fallbackName": "amigo",
+      "greeting": "Hola, {name}:",
+      "thanks": "¡Gracias por unirte a cmux Pro! Aún estamos preparando la experiencia Pro completa y el acceso a la nube llegará pronto.",
+      "cloudStatus": "Cuando lancemos el acceso a la nube, añadiremos créditos de uso a tu cuenta según el número de meses que lleves suscrito.",
+      "currentBenefit": "Mientras tanto, tu ventaja Pro es el acceso anticipado a cmux en iOS. Regístrate con el enlace de abajo y Apple te enviará la invitación de TestFlight cuando completes el registro.",
+      "testflightLink": "Registrarse en TestFlight: {url}",
+      "testflightLinkLabel": "Registrarse en TestFlight",
+      "signoff": "¡Nos alegra tenerte aquí!\nEl equipo de cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro está activo",
+    "title": "Te damos la bienvenida a cmux Pro",
+    "body": "Las funciones Pro siguen en desarrollo. El acceso a la nube llegará pronto, con créditos de uso acumulados por cada mes de suscripción. Hoy, Pro incluye acceso a cmux para iOS mediante TestFlight.",
+    "done": "Ir al panel",
+    "steps": {
+      "iosApp": {
+        "title": "App de cmux para iOS",
+        "body": "Usa cmux en tu teléfono.",
+        "action": "Unirse a la beta de iOS"
+      },
+      "billing": {
+        "title": "Gestionar tu plan",
+        "body": "Consulta tu plan, tus facturas y las opciones de cancelación.",
+        "action": "Gestionar plan"
+      }
     }
   }
 }

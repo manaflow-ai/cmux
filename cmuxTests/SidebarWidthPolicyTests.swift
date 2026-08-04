@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -274,6 +275,66 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertTrue(range.contains(684))
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
+    }
+}
+
+@MainActor
+@Suite("App web theme contrast")
+struct AppWebThemeContrastTests {
+    @Test
+    func keepsReadableCmuxBlue() throws {
+        let accent = try #require(NSColor(hex: "#0088FF"))
+        let background = try #require(NSColor(hex: "#171717"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            accent,
+            on: background
+        )
+
+        #expect(adjusted.hexString() == accent.hexString())
+    }
+
+    @Test
+    func darkensAgainstLightTheme() throws {
+        let background = try #require(NSColor(hex: "#FDF6E3"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#0071D5")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func lightensAgainstDarkSelectedButton() throws {
+        let background = try #require(NSColor(hex: "#4A4543"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#6BB9FF")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func choosesSmallestRGBAdjustmentWhenBothDirectionsAreReadable() throws {
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#000040")),
+            on: try #require(NSColor(hex: "#8060D0"))
+        )
+
+        #expect(adjusted.hexString() == "#000000")
     }
 }
 
