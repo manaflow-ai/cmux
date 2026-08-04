@@ -9274,7 +9274,11 @@ final class GhosttySurfaceScrollView: NSView {
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
-        _ = synchronizeGeometryAndContent()
+        // This is called from NSViewRepresentable.updateNSView while SwiftUI may
+        // still be resolving a lazy stack. Forcing descendant layout here can
+        // re-enter that graph transaction and turn a fast scroll into a long
+        // AttributeGraph layout spin. Reconcile in the normal AppKit layout pass.
+        needsLayout = true
         synchronizeCloudTerminalReconnectOverlay()
     }
 
