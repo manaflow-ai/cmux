@@ -105,18 +105,15 @@ extension AppDelegate {
     private func paneMemoryGuardrailDescriptors(in workspace: Workspace) -> [PaneMemoryDescriptor] {
         workspace.panels.values.compactMap { panel in
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let surface = terminalPanel.surface
-            let hasLiveSurface = surface.hasLiveSurface
-            let ttyName = hasLiveSurface ? surface.controllingTTYName()?
+            let ttyName = workspace.surfaceTTYNames[terminalPanel.id]?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                : nil
             return PaneMemoryDescriptor(
                 workspaceId: workspace.id,
                 panelId: terminalPanel.id,
                 workspaceTitle: workspace.title,
                 paneTitle: terminalPanel.displayTitle,
                 ttyName: ttyName?.isEmpty == false ? ttyName : nil,
-                foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
+                foregroundPID: nil
             )
         }
     }

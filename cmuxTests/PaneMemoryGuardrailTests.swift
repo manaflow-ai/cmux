@@ -295,6 +295,55 @@ struct PaneMemoryGuardrailTests {
     }
 
     @Test
+    func scopedSurfaceIdentityDoesNotRequireLiveTTYOrForegroundPID() {
+        let workspaceID = UUID()
+        let paneID = UUID()
+        let daemon = CmuxTopProcessInfo(
+            pid: 200,
+            parentPID: 1,
+            name: "python",
+            path: nil,
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceID,
+            cmuxSurfaceID: paneID,
+            cmuxAttributionReason: nil,
+            processGroupID: 200,
+            terminalProcessGroupID: 200,
+            cpuPercent: 0,
+            memoryBytes: 9_000_000_000,
+            memorySource: .physicalFootprint,
+            residentBytes: 9_000_000_000,
+            residentMemorySource: .residentSize,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [daemon],
+            sampledAt: Date(),
+            includesProcessDetails: false,
+            includesCMUXScope: true
+        )
+        let descriptor = PaneMemoryDescriptor(
+            workspaceId: workspaceID,
+            panelId: paneID,
+            workspaceTitle: "Workspace",
+            paneTitle: "Terminal",
+            ttyName: nil,
+            foregroundPID: nil
+        )
+
+        let sample = PaneMemoryGuardrail.computeSamples(
+            descriptors: [descriptor],
+            thresholdBytes: threshold,
+            snapshot: snapshot
+        ).first
+
+        #expect(sample?.memoryBytes == 9_000_000_000)
+        #expect(sample?.memoryPressureProcessGroupIDs == [200])
+        #expect(sample?.foregroundCommand == nil)
+    }
+
+    @Test
     func unscopedTicksDoNotClearScopedOnlyPressure() {
         let ws = UUID(), pane = UUID()
         let clearBytes = Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
