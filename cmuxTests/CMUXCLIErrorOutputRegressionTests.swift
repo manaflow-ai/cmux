@@ -14,6 +14,7 @@ import Testing
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
+        let stderr: String
         let timedOut: Bool
     }
 
@@ -129,6 +130,87 @@ import Testing
             XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
             XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
         }
+    }
+
+    @Test func testSurfaceResumeSetCLIRejectsUnknownFlagWithoutReplacingBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-flag-\(UUID().uuidString.prefix(8)).sock"
+        let approvedCommand = "codex resume approved-session"
+        let approvedResponse = try resumeBindingResponse(command: approvedCommand)
+        // The third response is only consumed by the buggy path: show, invalid set, show.
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [
+                approvedResponse,
+                approvedResponse,
+                try resumeBindingResponse(command: "--bad-flag"),
+            ]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let before = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!before.timedOut, Comment(rawValue: before.stderr))
+        #expect(before.status == 0, Comment(rawValue: before.stderr))
+        let commandBefore = try resumeBindingCommand(from: before.stdout)
+        #expect(commandBefore == approvedCommand)
+
+        let rejected = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "set", "--bad-flag"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!rejected.timedOut, Comment(rawValue: rejected.stderr))
+        #expect(rejected.status != 0, Comment(rawValue: rejected.stderr))
+        #expect(rejected.stdout.isEmpty, Comment(rawValue: rejected.stdout))
+        #expect(
+            rejected.stderr.contains("surface resume set: unknown flag '--bad-flag'"),
+            Comment(rawValue: rejected.stderr)
+        )
+        let knownFlags = [
+            "--checkpoint", "--checkpoint-id", "--cwd", "--kind", "--name",
+            "--shell", "--source", "--surface", "--window", "--workspace",
+        ].joined(separator: ", ")
+        #expect(
+            rejected.stderr.contains("Known flags: \(knownFlags)."),
+            Comment(rawValue: rejected.stderr)
+        )
+
+        let after = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!after.timedOut, Comment(rawValue: after.stderr))
+        #expect(after.status == 0, Comment(rawValue: after.stderr))
+        let commandAfter = try resumeBindingCommand(from: after.stdout)
+        #expect(commandAfter == commandBefore)
+
+        let methods = try responder.receivedRequests.map { request in
+            let data = Data(request.utf8)
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(
+            methods == ["surface.resume.get", "surface.resume.get"],
+            "An unknown flag must be rejected before a binding mutation request is sent: \(methods)"
+        )
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
@@ -2464,6 +2546,22 @@ import Testing
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 
+    private func resumeBindingResponse(command: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": ["resume_binding": ["command": command]],
+        ])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func resumeBindingCommand(from output: String) throws -> String {
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        let binding = try #require(payload["resume_binding"] as? [String: Any])
+        return try #require(binding["command"] as? String)
+    }
+
     /// A throwaway home directory for hermetic CLI socket-resolution tests.
     ///
     /// The CLI resolves its stable socket under `homeDirectoryForCurrentUser`,
@@ -2626,7 +2724,7 @@ import Testing
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: String(describing: error), stderr: "", timedOut: false)
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -2648,6 +2746,7 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: "",
             timedOut: timedOut
         )
     }
@@ -2658,22 +2757,29 @@ import Testing
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
         timeout: TimeInterval,
+        separateStandardError: Bool = false,
         afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
+        let stderrPipe = separateStandardError ? Pipe() : nil
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardError = stderrPipe ?? outputPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(
+                status: -1,
+                stdout: separateStandardError ? "" : String(describing: error),
+                stderr: separateStandardError ? String(describing: error) : "",
+                timedOut: false
+            )
         }
         afterLaunch?()
 
@@ -2696,6 +2802,9 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: stderrPipe.map {
+                String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            } ?? "",
             timedOut: timedOut
         )
     }
