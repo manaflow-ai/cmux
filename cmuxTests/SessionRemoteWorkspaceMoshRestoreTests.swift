@@ -207,6 +207,45 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.terminalStartupCommand?.contains(expectedBootstrapBase64) == true)
     }
 
+    @Test("legacy Mosh relay snapshots recover RemoteCommand from SSH options")
+    func legacyMoshRelayRecoversConfiguredRemoteCommand() throws {
+        let configuredRemoteCommand = #"cd "/srv/legacy project" && exec fish"#
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            destination: "dev@example.com",
+            sshOptions: ["RemoteCommand=\(configuredRemoteCommand)"],
+            preserveAfterTerminalExit: true,
+            relayPort: 52_000,
+            persistentDaemonSlot: "slot"
+        )
+
+        let configuration = try #require(
+            snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux.sock")
+        )
+        let startupCommand = try #require(configuration.terminalStartupCommand)
+        let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 52_000,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            configuredRemoteCommand: configuredRemoteCommand,
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "fish/config.fish")
+        )
+        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(!configuration.sshOptions.contains("RemoteCommand=\(configuredRemoteCommand)"))
+        #expect(
+            startupCommand.contains(expectedBootstrapBase64),
+            "The Mosh relay bootstrap must retain the legacy RemoteCommand intent"
+        )
+    }
+
     @Test("Mosh restore without a relay preserves the configured remote command")
     func moshWithoutRelayPreservesConfiguredRemoteCommand() throws {
         let configuredRemoteCommand = "printf configured-mosh-command"
@@ -224,12 +263,58 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
         #expect(configuration.terminalTransport == .mosh)
         #expect(configuration.relayPort == nil)
-        #expect(configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
+        #expect(!configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
         #expect(command.contains("cmux-remote-command"), "\(command)")
         #expect(command.contains(configuredRemoteCommand), "\(command)")
         #expect(
             !command.contains(currentHostRemoteCommand),
             "Mosh and its SSH fallback must execute the same snapshotted command: \(command)"
         )
+    }
+
+    @Test(
+        "explicit empty command suppresses a legacy Mosh fallback RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandSuppressesLegacyMoshFallback(configuredRemoteCommand: String) throws {
+        let legacyRemoteCommand = "printf legacy-mosh-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: [
+                "ServerAliveInterval=15",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.relayPort == nil)
+        #expect(configuration.configuredRemoteCommand == nil)
+        #expect(configuration.sshOptions.contains("ServerAliveInterval=15"))
+        #expect(configuration.sshOptions.contains("RemoteCommand=none"))
+        #expect(command.contains("mosh"), Comment(rawValue: command))
+        let fallbackStart = try #require(command.range(of: "cmux_mosh_fallback() {"))
+        let fallbackEnd = try #require(
+            command.range(
+                of: "\ncmux_mosh=",
+                range: fallbackStart.upperBound..<command.endIndex
+            )
+        )
+        let fallbackCommand = String(command[fallbackStart.lowerBound..<fallbackEnd.lowerBound])
+        #expect(
+            fallbackCommand.contains("-o RemoteCommand=none"),
+            Comment(rawValue: fallbackCommand)
+        )
+        #expect(
+            fallbackCommand.contains("-o ServerAliveInterval=15"),
+            Comment(rawValue: fallbackCommand)
+        )
+        #expect(fallbackCommand.contains("-tt dev@example.com"), Comment(rawValue: fallbackCommand))
+        #expect(!command.contains(legacyRemoteCommand), Comment(rawValue: command))
     }
 }

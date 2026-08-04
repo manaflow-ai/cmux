@@ -202,10 +202,14 @@ struct SSHRemoteCommandChainingTests {
 
     @Test
     func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
-        let cases: [(options: [String], expectedCommandFragment: String?)] = [
-            (["RemoteCommand=printf restored-command"], "'RemoteCommand=printf restored-command'"),
-            (["RemoteCommand=none"], "RemoteCommand=none"),
-            ([], nil),
+        let cases: [(
+            options: [String],
+            expectedConfiguredCommand: String?,
+            expectedRestoredOptions: [String]
+        )] = [
+            (["RemoteCommand=printf restored-command"], "printf restored-command", []),
+            (["RemoteCommand=none"], nil, ["RemoteCommand=none"]),
+            ([], nil, []),
         ]
 
         for testCase in cases {
@@ -226,15 +230,205 @@ struct SSHRemoteCommandChainingTests {
                 )
             )
             let startupCommand = try #require(restored.terminalStartupCommand)
+            let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+                remoteRelayPort: 64_123,
+                shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                configuredRemoteCommand: testCase.expectedConfiguredCommand,
+                bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+                bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+                bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "fish/config.fish"),
+                terminalProfile: .shell
+            )
+            let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
 
-            #expect(restored.sshOptions == testCase.options)
-            #expect(startupCommand.hasPrefix("/usr/bin/ssh "), "\(startupCommand)")
-            if let expectedCommandFragment = testCase.expectedCommandFragment {
-                #expect(startupCommand.contains(expectedCommandFragment), "\(startupCommand)")
-            } else {
-                #expect(!startupCommand.localizedCaseInsensitiveContains("RemoteCommand"), "\(startupCommand)")
-            }
+            #expect(restored.sshOptions == testCase.expectedRestoredOptions)
+            #expect(restored.configuredRemoteCommand == testCase.expectedConfiguredCommand)
+            #expect(
+                startupCommand.hasPrefix("/bin/sh -c "),
+                "Restored SSH launches must retain the local lifecycle wrapper"
+            )
+            #expect(startupCommand.contains("rpc workspace.remote.terminal_session_launching"))
+            #expect(
+                startupCommand.contains(expectedBootstrapBase64),
+                "The staged remote bootstrap must retain the saved RemoteCommand intent"
+            )
         }
+    }
+
+    @Test
+    func legacyRemoteCommandTokensAreExpandedByOpenSSHDuringRestore() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-restore-token-expansion-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let eventsFile = root.appendingPathComponent("ssh-events")
+        let resultFile = root.appendingPathComponent("remote-command-result")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        mode=session
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -G) mode=config; shift ;;
+            -o|-p|-i) shift 2 ;;
+            -tt|-t|-T) shift ;;
+            -*) shift ;;
+            *) shift; break ;;
+          esac
+        done
+        if [ "$mode" = config ]; then
+          printf 'config\n' >> "$SSH_EVENTS_FILE"
+          printf '%s\n' "remotecommand printf '%s\\n' 'caller % resolved.example dev-alias 2233 remote-user' > \"$RESULT_FILE\""
+          exit 0
+        fi
+        printf 'session\n' >> "$SSH_EVENTS_FILE"
+        exec /bin/sh -c "$*"
+        """
+        .write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        let legacyRemoteCommand = #"printf '%s\n' 'caller %% %h %n %p %r' > "$RESULT_FILE""#
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            destination: "dev-alias",
+            port: 2233,
+            sshOptions: [
+                "HostName=resolved.example",
+                "User=remote-user",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/usr/bin:/bin"
+        environment["RESULT_FILE"] = resultFile.path
+        environment["SSH_EVENTS_FILE"] = eventsFile.path
+        environment["SHELL"] = "/bin/sh"
+
+        let result = processSupport.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            try String(contentsOf: resultFile, encoding: .utf8)
+                == "caller % resolved.example dev-alias 2233 remote-user\n"
+        )
+        #expect(
+            try String(contentsOf: eventsFile, encoding: .utf8) == "config\nsession\n",
+            "Restore must ask OpenSSH for the effective, token-expanded RemoteCommand before launching it"
+        )
+    }
+
+    @Test(
+        "explicit empty command suppresses a legacy SSH RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandSuppressesLegacyRemoteCommand(configuredRemoteCommand: String) throws {
+        let legacyRemoteCommand = "printf legacy-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: [
+                "ServerAliveInterval=15",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+
+        #expect(restored.configuredRemoteCommand == nil)
+        #expect(restored.sshOptions.contains("ServerAliveInterval=15"))
+        #expect(restored.sshOptions.contains("RemoteCommand=none"))
+        #expect(!startupCommand.contains(legacyRemoteCommand), Comment(rawValue: startupCommand))
+    }
+
+    @Test(
+        "explicit empty command overrides a live host-configured RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandOverridesHostConfiguredRemoteCommand(
+        configuredRemoteCommand: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-disabled-remote-command-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let hostCommandMarker = root.appendingPathComponent("host-command-ran")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        remote_command_override=inherited
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o)
+              if [ "$#" -gt 1 ]; then
+                option=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+                [ "$option" = remotecommand=none ] && remote_command_override=none
+                shift 2
+              else
+                shift
+              fi
+              ;;
+            -o*)
+              option=$(printf '%s' "${1#-o}" | tr '[:upper:]' '[:lower:]')
+              [ "$option" = remotecommand=none ] && remote_command_override=none
+              shift
+              ;;
+            *) shift ;;
+          esac
+        done
+        if [ "$remote_command_override" = inherited ]; then
+          printf 'ran\n' > "$HOST_COMMAND_MARKER"
+        fi
+        """
+        .write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: []
+        )
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOST_COMMAND_MARKER"] = hostCommandMarker.path
+        environment["PATH"] = "/usr/bin:/bin"
+        let result = processSupport.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(startupCommand.contains("RemoteCommand=none"), Comment(rawValue: startupCommand))
+        #expect(!fileManager.fileExists(atPath: hostCommandMarker.path))
     }
 
     @Test
