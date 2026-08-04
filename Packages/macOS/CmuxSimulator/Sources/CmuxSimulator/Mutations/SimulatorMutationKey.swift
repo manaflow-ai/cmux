@@ -14,6 +14,8 @@ package struct SimulatorMutationKey: Hashable, Sendable {
     package static let location = SimulatorMutationKeyFactory(namespace: "location")
     /// Factory for attached Web Inspector target leases.
     package static let webInspector = SimulatorMutationKeyFactory(namespace: "web-inspector")
+    /// Factory for private accessibility connection leases.
+    package static let accessibility = SimulatorMutationKeyFactory(namespace: "accessibility")
     /// Factory for the device-wide lifecycle exclusion key.
     package static let device = SimulatorMutationKeyFactory(namespace: "device")
 
@@ -28,6 +30,7 @@ package struct SimulatorMutationKey: Hashable, Sendable {
     package var deviceScope: SimulatorMutationKey? {
         let components = value.split(separator: "\0", omittingEmptySubsequences: false)
         guard components.count >= 2, components[0] != "device",
+              components[0] != "accessibility",
               components[0] != "web-inspector",
               components[0] != "camera-authorization-journal" else { return nil }
         return .device(deviceIdentifier: String(components[1]))

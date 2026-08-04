@@ -1,6 +1,7 @@
 extension CMUXCLI {
     enum SimulatorAgentOutput: Equatable {
         case completed
+        case uiAction
         case eventLog
         case cameraStatus
         case permissionsList
@@ -9,6 +10,8 @@ extension CMUXCLI {
         case interfaceValue(option: String)
         case interfaceUpdated(option: String)
         case accessibility
+        case uiSnapshot
+        case uiWait
         case foregroundApplication
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 protocol SimulatorWebInspectorTransport: AnyObject, Sendable {
-    var messages: AsyncStream<Data> { get }
+    var messages: SimulatorWebInspectorMessageStream { get }
 
     @MainActor
     func send(propertyList: [String: Any]) throws

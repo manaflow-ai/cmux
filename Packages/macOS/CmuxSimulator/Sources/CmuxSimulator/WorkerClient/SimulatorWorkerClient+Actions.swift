@@ -31,15 +31,34 @@ extension SimulatorWorkerClient {
         if let result = try await performApplicationLifecycleAction(action) { return result }
         if case let .interactive(interactiveAction) = action {
             let requestID = UUID()
-            let succeeded: Bool = try await requestWorkerValue(
-                sending: .interactiveAction(requestID: requestID, action: interactiveAction),
-                timeout: .seconds(30)
-            ) { message in
-                guard case let .interactiveAction(responseID, succeeded) = message,
-                      responseID == requestID else { return nil }
-                return succeeded
+            let succeeded: Bool
+            do {
+                succeeded = try await requestWorkerValue(
+                    sending: .interactiveAction(
+                        requestID: requestID,
+                        action: interactiveAction
+                    ),
+                    timeout: interactiveAction.responseTimeout
+                ) { message in
+                    guard case let .interactiveAction(responseID, succeeded) = message,
+                          responseID == requestID else { return nil }
+                    return succeeded
+                }
+            } catch {
+                await recoverFailedInteractiveAction(
+                    interactiveAction,
+                    requestID: requestID
+                )
+                throw error
             }
-            try? await sendInteractiveRecovery(for: interactiveAction)
+            if succeeded {
+                try? await sendInteractiveRecovery(for: interactiveAction)
+            } else {
+                await recoverFailedInteractiveAction(
+                    interactiveAction,
+                    requestID: requestID
+                )
+            }
             guard succeeded else {
                 throw SimulatorControlError(
                     code: "interactive_action_failed",
@@ -105,7 +124,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -151,7 +170,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionReadbackCapability",
-                        defaultValue: "The active Xcode worker did not negotiate permission readback."
+                        defaultValue: "The simulator worker does not support permission readback."
                     )
                 )
             }
@@ -201,7 +220,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.accessibilityCapability",
-                        defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                        defaultValue: "The simulator worker does not support accessibility inspection."
                     )
                 )
             }
@@ -238,7 +257,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -275,7 +294,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -313,7 +332,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionResetAllCapability",
-                        defaultValue: "Reset All needs the active Xcode worker's isolated extended-permissions adapter."
+                        defaultValue: "Reset All is unavailable for this simulator runtime."
                     )
                 )
             }
@@ -334,7 +353,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionMutationCapability",
-                        defaultValue: "The active Xcode worker did not negotiate a safe adapter for \(service.rawValue)."
+                        defaultValue: "The simulator worker does not support \(service.rawValue)."
                     )
                 )
             }
@@ -394,7 +413,35 @@ extension SimulatorWorkerClient {
                 secondary: event.secondary,
                 edge: event.edge
             )))
+        case let .timedGesture(events, _):
+            guard let event = events.last else { return }
+            try await sendRequired(.pointer(SimulatorPointerEvent(
+                phase: .cancelled,
+                primary: event.primary,
+                secondary: event.secondary,
+                edge: event.edge
+            )))
+        case .touch:
+            break
+        case let .keyPresses(usages, _, _):
+            for usage in Set(usages) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
+        case let .keyChord(modifiers, key):
+            for usage in Set(modifiers + [key]) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
+        case let .typeText(sequence):
+            for usage in Set(sequence.events.map(\.usage)) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
         case let .hardwareButton(button):
+            guard let usage = button.recoveryHIDUsage else { return }
+            try await sendRequired(.hidButton(SimulatorHIDButtonEvent(
+                button: usage,
+                phase: .up
+            )))
+        case let .hardwareButtonHold(button, _):
             guard let usage = button.recoveryHIDUsage else { return }
             try await sendRequired(.hidButton(SimulatorHIDButtonEvent(
                 button: usage,
@@ -403,6 +450,23 @@ extension SimulatorWorkerClient {
         case .rotate, .coreAnimation, .memoryWarning:
             break
         }
+    }
+
+    private func recoverFailedInteractiveAction(
+        _ action: SimulatorInteractiveAction,
+        requestID: UUID
+    ) async {
+        switch action {
+        case .touch, .hardwareButton, .hardwareButtonHold:
+            try? await sendRequired(.releaseInputs)
+        default:
+            break
+        }
+        pendingInteractiveRequestIdentifiers.remove(requestID)
+        await flushDeferredMessageIfReady()
+        await finishBlockingInputProbeIfReady()
+        if case .touch = action { return }
+        try? await sendInteractiveRecovery(for: action)
     }
 
     func performPrivatePrivacyMutation(

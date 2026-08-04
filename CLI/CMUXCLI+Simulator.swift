@@ -2,7 +2,7 @@ import CmuxSimulator
 import Foundation
 
 extension CMUXCLI {
-    private static let simulatorTextLimit = 4_096
+    static let simulatorTextLimit = 4_096
     private static let simulatorInspectorLimit = 1_024 * 1_024
     private static let iosScreenshotBatchLimit = 8
     private static let iosScreenshotBatchTimeout: TimeInterval = 600
@@ -26,7 +26,26 @@ extension CMUXCLI {
         var readsStandardInput = false
         var file: String?
         var optionValue: String?
+        var accessibilityLabel: String?
+        var accessibilityIdentifier: String?
+        var accessibilityRole: String?
+        var elementRef: String?
+        var options: [String: String] = [:]
+        var flags: Set<String> = []
         var positionals: [String] = []
+
+        var hasAccessibilitySelector: Bool {
+            accessibilityLabel != nil || accessibilityIdentifier != nil
+                || accessibilityRole != nil
+        }
+
+        func option(_ name: String) -> String? {
+            options[name]
+        }
+
+        func hasFlag(_ name: String) -> Bool {
+            flags.contains(name)
+        }
     }
 
     func simulatorSubcommandUsage() -> String {
@@ -60,6 +79,27 @@ extension CMUXCLI {
             prints the raw response carrying the same JSON request id.
             """
         )
+        let automation = String(
+            localized: "cli.simulator.usage.automation",
+            defaultValue: """
+            Semantic UI automation:
+              snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions
+              tap --ref <eN>                       Tap an element from the latest snapshot
+              tap (--label <text>|--identifier <id>) [--role <role>]
+                                                    Tap one visible accessibility element
+              touch --ref <eN> --down|--up         Send semantic touch phases
+              gesture-preset <name>                Send a named screen or edge gesture
+              swipe --ref <eN> <direction>         Swipe inside a semantic element
+              drag --ref <eN> <direction>          Drag from a semantic element
+              long-press --ref <eN> <milliseconds> Hold a semantic element
+              type --ref <eN> [text]               Focus and type into a text field
+              key <hid-code>                       Press one USB HID key
+              keys <code,...>                      Press a USB HID key sequence
+              batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps
+              wait <predicate> [selectors]         Wait for UI state
+              recover                             Restart a failed Simulator worker
+            """
+        )
         let inspection = String(
             localized: "cli.simulator.usage.inspection",
             defaultValue: """
@@ -68,7 +108,7 @@ extension CMUXCLI {
               foreground                          Print the foreground application
             """
         )
-        return "\(usage)\n\n\(inspection)"
+        return "\(usage)\n\n\(automation)\n\n\(inspection)"
     }
 
     func iosSubcommandUsage() -> String {
@@ -584,6 +624,10 @@ extension CMUXCLI {
             )
             printSimulatorAgentResult(payload, output: request.output, jsonOutput: jsonOutput,
                                       idFormat: idFormat)
+            if request.output == .uiAction,
+               let failure = simulatorUIActionFailure(payload) {
+                throw failure
+            }
             return
         }
 

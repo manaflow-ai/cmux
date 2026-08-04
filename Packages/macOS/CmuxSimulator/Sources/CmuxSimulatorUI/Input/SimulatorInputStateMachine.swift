@@ -122,13 +122,28 @@ struct SimulatorInputStateMachine {
         }
     }
 
-    mutating func releaseAll() -> [SimulatorWorkerInbound] {
+    mutating func releaseLocallyOwnedInputs() -> [SimulatorWorkerInbound] {
         var messages = releasePointerIfNeeded()
         messages.append(contentsOf: releaseScrollIfNeeded())
         for usage in heldKeys.sorted() {
             messages.append(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
         }
         heldKeys.removeAll(keepingCapacity: true)
+        return messages
+    }
+
+    mutating func discardAll() {
+        activePointer = nil
+        activeEdge = .none
+        usesSecondaryTouch = false
+        heldKeys.removeAll(keepingCapacity: true)
+        scrollPoint = nil
+        scrollAnchor = nil
+        secondaryTouchOffset = nil
+    }
+
+    mutating func releaseAll() -> [SimulatorWorkerInbound] {
+        var messages = releaseLocallyOwnedInputs()
         messages.append(.releaseInputs)
         return messages
     }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -56,6 +57,15 @@ import Testing
         )
     }
 
+    @Test func explicitAppHostTestMarkerPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: ["CMUX_XCTEST_APP_HOST": "1"],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
     @Test func testRunnerMarkerPreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(
@@ -65,6 +75,53 @@ import Testing
         )
     }
 
+    @Test func activeAppHostTestRuntimePreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
+    @Test func embeddedXCTestBundlePreventsSentryStartupBeforeInjection() {
+        #expect(MacSentryStartupPolicy.isRunningUnderXCTest(
+            environment: [:],
+            loadedImageNames: [],
+            embeddedPlugInURLs: [URL(
+                fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
+            )]
+        ))
+        #expect(!MacSentryStartupPolicy.isRunningUnderXCTest(
+            environment: [:],
+            loadedImageNames: [],
+            embeddedPlugInURLs: [URL(
+                fileURLWithPath: "/tmp/cmux DEV.app/Contents/PlugIns/CmuxDockTilePlugin.plugin"
+            )]
+        ))
+    }
+
+    @Test func noLoadedXCTestInjectionImageIsNotATestRunMarker() {
+        #expect(
+            !MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([])
+        )
+    }
+
+    @Test func loadedTestBundleExecutableIsNotTheXCTestInjectionMarker() {
+        #expect(
+            !MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([
+                "/tmp/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/MacOS/cmuxTests"
+            ])
+        )
+    }
+
+    @Test func loadedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsLoadedXCTestInjectionImage([
+                "/tmp/cmux DEV.app/Contents/Frameworks/libXCTestBundleInject.dylib"
+            ])
+        )
+    }
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(

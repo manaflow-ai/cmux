@@ -4,13 +4,16 @@ import Foundation
 
 @MainActor
 final class FailingWebInspectorTransport: SimulatorWebInspectorTransport {
-    nonisolated let messages: AsyncStream<Data>
+    nonisolated let messages: SimulatorWebInspectorMessageStream
     private let failAtSend: Int
     private var sends = 0
 
     init(failAtSend: Int = 1) {
         self.failAtSend = failAtSend
-        messages = AsyncStream { _ in }
+        messages = SimulatorWebInspectorMessageStream(
+            maximumBufferedBytes: 0,
+            initiallyFinished: true
+        )
     }
 
     var sendCount: Int { sends }

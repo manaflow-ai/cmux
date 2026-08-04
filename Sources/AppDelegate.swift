@@ -568,8 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
-        // exists before XCTest connects. Standard XCTest keys cover other paths.
+        // CI and shared schemes set explicit app-host markers before XCTest
+        // connects. Standard keys and runtime injection cover other launch paths.
         MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 

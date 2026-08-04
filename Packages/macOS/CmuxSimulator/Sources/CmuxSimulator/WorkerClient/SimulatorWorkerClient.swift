@@ -45,6 +45,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var currentFrameTransport: SimulatorFrameTransportDescriptor?
     var frameTransportSharedMemoryNames: Set<String> = []
     var currentCapabilities: Set<SimulatorCapability> = []
+    var currentCapabilityResolutions: [SimulatorCapability: Bool] = [:]
     var currentCapabilitiesAreHydrated = false
     var currentStatus: SimulatorSessionStatus?
 
@@ -302,8 +303,16 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         }
         if currentCapabilitiesAreHydrated {
             await yield(.message(.capabilitiesHydrated(currentCapabilities)), to: continuation)
-        } else if !currentCapabilities.isEmpty {
+        } else if !currentCapabilities.isEmpty || !currentCapabilityResolutions.isEmpty {
             await yield(.message(.capabilities(currentCapabilities)), to: continuation)
+            for capability in currentCapabilityResolutions.keys.sorted(
+                by: { $0.rawValue < $1.rawValue }
+            ) {
+                await yield(.message(.capabilityResolved(
+                    capability,
+                    available: currentCapabilityResolutions[capability] == true
+                )), to: continuation)
+            }
         }
         if let currentStatus {
             await yield(.message(.status(currentStatus)), to: continuation)
@@ -331,6 +340,20 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             return
         } catch {
             await broadcastFailure(error, code: "worker_send_failed")
+        }
+    }
+
+    /// Places a correlated release behind every deferred input message and waits
+    /// for the worker to confirm that the ordered command was handled.
+    public func quiesceInputDelivery() async throws {
+        let requestIdentifier = UUID()
+        let _: Void = try await requestWorkerValue(
+            sending: .quiesceInput(requestID: requestIdentifier),
+            timeout: ackTimeout
+        ) { outbound in
+            guard case let .inputQuiesced(responseIdentifier) = outbound,
+                  responseIdentifier == requestIdentifier else { return nil }
+            return ()
         }
     }
 

@@ -78,6 +78,10 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case setAccessibilityHighlight(requestID: UUID, nodeID: String?, frame: SimulatorRect?)
     /// Request a fresh accessibility tree.
     case requestAccessibility(UUID)
+    /// Stop waiting for one accessibility tree without disturbing coalesced peers.
+    case cancelAccessibilitySnapshotRequest(UUID)
+    /// Invalidate every outstanding accessibility request and cached snapshot.
+    case cancelAccessibilitySnapshotRequests
     /// Request metadata for the foreground application.
     case requestForegroundApplication(UUID)
     /// Discover inspectable Safari and `WKWebView` targets for the attached device.
@@ -92,6 +96,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case sendWebInspectorMessage(requestID: UUID, json: String)
     /// Release every touch and key held by the host session.
     case releaseInputs
+    /// Release input after every earlier worker command and confirm completion.
+    case quiesceInput(requestID: UUID)
     /// Intentionally terminate the renderer in DEBUG builds for diagnostics.
     case terminateRenderer
     /// Stop capture and exit cleanly.
@@ -115,6 +121,7 @@ extension SimulatorWorkerInbound {
              let .requestPrivacy(requestID, _, _),
              let .reloadReactNative(requestID),
              let .setAccessibilityHighlight(requestID, _, _),
+             let .quiesceInput(requestID),
              let .requestAccessibility(requestID),
              let .requestForegroundApplication(requestID),
              let .requestWebInspectorTargets(requestID, _),
@@ -125,6 +132,30 @@ extension SimulatorWorkerInbound {
             requestID
         default:
             nil
+        }
+    }
+
+    /// Whether delivery can change the visible or interactive Simulator state.
+    public var invalidatesUIAutomationSnapshot: Bool {
+        switch self {
+        case .pointer, .key, .keySequence, .scrollWheel, .typeText,
+             .interactiveAction, .button, .hidButton, .rotate, .digitalCrown,
+             .toggleSoftwareKeyboard, .memoryWarning, .setPrivateInterface,
+             .setPrivatePrivacy, .reloadReactNative, .releaseInputs,
+             .quiesceInput:
+            true
+        case .ping, .attach, .resize, .setFramebufferPublishing,
+             .acknowledgeFrameTransport, .setHIDCapture, .coreAnimationDiagnostic,
+             .configureCamera, .acknowledgeCameraTarget, .switchCameraSource,
+             .setCameraMirror, .requestCameraStatus, .prepareApplicationMutation,
+             .requestPrivateInterfaceStatus, .requestPrivacy,
+             .setAccessibilityHighlight, .requestAccessibility,
+             .cancelAccessibilitySnapshotRequest,
+             .cancelAccessibilitySnapshotRequests, .requestForegroundApplication,
+             .requestWebInspectorTargets, .attachWebInspector,
+             .releaseWebInspector, .setWebInspectorHighlight,
+             .sendWebInspectorMessage, .terminateRenderer, .shutdown:
+            false
         }
     }
 }

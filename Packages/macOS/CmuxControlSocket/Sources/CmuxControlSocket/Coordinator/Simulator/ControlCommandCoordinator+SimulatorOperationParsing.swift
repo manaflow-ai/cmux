@@ -34,9 +34,10 @@ extension ControlCommandCoordinator {
         (0x30...0x39).contains(value) || (0x61...0x7A).contains(value)
     }
 
-    nonisolated func simulatorButtonName(_ raw: String) -> String {
+    nonisolated func simulatorButtonName(_ raw: String) -> String? {
         let normalized = raw.lowercased()
-        return switch normalized {
+        let canonical = switch normalized {
+        case "apple-pay", "apple_pay", "applepay": "applePay"
         case "swipe-home", "swipe_home", "swipehome": "swipeHome"
         case "app-switcher", "app_switcher", "appswitcher": "appSwitcher"
         case "side-button", "side_button", "sidebutton": "sideButton"
@@ -45,6 +46,14 @@ extension ControlCommandCoordinator {
         case "watch-side-button", "watch_side_button", "watchsidebutton": "watchSideButton"
         default: normalized
         }
+        guard [
+            "applePay", "home", "swipeHome", "appSwitcher", "lock", "siri",
+            "sideButton", "power", "volumeUp", "volumeDown", "action",
+            "watchSideButton",
+        ].contains(canonical) else {
+            return nil
+        }
+        return canonical
     }
 
     nonisolated func simulatorCADiagnosticName(_ raw: String) -> String {

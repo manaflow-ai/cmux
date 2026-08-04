@@ -53,6 +53,7 @@ extension SimulatorPaneCoordinator {
         guard let completion = textInputCompletions.removeValue(forKey: requestID) else { return }
         cancelledTextInputRequestIDs.insert(requestID)
         status = .connecting
+        releaseAllHeldSimulatorInputOwnership()
         let previousRecoveryTask = outgoingRecoveryTask
         outgoingRecoveryGeneration &+= 1
         outgoingRecoveryTask = Task { @MainActor [weak self, client] in
@@ -185,7 +186,8 @@ extension SimulatorPaneCoordinator {
 
     /// Releases touch and keyboard state held by the host pane.
     public func releaseInputs() {
-        enqueue(.releaseInputs)
+        releaseAllHeldSimulatorInputOwnership()
+        enqueueInputCleanup(.releaseInputs)
     }
 
     /// Requests keyboard focus for the live AppKit Simulator surface.

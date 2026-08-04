@@ -123,14 +123,62 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         #expect(harness.pointerEvents.map(\.phase) == [.began, .moved, .ended])
     }
 
+    @Test("Rejected input stops the pending batch without unowned cleanup")
+    func rejectedInputStopsPendingBatchWithoutUnownedCleanup() throws {
+        let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
+        defer { harness.close() }
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        var messages = harness.view.input.pointerBegan(
+            at: point,
+            optionPinch: false
+        )
+        messages.append(contentsOf: harness.view.input.key(usage: 4, phase: .down))
+        var delivered: [SimulatorWorkerInbound] = []
+        var rejected = false
+        harness.view.onMessage = { message in
+            if !rejected, case .key = message {
+                rejected = true
+                return false
+            }
+            delivered.append(message)
+            return true
+        }
+
+        harness.view.send(messages)
+
+        #expect(delivered.contains { message in
+            if case let .pointer(event) = message {
+                return event.phase == .began
+            }
+            return false
+        })
+        #expect(!delivered.contains { message in
+            if case let .pointer(event) = message {
+                return event.phase == .cancelled
+            }
+            return false
+        })
+        #expect(!delivered.contains { message in
+            if case let .key(event) = message {
+                return event.usage == 4 && event.phase == .up
+            }
+            return false
+        })
+        #expect(!delivered.contains(.releaseInputs))
+        #expect(harness.view.input.activePointer == nil)
+        #expect(harness.view.input.heldKeys.isEmpty)
+        #expect(harness.view.pendingInputMotion == nil)
+    }
+
     @Test("Discrete wheel bursts aggregate into one bounded message")
     func discreteWheelCoalescing() throws {
         let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
         defer { harness.close() }
         var wheelEvents: [SimulatorScrollWheelEvent] = []
         harness.view.onMessage = { message in
-            guard case let .scrollWheel(event) = message else { return }
+            guard case let .scrollWheel(event) = message else { return true }
             wheelEvents.append(event)
+            return true
         }
         let anchor = SimulatorPoint(x: 0.5, y: 0.5)
         for _ in 0..<1_000 {

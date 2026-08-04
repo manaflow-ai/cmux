@@ -18,6 +18,27 @@ extension ControlCommandCoordinator {
             operation = .selectDevice(deviceID)
         case "simulator.recover":
             operation = .recover
+        case "simulator.snapshot_ui":
+            let screenHash = string(request.params, "since_screen_hash")
+            guard request.params["since_screen_hash"] == nil
+                    || (screenHash?.isEmpty == false && (screenHash?.utf8.count ?? 0) <= 128) else {
+                return invalidSimulatorOperation("since_screen_hash is invalid")
+            }
+            operation = .uiSnapshot(sinceScreenHash: screenHash)
+        case "simulator.wait_for_ui":
+            guard let wait = simulatorUIWait(request.params) else {
+                return invalidSimulatorOperation("wait_for_ui parameters are invalid")
+            }
+            operation = .uiWait(wait)
+        case "simulator.touch", "simulator.drag", "simulator.long_press",
+             "simulator.type_text", "simulator.key_press", "simulator.key_sequence",
+             "simulator.gesture_preset", "simulator.batch":
+            guard let action = simulatorUIAction(
+                method: request.method, params: request.params
+            ), action.fitsReceiptDeadline else {
+                return invalidSimulatorOperation("semantic UI action parameters are invalid")
+            }
+            operation = .uiAction(action)
         case "simulator.gesture", "simulator.multi_touch":
             guard case let .array(rawEvents)? = request.params["events"],
                   !rawEvents.isEmpty, rawEvents.count <= 256,
@@ -28,17 +49,82 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.tap":
-            guard let point = simulatorTouch(request.params, phase: "began") else {
-                return invalidSimulatorOperation("tap requires normalized x and y coordinates")
+            let hasElementRef = request.params["element_ref"] != nil
+            let hasCoordinates = ["x", "y", "x1", "y1", "x2", "y2"].contains {
+                request.params[$0] != nil
             }
-            operation = .gesture([
-                point,
-                ControlSimulatorTouch(
-                    phase: "ended", x: point.x, y: point.y,
-                    secondX: point.secondX, secondY: point.secondY, edge: point.edge
-                ),
-            ])
+            let identifier = simulatorUIOptionalString(
+                request.params, "identifier", maximumBytes: 512
+            )
+            let label = simulatorUIOptionalString(
+                request.params, "label", maximumBytes: 512
+            )
+            let role = simulatorUIOptionalString(
+                request.params, "role", maximumBytes: 64
+            )
+            let hasSelector = request.params["label"] != nil
+                || request.params["identifier"] != nil || request.params["role"] != nil
+            guard identifier.isValid, label.isValid, role.isValid else {
+                return invalidSimulatorOperation("semantic tap parameters are invalid")
+            }
+            guard [hasElementRef, hasCoordinates, hasSelector]
+                .filter({ $0 }).count <= 1 else {
+                return invalidSimulatorOperation(String(
+                    localized: "cli.simulator.error.tapInputsExclusive",
+                    defaultValue: "Tap coordinates and accessibility selectors are mutually exclusive"
+                ))
+            }
+            if hasElementRef {
+                guard let action = simulatorUIAction(
+                    method: request.method, params: request.params
+                ), action.fitsReceiptDeadline else {
+                    return invalidSimulatorOperation("semantic tap parameters are invalid")
+                }
+                operation = .uiAction(action)
+                break
+            }
+            if hasSelector {
+                guard label.value != nil || identifier.value != nil else {
+                    return invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.tapSelectorRequired",
+                        defaultValue: "An accessibility tap requires a label or identifier"
+                    ))
+                }
+                operation = .accessibilityTap(
+                    label: label.value,
+                    identifier: identifier.value,
+                    role: role.value
+                )
+            } else {
+                guard let point = simulatorTouch(request.params, phase: "began") else {
+                    return invalidSimulatorOperation("tap requires normalized x and y coordinates")
+                }
+                operation = .gesture([
+                    point,
+                    ControlSimulatorTouch(
+                        phase: "ended", x: point.x, y: point.y,
+                        secondX: point.secondX, secondY: point.secondY, edge: point.edge
+                    ),
+                ])
+            }
         case "simulator.swipe":
+            let hasElementRef = request.params["within_element_ref"] != nil
+            let hasCoordinates = [
+                "from_x", "from_y", "to_x", "to_y",
+                "from_x2", "from_y2", "to_x2", "to_y2",
+            ].contains { request.params[$0] != nil }
+            guard !hasElementRef || !hasCoordinates else {
+                return invalidSimulatorOperation("semantic swipe parameters are invalid")
+            }
+            if hasElementRef {
+                guard let action = simulatorUIAction(
+                    method: request.method, params: request.params
+                ), action.fitsReceiptDeadline else {
+                    return invalidSimulatorOperation("semantic swipe parameters are invalid")
+                }
+                operation = .uiAction(action)
+                break
+            }
             guard let events = simulatorSwipe(request.params) else {
                 return invalidSimulatorOperation(
                     "swipe requires normalized from_x, from_y, to_x, and to_y coordinates"
@@ -46,10 +132,12 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.button":
-            guard let button = string(request.params, "button") else {
-                return invalidSimulatorOperation("button is required")
+            guard let action = simulatorUIAction(
+                method: request.method, params: request.params
+            ), action.fitsReceiptDeadline else {
+                return invalidSimulatorOperation("button parameters are invalid")
             }
-            operation = .hardwareButton(simulatorButtonName(button))
+            operation = .uiAction(action)
         case "simulator.rotate":
             guard let orientation = actionKey(request.params, "orientation") else {
                 return invalidSimulatorOperation("orientation is required")
@@ -192,8 +280,19 @@ extension ControlCommandCoordinator {
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": outcome.surfaceRef ?? .null,
                 ], uniquingKeysWith: { current, _ in current })))
-            case let .failed(code, message):
-                return simulatorSafeFailure(code: code, diagnostic: message)
+            case let .failed(code, message, failureData):
+                var details: [String: JSONValue] = [
+                    "surface_id": .string(surfaceID.uuidString),
+                    "surface_ref": outcome.surfaceRef ?? .null,
+                ]
+                if case let .object(values)? = failureData {
+                    details.merge(values, uniquingKeysWith: { current, _ in current })
+                }
+                return simulatorSafeFailure(
+                    code: code,
+                    diagnostic: message,
+                    data: details
+                )
             }
         case let .failed(failure):
             return simulatorTargetFailure(failure)

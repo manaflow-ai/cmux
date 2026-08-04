@@ -20,12 +20,16 @@ struct SimulatorChromeButtonStateMachine {
     }
 
     mutating func releaseAll() -> [SimulatorWorkerInbound] {
-        defer { heldButtons.removeAll(keepingCapacity: true) }
+        defer { discardAll() }
         return heldButtons
             .sorted { ($0.page, $0.usage) < ($1.page, $1.usage) }
             .map {
                 .hidButton(SimulatorHIDButtonEvent(button: $0, phase: .up))
             }
+    }
+
+    mutating func discardAll() {
+        heldButtons.removeAll(keepingCapacity: true)
     }
 
     func isHeld(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {

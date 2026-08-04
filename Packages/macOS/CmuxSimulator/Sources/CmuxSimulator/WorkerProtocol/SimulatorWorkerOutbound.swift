@@ -10,6 +10,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case status(SimulatorSessionStatus)
     /// Reports negotiated private and supported capabilities.
     case capabilities(Set<SimulatorCapability>)
+    /// Resolves one optional capability without waiting for unrelated probes.
+    case capabilityResolved(SimulatorCapability, available: Bool)
     /// Reports the final capability set after optional attachment probes finish.
     case capabilitiesHydrated(Set<SimulatorCapability>)
     /// Reports current framebuffer dimensions and orientation.
@@ -39,6 +41,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case scrollWheelEnded(eventID: UUID)
     /// Confirms a correlated native input or diagnostic action.
     case interactiveAction(requestID: UUID, succeeded: Bool)
+    /// Confirms that earlier worker input was handled and all held input was released.
+    case inputQuiesced(requestID: UUID)
     /// Confirms a source-independent camera mirror update.
     case cameraMirror(requestID: UUID, succeeded: Bool)
     /// Confirms camera source setup, injection, and target validation.
@@ -85,6 +89,7 @@ extension SimulatorWorkerOutbound {
              let .textInput(requestID, _),
              let .cameraTargetResolved(requestID, _),
              let .interactiveAction(requestID, _),
+             let .inputQuiesced(requestID),
              let .cameraMirror(requestID, _),
              let .cameraConfiguration(requestID, _, _),
              let .cameraStatus(requestID, _),

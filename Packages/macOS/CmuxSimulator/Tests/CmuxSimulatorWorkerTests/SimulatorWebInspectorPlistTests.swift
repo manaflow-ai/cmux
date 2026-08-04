@@ -34,13 +34,60 @@ struct SimulatorWebInspectorPlistTests {
 
     @Test("Socket buffering has an explicit aggregate byte ceiling")
     func socketQueueCap() {
-        #expect(SimulatorWebInspectorSocket.maximumBufferedBodyCount == 1)
         #expect(
             SimulatorWebInspectorSocket.maximumBufferedBodyBytes
                 == frameCodec.maximumBodyLength
         )
         #expect(SimulatorWebInspectorSocket.maximumBufferedBodyBytes <= 64 * 1024 * 1024)
         #expect(SimulatorWebInspectorSocket.maximumPendingWriteBytes == 4 * 1024 * 1024)
+    }
+
+    @Test("Initial target census bursts remain lossless within the byte ceiling")
+    @MainActor
+    func initialTargetCensusBurst() async throws {
+        var descriptors: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
+        defer { Darwin.close(descriptors[1]) }
+
+        let selectors = [
+            "_rpc_reportConnectedApplicationList:",
+            "_rpc_applicationSentListing:",
+            "_rpc_applicationSentListing:",
+        ]
+        let frames = try selectors.map {
+            try frameCodec.frame(["__selector": $0, "__argument": [:]])
+        }
+        let socket = SimulatorWebInspectorSocket(
+            descriptor: descriptors[0],
+            frameCodec: frameCodec
+        )
+        let payload = frames.reduce(into: Data(), { $0.append($1) })
+        try payload.withUnsafeBytes { raw in
+            guard let baseAddress = raw.baseAddress else { return }
+            var offset = 0
+            while offset < raw.count {
+                let written = Darwin.write(
+                    descriptors[1],
+                    baseAddress.advanced(by: offset),
+                    raw.count - offset
+                )
+                try #require(written > 0)
+                offset += written
+            }
+        }
+        Darwin.shutdown(descriptors[1], SHUT_WR)
+
+        try await Task.sleep(for: .milliseconds(50))
+        var receivedSelectors: [String] = []
+        for await body in socket.messages {
+            let message = try frameCodec.decodeBody(body)
+            if let selector = message["__selector"] as? String {
+                receivedSelectors.append(selector)
+            }
+        }
+
+        #expect(receivedSelectors == selectors)
+        socket.close()
     }
 
     @Test("Large frames survive partial nonblocking socket writes")

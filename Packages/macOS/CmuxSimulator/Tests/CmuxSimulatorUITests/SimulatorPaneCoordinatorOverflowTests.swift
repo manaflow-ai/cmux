@@ -1,9 +1,448 @@
+import AppKit
 import CmuxSimulator
+import SwiftUI
 import Testing
 @testable import CmuxSimulatorUI
 
 @Suite("Simulator pane bounded output")
 struct SimulatorPaneCoordinatorOverflowTests {
+    @Test("A retained semantic touch rejects live pointer input")
+    @MainActor
+    func retainedTouchRejectsLivePointerInput() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let pointer = SimulatorWorkerInbound.pointer(SimulatorPointerEvent(
+            phase: .began,
+            primary: SimulatorPoint(x: 0.25, y: 0.25)
+        ))
+
+        #expect(!coordinator.enqueue(pointer))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await client.messages().contains(pointer)))
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        await coordinator.close()
+    }
+
+    @Test("Rejected live input cleanup preserves a retained semantic touch")
+    @MainActor
+    func rejectedLiveInputPreservesRetainedTouch() {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let view = SimulatorRemoteSurfaceView()
+        var attempted: [SimulatorWorkerInbound] = []
+        view.onMessage = { message in
+            attempted.append(message)
+            return coordinator.enqueue(message)
+        }
+        let point = SimulatorPoint(x: 0.25, y: 0.25)
+        let pointerDown = view.input.pointerBegan(
+            at: point,
+            optionPinch: false
+        )
+
+        view.send(pointerDown)
+
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        #expect(!attempted.contains(.pointer(SimulatorPointerEvent(
+            phase: .cancelled,
+            primary: point
+        ))))
+        #expect(!attempted.contains(.releaseInputs))
+    }
+
+    @Test("A retained semantic touch rejects a second coordinated gesture")
+    @MainActor
+    func retainedTouchRejectsCoordinatedGesture() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+        let point = SimulatorPoint(x: 0.25, y: 0.25)
+
+        do {
+            _ = try await coordinator.perform(.interactive(.gesture([
+                SimulatorPointerEvent(phase: .began, primary: point),
+                SimulatorPointerEvent(phase: .ended, primary: point),
+            ])))
+            Issue.record("Expected the second pointer gesture to be rejected")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "simulator_touch_already_held")
+        } catch {
+            Issue.record("Expected a structured Simulator failure, got \(error)")
+        }
+
+        #expect(coordinator.hasHeldUIAutomationTouch)
+        #expect(await client.actions().isEmpty)
+        await coordinator.close()
+    }
+
+    @Test("A coordinated release clears its retained semantic touch")
+    @MainActor
+    func coordinatedReleaseClearsRetainedTouch() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: point,
+            display: nil
+        )
+
+        _ = try await coordinator.perform(.interactive(.touch(
+            events: [SimulatorPointerEvent(phase: .ended, primary: point)],
+            holdMilliseconds: 0
+        )))
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+        await coordinator.close()
+    }
+
+    @Test("Input release clears a retained semantic touch")
+    @MainActor
+    func inputReleaseClearsRetainedSemanticTouch() {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+
+        coordinator.setActive(false)
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+    }
+
+    @Test("Failed worker touch recovery clears a retained semantic touch")
+    @MainActor
+    func failedWorkerTouchClearsRetainedSemanticTouch() async {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(
+                devices: [],
+                failsInteractiveAction: true
+            )
+        )
+        coordinator.holdUIAutomationTouch(
+            elementRef: "e1_1",
+            point: SimulatorPoint(x: 0.5, y: 0.5),
+            display: nil
+        )
+
+        do {
+            _ = try await coordinator.perform(.interactive(.touch(
+                events: [SimulatorPointerEvent(
+                    phase: .ended,
+                    primary: SimulatorPoint(x: 0.5, y: 0.5)
+                )],
+                holdMilliseconds: 0
+            )))
+            Issue.record("Expected the fixture touch to fail")
+        } catch {}
+
+        #expect(!coordinator.hasHeldUIAutomationTouch)
+    }
+
+    @Test("Semantic snapshot preparation yields the main actor")
+    @MainActor
+    func semanticSnapshotPreparationYieldsMainActor() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        var preparationStarted = false
+        var preparationFinished = false
+        let preparation = Task { @MainActor in
+            preparationStarted = true
+            for capturedAtMilliseconds in 0..<64 {
+                _ = try await coordinator.recordUIAutomationSnapshot(
+                    Self.maximumSnapshot(),
+                    simulatorID: "DEVICE",
+                    capturedAtMilliseconds: Int64(capturedAtMilliseconds),
+                    expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+                )
+            }
+            preparationFinished = true
+        }
+
+        while !preparationStarted {
+            await Task.yield()
+        }
+
+        #expect(!preparationFinished)
+        preparation.cancel()
+        _ = await preparation.result
+    }
+
+    @Test("A dropped UI mutation preserves the last accepted semantic snapshot")
+    @MainActor
+    func droppedMutationPreservesSnapshot() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        for sequence in 0..<SimulatorPaneCoordinator.maximumOutgoingMessageCount {
+            #expect(coordinator.enqueue(.ping(UInt64(sequence))))
+        }
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+
+        #expect(!coordinator.enqueue(.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )))
+        #expect(
+            try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            ).snapshot.sequence == record.snapshot.sequence
+        )
+    }
+
+    @Test("External worker input is rejected during a semantic transaction")
+    @MainActor
+    func workerInputIsRejectedDuringSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let record = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let key = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )
+
+        try await coordinator.withUIAutomationTransaction {
+            let accepted = await Task.detached {
+                await MainActor.run { coordinator.enqueue(key) }
+            }.value
+
+            #expect(!accepted)
+            let current = try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            )
+            #expect(current.snapshot.sequence == record.snapshot.sequence)
+            #expect(!(await client.messages().contains(key)))
+        }
+
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await client.messages().contains(key)))
+        let current = try coordinator.currentUIAutomationSnapshot(
+            nowMilliseconds: 1_001
+        )
+        #expect(current.snapshot.sequence == record.snapshot.sequence)
+    }
+
+    @Test("A semantic transaction drains admitted live input before entry")
+    @MainActor
+    func semanticTransactionQuiescesAdmittedLiveInput() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let keyDown = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )
+        let keyUp = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: 4, phase: .up)
+        )
+        #expect(coordinator.enqueue(keyDown))
+
+        try await coordinator.withUIAutomationTransaction {
+            let delivered = await client.messages()
+            #expect(delivered.contains(keyDown))
+            #expect(delivered.contains(keyUp))
+            let downIndex = try #require(delivered.firstIndex(of: keyDown))
+            let upIndex = try #require(delivered.firstIndex(of: keyUp))
+            #expect(downIndex < upIndex)
+        }
+
+        await coordinator.close()
+    }
+
+    @Test("Semantic cleanup resets renderer-owned input before later events")
+    @MainActor
+    func semanticTransactionResetsRendererInput() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let host = NSHostingView(rootView: SimulatorRemoteSurface(
+            coordinator: coordinator,
+            frameTransport: simulatorFrameTransportDescriptor(98),
+            display: SimulatorDisplayMetadata(
+                width: 390,
+                height: 844,
+                orientation: .portrait,
+                scale: 3
+            ),
+            chrome: nil,
+            allowsPointerInput: true,
+            pointerEntryEventFilter: nil,
+            onRequestPanelFocus: {}
+        ))
+        host.frame = NSRect(x: 0, y: 0, width: 390, height: 844)
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(firstRemoteSurface(in: host))
+        let usage: UInt32 = 0x04
+        let keyDown = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: usage, phase: .down)
+        )
+        let keyUp = SimulatorWorkerInbound.key(
+            SimulatorKeyEvent(usage: usage, phase: .up)
+        )
+
+        view.send(view.input.key(usage: usage, phase: .down))
+        #expect(view.input.heldKeys == [usage])
+
+        try await coordinator.withUIAutomationTransaction {}
+        for _ in 0..<100 where !view.input.heldKeys.isEmpty {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+
+        #expect(await client.messages().contains(keyDown))
+        #expect(await client.messages().contains(keyUp))
+        #expect(view.input.heldKeys.isEmpty)
+        #expect(view.input.key(usage: usage, phase: .up).isEmpty)
+        withExtendedLifetime(host) {}
+        await coordinator.close()
+    }
+
+    @Test("Live input releases are rejected during a semantic transaction")
+    @MainActor
+    func liveInputReleasesAreRejectedDuringSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        _ = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+        let point = SimulatorPoint(x: 0.5, y: 0.5)
+        let button = SimulatorHIDButtonUsage(page: 0x0C, usage: 0xE9)
+        let releases: [SimulatorWorkerInbound] = [
+            .key(SimulatorKeyEvent(usage: 4, phase: .up)),
+            .pointer(SimulatorPointerEvent(phase: .ended, primary: point)),
+            .pointer(SimulatorPointerEvent(phase: .cancelled, primary: point)),
+            .hidButton(SimulatorHIDButtonEvent(button: button, phase: .up)),
+        ]
+
+        try await coordinator.withUIAutomationTransaction {
+            for release in releases {
+                let accepted = await Task.detached {
+                    await MainActor.run { coordinator.enqueue(release) }
+                }.value
+                #expect(!accepted)
+            }
+
+            let delivered = await client.messages()
+            #expect(releases.allSatisfy { !delivered.contains($0) })
+            let current = try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            )
+            #expect(current.snapshot.sequence == 1)
+        }
+    }
+
+    @Test("Input cleanup bypasses an active semantic transaction")
+    @MainActor
+    func inputCleanupBypassesSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        _ = try await coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000,
+            expectedMutationGeneration: coordinator.uiAutomationMutationGeneration
+        )
+
+        try await coordinator.withUIAutomationTransaction {
+            await Task.detached {
+                await MainActor.run { coordinator.releaseInputs() }
+            }.value
+            for _ in 0..<1_000
+                where !(await client.messages().contains(.releaseInputs)) {
+                await Task.yield()
+            }
+            #expect(await client.messages().contains(.releaseInputs))
+            #expect(throws: SimulatorUIAutomationReferenceError.snapshotMissing) {
+                _ = try coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: 1_001
+                )
+            }
+        }
+    }
+
+    @Test("Semantic capture waits for worker-acknowledged input quiescence")
+    @MainActor
+    func semanticCaptureWaitsForWorkerInputQuiescence() async throws {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            defersLiveInputDelivery: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let scroll = SimulatorWorkerInbound.scrollWheel(SimulatorScrollWheelEvent(
+            id: UUID(),
+            anchor: SimulatorPoint(x: 0.5, y: 0.5),
+            deltaX: 0,
+            deltaY: 0.25
+        ))
+        #expect(coordinator.enqueue(scroll))
+
+        try await coordinator.withUIAutomationTransaction {}
+
+        #expect(await client.inputQuiescenceCount() == 1)
+        #expect(!(await client.hasDeferredLiveInput()))
+        let delivered = await client.deliveredMessages()
+        let scrollIndex = try #require(delivered.firstIndex(of: scroll))
+        let releaseIndex = try #require(delivered.lastIndex(of: .releaseInputs))
+        #expect(scrollIndex < releaseIndex)
+        await coordinator.close()
+    }
+
+    @Test("External control input waits for the active semantic transaction")
+    @MainActor
+    func controlInputWaitsForSemanticTransaction() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let action = SimulatorControlAction.interactive(.hardwareButton(.home))
+
+        let deferred = try await coordinator.withUIAutomationTransaction {
+            let task = Task.detached {
+                try await coordinator.perform(action)
+            }
+            for _ in 0..<100 where await client.actions().isEmpty {
+                await Task.yield()
+            }
+            #expect(await client.actions().isEmpty)
+            return task
+        }
+
+        _ = try await deferred.value
+        #expect(await client.actions().count == 1)
+    }
+
     @Test("Outgoing overflow releases held input and stops the worker")
     @MainActor
     func outgoingOverflow() async {
@@ -103,5 +542,85 @@ struct SimulatorPaneCoordinatorOverflowTests {
             isAvailable: true,
             lastBootedAt: nil
         )
+    }
+
+    private static func snapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "root",
+                    role: "Application",
+                    label: "Example",
+                    value: nil,
+                    frame: SimulatorRect(
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 844
+                    ),
+                    isEnabled: true,
+                    children: []
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+    }
+
+    private static func maximumSnapshot() -> SimulatorAccessibilitySnapshot {
+        let children = (0..<499).map { index in
+            SimulatorAccessibilityNode(
+                id: "element-\(index)",
+                role: "Button",
+                label: String(repeating: "Semantic element \(index) ", count: 8),
+                value: "Value \(index)",
+                frame: SimulatorRect(
+                    x: Double(index % 10) * 39,
+                    y: Double(index / 10) * 16,
+                    width: 39,
+                    height: 16
+                ),
+                isEnabled: true,
+                children: []
+            )
+        }
+        return SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "root",
+                    role: "Application",
+                    label: "Maximum semantic tree",
+                    value: nil,
+                    frame: SimulatorRect(
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 844
+                    ),
+                    isEnabled: true,
+                    children: children
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            ),
+            nodeCount: 500
+        )
+    }
+
+    @MainActor
+    private func firstRemoteSurface(in root: NSView) -> SimulatorRemoteSurfaceView? {
+        if let surface = root as? SimulatorRemoteSurfaceView { return surface }
+        for child in root.subviews {
+            if let surface = firstRemoteSurface(in: child) { return surface }
+        }
+        return nil
     }
 }

@@ -19,6 +19,7 @@ final class SimulatorWebInspectorService {
     var socketReaderTask: Task<Void, Never>?
     var currentDeviceIdentifier: String?
     var connectionIdentifier = UUID().uuidString
+    var hasReportedConnectionIdentifier = false
     var catalog = SimulatorWebInspectorTargetCatalog()
     var targetPublicationTask: Task<Void, Never>?
     var targetPublicationGeneration: UInt64 = 0
@@ -81,7 +82,7 @@ final class SimulatorWebInspectorService {
                     self.finishRefresh(authoritative: false)
                 }
                 do {
-                    try sendRPC(selector: "_rpc_reportIdentifier:")
+                    try reportConnectionIdentifierIfNeeded()
                     try sendRPC(selector: "_rpc_getConnectedApplications:")
                 } catch {
                     cancelRefresh(with: error)
@@ -95,10 +96,39 @@ final class SimulatorWebInspectorService {
     }
 
     func attach(targetIdentifier: String) async throws -> SimulatorWebInspectorSessionStatus {
-        guard socket != nil,
-              let deviceIdentifier = currentDeviceIdentifier,
-              let target = catalog.target(id: targetIdentifier) else {
+        guard let deviceIdentifier = currentDeviceIdentifier,
+              let target = catalog.target(selector: targetIdentifier) else {
             throw SimulatorWebInspectorError.targetNotFound
+        }
+        do {
+            return try await attach(
+                target: target,
+                deviceIdentifier: deviceIdentifier
+            )
+        } catch let attachmentError as SimulatorWebInspectorError {
+            guard attachmentError.retriesAttachment else { throw attachmentError }
+            releaseSessionWithoutMutationGate(emit: false)
+            do {
+                _ = try await refreshTargets(deviceIdentifier: deviceIdentifier)
+            } catch {
+                throw attachmentError
+            }
+            guard let refreshedTarget = catalog.target(id: target.id) else {
+                throw attachmentError
+            }
+            return try await attach(
+                target: refreshedTarget,
+                deviceIdentifier: deviceIdentifier
+            )
+        }
+    }
+
+    private func attach(
+        target: SimulatorWebInspectorTarget,
+        deviceIdentifier: String
+    ) async throws -> SimulatorWebInspectorSessionStatus {
+        guard socket != nil, currentDeviceIdentifier == deviceIdentifier else {
+            throw SimulatorWebInspectorError.transportClosed
         }
         if session != nil { try await releaseSession(emit: false) }
         let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: target)
@@ -114,7 +144,8 @@ final class SimulatorWebInspectorService {
             lease.release()
             throw SimulatorWebInspectorError.timedOut("target occupancy refresh")
         }
-        guard let currentTarget = refreshedTargets.first(where: { $0.id == targetIdentifier }) else {
+        guard let currentTarget = catalog.target(id: target.id),
+              refreshedTargets.contains(currentTarget) else {
             lease.release()
             throw SimulatorWebInspectorError.targetNotFound
         }
@@ -270,6 +301,7 @@ final class SimulatorWebInspectorService {
         socket?.close()
         socket = nil
         currentDeviceIdentifier = nil
+        hasReportedConnectionIdentifier = false
         targetPublicationGeneration &+= 1
         targetPublicationTask?.cancel()
         targetPublicationTask = nil
@@ -288,6 +320,7 @@ final class SimulatorWebInspectorService {
         self.socket = socket
         currentDeviceIdentifier = deviceIdentifier
         connectionIdentifier = UUID().uuidString
+        hasReportedConnectionIdentifier = false
         let messages = socket.messages
         socketReaderTask = Task { @MainActor [weak self, weak socket] in
             for await data in messages {
@@ -314,6 +347,12 @@ final class SimulatorWebInspectorService {
             transportEnded(error: error)
             throw error
         }
+    }
+
+    private func reportConnectionIdentifierIfNeeded() throws {
+        guard !hasReportedConnectionIdentifier else { return }
+        try sendRPC(selector: "_rpc_reportIdentifier:")
+        hasReportedConnectionIdentifier = true
     }
 
     func finishRefresh(authoritative: Bool) {
@@ -348,7 +387,7 @@ final class SimulatorWebInspectorService {
         }
         return .webInspector(
             deviceIdentifier: deviceIdentifier,
-            name: "\(bundleIdentifier)|\(target.id)"
+            name: "\(bundleIdentifier)|\(target.pageIdentifier)"
         )
     }
 }
@@ -358,4 +397,19 @@ func simulatorWebInspectorInteger(_ value: Any?) -> Int64? {
     if let value = value as? Int64 { return value }
     if let value = value as? Int { return Int64(value) }
     return nil
+}
+
+private extension SimulatorWebInspectorError {
+    var retriesAttachment: Bool {
+        switch self {
+        case .sessionUnavailable, .transportClosed, .socketFailure:
+            true
+        case .unavailable, .invalidSocketPath, .invalidFrame, .frameTooLarge,
+             .invalidPropertyList, .invalidMessage, .targetNotFound, .targetInUse,
+             .commandTooLarge, .wrapperAcknowledgementBacklog,
+             .wrapperIdentifierCollision, .reservedIdentifier, .timedOut,
+             .remoteCommand:
+            false
+        }
+    }
 }

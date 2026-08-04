@@ -132,6 +132,114 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         ))
     }
 
+    @Test("Interactive mutation invalidates an in-flight accessibility generation")
+    @MainActor
+    func interactiveMutationInvalidatesAccessibilityGeneration() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture(nonblockingWrites: true)
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+
+        #expect(await coordinator.handle(.requestAccessibility(UUID())))
+        await executor.waitForAccessibilityReadCount(1)
+        #expect(coordinator.accessibilitySnapshotTask != nil)
+
+        #expect(await coordinator.handle(.interactiveAction(
+            requestID: UUID(),
+            action: .memoryWarning
+        )))
+
+        #expect(coordinator.accessibilitySnapshotTask == nil)
+        #expect(coordinator.accessibilitySnapshotGeneration == nil)
+        #expect(coordinator.accessibilitySnapshotRequestIdentifiers.isEmpty)
+        await executor.releaseAccessibilityRead()
+    }
+
+    @Test("Cancelling one coalesced accessibility request preserves the other")
+    @MainActor
+    func scopedCancellationPreservesCoalescedAccessibilityRequest() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+        let cancelledRequestIdentifier = UUID()
+        let retainedRequestIdentifier = UUID()
+
+        #expect(await coordinator.handle(.requestAccessibility(
+            cancelledRequestIdentifier
+        )))
+        #expect(await coordinator.handle(.requestAccessibility(
+            retainedRequestIdentifier
+        )))
+        await executor.waitForAccessibilityReadCount(1)
+
+        let cancellationData = Data("""
+        {"cancelAccessibilitySnapshotRequest":{"_0":"\(cancelledRequestIdentifier.uuidString)"}}
+        """.utf8)
+        let cancellation = try JSONDecoder().decode(
+            SimulatorWorkerInbound.self,
+            from: cancellationData
+        )
+        #expect(await coordinator.handle(cancellation))
+
+        #expect(coordinator.accessibilitySnapshotTask != nil)
+        #expect(coordinator.accessibilitySnapshotGeneration != nil)
+        #expect(coordinator.accessibilitySnapshotRequestIdentifiers == [
+            retainedRequestIdentifier
+        ])
+
+        await executor.releaseAccessibilityRead()
+        #expect(try await fixture.receiveAsync() == .accessibility(
+            requestID: retainedRequestIdentifier,
+            GatedAccessibilityExecutor.snapshot
+        ))
+    }
+
+    @Test("A cancellation-blind accessibility read terminates after its hard deadline")
+    @MainActor
+    func accessibilityHardDeadlineTerminatesWorker() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let sleeper = AccessibilityWatchdogSleeper()
+        let terminator = ToolOperationTerminationProbe()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor,
+            toolOperationSleeper: sleeper,
+            toolOperationContainment: SimulatorToolOperationContainment(
+                cancellationGrace: .milliseconds(1),
+                terminate: { terminator.terminate() }
+            )
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+
+        #expect(await coordinator.handle(.requestAccessibility(UUID())))
+        await executor.waitForAccessibilityReadCount(1)
+        for _ in 0..<1_000 where !(await sleeper.deadlineIsArmed) {
+            await Task.yield()
+        }
+        let deadlineIsArmed = await sleeper.deadlineIsArmed
+        #expect(deadlineIsArmed)
+        guard deadlineIsArmed else {
+            await executor.releaseAccessibilityRead()
+            return
+        }
+
+        await sleeper.fireDeadline()
+        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
+        #expect(terminator.count == 1)
+        await executor.releaseAccessibilityRead()
+    }
+
     @Test("Camera setup releases the ordered worker consumer")
     @MainActor
     func cameraSetupDoesNotBlockConsumer() async throws {

@@ -60,6 +60,10 @@ extension SimulatorPaneCoordinator {
         return tasks
     }
 
+    var currentControlActionTaskToken: UUID? {
+        SimulatorControlActionTaskContext.token
+    }
+
     /// Whether the current worker negotiated a capability.
     /// - Parameter capability: The capability to test.
     /// - Returns: `true` when the worker advertised support.
@@ -73,9 +77,39 @@ extension SimulatorPaneCoordinator {
     /// - Returns: The typed result returned by the control client.
     @discardableResult
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        if action.invalidatesUIAutomationSnapshot,
+           !uiAutomationSession.currentTaskOwnsTransaction(
+               controlActionToken: currentControlActionTaskToken
+           ) {
+            return try await withUIAutomationTransaction {
+                try await performAdmittedControlAction(action)
+            }
+        }
+        return try await performAdmittedControlAction(action)
+    }
+
+    private func performAdmittedControlAction(
+        _ action: SimulatorControlAction
+    ) async throws -> SimulatorControlResult {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
+        if action.usesSimulatorPointerInput,
+           !admitsSimulatorPointerInput(
+               releasingHeldUIAutomationTouch:
+                   action.releasesRetainedSimulatorPointerOnly
+           ) {
+            throw SimulatorFailure(
+                code: "simulator_touch_already_held",
+                message: String(
+                    localized: "cli.simulator.error.uiTouchAlreadyHeld",
+                    defaultValue: "A Simulator touch is already being held"
+                ),
+                isRecoverable: true
+            )
+        }
         let generation = selectionGeneration
+        let cursorPlan = SimulatorAgentCursorPlan(action: action, display: display)
+        var cursorToken: UInt64?
         activeControlActions += 1
         isPerformingControlAction = true
         defer {
@@ -83,7 +117,24 @@ extension SimulatorPaneCoordinator {
             isPerformingControlAction = activeControlActions > 0
         }
         do {
+            if let cursorPlan {
+                cursorToken = try await beginAgentCursorPresentation(cursorPlan)
+            }
+            try Task.checkCancellation()
+            guard generation == selectionGeneration, !closed else {
+                throw CancellationError()
+            }
+            if action.invalidatesUIAutomationSnapshot {
+                clearUIAutomationSnapshot()
+            }
             let result = try await client.perform(action)
+            if action.releasesRetainedSimulatorPointerOnly {
+                releaseAllHeldSimulatorInputOwnership()
+            }
+            if generation == selectionGeneration, !closed,
+               let cursorPlan, let cursorToken {
+                completeAgentCursorPresentation(cursorPlan, token: cursorToken)
+            }
             // A returned result is the external commit boundary. Cancellation
             // after it suppresses stale presentation work, not the success.
             guard !Task.isCancelled else { return result }
@@ -93,12 +144,33 @@ extension SimulatorPaneCoordinator {
             appendCoordinatorAction(for: action, succeeded: true)
             return result
         } catch {
+            if case let .interactive(interactiveAction) = action,
+               case .touch = interactiveAction {
+                releaseAllHeldSimulatorInputOwnership()
+            }
+            if generation == selectionGeneration, !closed,
+               let cursorPlan, let cursorToken {
+                cancelAgentCursorPresentation(cursorPlan, token: cursorToken)
+            }
             guard generation == selectionGeneration, !closed else { throw error }
             let failure = simulatorPaneFailure(from: error, code: "control_action_failed")
             controlFailure = failure
             appendCoordinatorAction(for: action, succeeded: false)
             throw failure
         }
+    }
+
+    /// Reads accessibility for automation without publishing pane presentation state.
+    public func readAccessibility(
+        timeout: Duration
+    ) async throws -> SimulatorControlResult {
+        try Task.checkCancellation()
+        guard !closed else { throw CancellationError() }
+        let generation = selectionGeneration
+        let result = try await client.readAccessibility(timeout: timeout)
+        try Task.checkCancellation()
+        guard generation == selectionGeneration, !closed else { throw CancellationError() }
+        return result
     }
 
     /// Refreshes the installed application list.

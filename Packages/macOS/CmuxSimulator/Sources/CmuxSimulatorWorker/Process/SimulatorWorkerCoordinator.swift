@@ -40,6 +40,8 @@ final class SimulatorWorkerCoordinator {
     var foregroundApplicationGeneration: UUID?
     var foregroundApplicationRequestIdentifiers: [UUID] = []
     var accessibilitySnapshotTask: Task<Void, Never>?
+    var accessibilitySnapshotDeadlineTask: Task<Void, Never>?
+    var accessibilitySnapshotCancellationGraceTask: Task<Void, Never>?
     var accessibilitySnapshotGeneration: UUID?
     var accessibilitySnapshotRequestIdentifiers: [UUID] = []
     var accessibilitySnapshotDeviceIdentifier: String?
@@ -101,6 +103,9 @@ final class SimulatorWorkerCoordinator {
     /// Applies one command after every preceding command in the pipe.
     /// - Returns: `false` when the worker should exit cleanly.
     func handle(_ message: SimulatorWorkerInbound) async -> Bool {
+        if message.invalidatesUIAutomationSnapshot {
+            cancelAccessibilitySnapshotRequests()
+        }
         switch message {
         case .ping(let sequence):
             send(.ack(sequence))
@@ -420,6 +425,10 @@ final class SimulatorWorkerCoordinator {
             send(.accessibilityHighlight(requestID: requestIdentifier, applied: applied))
         case .requestAccessibility(let requestIdentifier):
             requestAccessibility(requestIdentifier: requestIdentifier)
+        case .cancelAccessibilitySnapshotRequest(let requestIdentifier):
+            cancelAccessibilitySnapshotRequest(requestIdentifier: requestIdentifier)
+        case .cancelAccessibilitySnapshotRequests:
+            cancelAccessibilitySnapshotRequests()
         case .requestForegroundApplication(let requestIdentifier):
             requestForegroundApplication(requestIdentifier: requestIdentifier)
         case .requestWebInspectorTargets(let requestIdentifier, let deviceIdentifier):
@@ -485,6 +494,11 @@ final class SimulatorWorkerCoordinator {
             scrollWheel?.cancel()
             hid?.releaseInputs()
             hidCapture.setMode(.none, device: attachedDevice)
+        case let .quiesceInput(requestIdentifier):
+            scrollWheel?.cancel()
+            hid?.releaseInputs()
+            hidCapture.setMode(.none, device: attachedDevice)
+            send(.inputQuiesced(requestID: requestIdentifier))
         case .terminateRenderer:
             #if DEBUG
                 _exit(86)

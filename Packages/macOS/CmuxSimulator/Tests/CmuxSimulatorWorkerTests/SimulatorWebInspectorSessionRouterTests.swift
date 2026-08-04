@@ -15,7 +15,9 @@ struct SimulatorWebInspectorSessionRouterTests {
         let wrappedData = try #require(creationResult.messagesForTarget.first)
         let wrapped = try Self.object(wrappedData)
         #expect(wrapped["method"] as? String == "Target.sendMessageToTarget")
+        #expect(wrapped["id"] is NSNumber)
         let parameters = try #require(wrapped["params"] as? [String: Any])
+        #expect(Set(parameters.keys) == ["message", "targetId"])
         #expect(parameters["targetId"] as? String == "INNER")
         #expect(parameters["message"] as? String == String(decoding: command, as: UTF8.self))
 
@@ -125,8 +127,8 @@ struct SimulatorWebInspectorSessionRouterTests {
         let command = Data(#"{"id":"same","method":"Runtime.evaluate"}"#.utf8)
         let firstWrapper = try #require(try router.routeOutgoing(command).first)
         let secondWrapper = try #require(try router.routeOutgoing(command).first)
-        #expect(try Self.object(firstWrapper)["id"] as? String
-            != (try Self.object(secondWrapper)["id"] as? String))
+        #expect((try Self.object(firstWrapper)["id"] as? NSNumber)?.int64Value
+            != (try Self.object(secondWrapper)["id"] as? NSNumber)?.int64Value)
 
         let inner = #"{"id":"same","result":{"value":1}}"#
         let dispatched = try JSONSerialization.data(withJSONObject: [
@@ -148,7 +150,7 @@ struct SimulatorWebInspectorSessionRouterTests {
         let wrapped = try #require(try router.routeOutgoing(Data(
             #"{"id":1,"method":"Runtime.enable"}"#.utf8
         )).first)
-        let wrapperID = try #require(try Self.object(wrapped)["id"] as? String)
+        let wrapperID = try #require(try Self.object(wrapped)["id"] as? NSNumber)
         let direct = try JSONSerialization.data(withJSONObject: [
             "id": wrapperID,
             "method": "Target.getTargets",
@@ -156,6 +158,27 @@ struct SimulatorWebInspectorSessionRouterTests {
         #expect(throws: SimulatorWebInspectorError.wrapperIdentifierCollision) {
             _ = try router.routeOutgoing(direct)
         }
+    }
+
+    @Test("Direct Target commands cannot claim the future wrapper namespace")
+    func futureWrapperIdentifierCollision() throws {
+        var router = SimulatorWebInspectorSessionRouter()
+        _ = router.selectTargetBasedMode(targetIdentifier: "INNER")
+        let direct = Data(
+            #"{"id":8000000000000000,"method":"Target.getTargets"}"#.utf8
+        )
+
+        #expect(throws: SimulatorWebInspectorError.wrapperIdentifierCollision) {
+            _ = try router.routeOutgoing(direct)
+        }
+
+        let wrapped = try #require(try router.routeOutgoing(Data(
+            #"{"id":1,"method":"Runtime.enable"}"#.utf8
+        )).first)
+        #expect(
+            (try Self.object(wrapped)["id"] as? NSNumber)?.int64Value
+                == 8_000_000_000_000_000
+        )
     }
 
     @Test("A direct Target command may reuse the embedded user id before the wrapper ack")

@@ -14,6 +14,8 @@ extension CMUXCLI {
         switch output {
         case .completed:
             print(String(localized: "cli.simulator.output.accepted", defaultValue: "Completed"))
+        case .uiAction:
+            print(simulatorUIActionOutput(payload))
         case .eventLog:
             for event in payload["events"] as? [[String: Any]] ?? [] {
                 let timestamp = simulatorTerminalText(event["timestamp"] as? String ?? "")
@@ -53,9 +55,57 @@ extension CMUXCLI {
             ))
         case .accessibility:
             printSimulatorAccessibility(payload)
+        case .uiSnapshot:
+            printSimulatorUISnapshot(payload)
+        case .uiWait:
+            let predicate = simulatorTerminalText(payload["predicate"] as? String ?? "")
+            let count = (payload["matches"] as? [[String: Any]])?.count ?? 0
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.simulator.output.uiWaitMatched",
+                    defaultValue: "Matched %@ with %lld element(s)"
+                ),
+                predicate,
+                Int64(count)
+            ))
         case .foregroundApplication:
             printSimulatorForegroundApplication(payload)
         }
+    }
+
+    func simulatorUIActionOutput(_ payload: [String: Any]) -> String {
+        guard payload["completed"] as? Bool == false
+                || payload["snapshot_warning"] != nil
+                || payload["ui_error"] != nil else {
+            return String(
+                localized: "cli.simulator.output.accepted",
+                defaultValue: "Completed"
+            )
+        }
+        let reportedKeys = [
+            "completed",
+            "snapshot_warning",
+            "action",
+            "ui_error",
+        ]
+        return jsonString(reportedKeys.reduce(into: [String: Any]()) { result, key in
+            if let value = payload[key] { result[key] = value }
+        })
+    }
+
+    func simulatorUIActionFailure(_ payload: [String: Any]) -> CLIError? {
+        guard payload["completed"] as? Bool == false else { return nil }
+        let errorPayload = payload["ui_error"] as? [String: Any]
+        let detail = (errorPayload?["message"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = detail.flatMap { $0.isEmpty ? nil : $0 } ?? String(
+            localized: "cli.simulator.error.operationFailed",
+            defaultValue: "The Simulator operation failed"
+        )
+        return CLIError(
+            message: message,
+            v2Code: errorPayload?["code"] as? String
+        )
     }
 
     func printSimulatorPermissions(_ payload: [String: Any]) {
@@ -127,6 +177,7 @@ extension CMUXCLI {
 
     func oneSimulatorValue(_ arguments: SimulatorArguments) -> String? {
         guard !arguments.readsStandardInput, arguments.file == nil,
+              !arguments.hasAccessibilitySelector,
               arguments.positionals.count == 1 else { return nil }
         return arguments.positionals[0]
     }
@@ -142,6 +193,7 @@ extension CMUXCLI {
     func simulatorButtonName(_ raw: String) -> String {
         let normalized = raw.lowercased()
         return switch normalized {
+        case "apple-pay", "apple_pay", "applepay": "applePay"
         case "swipe-home", "swipe_home", "swipehome": "swipeHome"
         case "app-switcher", "app_switcher", "appswitcher": "appSwitcher"
         case "side-button", "side_button", "sidebutton": "sideButton"
@@ -215,6 +267,38 @@ extension CMUXCLI {
         let executable = simulatorTerminalText(application["executable"] as? String ?? "")
         let bundlePath = simulatorTerminalText(application["bundle_path"] as? String ?? "")
         print("\(name)\t\(bundleIdentifier)\t\(processIdentifier)\t\(executable)\t\(bundlePath)")
+    }
+
+    func printSimulatorUISnapshot(_ payload: [String: Any]) {
+        if payload["type"] as? String == "runtime-snapshot-unchanged" {
+            let hash = simulatorTerminalText(payload["screen_hash"] as? String ?? "")
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.simulator.output.uiSnapshotUnchanged",
+                    defaultValue: "Unchanged %@"
+                ),
+                hash
+            ))
+            return
+        }
+        let elements = payload["elements"] as? [[String: Any]] ?? []
+        for element in elements {
+            let ref = simulatorTerminalText(element["ref"] as? String ?? "?")
+            let role = simulatorTerminalText(element["role"] as? String ?? "")
+            let label = simulatorTerminalText(element["label"] as? String ?? "")
+            let value = simulatorTerminalText(element["value"] as? String ?? "")
+            let identifier = simulatorTerminalText(element["identifier"] as? String ?? "")
+            let actions = (element["actions"] as? [String] ?? [])
+                .map(simulatorTerminalText)
+                .joined(separator: ",")
+            print([ref, role, label, value, identifier, actions].joined(separator: "\t"))
+        }
+        if payload["truncated"] as? Bool == true {
+            print(String(
+                localized: "cli.simulator.output.uiSnapshotTruncated",
+                defaultValue: "The Simulator UI snapshot reached its element limit"
+            ))
+        }
     }
 
     func simulatorTerminalText(_ value: String) -> String {

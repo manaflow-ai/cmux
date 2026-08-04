@@ -49,8 +49,9 @@ final class SimulatorRemoteSurfaceEdgeEntryHarness {
             buttons: []
         )
         view.onMessage = { [weak self] message in
-            guard case let .pointer(event) = message else { return }
+            guard case let .pointer(event) = message else { return true }
             self?.pointerEvents.append(event)
+            return true
         }
     }
 
