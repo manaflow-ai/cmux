@@ -51,6 +51,11 @@ kill_stale_app_host() {
     pkill -f "${ci_app_host_root%/}/.*Build/Products/.*cmux DEV" 2>/dev/null || true
 }
 
+test_assertion_failure_pattern='Executed [0-9]+ tests?, with [1-9][0-9]* failures?|Test Case .* failed|✘ Test .* (recorded an issue|failed after)|✘ Suite .* failed after|Test run with .* failed'
+log_contains_test_assertion_failure() {
+  LC_ALL=C grep -Eq "$test_assertion_failure_pattern" "$1"
+}
+
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
@@ -75,6 +80,17 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
   if grep -Fq 'SocketControlServer: Listening on /tmp/cmux-debug.sock' "$log_path"; then
     echo "FAIL: app-host listener used default debug socket instead of an XCTest-scoped socket" >&2
+    exit 1
+  fi
+
+  # xcodebuild can restart an app host after a crash and finish with a clean
+  # summary for only the remaining tests. The noninteractive timeout helper can
+  # likewise return success after a passing XCTest summary even when a later
+  # Swift Testing phase reported issues. Inspect every attempt's complete log
+  # before considering either an infrastructure retry or a successful exit.
+  if log_contains_test_assertion_failure "$log_path"; then
+    echo "FAIL: app-host test assertion failure detected in attempt $attempt; refusing to continue" >&2
+    LC_ALL=C grep -E "$test_assertion_failure_pattern" "$log_path" | tail -20 >&2 || true
     exit 1
   fi
 
