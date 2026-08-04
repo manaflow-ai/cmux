@@ -99,7 +99,29 @@ extension SidebarGitMetadataService {
         isLastAttempt: Bool,
         reason: String
     ) {
-        guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
+        guard let host, host.workspaceExists(probeKey.workspaceId) else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard host.panelExists(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId) else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard !host.shouldSkipLocalGitMetadata(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        ) else {
+            clearWorkspaceGitProbeTracking(for: probeKey)
+            return
+        }
+        guard host.gitProbeDirectory(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )?.normalizedGitProbeDirectory == expectedDirectory else {
+            clearWorkspaceGitProbe(probeKey)
+            return
+        }
+        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspaceGitProbeStateByKey[probeKey] = .idle
             scheduleWorkspaceGitMetadataRefreshIfPossible(
                 workspaceId: probeKey.workspaceId,
@@ -107,7 +129,7 @@ extension SidebarGitMetadataService {
                 reason: "mobileHostDeferred",
                 delays: [max(
                     mobileHostDeferral.deferralInterval,
-                    host?.mobileHostQuietDelay(for: mobileHostDeferral.quietInterval) ?? 0
+                    host.mobileHostQuietDelay(for: mobileHostDeferral.quietInterval)
                 )]
             )
             return
