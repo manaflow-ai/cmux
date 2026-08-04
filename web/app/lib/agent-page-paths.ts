@@ -6,6 +6,7 @@ import {
   PLATFORM_DOWNLOADS,
   type DownloadPlatform,
 } from "./download";
+import { changelogPath } from "./changelog";
 import {
   englishFallbackContentLocales,
   fallbackContentLocales,
@@ -439,8 +440,19 @@ const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
   const page = agentReadablePageByPath.get(path);
-  if (!page) return false;
-  return !locale || !page.locales || page.locales.includes(locale);
+  if (page) {
+    return !locale || !page.locales || page.locales.includes(locale);
+  }
+
+  return isChangelogVersionPage(path);
+}
+
+function isChangelogVersionPage(path: string): boolean {
+  const prefix = `${changelogPath}/`;
+  if (!path.startsWith(prefix)) return false;
+
+  const version = path.slice(prefix.length);
+  return version.length > 0 && !version.includes("/");
 }
 
 function basePagePath(canonicalPath: string): { path: string; locale: string | null } {
