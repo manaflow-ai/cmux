@@ -353,7 +353,11 @@ async function publishPendingCompletion(
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
   };
-  if (feedDelivered) {
+  if (completion.suppressNotification) {
+    // Stop normally creates cmux's native fallback notification when no explicit
+    // notification was routed. Mark intentional interruption as already handled.
+    stopPayload.cmux_notification_routed = true;
+  } else if (feedDelivered) {
     const notificationRouted = await sendHook(dispatcher, "notification", context, {
       message: completion.lastAssistantMessage || "Task completed",
       turn_id: completion.turnId,
@@ -453,12 +457,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = context.sessionId;
     if (!sessionId) return;
     const state = stateFor(sessionStates, sessionId);
-    const message = lastAssistantMessage(event);
+    const assistantCompletion = assistantCompletionFrom(event);
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
-      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
+      lastAssistantMessage: assistantCompletion.lastAssistantMessage || state.pendingCompletion?.lastAssistantMessage,
       notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
       turnId: currentTurnId(sessionStates, sessionId, event),
+      suppressNotification: assistantCompletion.suppressNotification,
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
     if (!supportsAgentSettled()) {
