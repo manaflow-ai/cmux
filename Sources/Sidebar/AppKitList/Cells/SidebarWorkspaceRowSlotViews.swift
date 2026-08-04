@@ -23,7 +23,7 @@ extension NSTextField {
     }
 }
 
-/// Adaptive unread-count capsule shared by workspace and group rows.
+/// Adaptive unread-count badge shared by workspace and group rows.
 /// Draws directly so the glyph is optically centered without NSTextField's
 /// asymmetric cell insets.
 @MainActor
@@ -90,7 +90,7 @@ final class SidebarRowUnreadBadgeView: NSView {
     func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
         let height = ceil(max(minimumHeight, textLineHeight + 2))
         return NSSize(
-            width: ceil(max(height + 2, textAdvance + horizontalPadding * 2)),
+            width: ceil(max(height, textAdvance + horizontalPadding * 2)),
             height: height
         )
     }
@@ -104,16 +104,15 @@ final class SidebarRowUnreadBadgeView: NSView {
         super.draw(dirtyRect)
         guard let textLine, let context = NSGraphicsContext.current?.cgContext else { return }
 
-        // Keep the status slot at its stable layout height while drawing a
-        // quieter, slimmer capsule inside it. A two-point width bias prevents
-        // single digits from reading as oversized circular dots.
-        let verticalInset = bounds.height / 14
-        let capsuleRect = bounds.insetBy(dx: 0, dy: verticalInset)
+        // Single digits occupy a square and therefore render as circles.
+        // Wider counts expand horizontally into capsules without changing
+        // their height or optical glyph centering.
+        let badgeRect = bounds
         fillColor.setFill()
         NSBezierPath(
-            roundedRect: capsuleRect,
-            xRadius: capsuleRect.height / 2,
-            yRadius: capsuleRect.height / 2
+            roundedRect: badgeRect,
+            xRadius: badgeRect.height / 2,
+            yRadius: badgeRect.height / 2
         ).fill()
 
         // CTLine's glyph-path bounds exclude advance-width side bearings and
@@ -122,8 +121,8 @@ final class SidebarRowUnreadBadgeView: NSView {
         context.saveGState()
         context.textMatrix = .identity
         context.textPosition = CGPoint(
-            x: capsuleRect.midX - textInkBounds.midX,
-            y: capsuleRect.midY - textInkBounds.midY
+            x: badgeRect.midX - textInkBounds.midX,
+            y: badgeRect.midY - textInkBounds.midY
         )
         CTLineDraw(textLine, context)
         context.restoreGState()

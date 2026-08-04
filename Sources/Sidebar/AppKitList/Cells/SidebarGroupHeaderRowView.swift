@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
 ///
-/// Renders the collapsible group header (pin, chevron, name, unread capsule,
+/// Renders the collapsible group header (pin, chevron, name, unread badge,
 /// hover-revealed plus button) without any SwiftUI
 /// hosting so scroll, hover, and reconfigure stay off the AttributeGraph.
 /// Layout is manual: subviews are created once and framed in `layout()`.
@@ -16,10 +16,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let nameField = NSTextField(labelWithString: "")
-    // Direct-draw capsule shared with workspace rows, avoiding NSTextField's
+    // Direct-draw badge shared with workspace rows, avoiding NSTextField's
     // asymmetric cell insets for small counts.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
-    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .regular)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -184,7 +184,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         if showsBadge {
             unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
-                weight: .semibold
+                weight: .regular
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,

@@ -614,7 +614,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor()
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
-        let badgeFont = NSFont.systemFont(ofSize: model.scaled(8.5), weight: .semibold)
+        let badgeFont = NSFont.systemFont(ofSize: model.scaled(8.5), weight: .regular)
         let unreadAccessibilityLabel = SidebarRowUnreadBadgeView.accessibilityLabel(
             forUnreadCount: model.unreadCount
         )
