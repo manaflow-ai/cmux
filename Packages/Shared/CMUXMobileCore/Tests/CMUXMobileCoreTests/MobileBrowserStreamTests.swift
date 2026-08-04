@@ -217,6 +217,23 @@ struct MobileBrowserStreamTests {
     }
 
     @Test
+    func fullUnackedWindowRecoversAfterAckStallInsteadOfDeadlocking() {
+        var pacing = MobileBrowserStreamPacing()
+        pacing.noteDirty(at: 0)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 1, at: 0) == 1)
+        pacing.noteDirty(at: 0.04)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 2, at: 0.04) == 2)
+        pacing.noteDirty(at: 0.08)
+        #expect(pacing.recordEmission(format: .jpeg, observedDirtyGeneration: 3, at: 0.08) == 3)
+        // No acknowledgement ever arrives: the subscriber never saw these
+        // frames (not yet wired, or the connection route swapped). The stream
+        // must not deadlock waiting for acks that cannot come; after the
+        // stall timeout it abandons the window and captures fresh.
+        #expect(pacing.decision(at: 60) == .captureJPEG(dirtyGeneration: 4))
+        #expect(pacing.unackedSequences.isEmpty)
+    }
+
+    @Test
     func replayedInputMarksStreamDirtyAndRequestsCapture() {
         var pacing = MobileBrowserStreamPacing()
         #expect(pacing.decision(at: 42) == .idle)
