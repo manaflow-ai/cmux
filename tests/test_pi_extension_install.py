@@ -6,6 +6,7 @@ Regression test: the generated Pi extension is importable and emits cmux hook ca
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
 from contextlib import contextmanager
 import fcntl
 import json
@@ -18,13 +19,13 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Iterator
 
 from claude_teams_test_utils import (
     FOCUSED_SURFACE_ID,
     FOCUSED_WORKSPACE_ID,
     install_pi_extension,
     resolve_cmux_cli,
+    set_pi_extension_pinned_cli,
 )
 
 NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
@@ -179,6 +180,8 @@ def auto_naming_socket_server(
     workspace_id: str,
     surface_id: str,
 ) -> Iterator[tuple[str, _AutoNamingSocketServer]]:
+    # Pin to /tmp: macOS AF_UNIX paths are limited to roughly 104 bytes, while
+    # the default TMPDIR under /var/folders can exceed that limit.
     with tempfile.TemporaryDirectory(prefix="cmux-pi-autoname-socket-", dir="/tmp") as socket_dir:
         socket_path = str(Path(socket_dir) / "cmux.sock")
         server = _AutoNamingSocketServer(socket_path, workspace_id, surface_id)
@@ -196,9 +199,13 @@ def check_auto_naming_from_generated_hook_environment(
     *,
     bun: str,
     root: Path,
-    extension_path: Path,
     cli_path: str,
 ) -> int:
+    try:
+        extension_path = install_pi_extension(root / "auto-name-pi-agent", cli_path)
+    except RuntimeError as exc:
+        print(f"FAIL: auto-name Pi extension install failed: {exc}")
+        return 1
     workspace_id = "11111111-1111-4111-8111-111111111111"
     surface_id = "44444444-4444-4444-8444-444444444444"
     session_id = "pi-auto-name-restricted-environment"
@@ -387,6 +394,17 @@ def main() -> int:
 
         if "@earendil-works/pi-coding-agent" not in extension_text:
             print("FAIL: generated Pi extension does not import the current Pi package")
+            return 1
+        pinned_line = next(
+            (line for line in extension_text.splitlines() if "// cmux-pinned-executable" in line),
+            "",
+        )
+        try:
+            pinned_cli_path = Path(json.loads(pinned_line.split("=", 1)[1].split(";", 1)[0].strip()))
+        except (IndexError, json.JSONDecodeError, TypeError):
+            pinned_cli_path = Path()
+        if not pinned_cli_path.is_file() or not pinned_cli_path.samefile(cli_path):
+            print("FAIL: generated Pi extension did not pin the installing cmux executable")
             return 1
 
         extension_path.write_text(
@@ -695,6 +713,7 @@ printf '%s\n' "$record" >> "$CMUX_TEST_PI_SHADOW_ENV_LOG"
 exec "$CMUX_TEST_PI_TRUSTED_CLI" "$@"
 """,
         )
+        set_pi_extension_pinned_cli(extension_path, fake_cmux)
 
         check_env = env.copy()
         for key in (
@@ -709,7 +728,7 @@ exec "$CMUX_TEST_PI_TRUSTED_CLI" "$@"
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
         check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
         check_env["CMUX_PI_CMUX_BIN"] = "cmux"
-        check_env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(shadow_cmux)
         check_env["CMUX_TEST_PI_ARGS_LOG"] = str(fake_args_log)
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
@@ -1461,8 +1480,13 @@ await waitForCompletionHookCount(completionCount);
 
         untrusted_state_dir = root / "untrusted-cmux-state"
         untrusted_state_dir.mkdir()
+        untrusted_extension_path = root / "untrusted-cmux-session.ts"
+        shutil.copyfile(extension_path, untrusted_extension_path)
+        set_pi_extension_pinned_cli(untrusted_extension_path, None)
         untrusted_env = check_env.copy()
-        untrusted_env["CMUX_BUNDLED_CLI_PATH"] = "cmux"
+        untrusted_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(untrusted_extension_path)
+        untrusted_env.pop("CMUX_PI_CMUX_BIN", None)
+        untrusted_env["CMUX_BUNDLED_CLI_PATH"] = str(shadow_cmux)
         untrusted_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(untrusted_state_dir)
         untrusted_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
@@ -1528,7 +1552,6 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
         auto_name_result = check_auto_naming_from_generated_hook_environment(
             bun=bun,
             root=root,
-            extension_path=extension_path,
             cli_path=cli_path,
         )
         if auto_name_result != 0:

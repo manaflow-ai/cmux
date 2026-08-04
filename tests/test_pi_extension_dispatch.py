@@ -10,7 +10,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
+from claude_teams_test_utils import (
+    install_pi_extension,
+    resolve_cmux_cli,
+    set_pi_extension_pinned_cli,
+)
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -27,6 +31,7 @@ def run_extension(
     source: str,
     extra_env: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
+    set_pi_extension_pinned_cli(extension_path, fake_cmux)
     env = os.environ.copy()
     env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
     env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)

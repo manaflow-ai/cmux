@@ -11,6 +11,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+// Replaced at install/refresh from the running cmux process, never from hook environment.
+const pinnedCmuxExecutable: string | null = null; // cmux-pinned-executable
+
 type HookExtra = Record<string, unknown>;
 
 interface PendingCompletion {
@@ -592,8 +595,8 @@ interface CmuxExecutableResolution {
   trustedForCredentials: boolean;
 }
 
-function trustedBundledCmuxExecutable(): string | null {
-  const configured = firstString(process.env.CMUX_BUNDLED_CLI_PATH);
+function trustedPinnedCmuxExecutable(): string | null {
+  const configured = firstString(pinnedCmuxExecutable);
   if (!configured || !path.isAbsolute(configured)) return null;
   try {
     const resolved = fs.realpathSync(configured);
@@ -606,10 +609,10 @@ function trustedBundledCmuxExecutable(): string | null {
 }
 
 function resolveCmuxExecutable(): CmuxExecutableResolution {
-  const bundled = trustedBundledCmuxExecutable();
-  if (bundled) return { executable: bundled, trustedForCredentials: true };
+  const pinned = trustedPinnedCmuxExecutable();
+  if (pinned) return { executable: pinned, trustedForCredentials: true };
   return {
-    executable: process.env.CMUX_PI_CMUX_BIN || "cmux",
+    executable: process.env.CMUX_PI_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux",
     trustedForCredentials: false,
   };
 }
