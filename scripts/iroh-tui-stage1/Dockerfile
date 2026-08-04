@@ -11,7 +11,7 @@ RUN apt-get update \
 WORKDIR /source
 COPY . .
 RUN ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT=/opt/zig ./scripts/install-zig-ci.sh \
-    && zig_version="$(./scripts/ghostty-zig-version.sh)" \
+    && zig_version="$(bash ./scripts/ghostty-zig-version.sh)" \
     && ln -s "/opt/zig/zig-$(uname -m)-linux-${zig_version}/zig" /usr/local/bin/zig \
     && /usr/local/bin/zig version
 ENV ZIG=/usr/local/bin/zig
