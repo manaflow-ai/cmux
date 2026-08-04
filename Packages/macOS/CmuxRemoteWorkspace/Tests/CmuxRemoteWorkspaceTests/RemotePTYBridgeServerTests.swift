@@ -13,6 +13,7 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
     var supportsInputSeqAck = false
+    var replayByteCount = 0
 
     var writes: [Data] {
         lock.lock()
@@ -58,7 +59,11 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
         _onEvent = onEvent
         _eventQueue = queue
         lock.unlock()
-        return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "attach-token-1")
+        return RemotePTYBridgeAttachment(
+            attachmentID: attachmentID,
+            token: "attach-token-1",
+            replayByteCount: replayByteCount
+        )
     }
 
     func writePTY(
@@ -224,6 +229,7 @@ struct RemotePTYBridgeServerTests {
     @Test("a valid handshake attaches and the bridge pumps both directions")
     func handshakeAttachesAndPumps() throws {
         let rpc = RecordingPTYBridgeRPCClient()
+        rpc.replayByteCount = 6
         let server = makeServer(client: rpc)
         defer { server.stop() }
         let endpoint = try server.start()
@@ -235,7 +241,9 @@ struct RemotePTYBridgeServerTests {
         // The bridge answers with the newline-terminated ready status line
         // carrying the daemon attachment token (wire-pinned shape).
         #expect(client.waitForReceived { data, _ in
-            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"attach-token-1\"")
+            let status = String(decoding: data, as: UTF8.self)
+            return status.contains("\"attachment_token\":\"attach-token-1\"") &&
+                status.contains("\"replay_bytes\":6")
         })
 
         // Client input is forwarded to pty.write.

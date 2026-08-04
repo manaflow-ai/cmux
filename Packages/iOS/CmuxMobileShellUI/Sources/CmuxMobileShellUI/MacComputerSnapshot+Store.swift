@@ -36,13 +36,16 @@ extension MacComputerSnapshot {
             )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            let exactConnectionStatus = MobileShellComposite.exactPairingConnectionStatus(
-                deviceStatus: connectionStatuses[mac.macDeviceID],
-                connectedMacDeviceID: store.connectedMacDeviceID,
-                connectedMacInstanceTag: store.connectedMacInstanceTag,
-                rowMacDeviceID: mac.macDeviceID,
-                rowInstanceTag: mac.instanceTag
-            )
+            // Secondary state is pairing-keyed; the foreground/legacy entry
+            // stays under the bare device key, refined to the exact pairing.
+            let exactConnectionStatus = connectionStatuses[mac.id]
+                ?? MobileShellComposite.exactPairingConnectionStatus(
+                    deviceStatus: connectionStatuses[mac.macDeviceID],
+                    connectedMacDeviceID: store.connectedMacDeviceID,
+                    connectedMacInstanceTag: store.connectedMacInstanceTag,
+                    rowMacDeviceID: mac.macDeviceID,
+                    rowInstanceTag: mac.instanceTag
+                )
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
@@ -57,7 +60,10 @@ extension MacComputerSnapshot {
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
+                workspaceCount: store.workspaceCount(
+                    for: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ),
                 aliasIDs: aliases
             )
         }
