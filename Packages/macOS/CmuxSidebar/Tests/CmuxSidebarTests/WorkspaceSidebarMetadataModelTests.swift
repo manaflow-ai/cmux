@@ -153,7 +153,7 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(emitted.last == [:])
     }
 
-    @Test func panelRepositoryLinksPublisherSeedsUpdatesAndClearsImmutableState() {
+    @Test func repositoryLinkChangesSeedUpdatesAndClearsImmutableState() async {
         let model = makeModel()
         let panelID = UUID()
         let link = SidebarRepositoryLinkState(
@@ -161,17 +161,18 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
             displayName: "manaflow-ai/cmux",
             url: URL(string: "https://github.com/manaflow-ai/cmux")!
         )
-        var emitted: [[UUID: SidebarRepositoryLinkState]] = []
-        let cancellable = model.panelRepositoryLinksPublisher
-            .sink { emitted.append($0) }
-        defer { cancellable.cancel() }
-
-        #expect(emitted == [[:]])
+        var changes = model.repositoryLinkChanges().makeAsyncIterator()
+        let initialChange: Void? = await changes.next()
+        #expect(initialChange != nil)
 
         model.updatePanelRepositoryLinks([panelID: link])
-        #expect(emitted == [[:], [panelID: link]])
+        let updateChange: Void? = await changes.next()
+        #expect(updateChange != nil)
+        #expect(model.panelRepositoryLinks == [panelID: link])
 
         model.updatePanelRepositoryLinks([:])
-        #expect(emitted == [[:], [panelID: link], [:]])
+        let clearChange: Void? = await changes.next()
+        #expect(clearChange != nil)
+        #expect(model.panelRepositoryLinks.isEmpty)
     }
 }
