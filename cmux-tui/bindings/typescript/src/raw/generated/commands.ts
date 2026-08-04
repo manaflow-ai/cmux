@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7. */
+/* cmux-tui mux protocol 10, IR ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a. */
 
 
 import type * as T from "./types.js";
@@ -241,6 +241,25 @@ export interface CopyRequest extends CmuxRequestBase {
   "mode": "screen" | "selection" | "scrollback";
   "surface": T.Id;
 }
+
+/** Protocol v10; authority: control. */
+export interface CreateSurfaceWithReceiptRequest extends CmuxRequestBase {
+  cmd: "create-surface-with-receipt";
+  "argv"?: (Array<string>) | null;
+  "cols"?: (number) | null;
+  "cwd"?: (string) | null;
+  "operation": "new-tab" | "run-command" | "new-browser-tab" | "new-workspace" | "new-screen" | "new-pane" | "new-pane-right" | "split-right" | "split-down";
+  "origin": string;
+  "pane"?: (T.Id) | null;
+  "receipt": string;
+  "rows"?: (number) | null;
+  "selector_fallbacks"?: Array<T.ResourceSelectors>;
+  "selectors"?: (T.ResourceSelectors) | null;
+  "url"?: (string) | null;
+  "width"?: (number) | null;
+  "workspace"?: (T.Id) | null;
+}
+export type CreateSurfaceWithReceiptResult = T.ReceiptedSurfaceResult;
 
 /** Protocol v7; authority: control. */
 export interface CreateTerminalRequest extends CmuxRequestBase {
@@ -530,6 +549,14 @@ export interface ReadScrollbackRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v10; authority: control. */
+export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
+  cmd: "release-attached-view-size";
+  "lease": string;
+  "surface": T.Id;
+}
+export type ReleaseAttachedViewSizeResult = T.ViewReleaseResult;
+
 /** Protocol v7; authority: control. */
 export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
   cmd: "release-surface-size";
@@ -601,6 +628,16 @@ export interface ReportAgentRequest extends CmuxRequestBase {
   "state": T.AgentState;
   "surface": T.Id;
 }
+
+/** Protocol v10; authority: control. */
+export interface ResizeAttachedViewRequest extends CmuxRequestBase {
+  cmd: "resize-attached-view";
+  "cols": number;
+  "lease": string;
+  "rows": number;
+  "surface": T.Id;
+}
+export type ResizeAttachedViewResult = T.ViewResizeResult;
 
 /** Protocol v5; authority: control. */
 export interface ResizeSurfaceRequest extends CmuxRequestBase {
@@ -862,6 +899,7 @@ export type CmuxRequest =
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | CopyRequest
+  | CreateSurfaceWithReceiptRequest
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | DetachClientRequest
@@ -896,6 +934,7 @@ export type CmuxRequest =
   | PutFrontendProjectionRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
+  | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
   | RenamePaneRequest
@@ -904,6 +943,7 @@ export type CmuxRequest =
   | RenameSurfaceRequest
   | RenameWorkspaceRequest
   | ReportAgentRequest
+  | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
   | RunRequest
@@ -1124,6 +1164,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "create-surface-with-receipt": {
+    request: CreateSurfaceWithReceiptRequest;
+    result: CreateSurfaceWithReceiptResult;
+    authority: "control";
+    since: 10;
+    capability: "creation-receipts-v1";
     stream: null;
   };
   "create-terminal": {
@@ -1398,6 +1446,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "release-attached-view-size": {
+    request: ReleaseAttachedViewSizeRequest;
+    result: ReleaseAttachedViewSizeResult;
+    authority: "control";
+    since: 10;
+    capability: "view-attachment-lease-v1";
+    stream: null;
+  };
   "release-surface-size": {
     request: ReleaseSurfaceSizeRequest;
     result: ReleaseSurfaceSizeResult;
@@ -1460,6 +1516,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "resize-attached-view": {
+    request: ResizeAttachedViewRequest;
+    result: ResizeAttachedViewResult;
+    authority: "control";
+    since: 10;
+    capability: "view-attachment-lease-v1";
     stream: null;
   };
   "resize-surface": {

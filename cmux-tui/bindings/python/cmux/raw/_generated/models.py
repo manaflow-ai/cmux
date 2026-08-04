@@ -221,6 +221,11 @@ class TerminalLifecycle(str, Enum):
     EXITED = 'exited'
     TOMBSTONED = 'tombstoned'
 
+class ViewAttachmentOutcome(str, Enum):
+    APPLIED = 'applied'
+    PASSIVE = 'passive'
+    SUPERSEDED = 'superseded'
+
 
 @dataclass(frozen=True)
 class AgentRecord:
@@ -653,6 +658,13 @@ class ReadScrollbackResult:
 
 
 @dataclass(frozen=True)
+class ReceiptedSurfaceResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ReceiptedSurfaceResult'
+    surface: Id
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class RenderCursor:
     __cmux_schema_path__: ClassVar[str] = 'types/RenderCursor'
     blink: bool
@@ -765,6 +777,27 @@ class ResolveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+
+
+@dataclass(frozen=True)
+class ResourceSelectors:
+    __cmux_schema_path__: ClassVar[str] = 'types/ResourceSelectors'
+    pane: Union[str, None, MissingType] = field(default=MISSING)
+    screen: Union[str, None, MissingType] = field(default=MISSING)
+    workspace: Union[str, None, MissingType] = field(default=MISSING)
+    split: Union[str, None, MissingType] = field(default=MISSING)
+    client: Union[str, None, MissingType] = field(default=MISSING)
+    agent: Union[str, None, MissingType] = field(default=MISSING)
+    browser: Union[str, None, MissingType] = field(default=MISSING)
+    frontend_projection: Union[str, None, MissingType] = field(default=MISSING)
+    machine: Union[str, None, MissingType] = field(default=MISSING)
+    notification: Union[str, None, MissingType] = field(default=MISSING)
+    pairing_request: Union[str, None, MissingType] = field(default=MISSING)
+    session: Union[str, None, MissingType] = field(default=MISSING)
+    sidebar_view: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[str, None, MissingType] = field(default=MISSING)
+    tab: Union[str, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -947,6 +980,20 @@ class Tree:
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ViewReleaseResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewReleaseResult'
+    outcome: ViewAttachmentOutcome
+
+
+@dataclass(frozen=True)
+class ViewResizeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ViewResizeResult'
+    accepted: bool
+    outcome: ViewAttachmentOutcome
+    reservation_id: Union[int, None]
 
 
 @dataclass(frozen=True)
@@ -1196,6 +1243,24 @@ class CopyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/copy/request'
     surface: Id
     mode: Literal['screen', 'selection', 'scrollback']
+
+
+@dataclass(frozen=True)
+class CreateSurfaceWithReceiptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-surface-with-receipt/request'
+    operation: Literal['new-tab', 'run-command', 'new-browser-tab', 'new-workspace', 'new-screen', 'new-pane', 'new-pane-right', 'split-right', 'split-down']
+    origin: str
+    receipt: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    argv: Union[List[str], None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
+    selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1476,6 +1541,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReleaseAttachedViewSizeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
+    surface: Id
+    lease: str
+
+
+@dataclass(frozen=True)
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
@@ -1543,6 +1615,15 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ResizeAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/resize-attached-view/request'
+    surface: Id
+    cols: int
+    lease: str
+    rows: int
 
 
 @dataclass(frozen=True)
@@ -2301,6 +2382,7 @@ __all__ = [
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
+    'ViewAttachmentOutcome',
     'AgentRecord',
     'AppliedPane',
     'ApplyLayoutResult',
@@ -2348,6 +2430,7 @@ __all__ = [
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
     'ReadScrollbackResult',
+    'ReceiptedSurfaceResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -2358,6 +2441,7 @@ __all__ = [
     'ReportAgentResult',
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
+    'ResourceSelectors',
     'RunResult',
     'Screen',
     'SetCellPixelsResult',
@@ -2374,6 +2458,8 @@ __all__ = [
     'TerminalRecord',
     'TerminalRegistryEvent',
     'Tree',
+    'ViewReleaseResult',
+    'ViewResizeResult',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
@@ -2403,6 +2489,7 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'DetachClientRequest',
@@ -2438,6 +2525,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
@@ -2447,6 +2535,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',

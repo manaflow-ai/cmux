@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7.
+// cmux-tui mux protocol 10, IR ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -588,6 +588,13 @@ pub struct ReadScrollbackResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReceiptedSurfaceResult {
+    pub replayed: bool,
+    pub surface: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderCursor {
     pub blink: bool,
     pub color: Nullable<ColorHex>,
@@ -732,6 +739,43 @@ pub struct ResolveTerminalResult {
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceSelectors {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frontend_projection: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub notification: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pairing_request: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sidebar_view: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1236,6 +1280,31 @@ pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewAttachmentOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "passive")]
+    Passive,
+    #[serde(rename = "superseded")]
+    Superseded,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewReleaseResult {
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewResizeResult {
+    pub accepted: bool,
+    pub outcome: ViewAttachmentOutcome,
+    pub reservation_id: Nullable<u64>,
 }
 
 #[rustfmt::skip]

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7";
+pub const ir_sha256 = "ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -715,6 +715,11 @@ pub const ReadScrollbackResult = struct {
     total: u32,
 };
 
+pub const ReceiptedSurfaceResult = struct {
+    replayed: bool,
+    surface: Id,
+};
+
 pub const RenderCursor = struct {
     blink: bool,
     color: wire.Nullable(ColorHex),
@@ -874,6 +879,25 @@ pub const ResolveTerminalResult = struct {
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_revision: u64,
     workspace_key: []const u8,
+};
+
+pub const ResourceSelectors = struct {
+    agent: wire.Field([]const u8) = .absent,
+    browser: wire.Field([]const u8) = .absent,
+    client: wire.Field([]const u8) = .absent,
+    frontend_projection: wire.Field([]const u8) = .absent,
+    machine: wire.Field([]const u8) = .absent,
+    notification: wire.Field([]const u8) = .absent,
+    pairing_request: wire.Field([]const u8) = .absent,
+    pane: wire.Field([]const u8) = .absent,
+    screen: wire.Field([]const u8) = .absent,
+    session: wire.Field([]const u8) = .absent,
+    sidebar_view: wire.Field([]const u8) = .absent,
+    split: wire.Field([]const u8) = .absent,
+    stream: wire.Field([]const u8) = .absent,
+    tab: wire.Field([]const u8) = .absent,
+    terminal: wire.Field([]const u8) = .absent,
+    workspace: wire.Field([]const u8) = .absent,
 };
 
 pub const RunResult = struct {
@@ -1523,6 +1547,37 @@ pub const Tree = struct {
         "terminal_revision",
         "workspace_revision",
     };
+};
+
+pub const ViewAttachmentOutcome = enum {
+    applied,
+    passive,
+    superseded,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "applied")) return .applied;
+        if (std.mem.eql(u8, value, "passive")) return .passive;
+        if (std.mem.eql(u8, value, "superseded")) return .superseded;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .applied => "applied",
+            .passive => "passive",
+            .superseded => "superseded",
+        };
+    }
+};
+
+pub const ViewReleaseResult = struct {
+    outcome: ViewAttachmentOutcome,
+};
+
+pub const ViewResizeResult = struct {
+    accepted: bool,
+    outcome: ViewAttachmentOutcome,
+    reservation_id: wire.Nullable(u64),
 };
 
 pub const VtStateResult = struct {
@@ -2191,6 +2246,83 @@ pub fn copy(client: anytype, request: CopyRequest) !wire.Decoded(CopyResult) {
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const CreateSurfaceWithReceiptRequestOperation = enum {
+    new_tab,
+    run_command,
+    new_browser_tab,
+    new_workspace,
+    new_screen,
+    new_pane,
+    new_pane_right,
+    split_right,
+    split_down,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "new-tab")) return .new_tab;
+        if (std.mem.eql(u8, value, "run-command")) return .run_command;
+        if (std.mem.eql(u8, value, "new-browser-tab")) return .new_browser_tab;
+        if (std.mem.eql(u8, value, "new-workspace")) return .new_workspace;
+        if (std.mem.eql(u8, value, "new-screen")) return .new_screen;
+        if (std.mem.eql(u8, value, "new-pane")) return .new_pane;
+        if (std.mem.eql(u8, value, "new-pane-right")) return .new_pane_right;
+        if (std.mem.eql(u8, value, "split-right")) return .split_right;
+        if (std.mem.eql(u8, value, "split-down")) return .split_down;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .new_tab => "new-tab",
+            .run_command => "run-command",
+            .new_browser_tab => "new-browser-tab",
+            .new_workspace => "new-workspace",
+            .new_screen => "new-screen",
+            .new_pane => "new-pane",
+            .new_pane_right => "new-pane-right",
+            .split_right => "split-right",
+            .split_down => "split-down",
+        };
+    }
+};
+
+pub const CreateSurfaceWithReceiptRequest = struct {
+    argv: wire.Field([]const []const u8) = .absent,
+    cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    operation: CreateSurfaceWithReceiptRequestOperation,
+    origin: []const u8,
+    pane: wire.Field(Id) = .absent,
+    receipt: []const u8,
+    rows: wire.Field(u16) = .absent,
+    selector_fallbacks: ?[]const ResourceSelectors = null,
+    selectors: wire.Field(ResourceSelectors) = .absent,
+    url: wire.Field([]const u8) = .absent,
+    width: wire.Field(f32) = .absent,
+    workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "selector_fallbacks",
+    };
+};
+
+pub const CreateSurfaceWithReceiptResult = ReceiptedSurfaceResult;
+
+pub fn createSurfaceWithReceipt(client: anytype, request: CreateSurfaceWithReceiptRequest) !wire.Decoded(CreateSurfaceWithReceiptResult) {
+    return client.callTyped(
+        CreateSurfaceWithReceiptResult,
+        .{
+            .name = "create-surface-with-receipt",
+            .authority = "control",
+            .since = 10,
+            .capability = "creation-receipts-v1",
+            .fields = &.{
+                .{ .name = "selector_fallbacks", .since = null, .capability = "creation-selector-fallbacks-v1" },
+            },
         },
         request,
     );
@@ -2909,6 +3041,26 @@ pub fn readScrollback(client: anytype, request: ReadScrollbackRequest) !wire.Dec
     );
 }
 
+pub const ReleaseAttachedViewSizeRequest = struct {
+    lease: []const u8,
+    surface: Id,
+};
+
+pub const ReleaseAttachedViewSizeResult = ViewReleaseResult;
+
+pub fn releaseAttachedViewSize(client: anytype, request: ReleaseAttachedViewSizeRequest) !wire.Decoded(ReleaseAttachedViewSizeResult) {
+    return client.callTyped(
+        ReleaseAttachedViewSizeResult,
+        .{
+            .name = "release-attached-view-size",
+            .authority = "control",
+            .since = 10,
+            .capability = "view-attachment-lease-v1",
+        },
+        request,
+    );
+}
+
 pub const ReleaseSurfaceSizeRequest = struct {
     surface: Id,
 };
@@ -3077,6 +3229,28 @@ pub fn reportAgent(client: anytype, request: ReportAgentRequest) !wire.Decoded(R
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ResizeAttachedViewRequest = struct {
+    cols: u16,
+    lease: []const u8,
+    rows: u16,
+    surface: Id,
+};
+
+pub const ResizeAttachedViewResult = ViewResizeResult;
+
+pub fn resizeAttachedView(client: anytype, request: ResizeAttachedViewRequest) !wire.Decoded(ResizeAttachedViewResult) {
+    return client.callTyped(
+        ResizeAttachedViewResult,
+        .{
+            .name = "resize-attached-view",
+            .authority = "control",
+            .since = 10,
+            .capability = "view-attachment-lease-v1",
         },
         request,
     );
@@ -4560,7 +4734,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 93;
+pub const command_count: usize = 96;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4586,6 +4760,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -4620,6 +4795,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "release-attached-view-size", .authority = "control", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "rename-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -4628,6 +4804,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "rename-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "report-agent", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "resize-attached-view", .authority = "control", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },

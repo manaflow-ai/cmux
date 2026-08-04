@@ -133,6 +133,11 @@ public abstract class GeneratedCmuxClient {
         return CopyResult.fromWire(result);
     }
 
+    public final ReceiptedSurfaceResult createSurfaceWithReceipt(CreateSurfaceWithReceiptRequest request) throws CmuxException {
+        Object result = execute(Commands.CREATE_SURFACE_WITH_RECEIPT, request.toWire());
+        return ReceiptedSurfaceResult.fromWire(result);
+    }
+
     public final TerminalPlacement createTerminal(CreateTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_TERMINAL, request.toWire());
         return TerminalPlacement.fromWire(result);
@@ -303,6 +308,11 @@ public abstract class GeneratedCmuxClient {
         return ReadScrollbackResult.fromWire(result);
     }
 
+    public final ViewReleaseResult releaseAttachedViewSize(ReleaseAttachedViewSizeRequest request) throws CmuxException {
+        Object result = execute(Commands.RELEASE_ATTACHED_VIEW_SIZE, request.toWire());
+        return ViewReleaseResult.fromWire(result);
+    }
+
     public final EmptyResult releaseSurfaceSize(ReleaseSurfaceSizeRequest request) throws CmuxException {
         Object result = execute(Commands.RELEASE_SURFACE_SIZE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -341,6 +351,11 @@ public abstract class GeneratedCmuxClient {
     public final ReportAgentResult reportAgent(ReportAgentRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_AGENT, request.toWire());
         return ReportAgentResult.fromWire(result);
+    }
+
+    public final ViewResizeResult resizeAttachedView(ResizeAttachedViewRequest request) throws CmuxException {
+        Object result = execute(Commands.RESIZE_ATTACHED_VIEW, request.toWire());
+        return ViewResizeResult.fromWire(result);
     }
 
     public final ResizeSurfaceResult resizeSurface(ResizeSurfaceRequest request) throws CmuxException {

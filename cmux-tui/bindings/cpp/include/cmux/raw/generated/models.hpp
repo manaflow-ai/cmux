@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7";
+inline constexpr std::string_view kProtocolIrSha256 = "ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -71,6 +71,7 @@ struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
+struct ReceiptedSurfaceResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -83,6 +84,7 @@ enum class RenderUnderline;
 struct ReportAgentResult;
 struct ResizeSurfaceResult;
 struct ResolveTerminalResult;
+struct ResourceSelectors;
 struct RunResult;
 struct Screen;
 struct SetCellPixelsResult;
@@ -103,6 +105,9 @@ struct TerminalPlacement;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
 struct Tree;
+enum class ViewAttachmentOutcome;
+struct ViewReleaseResult;
+struct ViewResizeResult;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
@@ -132,6 +137,7 @@ struct CloseSurfaceRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreateSurfaceWithReceiptRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct DetachClientRequest;
@@ -168,6 +174,7 @@ struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
@@ -177,6 +184,7 @@ struct RenameScreenRequest;
 struct RenameSurfaceRequest;
 struct RenameWorkspaceRequest;
 struct ReportAgentRequest;
+struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
 struct RunRequest;
@@ -268,6 +276,7 @@ enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
 enum class BrowserMouseGuardedRequestKind;
 enum class CopyRequestMode;
+enum class CreateSurfaceWithReceiptRequestOperation;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
@@ -861,6 +870,55 @@ struct CopyResult {
     CopyResultMode mode{};
     std::string text{};
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
+};
+
+enum class CreateSurfaceWithReceiptRequestOperation {
+    new_tab,
+    run_command,
+    new_browser_tab,
+    new_workspace,
+    new_screen,
+    new_pane,
+    new_pane_right,
+    split_right,
+    split_down,
+};
+
+struct ResourceSelectors {
+    Field<std::string> agent{};
+    Field<std::string> browser{};
+    Field<std::string> client{};
+    Field<std::string> frontend_projection{};
+    Field<std::string> machine{};
+    Field<std::string> notification{};
+    Field<std::string> pairing_request{};
+    Field<std::string> pane{};
+    Field<std::string> screen{};
+    Field<std::string> session{};
+    Field<std::string> sidebar_view{};
+    Field<std::string> split{};
+    Field<std::string> stream{};
+    Field<std::string> tab{};
+    Field<std::string> terminal{};
+    Field<std::string> workspace{};
+    friend bool operator==(const ResourceSelectors&, const ResourceSelectors&) = default;
+};
+
+struct CreateSurfaceWithReceiptRequest {
+    Field<std::vector<std::string>> argv{};
+    Field<std::uint16_t> cols{};
+    Field<std::string> cwd{};
+    CreateSurfaceWithReceiptRequestOperation operation{};
+    std::string origin{};
+    Field<Id> pane{};
+    std::string receipt{};
+    Field<std::uint16_t> rows{};
+    std::optional<std::vector<ResourceSelectors>> selector_fallbacks{};
+    Field<ResourceSelectors> selectors{};
+    Field<std::string> url{};
+    Field<float> width{};
+    Field<Id> workspace{};
+    friend bool operator==(const CreateSurfaceWithReceiptRequest&, const CreateSurfaceWithReceiptRequest&) = default;
 };
 
 struct CreateTerminalRequest {
@@ -1624,6 +1682,18 @@ struct ReadScrollbackResult {
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
 };
 
+struct ReceiptedSurfaceResult {
+    bool replayed{};
+    Id surface{};
+    friend bool operator==(const ReceiptedSurfaceResult&, const ReceiptedSurfaceResult&) = default;
+};
+
+struct ReleaseAttachedViewSizeRequest {
+    std::string lease{};
+    Id surface{};
+    friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
+};
+
 struct ReleaseSurfaceSizeRequest {
     Id surface{};
     friend bool operator==(const ReleaseSurfaceSizeRequest&, const ReleaseSurfaceSizeRequest&) = default;
@@ -1782,6 +1852,14 @@ struct ReportAgentResult {
     AgentState state{};
     Id surface{};
     friend bool operator==(const ReportAgentResult&, const ReportAgentResult&) = default;
+};
+
+struct ResizeAttachedViewRequest {
+    std::uint16_t cols{};
+    std::string lease{};
+    std::uint16_t rows{};
+    Id surface{};
+    friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
 };
 
 struct ResizeSurfaceRequest {
@@ -2202,6 +2280,24 @@ struct UndoLayoutRequest {
     Id pane{};
     Field<std::uint64_t> revision{};
     friend bool operator==(const UndoLayoutRequest&, const UndoLayoutRequest&) = default;
+};
+
+enum class ViewAttachmentOutcome {
+    applied,
+    passive,
+    superseded,
+};
+
+struct ViewReleaseResult {
+    ViewAttachmentOutcome outcome{};
+    friend bool operator==(const ViewReleaseResult&, const ViewReleaseResult&) = default;
+};
+
+struct ViewResizeResult {
+    bool accepted{};
+    ViewAttachmentOutcome outcome{};
+    std::optional<std::uint64_t> reservation_id{};
+    friend bool operator==(const ViewResizeResult&, const ViewResizeResult&) = default;
 };
 
 struct VtStateEvent {
@@ -2656,6 +2752,12 @@ struct Codec<ReadScrollbackResult> {
 };
 
 template <>
+struct Codec<ReceiptedSurfaceResult> {
+    static Result<Json> encode(const ReceiptedSurfaceResult& value);
+    static Result<ReceiptedSurfaceResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenderCursor> {
     static Result<Json> encode(const RenderCursor& value);
     static Result<RenderCursor> decode(const Json& value);
@@ -2725,6 +2827,12 @@ template <>
 struct Codec<ResolveTerminalResult> {
     static Result<Json> encode(const ResolveTerminalResult& value);
     static Result<ResolveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ResourceSelectors> {
+    static Result<Json> encode(const ResourceSelectors& value);
+    static Result<ResourceSelectors> decode(const Json& value);
 };
 
 template <>
@@ -2845,6 +2953,24 @@ template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewAttachmentOutcome> {
+    static Result<Json> encode(const ViewAttachmentOutcome& value);
+    static Result<ViewAttachmentOutcome> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewReleaseResult> {
+    static Result<Json> encode(const ViewReleaseResult& value);
+    static Result<ViewReleaseResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewResizeResult> {
+    static Result<Json> encode(const ViewResizeResult& value);
+    static Result<ViewResizeResult> decode(const Json& value);
 };
 
 template <>
@@ -3019,6 +3145,12 @@ template <>
 struct Codec<CopyRequest> {
     static Result<Json> encode(const CopyRequest& value);
     static Result<CopyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CreateSurfaceWithReceiptRequest> {
+    static Result<Json> encode(const CreateSurfaceWithReceiptRequest& value);
+    static Result<CreateSurfaceWithReceiptRequest> decode(const Json& value);
 };
 
 template <>
@@ -3238,6 +3370,12 @@ struct Codec<ReadScrollbackRequest> {
 };
 
 template <>
+struct Codec<ReleaseAttachedViewSizeRequest> {
+    static Result<Json> encode(const ReleaseAttachedViewSizeRequest& value);
+    static Result<ReleaseAttachedViewSizeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ReleaseSurfaceSizeRequest> {
     static Result<Json> encode(const ReleaseSurfaceSizeRequest& value);
     static Result<ReleaseSurfaceSizeRequest> decode(const Json& value);
@@ -3289,6 +3427,12 @@ template <>
 struct Codec<ReportAgentRequest> {
     static Result<Json> encode(const ReportAgentRequest& value);
     static Result<ReportAgentRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ResizeAttachedViewRequest> {
+    static Result<Json> encode(const ResizeAttachedViewRequest& value);
+    static Result<ResizeAttachedViewRequest> decode(const Json& value);
 };
 
 template <>
@@ -3835,6 +3979,12 @@ template <>
 struct Codec<CopyRequestMode> {
     static Result<Json> encode(const CopyRequestMode& value);
     static Result<CopyRequestMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<CreateSurfaceWithReceiptRequestOperation> {
+    static Result<Json> encode(const CreateSurfaceWithReceiptRequestOperation& value);
+    static Result<CreateSurfaceWithReceiptRequestOperation> decode(const Json& value);
 };
 
 template <>

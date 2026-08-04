@@ -18,6 +18,7 @@ BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
 RUNTIME_NAMED_REQUEST_REFS = {
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
+    "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
 }
 
@@ -168,6 +169,16 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             index += 1
             continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)
+        boxed_newtype = re.fullmatch(
+            r"    ([A-Z][A-Za-z0-9]*)\(Box<([A-Z][A-Za-z0-9]*)>\),",
+            line,
+        )
+        if boxed_newtype:
+            variant, request_type = boxed_newtype.groups()
+            parsed = _rust_struct_fields(source, request_type)
+            commands[camel_to_kebab(variant)] = parsed
+            index += 1
+            continue
         if not structured:
             if line.strip() and not line.strip().startswith(("///", "//")):
                 fail(f"cannot parse Rust Command line {line.strip()!r}")

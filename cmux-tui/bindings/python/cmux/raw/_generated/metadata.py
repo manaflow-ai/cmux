@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7'
+IR_SHA256 = 'ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a'
 
 
 @dataclass(frozen=True)
@@ -354,6 +354,29 @@ COMMANDS = {
         {
             'mode': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'create-surface-with-receipt': CommandMetadata(
+        'create-surface-with-receipt',
+        'control',
+        10,
+        'creation-receipts-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'argv': CommandFieldMetadata(None, None),
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'operation': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'selector_fallbacks': CommandFieldMetadata(None, 'creation-selector-fallbacks-v1'),
+            'selectors': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
         },
     ),
     'create-terminal': CommandMetadata(
@@ -791,6 +814,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'release-attached-view-size': CommandMetadata(
+        'release-attached-view-size',
+        'control',
+        10,
+        'view-attachment-lease-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'release-surface-size': CommandMetadata(
         'release-surface-size',
         'control',
@@ -890,6 +925,20 @@ COMMANDS = {
             'session': CommandFieldMetadata(None, None),
             'source': CommandFieldMetadata(None, None),
             'state': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'resize-attached-view': CommandMetadata(
+        'resize-attached-view',
+        'control',
+        10,
+        'view-attachment-lease-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
     ),

@@ -62,6 +62,7 @@ MODEL_BY_PATH = {
     'types/ProviderWorkspaceMutationResult': models.ProviderWorkspaceMutationResult,
     'types/ReadScreenResult': models.ReadScreenResult,
     'types/ReadScrollbackResult': models.ReadScrollbackResult,
+    'types/ReceiptedSurfaceResult': models.ReceiptedSurfaceResult,
     'types/RenderCursor': models.RenderCursor,
     'types/RenderGraphicImage': models.RenderGraphicImage,
     'types/RenderGraphicPlacement': models.RenderGraphicPlacement,
@@ -72,6 +73,7 @@ MODEL_BY_PATH = {
     'types/ReportAgentResult': models.ReportAgentResult,
     'types/ResizeSurfaceResult': models.ResizeSurfaceResult,
     'types/ResolveTerminalResult': models.ResolveTerminalResult,
+    'types/ResourceSelectors': models.ResourceSelectors,
     'types/RunResult': models.RunResult,
     'types/Screen': models.Screen,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
@@ -88,6 +90,8 @@ MODEL_BY_PATH = {
     'types/TerminalRecord': models.TerminalRecord,
     'types/TerminalRegistryEvent': models.TerminalRegistryEvent,
     'types/Tree': models.Tree,
+    'types/ViewReleaseResult': models.ViewReleaseResult,
+    'types/ViewResizeResult': models.ViewResizeResult,
     'types/VtStateResult': models.VtStateResult,
     'types/WaitForResult': models.WaitForResult,
     'types/Workspace': models.Workspace,
@@ -117,6 +121,7 @@ MODEL_BY_PATH = {
     'commands/close-terminal/request': models.CloseTerminalRequest,
     'commands/close-workspace/request': models.CloseWorkspaceRequest,
     'commands/copy/request': models.CopyRequest,
+    'commands/create-surface-with-receipt/request': models.CreateSurfaceWithReceiptRequest,
     'commands/create-terminal/request': models.CreateTerminalRequest,
     'commands/create-workspace/request': models.CreateWorkspaceRequest,
     'commands/detach-client/request': models.DetachClientRequest,
@@ -152,6 +157,7 @@ MODEL_BY_PATH = {
     'commands/put-frontend-projection/request': models.PutFrontendProjectionRequest,
     'commands/read-screen/request': models.ReadScreenRequest,
     'commands/read-scrollback/request': models.ReadScrollbackRequest,
+    'commands/release-attached-view-size/request': models.ReleaseAttachedViewSizeRequest,
     'commands/release-surface-size/request': models.ReleaseSurfaceSizeRequest,
     'commands/reload-config/request': models.ReloadConfigRequest,
     'commands/reload-config/result': models.ReloadConfigResult,
@@ -161,6 +167,7 @@ MODEL_BY_PATH = {
     'commands/rename-surface/request': models.RenameSurfaceRequest,
     'commands/rename-workspace/request': models.RenameWorkspaceRequest,
     'commands/report-agent/request': models.ReportAgentRequest,
+    'commands/resize-attached-view/request': models.ResizeAttachedViewRequest,
     'commands/resize-surface/request': models.ResizeSurfaceRequest,
     'commands/resolve-terminal/request': models.ResolveTerminalRequest,
     'commands/run/request': models.RunRequest,
@@ -249,7 +256,8 @@ ENUM_BY_PATH = {
     'types/SplitDirection': models.SplitDirection,
     'types/TerminalKey': models.TerminalKey,
     'types/TerminalKeyAction': models.TerminalKeyAction,
-    'types/TerminalLifecycle': models.TerminalLifecycle
+    'types/TerminalLifecycle': models.TerminalLifecycle,
+    'types/ViewAttachmentOutcome': models.ViewAttachmentOutcome
 }
 
 PYTHON_FIELD_NAMES = {
