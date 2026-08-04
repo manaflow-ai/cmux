@@ -12,18 +12,15 @@ struct MobileInjectedAttachStartupTests {
         let recorder = MobileInjectedAttachURLRecorder()
         let attachURL = "cmux-ios://attach?v=2&payload=iroh-route"
 
-        let completion = await coordinator.connectInjectedAttach(
-            attempt,
-            attachURL: attachURL
-        ) { rawURL in
+        let result = await DogfoodAttachPreparation().run {
+            let rawURL = attachURL
             await recorder.record(rawURL)
             return MobilePairingURLConnectionResult.connected
         }
 
-        let completedAttempt = try #require(completion)
         #expect(await recorder.values() == [attachURL])
-        #expect(completedAttempt.result == .connected)
-        #expect(!completedAttempt.shouldReconnectStoredMac)
+        #expect(result == .connected)
+        #expect(!coordinator.finishInjectedAttach(attempt, outcome: .connected))
         #expect(coordinator.claimStoredReconnect() == nil)
     }
 }

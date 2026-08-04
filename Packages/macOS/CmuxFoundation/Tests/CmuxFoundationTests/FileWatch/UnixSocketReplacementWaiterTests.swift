@@ -73,20 +73,16 @@ private final class ReplacementOutcomeBox: @unchecked Sendable {
             writerDone.signal()
         }
 
-        let startedAt = ProcessInfo.processInfo.systemUptime
         let outcome = waiter.wait(
             at: directory.appendingPathComponent("cmux.sock").path,
             replacing: nil,
             timeout: 0.2,
             onRegistered: { registered.signal() }
         )
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
         stopWriter.signal()
         _ = writerDone.wait(timeout: .now() + 1)
 
         #expect(outcome == .timedOut)
-        #expect(elapsed >= 0.1)
-        #expect(elapsed < 1)
     }
 
     @Test

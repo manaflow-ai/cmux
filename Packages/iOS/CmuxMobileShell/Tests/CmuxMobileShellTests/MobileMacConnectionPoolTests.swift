@@ -19,34 +19,36 @@ import Testing
     }
 
     @Test func rpcTimeoutsRemainRetryableWithoutRetryingAuthorityFailures() {
-        #expect(secondaryControlAttemptIsTransient(
+        let isTransient = MobileShellComposite
+            .secondaryControlAttemptIsTransient
+        #expect(isTransient(
             MobileShellConnectionError.rpcError(
                 "request_timeout",
                 "request timed out"
             )
         ))
-        #expect(secondaryControlAttemptIsTransient(
+        #expect(isTransient(
             MobileShellConnectionError.rpcError(
                 "server_busy",
                 "server is busy"
             )
         ))
-        #expect(secondaryControlAttemptIsTransient(
+        #expect(isTransient(
             MobileShellConnectionError.connectAttemptGated
         ))
-        #expect(!secondaryControlAttemptIsTransient(
+        #expect(!isTransient(
             MobileShellConnectionError.rpcError(
                 "unauthorized",
                 "not authorized"
             )
         ))
-        #expect(!secondaryControlAttemptIsTransient(
+        #expect(!isTransient(
             MobileShellConnectionError.rpcError(
                 "method_not_found",
                 "unsupported"
             )
         ))
-        #expect(!secondaryControlAttemptIsTransient(
+        #expect(!isTransient(
             MobileShellConnectionError.rpcError(
                 "build_incompatible",
                 "upgrade required"
@@ -55,26 +57,30 @@ import Testing
     }
 
     @Test func malformedTicketsAndRoutesDoNotRetryForever() {
+        let isTransient = MobileShellComposite
+            .secondaryControlAttemptIsTransient
         let decodingError = DecodingError.dataCorrupted(.init(
             codingPath: [],
             debugDescription: "invalid ticket"
         ))
 
-        #expect(!secondaryControlAttemptIsTransient(decodingError))
-        #expect(!secondaryControlAttemptIsTransient(
+        #expect(!isTransient(decodingError))
+        #expect(!isTransient(
             CmxNetworkByteTransportError.unsupportedRouteKind(.websocket)
         ))
-        #expect(!secondaryControlAttemptIsTransient(CancellationError()))
-        #expect(secondaryControlAttemptIsTransient(
+        #expect(!isTransient(CancellationError()))
+        #expect(isTransient(
             MobileShellConnectionError.routeCleanupBlocked
         ))
     }
 
     @Test func networkTransportFailuresRemainRetryable() {
-        #expect(secondaryControlAttemptIsTransient(
+        let isTransient = MobileShellComposite
+            .secondaryControlAttemptIsTransient
+        #expect(isTransient(
             CmxNetworkByteTransportError.connectionTimedOut
         ))
-        #expect(secondaryControlAttemptIsTransient(
+        #expect(isTransient(
             URLError(.networkConnectionLost)
         ))
     }
@@ -927,6 +933,10 @@ import Testing
         )
         #expect(try await pollUntil {
             shell.secondaryMacSubscriptions[MacPairingKey(representative)] != nil
+        })
+        #expect(try await pollUntil {
+            shell.workspacesByMac[MacPairingKey(representative)]?.status
+                == .connected
         })
 
         shell.applyPresenceUpdate(
