@@ -1,5 +1,8 @@
 import CmuxBrowser
+import ObjectiveC
 import WebKit
+
+private var cmuxBrowserUserAgentPolicyRestartedURLKey: UInt8 = 0
 
 extension WKWebView {
     /// Applies the destination identity and reports whether an HTTP(S) navigation must restart.
@@ -42,20 +45,47 @@ extension WKWebView {
         return browserUserAgentPolicyRestartRequest(for: request)
     }
 
+    /// Destination of the most recent user-agent-policy restart. Each
+    /// destination may restart at most once in a row: when the replacement
+    /// load still reports a mismatched identity, the comparison cannot
+    /// converge on this system and the load must proceed instead of
+    /// cancel/reload looping on the main thread (issue #9462).
+    @MainActor
+    private var browserUserAgentPolicyRestartedURL: URL? {
+        get {
+            objc_getAssociatedObject(self, &cmuxBrowserUserAgentPolicyRestartedURLKey) as? URL
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserUserAgentPolicyRestartedURLKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     @MainActor
     func restartNavigationForBrowserUserAgentPolicyIfNeeded(
-        _ navigationAction: WKNavigationAction,
+        for request: URLRequest,
+        targetFrameIsMainFrame: Bool?,
         decisionHandler: (WKNavigationActionPolicy) -> Void,
         willRestart: () -> Void = {},
         startReplacement: (URLRequest) -> Void
     ) -> Bool {
+        if targetFrameIsMainFrame == true, let url = request.url {
+            let alreadyRestartedForDestination = browserUserAgentPolicyRestartedURL == url
+            browserUserAgentPolicyRestartedURL = nil
+            if alreadyRestartedForDestination { return false }
+        }
         guard let restartRequest = browserUserAgentPolicyRestartRequest(
-            for: navigationAction.request,
-            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            for: request,
+            targetFrameIsMainFrame: targetFrameIsMainFrame
         ) else {
             return false
         }
 
+        browserUserAgentPolicyRestartedURL = request.url
         willRestart()
         decisionHandler(.cancel)
         startReplacement(restartRequest)

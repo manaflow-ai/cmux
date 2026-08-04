@@ -2206,6 +2206,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */; };
 		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
 		D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */; };
+		A77A30000000000000000002 /* TerminalController+MobileTaskAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */; };
+		A77A31000000000000000002 /* TerminalController+MobileTaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */; };
 		C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */; };
 		D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
@@ -4791,6 +4793,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileDirectorySearch.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileScrollPrefetch.swift"; sourceTree = "<group>"; };
+		A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTaskAttachments.swift"; sourceTree = "<group>"; };
+		A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTaskModels.swift"; sourceTree = "<group>"; };
 		C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTerminalArtifacts.swift"; sourceTree = "<group>"; };
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
@@ -6301,6 +6305,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F1100000000000000000000F /* SyntheticKeyEventFactory.swift */,
 				ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */,
 				C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */,
+				A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */,
+				A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */,
 				C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */,
 				C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */,
 				466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */,
@@ -9776,6 +9782,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */,
 				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
 				D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */,
+				A77A30000000000000000002 /* TerminalController+MobileTaskAttachments.swift in Sources */,
+				A77A31000000000000000002 /* TerminalController+MobileTaskModels.swift in Sources */,
 				C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */,
 				D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,

@@ -10,7 +10,7 @@ concurrency:
 jobs:
   build-ghosttykit:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
       GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-v1
@@ -54,7 +54,6 @@ jobs:
           fi
 
       - name: Select Xcode
-        if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -78,7 +77,6 @@ jobs:
           xcodebuild -version
 
       - name: Cache Zig packages
-        if: steps.check-release.outputs.exists == 'false'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -86,10 +84,19 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Install zig
-        if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
+
+      - name: Test Ghostty OS opener stderr reader
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="open stderr reader exits"
 
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'

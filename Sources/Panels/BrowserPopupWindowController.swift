@@ -789,7 +789,8 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
 
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            navigationAction,
+            for: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
             decisionHandler: decisionHandler,
             startReplacement: { restartRequest in
                 controller.requestNavigation(restartRequest, in: webView)
