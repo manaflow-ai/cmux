@@ -430,6 +430,12 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         #expect(presentationWindow.isVisible)
         #expect(controller.window?.isAccessibilityHidden() == true)
         #expect(presentationWindow.isAccessibilityHidden() == false)
+        let accessoryWindow = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue
+                == "cmux.workspace.float.parkingAccessory.\(dock.id.uuidString)"
+        })
+        #expect(accessoryWindow.isVisible == false)
+        #expect(accessoryWindow.isAccessibilityHidden() == true)
         #expect(presentationWindow.parent == nil)
         #expect(!presentationWindow.styleMask.contains(.nonactivatingPanel))
         #expect(presentationWindow.isExcludedFromWindowsMenu)
