@@ -68,7 +68,7 @@ final class SidebarResizeUITests: XCTestCase {
     func testSidebarColumnsResizeIndependentlyAndToggleTogether() {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_MACHINE_SCOPES"] = "1"
-        app.launch()
+        launchAllowingBackgroundActivation(app)
 
         let elements = app.descendants(matching: .any)
         let outerResizer = elements["SidebarResizer"]
@@ -235,6 +235,18 @@ final class SidebarResizeUITests: XCTestCase {
             object: NSObject()
         )
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func launchAllowingBackgroundActivation(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+        XCTAssertTrue(
+            app.state == .runningForeground || app.state == .runningBackground,
+            "Expected cmux to be running after launch. state=\(app.state.rawValue)"
+        )
     }
 
     private func waitForElementUnavailable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
