@@ -42,6 +42,15 @@ public struct GitWorkspaceMetadata: Equatable, Sendable {
     public let repositoryLink: GitRepositoryLink?
 
     /// Creates a workspace-metadata snapshot.
+    ///
+    /// - Parameters:
+    ///   - isRepository: Whether the inspected directory resolved to a repository.
+    ///   - branch: The current branch name, or `nil` for a detached or unreadable `HEAD`.
+    ///   - isDirty: Whether tracked working-tree content differs from the index.
+    ///   - indexSignature: The raw index-file signature, when available.
+    ///   - indexContentSignature: The tracked-content signature, when available.
+    ///   - headSignature: The resolved `HEAD` signature, when available.
+    ///   - repositoryLink: The preferred sanitized browser link, when available.
     public init(
         isRepository: Bool,
         branch: String?,
