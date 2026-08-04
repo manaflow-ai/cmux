@@ -57,8 +57,8 @@ public struct CmxConnectivityDiscoveryScope: Codable, Equatable, Sendable {
               Self.isSafeTag(tag),
               platform != peerPlatform,
               peerTags.map({ (1 ... 8).contains($0.count) }) ?? true,
-              peerTags.map({ Set($0).count == $0.count }) ?? true,
-              peerTags?.allSatisfy(Self.isSafeTag) ?? true else {
+              peerTags?.allSatisfy(Self.isSafeTag) ?? true,
+              peerTags.map({ Set($0).count == $0.count }) ?? true else {
             throw CmxConnectivityDiscoveryScopeError.invalidScope
         }
         let sortedTags = peerTags?.sorted()
