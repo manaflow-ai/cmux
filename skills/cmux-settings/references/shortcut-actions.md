@@ -85,6 +85,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.growPaneDown`
 - `shortcuts.bindings.setPaneWidthRatioByNumber` (`cmd+opt+1…6`; digit `n` applies `n:1`)
 - `shortcuts.bindings.setPaneHeightRatioByNumber` (`cmd+opt+shift+1…6`; digit `n` applies `n:1`)
+- `shortcuts.bindings.maximizePaneWidth` (`cmd+opt+0`; applies the 90% recoverable maximum)
+- `shortcuts.bindings.maximizePaneHeight` (`cmd+opt+shift+0`; applies the 90% recoverable maximum)
 
 ## Canvas
 

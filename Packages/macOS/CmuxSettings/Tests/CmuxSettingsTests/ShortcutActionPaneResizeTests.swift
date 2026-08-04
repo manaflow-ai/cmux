@@ -36,4 +36,24 @@ struct ShortcutActionPaneResizeTests {
             #expect(action.displayName.contains("1:1–6:1"))
         }
     }
+
+    @Test func maximizeActionsUseZeroAndPaneGroup() {
+        let cases: [(ShortcutAction, Bool)] = [
+            (.maximizePaneWidth, false),
+            (.maximizePaneHeight, true),
+        ]
+
+        for (action, shift) in cases {
+            #expect(action.defaultStroke == ShortcutStroke(
+                key: "0",
+                command: true,
+                shift: shift,
+                option: true
+            ))
+            #expect(action.numberedDigitRange == nil)
+            #expect(!action.usesNumberedDigitMatching)
+            #expect(action.group == .panes)
+            #expect(action.displayName.hasPrefix("Maximize Pane "))
+        }
+    }
 }

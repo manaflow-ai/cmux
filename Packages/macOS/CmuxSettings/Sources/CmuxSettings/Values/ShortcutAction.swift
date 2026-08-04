@@ -130,6 +130,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case setPaneWidthRatioByNumber
     /// Sets the focused pane's height to the pressed digit's `n:1` ratio.
     case setPaneHeightRatioByNumber
+    /// Maximizes the focused pane within its nearest width split.
+    case maximizePaneWidth
+    /// Maximizes the focused pane within its nearest height split.
+    case maximizePaneHeight
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"

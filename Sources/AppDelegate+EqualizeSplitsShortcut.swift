@@ -4,10 +4,14 @@ import CmuxPanes
 extension AppDelegate {
     /// Fixed incremental movement used by the directional pane resize actions.
     private static let paneResizeStep: CGFloat = 20
+    /// Largest focused-branch share allowed while keeping its sibling visible.
+    private static let maximizedPaneShare: CGFloat = 0.9
 
     private static let paneShareShortcutActions: [KeyboardShortcutSettings.Action] = [
         .setPaneWidthRatioByNumber,
         .setPaneHeightRatioByNumber,
+        .maximizePaneWidth,
+        .maximizePaneHeight,
     ]
 
     /// Routes configured exact pane-share shortcuts.
@@ -19,17 +23,36 @@ extension AppDelegate {
                 matchedAction: action,
                 actionFamily: actions
               ),
-              let numerator = routableNumberedConfiguredShortcutDigit(
-                event: event,
-                action: action
-              ),
-              let ratio = PaneShareRatio(focusedParts: numerator, siblingParts: 1) else {
+              let route = paneShareShortcutRoute(event: event, action: action) else {
             return false
         }
 
-        let axis: PaneAxis = action == .setPaneWidthRatioByNumber ? .width : .height
-        performPaneShareShortcut(axis: axis, share: ratio.share, event: event)
+        performPaneShareShortcut(axis: route.axis, share: route.share, event: event)
         return true
+    }
+
+    /// Resolves a ratio-family or maximize action to one exact-share request.
+    private func paneShareShortcutRoute(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> (axis: PaneAxis, share: CGFloat)? {
+        switch action {
+        case .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
+            guard let numerator = routableNumberedConfiguredShortcutDigit(
+                event: event,
+                action: action
+            ), let ratio = PaneShareRatio(focusedParts: numerator, siblingParts: 1) else {
+                return nil
+            }
+            let axis: PaneAxis = action == .setPaneWidthRatioByNumber ? .width : .height
+            return (axis, ratio.share)
+        case .maximizePaneWidth:
+            return (.width, Self.maximizedPaneShare)
+        case .maximizePaneHeight:
+            return (.height, Self.maximizedPaneShare)
+        default:
+            return nil
+        }
     }
 
     /// Applies an exact focused-branch share in the main-window context for `event`.

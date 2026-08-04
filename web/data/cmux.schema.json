@@ -1676,6 +1676,8 @@
               "growPaneDown",
               "setPaneWidthRatioByNumber",
               "setPaneHeightRatioByNumber",
+              "maximizePaneWidth",
+              "maximizePaneHeight",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleCanvasLayout",

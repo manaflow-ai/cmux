@@ -134,6 +134,16 @@ extension ShortcutAction {
                 localized: "shortcut.setPaneHeightRatioByNumber.label",
                 defaultValue: "Set Pane Height Ratio 1:1–6:1"
             )
+        case .maximizePaneWidth:
+            return String(
+                localized: "shortcut.maximizePaneWidth.label",
+                defaultValue: "Maximize Pane Horizontally"
+            )
+        case .maximizePaneHeight:
+            return String(
+                localized: "shortcut.maximizePaneHeight.label",
+                defaultValue: "Maximize Pane Vertically"
+            )
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"

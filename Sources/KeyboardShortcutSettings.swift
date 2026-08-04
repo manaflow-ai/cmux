@@ -145,6 +145,7 @@ enum KeyboardShortcutSettings {
         case equalizeSplits
         case growPaneLeft, growPaneRight, growPaneUp, growPaneDown
         case setPaneWidthRatioByNumber, setPaneHeightRatioByNumber
+        case maximizePaneWidth, maximizePaneHeight
         case splitBrowserRight
         case splitBrowserDown
 
@@ -319,6 +320,16 @@ enum KeyboardShortcutSettings {
                 return String(
                     localized: "shortcut.setPaneHeightRatioByNumber.label",
                     defaultValue: "Set Pane Height Ratio 1:1–6:1"
+                )
+            case .maximizePaneWidth:
+                return String(
+                    localized: "shortcut.maximizePaneWidth.label",
+                    defaultValue: "Maximize Pane Horizontally"
+                )
+            case .maximizePaneHeight:
+                return String(
+                    localized: "shortcut.maximizePaneHeight.label",
+                    defaultValue: "Maximize Pane Vertically"
                 )
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
@@ -530,6 +541,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
             case .setPaneHeightRatioByNumber:
                 return StoredShortcut(key: "1", command: true, shift: true, option: true, control: false)
+            case .maximizePaneWidth:
+                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
+            case .maximizePaneHeight:
+                return StoredShortcut(key: "0", command: true, shift: true, option: true, control: false)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:

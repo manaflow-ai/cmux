@@ -109,6 +109,10 @@ extension ShortcutAction {
             return ShortcutStroke(key: "1", command: true, option: true)
         case .setPaneHeightRatioByNumber:
             return ShortcutStroke(key: "1", command: true, shift: true, option: true)
+        case .maximizePaneWidth:
+            return ShortcutStroke(key: "0", command: true, option: true)
+        case .maximizePaneHeight:
+            return ShortcutStroke(key: "0", command: true, shift: true, option: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)

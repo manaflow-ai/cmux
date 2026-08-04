@@ -476,6 +476,25 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
+    @Test func paneMaximizeShortcutsApplyMaximumShareByAxis() throws {
+        try assertPaneShareShortcut(
+            action: .maximizePaneWidth,
+            key: "0",
+            keyCode: 29,
+            modifiers: [.command, .option],
+            orientation: .horizontal,
+            expectedFocusedShare: 0.9
+        )
+        try assertPaneShareShortcut(
+            action: .maximizePaneHeight,
+            key: "0",
+            keyCode: 29,
+            modifiers: [.command, .option, .shift],
+            orientation: .vertical,
+            expectedFocusedShare: 0.9
+        )
+    }
+
     private func assertPaneShareShortcut(
         action: KeyboardShortcutSettings.Action,
         key: String,
