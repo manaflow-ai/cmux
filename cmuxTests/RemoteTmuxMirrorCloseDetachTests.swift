@@ -394,9 +394,10 @@ import Testing
         let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
         let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
+        let socketWorkerController = TerminalController.shared
         let responseText = await Task.detached {
             HeadlessMainWindowInterceptor.replacingNewWindowContent {
-                TerminalController.shared.v2RemoteTmuxWindow(
+                socketWorkerController.v2RemoteTmuxWindow(
                     id: 1,
                     params: ["host": host.destination]
                 )
