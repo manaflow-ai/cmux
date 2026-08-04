@@ -17,6 +17,8 @@ image="cmux-iroh-stage1-sol:$(date +%s)-$$"
 builder_image="cmux-iroh-stage1-sol-builder:$(date +%s)-$$"
 container="cmux-iroh-stage1-sol-$$"
 volume="cmux-iroh-stage1-sol-state-$$"
+zig_cache_volume="cmux-iroh-stage1-sol-zig-cache-$$"
+zig_pkg_volume="cmux-iroh-stage1-sol-zig-pkg-$$"
 provider_socket="$demo_root/provider.sock"
 provider_log="$demo_root/provider.log"
 transcript="$demo_root/transcript.txt"
@@ -25,8 +27,6 @@ host_binary="$host_target/debug/cmux-tui-iroh"
 linux_target="$build_cache_root/linux-target"
 linux_cargo_home="$build_cache_root/linux-cargo-home"
 linux_resolv_conf="$demo_root/linux-resolv.conf"
-linux_zig_cache="$build_cache_root/linux-zig-cache"
-linux_zig_pkg="$build_cache_root/linux-zig-pkg"
 runtime_context="$demo_root/runtime-context"
 build_commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then
@@ -41,6 +41,8 @@ cleanup() {
     fi
     docker rm -f "$container" >/dev/null 2>&1 || true
     docker volume rm "$volume" >/dev/null 2>&1 || true
+    docker volume rm "$zig_cache_volume" >/dev/null 2>&1 || true
+    docker volume rm "$zig_pkg_volume" >/dev/null 2>&1 || true
     docker image rm "$image" >/dev/null 2>&1 || true
     docker image rm "$builder_image" >/dev/null 2>&1 || true
     rm -rf "$demo_root"
@@ -91,9 +93,6 @@ mkdir -p \
     "$EVIDENCE_DIR" \
     "$linux_target" \
     "$linux_cargo_home" \
-    "$linux_zig_cache/global" \
-    "$linux_zig_cache/local" \
-    "$linux_zig_pkg" \
     "$runtime_context/bin" \
     "$runtime_context/lib"
 record "iroh TUI Stage 1 acceptance"
@@ -115,6 +114,8 @@ if ! grep -Eq '^nameserver [0-9a-fA-F:.]+$' "$linux_resolv_conf"; then
     exit 1
 fi
 
+docker volume create "$zig_cache_volume" >/dev/null
+docker volume create "$zig_pkg_volume" >/dev/null
 docker run --rm \
     --env "CARGO_HOME=/build/cargo-home" \
     --env "CARGO_TARGET_DIR=/build/target" \
@@ -125,8 +126,8 @@ docker run --rm \
     --mount "type=bind,source=$linux_cargo_home,target=/build/cargo-home" \
     --mount "type=bind,source=$linux_resolv_conf,target=/etc/resolv.conf,readonly" \
     --mount "type=bind,source=$linux_target,target=/build/target" \
-    --mount "type=bind,source=$linux_zig_cache,target=/build/zig-cache" \
-    --mount "type=bind,source=$linux_zig_pkg,target=/source/ghostty/zig-pkg" \
+    --mount "type=volume,source=$zig_cache_volume,target=/build/zig-cache" \
+    --mount "type=volume,source=$zig_pkg_volume,target=/source/ghostty/zig-pkg" \
     --workdir /source \
     "$builder_image" \
     cargo build \
