@@ -6,10 +6,17 @@ extension WKWebView {
     @MainActor
     @discardableResult
     func applyBrowserUserAgentPolicy(for url: URL?) -> Bool {
+        applyBrowserUserAgentPolicy(BrowserUserAgentPolicy.system.resolution(for: url))
+    }
+
+    @MainActor
+    private func applyBrowserUserAgentPolicy(
+        _ resolution: BrowserUserAgentPolicyResolution
+    ) -> Bool {
         // WebKit exposes its native identity as either nil or an empty string across load phases.
         let currentUserAgent = customUserAgent.flatMap { $0.isEmpty ? nil : $0 }
         let resolvedUserAgent: String?
-        switch BrowserUserAgentPolicy.system.resolution(for: url) {
+        switch resolution {
         case .custom(let userAgent):
             resolvedUserAgent = userAgent
         case .webKitDefault:
@@ -25,12 +32,45 @@ extension WKWebView {
         return true
     }
 
+    /// Applies the WebKit identity and prepares the top-level request identity.
+    @MainActor
+    func browserUserAgentPolicyPreparedRequest(for request: URLRequest) -> URLRequest {
+        let resolution = BrowserUserAgentPolicy.system.resolution(for: request.url)
+        _ = applyBrowserUserAgentPolicy(resolution)
+
+        var preparedRequest = request
+        switch resolution {
+        case .custom:
+            preparedRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
+        case .webKitDefault(let topLevelRequestUserAgent):
+            preparedRequest.setValue(topLevelRequestUserAgent, forHTTPHeaderField: "User-Agent")
+        case .notApplicable:
+            break
+        }
+        return preparedRequest
+    }
+
     @MainActor
     func browserUserAgentPolicyRestartRequest(for request: URLRequest) -> URLRequest? {
-        guard applyBrowserUserAgentPolicy(for: request.url) else { return nil }
-        var restartRequest = request
-        restartRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
-        return restartRequest
+        let resolution = BrowserUserAgentPolicy.system.resolution(for: request.url)
+        let identityChanged = applyBrowserUserAgentPolicy(resolution)
+
+        switch resolution {
+        case .custom:
+            guard identityChanged else { return nil }
+            var restartRequest = request
+            restartRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
+            return restartRequest
+        case .webKitDefault(let topLevelRequestUserAgent):
+            let requestIdentityChanged = request.value(forHTTPHeaderField: "User-Agent")
+                != topLevelRequestUserAgent
+            guard identityChanged || requestIdentityChanged else { return nil }
+            var restartRequest = request
+            restartRequest.setValue(topLevelRequestUserAgent, forHTTPHeaderField: "User-Agent")
+            return restartRequest
+        case .notApplicable:
+            return nil
+        }
     }
 
     @MainActor

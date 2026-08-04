@@ -973,7 +973,7 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 @discardableResult
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
-    webView.applyBrowserUserAgentPolicy(for: url)
+    let policyRequest = webView.browserUserAgentPolicyPreparedRequest(for: request)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
@@ -981,7 +981,7 @@ func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavig
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
     webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
-    return webView.load(browserPreparedNavigationRequest(request))
+    return webView.load(browserPreparedNavigationRequest(policyRequest))
 }
 
 private let browserEmbeddedNavigationSchemes: Set<String> = [

@@ -57,7 +57,8 @@ public struct BrowserUserAgentPolicy: Sendable {
 
     /// Resolves the browser identity policy for a top-level destination.
     ///
-    /// Google Sheets intentionally uses WebKit's default embedded identity.
+    /// Google Sheets keeps WebKit's embedded capability identity while its
+    /// top-level request advertises current Safari for browser support gates.
     /// Non-web destinations have no applicable user-agent policy.
     ///
     /// - Parameter url: The destination of the top-level navigation.
@@ -76,7 +77,7 @@ public struct BrowserUserAgentPolicy: Sendable {
             && url.path.split(separator: "/", omittingEmptySubsequences: true).first?
                 .lowercased() == "spreadsheets"
         return isSheetsHost || isSheetsPath
-            ? .webKitDefault
+            ? .webKitDefault(topLevelRequestUserAgent: safariCompatibleUserAgent)
             : .custom(safariCompatibleUserAgent)
     }
 

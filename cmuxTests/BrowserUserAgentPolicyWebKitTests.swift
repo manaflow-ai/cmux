@@ -59,14 +59,23 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
-    @Test func emptyCustomUserAgentIsAlreadyEmbeddedIdentityForSheets() {
+    @Test func emptyCustomUserAgentStillRequiresSupportedSheetsRequestIdentity() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.customUserAgent = ""
         let request = URLRequest(
             url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         )
 
-        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
+        let restartRequest = try #require(
+            webView.browserUserAgentPolicyRestartRequest(for: request)
+        )
+
+        #expect(
+            restartRequest.value(forHTTPHeaderField: "User-Agent")
+                == BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        )
+        #expect(webView.customUserAgent?.isEmpty != false)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
     @Test func restartRequestIgnoresSubframesAndNewWindowTargets() throws {
