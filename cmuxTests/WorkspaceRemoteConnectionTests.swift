@@ -94,7 +94,18 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
     let script: RemoteProcessScript
 
     func run(_ request: RemoteProcessRequest, operation: (any RemoteTransferCancelling)?) throws -> RemoteCommandResult {
-        let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
+        let scriptedStdin: Data?
+        if let stdinFile = request.stdinFile {
+            scriptedStdin = try Data(contentsOf: stdinFile)
+        } else {
+            scriptedStdin = request.stdin
+        }
+        let result = try script(
+            request.executable,
+            request.arguments,
+            scriptedStdin,
+            request.timeout
+        )
         return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
     }
 }
@@ -1602,7 +1613,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: panel.id,
-                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                authority: .persistentTransport(
+                    config.scopedToOwnerWorkspace(workspace.id).proxyBrokerTransportKey
+                ),
                 terminalLifecycleID: panel.surface.terminalLifecycleId,
                 commitLease: lease
             )
@@ -1611,8 +1624,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-        XCTAssertNil(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id])
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(
+            workspace.remoteTerminalSessionStatesBySurfaceId[panel.id]?.phase,
+            .launching
+        )
         XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panel.id])
     }
 
@@ -1636,6 +1652,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             persistentDaemonSlot: "bounded-readiness-commit"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
+        let attemptID = UUID()
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panel.id,
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                attemptID: attemptID
+            )
+        )
         lease.afterOperation = {
             XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         }
@@ -1643,8 +1667,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: panel.id,
-                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                authority: .persistentTransport(
+                    config.scopedToOwnerWorkspace(workspace.id).proxyBrokerTransportKey
+                ),
                 terminalLifecycleID: panel.surface.terminalLifecycleId,
+                attemptID: attemptID,
                 commitLease: lease
             )
         )
