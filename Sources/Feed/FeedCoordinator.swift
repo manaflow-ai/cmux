@@ -35,10 +35,6 @@ final class FeedCoordinator: @unchecked Sendable {
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
 
-    /// The workspace each workstream last wrote checklist rows to, so a
-    /// surface that moves can have its rows retired from the workspace it
-    /// left instead of stranding them there.
-    @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process

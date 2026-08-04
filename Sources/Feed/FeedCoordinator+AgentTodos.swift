@@ -52,8 +52,7 @@ extension FeedCoordinator {
         // are recreated in the new one below, so retire the copies it left
         // behind or they linger there forever, skewing that workspace's
         // progress with tasks no later delta will ever touch.
-        retireAgentTodos(forWorkstream: workstreamId, excluding: workspace.id)
-        lastTodoWorkspaceByWorkstream[workstreamId] = workspace.id
+        Self.retireAgentTodos(forWorkstream: workstreamId, excluding: workspace.id)
         let tasks = todos.map { todo in
             WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: workstreamId),
@@ -71,21 +70,27 @@ extension FeedCoordinator {
         WorkspaceTodoFeature.markUsed()
     }
 
-    /// Clears this workstream's rows from the workspace it previously wrote
-    /// to, when that is no longer where it lives.
+    /// Clears this workstream's rows from every workspace other than the one
+    /// it now writes to.
+    ///
+    /// Driven by the persisted `agentTaskRef` on each row rather than by
+    /// in-process bookkeeping, so it still finds rows a previous app run left
+    /// behind — a surface that moves while cmux is restarting would otherwise
+    /// strand a full copy of the plan in its old workspace.
     @MainActor
-    private func retireAgentTodos(forWorkstream workstreamId: String, excluding current: UUID) {
-        guard let previous = lastTodoWorkspaceByWorkstream[workstreamId],
-              previous != current,
-              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: previous),
-              let workspace = tabManager.tabs.first(where: { $0.id == previous })
-        else { return }
-        guard let replacements = workspaceAgentChecklistReplacement(
-            existing: workspace.todoState.checklist,
-            agentTasks: [],
-            workstreamId: workstreamId
-        ) else { return }
-        workspace.replaceChecklist(with: replacements)
+    private static func retireAgentTodos(forWorkstream workstreamId: String, excluding current: UUID) {
+        guard let appDelegate = AppDelegate.shared else { return }
+        for workspace in appDelegate.allWorkspacesForAgentTodoRetirement where workspace.id != current {
+            guard workspace.todoState.checklist.contains(where: {
+                $0.agentTaskRef?.workstreamId == workstreamId
+            }) else { continue }
+            guard let replacements = workspaceAgentChecklistReplacement(
+                existing: workspace.todoState.checklist,
+                agentTasks: [],
+                workstreamId: workstreamId
+            ) else { continue }
+            workspace.replaceChecklist(with: replacements)
+        }
     }
 
     /// Resolves the workspace whose checklist this event may mutate.

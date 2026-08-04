@@ -385,6 +385,28 @@ extension AppDelegate {
         return titles
     }
 
+    /// Every workspace across every open window.
+    ///
+    /// Used to retire agent checklist rows a workstream left behind when its
+    /// surface moved to another workspace; the rows record their owner, so
+    /// they are found wherever they are rather than through in-process
+    /// bookkeeping that a restart would lose.
+    var allWorkspacesForAgentTodoRetirement: [Workspace] {
+        var seen = Set<UUID>()
+        var result: [Workspace] = []
+        for manager in recoverableMainWindowRoutes().compactMap(\.tabManager) {
+            for workspace in manager.tabs where seen.insert(workspace.id).inserted {
+                result.append(workspace)
+            }
+        }
+        if let tabManager {
+            for workspace in tabManager.tabs where seen.insert(workspace.id).inserted {
+                result.append(workspace)
+            }
+        }
+        return result
+    }
+
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
         if let manager = contextContainingTabId(tabId)?.tabManager {

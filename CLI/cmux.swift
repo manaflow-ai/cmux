@@ -34641,20 +34641,7 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
-        var resolvedFeedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
-        // Task tools mutate the persistent workspace checklist, so they must
-        // land in the workspace that owns this surface *now*. The inherited
-        // CMUX_WORKSPACE_ID is fixed at spawn and goes stale when a surface is
-        // moved. https://github.com/manaflow-ai/cmux/issues/8960
-        if isWorkstreamTaskToolName(toolName), let client {
-            if let rehomed = rehomedWorkspaceIdForSurface(
-                surfaceId: env["CMUX_SURFACE_ID"],
-                claimedWorkspaceId: resolvedFeedWorkspaceId,
-                client: client
-            ) {
-                resolvedFeedWorkspaceId = rehomed
-            }
-        }
+        let resolvedFeedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
         if let workspaceId = resolvedFeedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
@@ -34731,6 +34718,13 @@ export default CMUXSessionRestore;
         // the agent kills (and may deny) the hook subprocess.
         let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
         let shouldAwaitTelemetryIngestion = source == "pi"
+        // Task-tool deltas drive the persistent workspace checklist. A dropped
+        // create or final update cannot be reconstructed from later traffic,
+        // and the connected path is also what makes a live client available to
+        // re-home the event onto the surface's current workspace.
+        // https://github.com/manaflow-ai/cmux/issues/8960
+        let shouldAwaitTaskIngestion = !shouldAwaitTelemetryIngestion
+            && isWorkstreamTaskToolName(toolName)
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -34740,11 +34734,11 @@ export default CMUXSessionRestore;
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || shouldAwaitTaskIngestion {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !shouldAwaitTaskIngestion {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
@@ -34763,7 +34757,9 @@ export default CMUXSessionRestore;
         var ownedClient: SocketClient?
         defer { ownedClient?.close() }
         let clientDeadline = Date().addingTimeInterval(
-            shouldAwaitTelemetryIngestion ? 4 : Self.feedHookClientDeadlineSeconds
+            (shouldAwaitTelemetryIngestion || shouldAwaitTaskIngestion)
+                ? 4
+                : Self.feedHookClientDeadlineSeconds
         )
 
         func remainingResponseTime() throws -> TimeInterval {
@@ -34803,6 +34799,22 @@ export default CMUXSessionRestore;
             return
         }
 
+        if shouldAwaitTaskIngestion {
+            // Now that a live client exists, ask the app which workspace owns
+            // this surface. The hook inherited CMUX_WORKSPACE_ID at spawn, so
+            // it is stale once the surface has been moved.
+            if let rehomed = rehomedWorkspaceIdForSurface(
+                surfaceId: env["CMUX_SURFACE_ID"],
+                claimedWorkspaceId: eventDict["workspace_id"] as? String,
+                client: activeClient
+            ) {
+                eventDict["workspace_id"] = rehomed
+                request["params"] = [
+                    "event": eventDict,
+                    "wait_timeout_seconds": waitTimeout,
+                ]
+            }
+        }
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
                 if let workspaceId = target.workspaceId {
@@ -34835,6 +34847,12 @@ export default CMUXSessionRestore;
         if shouldAwaitTelemetryIngestion {
             let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
             print(piHookResolvedTargetOutput(acknowledgedTarget))
+            return
+        }
+        if shouldAwaitTaskIngestion {
+            // The app answered, so the delta was admitted. Nothing to feed
+            // back to Claude beyond a neutral ack.
+            print("{}")
             return
         }
         guard let respData = response.data(using: .utf8),
