@@ -611,7 +611,7 @@ final class MarkdownPanelTests: XCTestCase {
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
-        let window = makeTestWindow(frame: frame)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
@@ -693,7 +693,7 @@ final class MarkdownPanelTests: XCTestCase {
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
-        let window = makeTestWindow(frame: frame)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
@@ -786,7 +786,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
-        let window = makeTestWindow(frame: frame)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
@@ -824,7 +824,7 @@ final class MarkdownPanelTests: XCTestCase {
         configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
-        let window = makeTestWindow(frame: frame)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
@@ -1566,18 +1566,6 @@ final class MarkdownPanelTests: XCTestCase {
     }()
 
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
-
-    /// Test windows remain ARC-owned after `close()`, so AppKit must not release them too.
-    private func makeTestWindow(frame: NSRect) -> NSWindow {
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        return window
-    }
 }
 
 @MainActor
