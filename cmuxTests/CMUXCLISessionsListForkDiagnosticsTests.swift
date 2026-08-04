@@ -282,11 +282,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
-        // Require rather than expect: a non-zero exit means stdout holds an error message, and
-        // letting that fall through makes every caller fail on JSON parsing instead of on the real
-        // reason. That is how an unknown-agent fixture read as a decoding problem for a week.
-        try #require(!result.timedOut, Comment(rawValue: result.stdout))
-        try #require(result.status == 0, Comment(rawValue: result.stdout))
+        // Require rather than expect: letting a failed process fall through makes every caller fail
+        // on JSON parsing instead of on the real reason. Report both streams because the runner keeps
+        // stderr out of JSON stdout. An unknown-agent fixture otherwise read as a decoding problem.
+        try #require(!result.timedOut, Comment(rawValue: result.diagnostics))
+        try #require(result.status == 0, Comment(rawValue: result.diagnostics))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
