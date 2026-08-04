@@ -40,7 +40,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "user", text: "Implement Rovo previews"),
@@ -86,7 +87,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns.map(\.role) == ["user", "assistant", "tool", "tool", "assistant"])
         #expect(turns[0].text == "Render the Rovo preview")
@@ -121,7 +123,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "user", text: "Use the real Rovo schema"),
@@ -152,7 +155,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -186,7 +190,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -220,7 +225,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -255,7 +261,8 @@ struct RovoDevTranscriptPreviewTests {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try #require(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
+        let loadedTurns = try RovoDevTranscriptPreview.load(from: contextURL, limit: 10)
+        let turns = try #require(loadedTurns)
 
         #expect(turns == [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Visible response"),
