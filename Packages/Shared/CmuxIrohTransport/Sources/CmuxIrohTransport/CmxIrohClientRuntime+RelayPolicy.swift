@@ -56,12 +56,20 @@ extension CmxIrohClientRuntime {
                 }
             )
             relayCoordinator = coordinator
-            try await coordinator.activateManagedPolicy(
-                bindingID: binding.bindingID,
-                endpointIdentity: binding.endpointID,
-                profile: profile,
-                bootstrap: relayBootstrap
-            )
+            do {
+                try await coordinator.activateManagedPolicy(
+                    bindingID: binding.bindingID,
+                    endpointIdentity: binding.endpointID,
+                    profile: profile,
+                    bootstrap: relayBootstrap
+                )
+            } catch {
+                await coordinator.deactivate()
+                if relayCoordinator === coordinator {
+                    relayCoordinator = nil
+                }
+                throw error
+            }
         } else {
             try await connectivityEngine.replaceRelayProfile(
                 profile,

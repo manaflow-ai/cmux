@@ -188,16 +188,16 @@ public actor CmxIrohRelayCredentialCoordinator {
             throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
         }
 
-        let bootstrapConfigurations: [CmxIrohRelayConfiguration]?
-        if let bootstrap {
-            let selectedConfigurations = try validatedSelectedConfigurations(bootstrap)
+        let bootstrapInstallation: (
+            response: CmxIrohRelayTokenResponse,
+            configurations: [CmxIrohRelayConfiguration]
+        )? = try bootstrap.map { response in
+            let selectedConfigurations = try validatedSelectedConfigurations(response)
             guard profile.managedRelays.count == selectedConfigurations.count,
                   profile.managedRelays.allSatisfy(selectedConfigurations.contains) else {
                 throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
             }
-            bootstrapConfigurations = selectedConfigurations
-        } else {
-            bootstrapConfigurations = nil
+            return (response, selectedConfigurations)
         }
 
         let (expectedBinding, revision) = beginActivation(
@@ -213,10 +213,10 @@ public actor CmxIrohRelayCredentialCoordinator {
             throw CancellationError()
         }
 
-        if let bootstrap, let bootstrapConfigurations {
+        if let bootstrapInstallation {
             let installed = try recordInstallation(
-                bootstrap,
-                selectedConfigurations: bootstrapConfigurations,
+                bootstrapInstallation.response,
+                selectedConfigurations: bootstrapInstallation.configurations,
                 binding: expectedBinding,
                 revision: revision
             )

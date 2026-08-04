@@ -78,6 +78,71 @@ struct CmxIrohCustomRelayRuntimeTests {
     }
 
     @Test
+    func clientManagedPolicyFailureDeactivatesUncommittedCoordinator() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        try await Self.waitForRelayMutation(endpoint)
+        await endpoint.setRelayUpdateShouldFail(true)
+
+        await #expect(throws: TestIrohTransportError.relayUpdateFailed) {
+            try await runtime.replaceRelayPolicy(try Self.managedPolicy(
+                response: fixture.relayResponse(),
+                relayURLs: Set(ClientRuntimeTestFixture.relayURLs),
+                now: fixture.now
+            ))
+        }
+
+        #expect(await runtime.relayCoordinator == nil)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func hostManagedPolicyFailureDeactivatesUncommittedCoordinator() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { Date(timeIntervalSince1970: 1_800_000_000) },
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+        try await Self.waitForRelayMutation(endpoint)
+        await endpoint.setRelayUpdateShouldFail(true)
+        let response = try ClientRuntimeTestFixture().relayResponse()
+
+        await #expect(throws: TestIrohTransportError.relayUpdateFailed) {
+            try await runtime.replaceRelayPolicy(try Self.managedPolicy(
+                response: response,
+                relayURLs: fixture.managedRelays,
+                now: Date(timeIntervalSince1970: 1_800_000_000)
+            ))
+        }
+
+        #expect(await runtime.relayCoordinator == nil)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
     func clientOverrideSkipsManagedTokenIssuance() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let custom = try CmxIrohCustomRelayProfile(
@@ -259,6 +324,13 @@ struct CmxIrohCustomRelayRuntimeTests {
             if credentialUpdates + profileUpdates > 0 { return }
             await Task.yield()
         }
-        throw TestIrohTransportError.unsupported
+        let credentialUpdates = await endpoint.observedRelayUpdates().count
+        let profileUpdates = await endpoint.observedRelayProfileUpdates().count
+        let counts = "credential updates: \(credentialUpdates), "
+            + "profile updates: \(profileUpdates)"
+        Issue.record("Timed out waiting for relay mutation (\(counts))")
+        throw RelayMutationTimeout()
     }
 }
+
+private struct RelayMutationTimeout: Error {}
