@@ -31,6 +31,9 @@ struct SidebarCreationContextColumn: View {
                 ForEach(contexts) { context in
                     if context.kind == .automatic {
                         contextRow(context, settings: settings)
+                            .contextMenu {
+                                addSSHMachineButton
+                            }
                     } else if let machineIndex = machines.firstIndex(where: { $0.id == context.id }) {
                         machineRow(
                             context,
@@ -171,9 +174,6 @@ struct SidebarCreationContextColumn: View {
         .accessibilityIdentifier("SidebarContextRow.\(context.id)")
         .accessibilityLabel(context.title)
         .help(context.subtitle)
-        .contextMenu {
-            addSSHMachineButton
-        }
     }
 
     private func machineRow(
