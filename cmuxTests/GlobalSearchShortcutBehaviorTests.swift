@@ -693,6 +693,51 @@ extension GlobalSearchShortcutBehaviorTests {
 #endif
     }
 
+    @MainActor
+    @Test func initialMarkdownRefreshReturnsAfterContentIsSearchable() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-markdown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let token = "markdown\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let fileURL = directoryURL.appendingPathComponent("notes.md")
+        try "# Notes\n\n\(token)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let panel = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: { index },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: UUID(),
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+
+        await captureManager.refreshPanelContent(for: context)
+
+        #expect(
+            try await index.search(token).contains(where: {
+                $0.panelID == panel.id && $0.kind == .markdown
+            }),
+            "A completed live refresh must make a newly discovered Markdown panel searchable"
+        )
+    }
+
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
         SearchIndexHit(
             id: id,
