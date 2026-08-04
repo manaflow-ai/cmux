@@ -53,7 +53,7 @@ struct SidebarWorkspaceSnapshotFactory {
         }()
         let repositoryLink: SidebarWorkspaceSnapshotBuilder.RepositoryLinkDisplay? = {
             guard detailVisibility.showsBranchDirectory,
-                  !workspace.isRemoteWorkspace,
+                  !workspace.usesRemoteDirectoryProvenance,
                   let orderedPanelIds else {
                 return nil
             }
