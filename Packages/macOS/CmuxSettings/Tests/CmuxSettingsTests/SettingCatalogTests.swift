@@ -76,6 +76,15 @@ struct SettingCatalogTests {
         }
     }
 
+    @Test func userDefaultsStorageKeysAreUniqueRegression() {
+        let keys = SettingCatalog().all.compactMap { entry -> String? in
+            guard case let .userDefaults(storageKey, _, _) = entry.kind else { return nil }
+            return storageKey
+        }
+
+        #expect(keys.count == Set(keys).count)
+    }
+
     @Test func jsonBackedKeysUseTheirIdAsPath() {
         for entry in SettingCatalog().all where entry.kind == .jsonConfig {
             #expect(!entry.id.isEmpty)
