@@ -63,6 +63,7 @@ export default function CmuxForkPage() {
         src="/blog/cmux-fork.mp4"
         width={1680}
         height={1080}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

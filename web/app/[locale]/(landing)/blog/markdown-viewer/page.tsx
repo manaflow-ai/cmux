@@ -59,6 +59,7 @@ export default function MarkdownViewerPage() {
         src="/blog/cmux-markdown-tobi.mp4"
         width={1280}
         height={850}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

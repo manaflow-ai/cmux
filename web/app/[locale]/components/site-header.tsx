@@ -83,8 +83,7 @@ export function SiteHeader({
       <MobileDrawerOverlay open={open} onClose={close} />
       <nav
         ref={drawerRef}
-        role="navigation"
-        aria-label="Main navigation"
+        aria-label={tc("mainNavigation")}
         className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform min-[940px]:hidden ${
           open ? "translate-x-0" : "translate-x-full invisible"
         }`}

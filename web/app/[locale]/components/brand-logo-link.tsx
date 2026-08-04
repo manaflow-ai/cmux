@@ -81,7 +81,10 @@ function BrandMenuItem({
 }) {
   return (
     <ContextMenu.Item
-      render={<a href={href} download={download} />}
+      render={
+        // biome-ignore lint/a11y/useAnchorContent: Base UI injects the Menu.Item children into this labeled anchor.
+        <a href={href} download={download} aria-label={label} />
+      }
       className={menuItemClass}
     >
       {children}

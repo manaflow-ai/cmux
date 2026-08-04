@@ -60,6 +60,7 @@ export default function UnreadShortcutsPage() {
         src="/blog/cmd-ctrl-u-cmd-option-u.mp4"
         width={1280}
         height={866}
+        aria-label={t("title")}
         autoPlay
         loop
         muted

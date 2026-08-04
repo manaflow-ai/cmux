@@ -187,9 +187,9 @@ export function DownloadButton({
                   render={
                     onConfirmationPage ? (
                       // biome-ignore lint/a11y/useAnchorContent: Base UI injects the Menu.Item children into this anchor.
-                      <a href={macHref} />
+                      <a href={macHref} aria-label={t("downloadForMac")} />
                     ) : (
-                      <Link href={macHref} />
+                      <Link href={macHref} aria-label={t("downloadForMac")} />
                     )
                   }
                   onClick={captureMac}

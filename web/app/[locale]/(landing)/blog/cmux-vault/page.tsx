@@ -65,6 +65,7 @@ export default async function CmuxVaultPage({
         src="/blog/cmux-vault.mp4"
         width={1280}
         height={902}
+        aria-label={t("title")}
         autoPlay
         loop
         muted
