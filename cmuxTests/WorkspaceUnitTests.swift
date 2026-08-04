@@ -1801,7 +1801,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 #endif
     }
 
-    func testSettingsFileShortcutCannotBeOverriddenFromUI() throws {
+    func testSettingsFileShortcutCannotBeSetFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1837,12 +1837,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         // The Settings row for a file-managed action is disabled and subtitled
-        // "Managed in cmux.json", and setShortcut refuses the write behind it, so the
-        // file's chord stays in effect.
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
-
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
-
+        // "Managed in cmux.json", and the shared setter also refuses the write behind
+        // it. Check the backing store directly so the managed lookup cannot mask an
+        // accidentally persisted shortcut.
+        XCTAssertNil(
+            UserDefaults.standard.object(
+                forKey: KeyboardShortcutSettings.Action.newTab.defaultsKey
+            )
+        )
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
