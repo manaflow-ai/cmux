@@ -10,6 +10,8 @@ const requiredEnv = {
   STACK_SECRET_SERVER_KEY: "stack-secret",
   NEXT_PUBLIC_STACK_PROJECT_ID: "stack-project",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
+  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
+  SUBROUTER_ALLOWED_TEAM_IDS: "*",
 };
 
 const requiredIrohProductionEnv = {
@@ -29,6 +31,11 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_POLICY_PRIVATE_KEY_PEM:
     `-----BEGIN PRIVATE KEY-----\n${"C".repeat(64)}\n-----END PRIVATE KEY-----`,
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
+};
+
+const requiredSubrouterDeploymentEnv = {
+  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
+  SUBROUTER_ALLOWED_TEAM_IDS: "test-team",
 };
 
 describe("client config env validation", () => {
@@ -52,6 +59,7 @@ describe("client config env validation", () => {
       ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...relayEnv,
     });
@@ -67,6 +75,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -92,6 +101,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -106,6 +116,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "development",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -125,6 +136,7 @@ describe("client config env validation", () => {
       CMUX_IROH_GRANT_SIGNING_KID: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
       CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
     });
 
@@ -140,6 +152,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).toBe(0);
@@ -154,6 +167,7 @@ describe("client config env validation", () => {
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -169,6 +183,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -231,6 +246,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",

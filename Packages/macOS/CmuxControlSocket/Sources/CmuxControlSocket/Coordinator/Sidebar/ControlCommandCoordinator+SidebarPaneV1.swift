@@ -267,7 +267,7 @@ extension ControlCommandCoordinator {
         guard trimmed.isEmpty else {
             return "ERROR: Usage: reload_config"
         }
-        sidebarContext?.controlSidebarReloadConfig()
+        sidebarContext?.controlSidebarReloadConfig(completion: {})
         return "OK Reloaded config"
     }
 

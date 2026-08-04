@@ -8,6 +8,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case mobileConnect = "cmux.mobileconnect"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newSimulator = "cmux.newSimulator"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -28,6 +29,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
+            self = .newSimulator
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -39,6 +42,29 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var configID: String {
         rawValue
+    }
+
+    var resolvedConfigMetadata: (title: String, keywords: [String]) {
+        switch self {
+        case .newWorkspace:
+            return (String(localized: "command.newWorkspace.title", defaultValue: "New Workspace"), ["create", "new", "workspace"])
+        case .newAgentChat:
+            return (String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"), ["create", "new", "agent", "chat", "browser", "codex", "claude"])
+        case .cloudVM:
+            return (String(localized: "command.cloudVM.title", defaultValue: "Open Base"), ["base", "cloud", "vm", "virtual", "machine", "remote"])
+        case .mobileConnect:
+            return (String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad"), ["iphone", "ipad", "mobile", "phone", "pair", "connect"])
+        case .newTerminal:
+            return (String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab"), ["new", "terminal", "tab", "surface"])
+        case .newBrowser:
+            return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
+        case .newSimulator:
+            return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
+        case .splitRight:
+            return (String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right"), ["terminal", "split", "right"])
+        case .splitDown:
+            return (String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down"), ["terminal", "split", "down"])
+        }
     }
 
     var defaultIcon: String {
@@ -55,6 +81,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newSimulator:
+            return "iphone.gen3"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -64,7 +92,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
+        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newSimulator:
             return nil
         case .newTerminal:
             return .newTerminal

@@ -12,8 +12,11 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod layout_undo;
 mod localization;
 mod machine;
+#[cfg(unix)]
+mod machine_agent;
 mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
@@ -22,6 +25,8 @@ mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
 mod provider_authority;
+#[cfg(unix)]
+mod provider_notice_identity;
 mod pty_input;
 mod session;
 mod sidebar_files;
@@ -36,10 +41,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
-use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
+use machine::{
+    MachineActionResult, MachineConnectRoute, MachineController, MachineRequest, MachineUiState,
+};
 #[cfg(unix)]
 use machine_provider_client::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
@@ -239,18 +247,19 @@ fn harden_provider_secret_process() -> io::Result<()> {
 }
 
 const USAGE: &str = "\
-cmux-tui - terminal multiplexer backed by libghostty-vt
+cmux - terminal multiplexer and resource client
 
-USAGE:
-  cmux-tui [OPTIONS]           Start a session (TUI + control socket)
-  cmux-tui attach [OPTIONS]    Attach to an existing session's socket
-  cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
-  cmux-tui <verb> [OPTIONS]    Run one control-socket command
-  cmux-tui plugin <subcommand> Manage sidebar plugins locally
+USAGE
+  cmux [OPTIONS]           Start a session
+  cmux attach [OPTIONS]    Attach to a session or one terminal
+  cmux relay [OPTIONS]     Relay protocol bytes over stdio
+  {machine_agent_usage}
+  cmux <scope> --help      Discover resource commands
 
-OPTIONS:
+START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -268,58 +277,31 @@ OPTIONS:
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
-  -V, --version      Print the cmux-tui version.
-
-KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
-  Tab/BackTab  next/prev tab
-  0-9  select screen
-  %  split right       \"  split down          x/X  close pane/tab
-  ,  rename screen     $    rename workspace   c    new screen
-  n/p  next/prev screen
-  h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  w  next workspace    W    new workspace       s    toggle sidebar
-  e  toggle sidebar view                       S    focus sidebar
-  <  browser back      >    browser forward     r/u  browser reload/edit URL
-  Ctrl-b  send a literal Ctrl-b
-
-MOUSE
-  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
-  to select text or open the cmux pane menu. Right-click a pane for
-  rename/new tab/split/close; right-click a
-  workspace-sidebar row or a status-bar screen for rename/close. Click
-  tab-bar entries to switch tabs (+ for a new tab), and status-bar
-  screen entries to switch screens (+ for a new screen).
-
-CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
-  reload-config, set-window-title, clear-window-title,
-  list-workspaces, export-layout, apply-layout, send,
-  read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
-  new-screen, new-pane, split, set-ratio, set-split-ratio, pane-neighbor, focus-direction,
-  swap-pane, zoom-pane, process-info, set-default-colors,
-  close-surface, close-pane, close-screen, close-workspace,
-  rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
-  select-workspace, move-tab, move-workspace, scroll-surface,
-  subscribe, attach-surface, wait-for, run, send-key, copy, ids,
-  notify, list-agents, report-agent
-
-PLUGIN VERBS (local; no socket protocol command)
-  plugin install <git-url> [--name <name>] [--force]
-  plugin list [--json]
-  plugin use <name>
-  plugin use --builtin
-  plugin disable
-  plugin update <name>
-  plugin remove <name>
+  -V, --version      Print the cmux version.
 ";
+
+fn usage_for(catalog: &localization::Catalog) -> String {
+    usage_for_platform(catalog, cfg!(unix))
+}
+
+fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
+    if supports_machine_agent {
+        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
+    } else {
+        USAGE.replace("  {machine_agent_usage}\n", "")
+    }
+}
+
+fn usage() -> String {
+    usage_for(localization::catalog())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    terminal: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -355,6 +337,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         attach: false,
         session: "main".to_string(),
         socket: None,
+        terminal: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -383,6 +366,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--socket" => {
                 out.socket =
                     Some(args.next().ok_or_else(|| "--socket needs a value".to_string())?.into());
+            }
+            "--terminal" => {
+                out.terminal =
+                    Some(args.next().ok_or_else(|| "--terminal needs a value".to_string())?);
             }
             "--machine-provider" => {
                 if out.machine_provider.is_some() {
@@ -456,15 +443,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
             "-h" | "--help" => {
-                print!("{USAGE}");
+                print!("{}", usage());
                 std::process::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux-tui {}", version_string());
+                println!("cmux {}", version_string());
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
+    }
+    if out.terminal.is_some() && !out.attach {
+        return Err("--terminal requires `cmux attach`".to_string());
     }
     Ok(out)
 }
@@ -655,10 +645,6 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
-    if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        cli::print_help(USAGE);
-        std::process::exit(0);
-    }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
@@ -668,9 +654,21 @@ fn main() {
         }
         return;
     }
+    #[cfg(unix)]
+    if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
+        discard_provider_secret_environment();
+        if let Err(error) = machine_agent::run(&raw_args[1..]) {
+            eprintln!("cmux-tui: {error}");
+            if error.show_help() {
+                eprintln!("{}", localization::catalog().machine_agent.help);
+            }
+            std::process::exit(1);
+        }
+        return;
+    }
     if cli::is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, USAGE));
+        std::process::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -739,8 +737,44 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    let remote = RemoteSession::connect(&socket_path)?;
-    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote))
+    let messages = &localization::catalog().attach;
+    let terminal = args
+        .terminal
+        .as_deref()
+        .map(|reference| {
+            TerminalPublicId::parse(reference.to_string())
+                .map_err(|_| anyhow::anyhow!(messages.unknown_terminal(reference)))
+        })
+        .transpose()?;
+    let remote = if terminal.is_some() {
+        RemoteSession::connect_for_terminal_attach(&socket_path)?
+    } else {
+        RemoteSession::connect(&socket_path)?
+    };
+    let surface_only = if let Some(terminal) = terminal.as_ref() {
+        let tree = remote.refresh_tree()?;
+        let surface = tree
+            .resolve_terminal(terminal)
+            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
+        if !remote.supports_surface_subscription_filter() {
+            anyhow::bail!(messages.filtered_subscription_unavailable);
+        }
+        remote.scope_events_to_surface(surface)?;
+        let tree = remote.refresh_tree()?;
+        if tree.resolve_terminal(terminal) != Some(surface) {
+            anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
+        }
+        Some(surface)
+    } else {
+        None
+    };
+    run_connected_session_client(
+        socket_path,
+        args.session,
+        config,
+        Session::Remote(remote),
+        surface_only,
+    )
 }
 
 /// Copy the control protocol byte-for-byte between stdio and a local session.
@@ -890,6 +924,7 @@ fn run_server(
             args.session,
             config,
             Session::Remote(remote),
+            None,
         );
     }
 
@@ -948,7 +983,7 @@ fn run_server(
         }?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
-    mux.set_default_colors(config.terminal_defaults);
+    mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -980,7 +1015,7 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session)
+        run_tui(Session::Local(mux.clone()), args.session, None)
     };
     drop(websocket_server);
     mux.shutdown();
@@ -988,8 +1023,12 @@ fn run_server(
     result
 }
 
-fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, None, None)? {
+fn run_tui(
+    session: Session,
+    session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+) -> anyhow::Result<()> {
+    match run_tui_once(session, session_label, surface_only, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -1016,9 +1055,13 @@ fn run_connected_session_client(
     session_label: String,
     config: config::Config,
     session: Session,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
+    if surface_only.is_some() {
+        return run_tui(session, session_label, surface_only);
+    }
     match session_client_mode(&config) {
-        SessionClientMode::Plain => run_tui(session, session_label),
+        SessionClientMode::Plain => run_tui(session, session_label, None),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::new(socket_path, config.machines);
             run_machine_client_with_initial(runtime, session)
@@ -1041,7 +1084,7 @@ fn run_machine_client_with_initial(
     let machine_ui = MachineUiState::new(runtime.snapshot(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, pending_active: None });
-    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -1059,10 +1102,14 @@ impl MachineController for StaticMachineController {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
             MachineRequest::Switch(machine) => self.switch(machine),
-            MachineRequest::Connect(target) => {
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
                 self.switch(machine)
             }
+            MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
+                .notice(
+                    localization::catalog().sidebar.machine_catalog_provider_actions_unsupported,
+                )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
             }
@@ -1120,8 +1167,13 @@ fn run_provider_machine_client(
     local_machines: Vec<config::MachineConfig>,
     connect_external: bool,
 ) -> anyhow::Result<()> {
-    let mut runtime =
-        ProviderMachineController::connect_with(connector, local_machines, connect_external)?;
+    let state_root = cmux_tui_core::platform::workspace_state_dir();
+    let mut runtime = ProviderMachineController::connect_with(
+        connector,
+        local_machines,
+        connect_external,
+        state_root,
+    )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,
@@ -1131,7 +1183,7 @@ fn run_provider_machine_client(
         )),
     };
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -1146,9 +1198,30 @@ fn initial_provider_connection_notice(
     format!("{}: {error}", messages.initial_machine_connection_failed)
 }
 
+fn publish_session_default_colors(
+    session: &Session,
+    colors: cmux_tui_core::DefaultColors,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+) -> anyhow::Result<()> {
+    // A scoped attach receives the target terminal's resolved colors through
+    // vt-state. Publishing this client's host colors would recolor sibling
+    // surfaces and change the session defaults for future terminals.
+    if surface_only.is_some() {
+        return Ok(());
+    }
+    match session {
+        Session::Local(mux) => {
+            mux.seed_default_colors_if_no_durable_override(colors);
+            Ok(())
+        }
+        Session::Remote(remote) => remote.set_default_colors(colors),
+    }
+}
+
 fn run_tui_once(
     session: Session,
     session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<app::RunOutcome> {
@@ -1162,13 +1235,20 @@ fn run_tui_once(
     if host_colors.bg.is_some() {
         colors.bg = host_colors.bg;
     }
-    let color_result = session.set_default_colors(colors);
+    let color_result = publish_session_default_colors(&session, colors, surface_only);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {
         eprintln!("cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
-    app::run_with_machine_updates(session, session_label, colors, machine_ui, machine_controller)
+    app::run_with_machine_updates(
+        session,
+        session_label,
+        colors,
+        surface_only,
+        machine_ui,
+        machine_controller,
+    )
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
@@ -1191,7 +1271,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux-tui: {msg}\n\n{USAGE}");
+    eprintln!("cmux: {msg}\n\n{}", usage());
     std::process::exit(2);
 }
 
@@ -1201,6 +1281,31 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn scoped_terminal_attach_does_not_publish_session_default_colors() {
+        let mux = Mux::new("scoped-terminal-color-test", SurfaceOptions::default());
+        let original = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
+            ..Default::default()
+        };
+        let client = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 4, g: 5, b: 6 }),
+            ..Default::default()
+        };
+        mux.set_default_colors(original);
+        let session = Session::Local(mux.clone());
+
+        publish_session_default_colors(&session, client, Some(7)).unwrap();
+        assert_eq!(
+            mux.default_colors(),
+            original,
+            "scoped terminal attach must retain the session and sibling tabs' colors"
+        );
+
+        publish_session_default_colors(&session, client, None).unwrap();
+        assert_eq!(mux.default_colors(), client, "full-session clients still publish their colors");
     }
 
     #[test]
@@ -1249,7 +1354,7 @@ mod tests {
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
-            Some("このマシンカタログでは仮想マシンを作成できません")
+            Some("このマシンカタログではマシンを作成できません")
         );
         assert_eq!(
             controller
@@ -1524,10 +1629,65 @@ mod tests {
 
     #[test]
     fn startup_help_lists_all_provider_entrypoints() {
-        assert!(USAGE.contains("--machine-provider <path>"));
-        assert!(USAGE.contains("--machine-provider-command <program> [arg ...] --"));
-        assert!(USAGE.contains("--cloud"));
-        assert!(USAGE.contains("--cloud-identity"));
+        let usage = usage();
+        assert!(usage.contains("--machine-provider <path>"));
+        assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
+        assert!(usage.contains("--cloud"));
+        assert!(usage.contains("--cloud-identity"));
+    }
+
+    #[test]
+    fn startup_help_localizes_the_machine_agent_entrypoint() {
+        let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
+        assert!(english.contains("cmux machine-agent"));
+        assert!(english.contains("Share one local session through the configured host"));
+        let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
+        assert!(japanese.contains("cmux machine-agent"));
+        assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
+        assert!(!japanese.contains("Share one local session"));
+    }
+
+    #[test]
+    fn startup_help_omits_machine_agent_on_unsupported_platforms() {
+        let english = localization::catalog_for_locale("en_US.UTF-8");
+        let usage = usage_for_platform(english, false);
+        assert!(!usage.contains("machine-agent"));
+        assert!(usage.contains("cmux relay"));
+        assert!(!usage.contains("cmux-tui"));
+        assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
+    }
+
+    #[test]
+    fn old_single_target_attach_flag_is_rejected() {
+        let removed = ["--sur", "face"].concat();
+        assert!(parse_args_result([removed.clone(), "s:abc123".into()]).is_err());
+        assert!(parse_args_result(["attach".into(), removed, "s:abc123".into()]).is_err());
+    }
+
+    #[test]
+    fn terminal_attach_is_scoped_to_attach_mode() {
+        let terminal = "term_0123456789abcdef0123456789abcdef";
+        let parsed = args(&["attach", "--session", "agents", "--terminal", terminal]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
+        assert_eq!(parsed.terminal.as_deref(), Some(terminal));
+        assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
+        assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
+    fn startup_help_stays_focused_on_process_modes() {
+        let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
+        assert!(english.contains("cmux <scope> --help"));
+        assert!(english.contains("--terminal <id>"));
+        assert!(!english.contains("cmux-tui"));
+        assert!(!english.contains("KEYS"));
+        assert!(!english.contains("CLI VERBS"));
+
+        let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
+        assert!(japanese.contains("cmux <scope> --help"));
+        assert!(!japanese.contains("cmux-tui"));
+        assert!(!japanese.contains("KEYS"));
     }
 
     #[test]
