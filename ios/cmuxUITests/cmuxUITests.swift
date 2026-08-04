@@ -311,7 +311,8 @@ final class cmuxUITests: XCTestCase {
         try assertConnectedWorkspaceReady(
             in: app,
             phase: "initial",
-            startedAt: Date()
+            startedAt: Date(),
+            requiresTerminalWithoutTap: true
         )
 
         let initial = XCTAttachment(screenshot: app.screenshot())
@@ -334,7 +335,8 @@ final class cmuxUITests: XCTestCase {
             try assertConnectedWorkspaceReady(
                 in: app,
                 phase: "foreground-\(cycle)",
-                startedAt: startedAt
+                startedAt: startedAt,
+                requiresTerminalWithoutTap: true
             )
         }
 
@@ -358,7 +360,8 @@ final class cmuxUITests: XCTestCase {
             try assertConnectedWorkspaceReady(
                 in: app,
                 phase: "cold-launch-\(cycle)",
-                startedAt: startedAt
+                startedAt: startedAt,
+                requiresTerminalWithoutTap: false
             )
         }
 
@@ -4796,30 +4799,27 @@ final class cmuxUITests: XCTestCase {
         in app: XCUIApplication,
         phase: String,
         startedAt: Date,
+        requiresTerminalWithoutTap: Bool,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        try openSelectedWorkspaceIfNeeded(app)
-        XCTAssertTrue(
-            app.otherElements["MobileTerminalSurface"].exists,
-            "\(phase) must return to the terminal",
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let shellExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                terminalSurface.exists || workspaceRow.exists
+            },
+            object: app
+        )
+        let shellResult = XCTWaiter.wait(for: [shellExpectation], timeout: 20)
+        XCTAssertEqual(
+            shellResult,
+            .completed,
+            "\(phase) must reach the connected workspace shell",
             file: file,
             line: line
         )
-        assertTerminalRow(
-            0,
-            label: "$ cmux ios status",
-            in: app,
-            file: file,
-            line: line
-        )
-        assertTerminalRow(
-            1,
-            label: "Mobile Core: connected",
-            in: app,
-            file: file,
-            line: line
-        )
+        guard shellResult == .completed else { return }
 
         let blockingConnectionSurfaceIDs = [
             "MobileOnboardingConnectScene",
@@ -4844,7 +4844,49 @@ final class cmuxUITests: XCTestCase {
         let readyMilliseconds = Int(
             Date().timeIntervalSince(startedAt) * 1_000
         )
-        print("CMUX_LIFECYCLE_READY phase=\(phase) ready_ms=\(readyMilliseconds)")
+        let shellState = terminalSurface.exists ? "terminal" : "workspace-list"
+        print(
+            "CMUX_LIFECYCLE_READY phase=\(phase) "
+                + "shell=\(shellState) ready_ms=\(readyMilliseconds)"
+        )
+
+        if requiresTerminalWithoutTap {
+            XCTAssertTrue(
+                terminalSurface.exists,
+                "\(phase) must restore the open terminal without a tap",
+                file: file,
+                line: line
+            )
+        } else if !terminalSurface.exists {
+            XCTAssertTrue(
+                workspaceRow.isHittable,
+                "\(phase) must make the prior workspace immediately usable",
+                file: file,
+                line: line
+            )
+            workspaceRow.tap()
+            XCTAssertTrue(
+                terminalSurface.waitForExistence(timeout: 8),
+                "\(phase) must open the terminal after one workspace tap",
+                file: file,
+                line: line
+            )
+        }
+
+        assertTerminalRow(
+            0,
+            label: "$ cmux ios status",
+            in: app,
+            file: file,
+            line: line
+        )
+        assertTerminalRow(
+            1,
+            label: "Mobile Core: connected",
+            in: app,
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
