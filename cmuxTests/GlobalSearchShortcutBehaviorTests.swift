@@ -805,11 +805,41 @@ extension GlobalSearchShortcutBehaviorTests {
             "document.body.textContent = '\(secondToken)'; document.body.textContent"
         ) as? String
         #expect(updatedBody == secondToken)
-
-        await GlobalSearchCoordinator.shared.refreshLiveIndex()
+        let staleHits = await GlobalSearchCoordinator.shared.search(query: secondToken)
         #expect(
-            await waitForSearchHit(query: secondToken, workspaceID: workspace.id),
-            "Reopening Search must recapture same-document browser DOM changes"
+            !staleHits.contains(where: { $0.panelID == browserPanel.id }),
+            "The fixture must mutate the DOM without an automatic browser lifecycle capture"
+        )
+
+        let refreshFinished = GlobalSearchAsyncSignal()
+        let debounce = ControlledGlobalSearchDebounceScheduler()
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLiveIndex: {
+                await GlobalSearchCoordinator.shared.refreshLiveIndex()
+                refreshFinished.signal()
+            },
+            search: { query in
+                await GlobalSearchCoordinator.shared.search(query: query)
+            },
+            scheduleSearchDebounce: { _, action in
+                debounce.schedule(action)
+            }
+        )
+        defer { presentation.endPresentation() }
+
+        presentation.beginPresentation()
+        presentation.query = secondToken
+        await refreshFinished.wait()
+        debounce.fire()
+
+        #expect(
+            await waitUntil {
+                presentation.results.contains(where: {
+                    $0.hit.panelID == browserPanel.id && $0.hit.kind == .browser
+                })
+            },
+            "A completed live refresh must recapture browser DOM changes before rerunning the active query"
         )
 #else
         Issue.record("Dynamic browser indexing coverage requires a DEBUG app-host build")
