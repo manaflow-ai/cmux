@@ -36843,6 +36843,131 @@
         }
       }
     },
+    "cli.help.irohDiag": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux iroh-diag\n\nاطبع تقرير اتصال Iroh للمضيف كمخطط زمني بلغة واضحة،\nوهي البيانات نفسها الموجودة في الإعدادات > الشبكات > تقرير الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux iroh-diag\n\nIspiši izvještaj o Iroh vezi domaćina kao vremensku liniju razumljivim jezikom,\niste podatke kao Postavke > Mreža > Izvještaj o vezi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux iroh-diag\n\nUdskriv værtens Iroh-forbindelsesrapport som en tidslinje i almindeligt sprog,\nde samme data som Indstillinger > Netværk > Forbindelsesrapport."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux iroh-diag\n\nGibt den Iroh-Verbindungsbericht des Hosts als verständliche Zeitleiste aus,\ndieselben Daten wie Einstellungen > Netzwerk > Verbindungsbericht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nPrint the host's Iroh Connection Report as a plain-language timeline,\nthe same data as Settings > Networking > Connection Report."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nMuestra el informe de conexión Iroh del host como una cronología en lenguaje sencillo,\nlos mismos datos que Ajustes > Red > Informe de conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux iroh-diag\n\nAffiche le rapport de connexion Iroh de l’hôte sous forme de chronologie en langage clair,\nles mêmes données que Réglages > Réseau > Rapport de connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nStampa il rapporto di connessione Iroh dell’host come cronologia in linguaggio semplice,\ngli stessi dati di Impostazioni > Rete > Rapporto di connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nホストのIroh接続レポートを読みやすいタイムラインとして出力します。\n設定 > ネットワーク > 接続レポートと同じデータです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux iroh-diag\n\nបង្ហាញរបាយការណ៍ការតភ្ជាប់ Iroh របស់ម៉ាស៊ីនជាបន្ទាត់ពេលវេលាដែលងាយយល់\nជាទិន្នន័យដូចគ្នានឹង ការកំណត់ > បណ្តាញ > របាយការណ៍ការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux iroh-diag\n\n호스트의 Iroh 연결 보고서를 이해하기 쉬운 타임라인으로 출력합니다.\n설정 > 네트워킹 > 연결 보고서와 동일한 데이터입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux iroh-diag\n\nSkriv ut vertens Iroh-tilkoblingsrapport som en tidslinje i klart språk,\nde samme dataene som Innstillinger > Nettverk > Tilkoblingsrapport."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux iroh-diag\n\nWyświetla raport połączenia Iroh hosta jako oś czasu napisaną prostym językiem,\nte same dane co Ustawienia > Sieć > Raport połączenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nExibe o relatório de conexão Iroh do host como uma linha do tempo em linguagem simples,\nos mesmos dados de Ajustes > Rede > Relatório de conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux iroh-diag\n\nВыводит отчет о подключении Iroh хоста в виде понятной временной шкалы,\nте же данные, что в Настройки > Сеть > Отчет о подключении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux iroh-diag\n\nแสดงรายงานการเชื่อมต่อ Iroh ของโฮสต์เป็นไทม์ไลน์ที่อ่านเข้าใจง่าย\nเป็นข้อมูลเดียวกับ การตั้งค่า > เครือข่าย > รายงานการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux iroh-diag\n\nAna bilgisayarın Iroh Bağlantı Raporunu anlaşılır bir zaman çizelgesi olarak yazdırır,\nAyarlar > Ağ > Bağlantı Raporu ile aynı verileri içerir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux iroh-diag\n\nВиводить звіт про підключення Iroh хоста як зрозумілу часову шкалу,\nті самі дані, що в Налаштування > Мережа > Звіт про підключення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易读的时间线形式输出主机的 Iroh 连接报告，\n数据与“设置 > 网络 > 连接报告”相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易讀的時間軸形式輸出主機的 Iroh 連線報告，\n資料與「設定 > 網路 > 連線報告」相同。"
+          }
+        }
+      }
+    },
     "cli.help.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -53706,6 +53831,23 @@
         }
       }
     },
+    "cli.workspaceAction.tailscalePairingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Pairing is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングは利用できません"
+          }
+        }
+      }
+    },
     "cli.workspace.status.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -61345,7 +61487,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Tailscale"
           }
         },
         "es": {
@@ -61369,7 +61511,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モバイル"
+            "value": "Tailscale"
           }
         },
         "km": {
@@ -61470,7 +61612,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect iPhone/iPad"
+            "value": "Open Tailscale Pairing"
           }
         },
         "es": {
@@ -61494,7 +61636,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPadを接続"
+            "value": "Tailscaleペアリングを開く"
           }
         },
         "km": {
@@ -110609,13 +110751,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Mobile Connect button in the sidebar footer."
+            "value": "Shows the Tailscale Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにMobile Connectボタンを表示します。"
+            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
           }
         }
       }
@@ -110626,13 +110768,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connect button"
+            "value": "Tailscale Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectボタン"
+            "value": "Tailscaleペアリングボタン"
           }
         }
       }
@@ -134730,36 +134872,19 @@
         }
       }
     },
-    "mobile.pairing.codeMode.legacyDetail": {
+    "mobile.pairing.codeMode.tailscaleDetail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.codeMode.useLegacy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Tailscale Pairing Code"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleペアリングコードを使用"
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135280,13 +135405,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135297,13 +135422,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account."
+            "value": "Tailscale is not connected on this Mac. Install it on both devices and connect both to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検出されませんでした。この Mac と iPhone の両方に、同じアカウントで Tailscale をインストールしてください。"
+            "value": "この Mac で Tailscale が接続されていません。両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }
@@ -135314,13 +135439,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reachable over Tailscale."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由で接続できます。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135791,13 +135916,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap Add device, then Scan QR Code, and point the camera at the code above."
+            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「デバイスを追加」→「QR コードをスキャン」をタップし、上のコードにカメラを向けます。"
+            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
           }
         }
       }
@@ -135842,13 +135967,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your iPhone"
+            "value": "Pair your iPhone with Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "TailscaleでiPhoneをペアリング"
           }
         }
       }
@@ -135859,13 +135984,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
+            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
           }
         }
       }
@@ -135876,13 +136001,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair iPhone"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174457,13 +174582,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair a Device"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスをペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -174474,13 +174599,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair…"
+            "value": "Show Tailscale QR…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング…"
+            "value": "Tailscale QRを表示…"
           }
         }
       }
@@ -174491,13 +174616,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
           }
         }
       }

@@ -34,7 +34,6 @@ async function mintStackTokens(
   if (!tokens.accessToken || !tokens.refreshToken) return null;
   return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
 }
-
 export async function POST(request: Request): Promise<Response> {
   return withCliAuthApiRoute(
     request,

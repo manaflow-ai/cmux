@@ -15594,12 +15594,15 @@ struct CMUXCLI {
             Check connectivity to the cmux socket server.
             """
         case "iroh-diag":
-            return """
-            Usage: cmux iroh-diag
+            return String(
+                localized: "cli.help.irohDiag",
+                defaultValue: """
+                Usage: cmux iroh-diag
 
-            Print the host's iroh Connection Report (cmuxdiag v1 compact export),
-            the same data as Settings > Networking > Connection Report.
-            """
+                Print the host's Iroh Connection Report as a plain-language timeline,
+                the same data as Settings > Networking > Connection Report.
+                """
+            )
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -28700,7 +28703,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,
