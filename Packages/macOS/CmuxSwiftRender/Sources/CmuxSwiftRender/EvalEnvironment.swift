@@ -24,6 +24,7 @@ public final class EvalEnvironment {
     /// pathological authored source can't overflow the stack.
     let budget: RecursionBudget
 
+    /// Creates a lexical scope that inherits diagnostics and budget from its parent.
     init(
         values: [String: SwiftValue] = [:],
         parent: EvalEnvironment? = nil,

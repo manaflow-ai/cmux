@@ -13,6 +13,7 @@ public struct SwiftViewEvaluation: Sendable {
     /// Member names read directly from caller-selected base values.
     public let accessedTrackedMemberNames: Set<String>
 
+    /// Creates an evaluation result from a rendered node and tracked member reads.
     init(node: RenderNode?, accessedTrackedMemberNames: Set<String>) {
         self.node = node
         self.accessedTrackedMemberNames = accessedTrackedMemberNames

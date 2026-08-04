@@ -56,7 +56,7 @@ import Testing
             }
             """,
             state: ["workspace": workspace],
-            trackingMemberAccessesOn: [workspace]
+            trackingMemberAccessesOn: workspace
         )
 
         #expect(evaluation.accessedTrackedMemberNames == ["branch", "dirty", "tabs"])

@@ -66,7 +66,7 @@ public struct SwiftViewInterpreter: Sendable {
     }
 
     /// Interprets a parsed program and records members read directly from
-    /// caller-selected base values.
+    /// one caller-selected base value.
     ///
     /// Rendering callers should continue using ``evaluate(_:state:)`` to avoid
     /// collecting validation-only coverage. Validators can compare the
@@ -77,17 +77,19 @@ public struct SwiftViewInterpreter: Sendable {
     /// - Parameters:
     ///   - program: Previously parsed sidebar source.
     ///   - state: Values available to the interpreted source.
-    ///   - trackedBaseValues: Object values whose direct member reads should
+    ///   - trackedBaseValue: The object value whose direct member reads should
     ///     be recorded. Members of nested values are not attributed to their
-    ///     parent.
+    ///     parent. Pass `nil` to disable member-access recording.
     /// - Returns: The rendered tree and member-access coverage for validation.
     public func evaluateWithDiagnostics(
         _ program: ParsedProgram,
         state: [String: SwiftValue] = [:],
-        trackingMemberAccessesOn trackedBaseValues: [SwiftValue]
+        trackingMemberAccessesOn trackedBaseValue: SwiftValue?
     ) -> SwiftViewEvaluation {
         onLargeStack {
-            let recorder = EvaluationMemberAccessRecorder(trackedBaseValues: trackedBaseValues)
+            let recorder = EvaluationMemberAccessRecorder(
+                trackedBaseValue: trackedBaseValue
+            )
             return self.evaluateProgram(program, state: state, memberAccessRecorder: recorder)
         }
     }
@@ -103,23 +105,23 @@ public struct SwiftViewInterpreter: Sendable {
     }
 
     /// Parses and interprets source while recording members read directly from
-    /// caller-selected base values.
+    /// one caller-selected base value.
     ///
     /// - Parameters:
     ///   - source: The authored sidebar source.
     ///   - state: Values available to the interpreted source.
-    ///   - trackedBaseValues: Object values whose direct member reads should
-    ///     be recorded.
+    ///   - trackedBaseValue: The object value whose direct member reads should
+    ///     be recorded. Pass `nil` to disable member-access recording.
     /// - Returns: The rendered tree and member-access coverage for validation.
     public func evaluateWithDiagnostics(
         _ source: String,
         state: [String: SwiftValue] = [:],
-        trackingMemberAccessesOn trackedBaseValues: [SwiftValue]
+        trackingMemberAccessesOn trackedBaseValue: SwiftValue?
     ) -> SwiftViewEvaluation {
         evaluateWithDiagnostics(
             parse(source),
             state: state,
-            trackingMemberAccessesOn: trackedBaseValues
+            trackingMemberAccessesOn: trackedBaseValue
         )
     }
 
@@ -141,6 +143,7 @@ public struct SwiftViewInterpreter: Sendable {
         return box.value!
     }
 
+    /// Evaluates a parsed program and returns both its node and member-read coverage.
     private func evaluateProgram(
         _ program: ParsedProgram,
         state: [String: SwiftValue],

@@ -74,10 +74,12 @@ enum RenderedModifierKind: String {
 }
 
 extension RenderModifier {
+    /// The renderer-owned kind for this captured modifier, when supported.
     var renderedKind: RenderedModifierKind? {
         RenderedModifierKind(rawValue: name)
     }
 
+    /// Whether this supported modifier applies to the supplied node kind.
     func affectsRenderedOutput(of nodeKind: RenderNode.Kind) -> Bool {
         guard let renderedKind else { return false }
         switch renderedKind {
@@ -92,6 +94,7 @@ extension RenderModifier {
 }
 
 private extension RenderNode.Kind {
+    /// Whether this node is rendered through the concrete shape path.
     var isShape: Bool {
         switch self {
         case .rectangle,

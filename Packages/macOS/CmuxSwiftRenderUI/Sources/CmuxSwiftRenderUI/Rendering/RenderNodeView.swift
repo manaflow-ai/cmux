@@ -10,8 +10,18 @@ import SwiftUI
 /// from the environment.
 struct RenderNodeView: View {
     let node: RenderNode
+    private let styleResolver: RenderStyleResolver
 
     @Environment(\.sidebarActionDispatch) private var dispatch
+
+    /// Creates a recursive renderer with one shared style-resolution dependency.
+    init(
+        node: RenderNode,
+        styleResolver: RenderStyleResolver = RenderStyleResolver()
+    ) {
+        self.node = node
+        self.styleResolver = styleResolver
+    }
 
     var body: some View {
         let view = applyModifiers(content, node.modifiers)
@@ -77,9 +87,16 @@ struct RenderNodeView: View {
         case .viewThatFits:
             ViewThatFits { children }
         case .hsplit:
-            ResizableHSplit(columns: node.children)
+            ResizableHSplit(
+                columns: node.children,
+                styleResolver: styleResolver
+            )
         case .reorderable:
-            ReorderableList(rows: node.children, spec: node.reorder)
+            ReorderableList(
+                rows: node.children,
+                spec: node.reorder,
+                styleResolver: styleResolver
+            )
         case .text:
             Text(node.text ?? "")
         case .label:
@@ -152,7 +169,7 @@ struct RenderNodeView: View {
     @ViewBuilder
     private var children: some View {
         ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-            RenderNodeView(node: child)
+            RenderNodeView(node: child, styleResolver: styleResolver)
         }
     }
 
@@ -164,9 +181,19 @@ struct RenderNodeView: View {
         return result
     }
 
-    private func apply(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
-        guard let renderedKind = modifier.renderedKind else { return view }
-        let token = cleanRenderToken(modifier.firstValue)
+    /// Applies one captured modifier after normalizing its actual renderer effect.
+    private func apply(
+        _ capturedModifier: RenderModifier,
+        to view: AnyView
+    ) -> AnyView {
+        guard let modifier = capturedModifier.normalizedRenderedEffect(
+            on: node.kind,
+            using: styleResolver
+        ),
+              let renderedKind = modifier.renderedKind else {
+            return view
+        }
+        let token = styleResolver.cleanToken(modifier.firstValue)
         switch renderedKind {
         case .font:
             return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
@@ -193,24 +220,34 @@ struct RenderNodeView: View {
         case .truncationMode:
             return AnyView(view.truncationMode(dslTruncationMode(token)))
         case .foregroundColor, .foregroundStyle, .fill, .tint:
-            if let color = dslColor(token) { return AnyView(view.foregroundStyle(color)) }
+            if let color = styleResolver.color(token) {
+                return AnyView(view.foregroundStyle(color))
+            }
             return view
         case .padding:
             if let token, let value = Double(token) { return AnyView(view.padding(CGFloat(value))) }
             return AnyView(view.padding())
         case .background:
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
+                let alignment = frameAlignment(
+                    styleResolver.cleanToken(modifier.value("alignment"))
+                )
                 return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
             }
-            if let color = dslColor(token) { return AnyView(view.background(color)) }
+            if let color = styleResolver.color(token) {
+                return AnyView(view.background(color))
+            }
             return view
         case .overlay:
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
+                let alignment = frameAlignment(
+                    styleResolver.cleanToken(modifier.value("alignment"))
+                )
                 return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
             }
-            if let color = dslColor(token) { return AnyView(view.overlay(color)) }
+            if let color = styleResolver.color(token) {
+                return AnyView(view.overlay(color))
+            }
             return view
         case .mask:
             if !modifier.children.isEmpty {
@@ -219,7 +256,7 @@ struct RenderNodeView: View {
             return view
         case .safeAreaInset:
             if !modifier.children.isEmpty {
-                let edge = cleanRenderToken(modifier.value("edge"))
+                let edge = styleResolver.cleanToken(modifier.value("edge"))
                 if edge == "top" {
                     return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier) })
                 }
@@ -241,12 +278,13 @@ struct RenderNodeView: View {
             return applyFrame(modifier, to: view)
         case .shadow:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 4
-            let color = dslColor(cleanRenderToken(modifier.value("color"))) ?? Color.black.opacity(0.33)
+            let color = styleResolver.color(modifier.value("color"))
+                ?? Color.black.opacity(0.33)
             return AnyView(view.shadow(color: color, radius: CGFloat(radius),
                                        x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
         case .border:
-            let border = dslResolvedBorder(modifier)
+            let border = styleResolver.border(modifier)
             return AnyView(view.border(border.color, width: border.width))
         case .blur:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 0
@@ -258,7 +296,9 @@ struct RenderNodeView: View {
             if let token, let s = Double(token) { return AnyView(view.scaleEffect(CGFloat(s))) }
             return view
         case .rotationEffect:
-            return AnyView(view.rotationEffect(.degrees(angleDegrees(token) ?? 0)))
+            return AnyView(
+                view.rotationEffect(.degrees(token.flatMap(Double.init) ?? 0))
+            )
         case .zIndex:
             if let token, let z = Double(token) { return AnyView(view.zIndex(z)) }
             return view
@@ -294,7 +334,8 @@ struct RenderNodeView: View {
             // unresolved expression defaults to enabled, not disabled.
             return AnyView(view.disabled(token == "true"))
         case .redacted:
-            let reason = cleanRenderToken(modifier.value("reason")) ?? token
+            let reason = styleResolver.cleanToken(modifier.value("reason"))
+                ?? token
             return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
         case .unredacted:
             return AnyView(view.unredacted())
@@ -311,7 +352,9 @@ struct RenderNodeView: View {
         case .scrollContentBackground:
             return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
         case .aspectRatio:
-            let mode: ContentMode = cleanRenderToken(modifier.value("contentMode")) == "fill" ? .fill : .fit
+            let mode: ContentMode = styleResolver.cleanToken(
+                modifier.value("contentMode")
+            ) == "fill" ? .fill : .fit
             // Only apply an explicit ratio when positive; a zero/negative ratio
             // is invalid in SwiftUI, so fall back to mode-only.
             if let token, let ratio = Double(token), ratio > 0 { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
@@ -336,7 +379,12 @@ struct RenderNodeView: View {
     /// erasure (it's an `Image` method, unavailable on `AnyView`). `.scaledToFit`/
     /// `.aspectRatio` from the generic modifier pass then apply on top.
     private func styledImage(_ image: Image) -> AnyView {
-        if node.modifiers.contains(where: { $0.renderedKind == .resizable }) {
+        if node.modifiers.contains(where: {
+            $0.normalizedRenderedEffect(
+                on: node.kind,
+                using: styleResolver
+            )?.renderedKind == .resizable
+        }) {
             return AnyView(image.resizable())
         }
         return AnyView(image)
@@ -345,7 +393,7 @@ struct RenderNodeView: View {
     /// Resolves a gradient node's color stops, falling back to two clear stops
     /// so an empty/unresolved gradient is harmless rather than invalid.
     private func gradientColors(_ node: RenderNode) -> [Color] {
-        dslResolvedGradient(node.colors).colors
+        styleResolver.gradient(node.colors).colors
     }
 
     /// Renders a shape, applying shape-level `.trim` then `.stroke` /
@@ -354,14 +402,22 @@ struct RenderNodeView: View {
     /// from the generic modifier pass fills it.
     private func styledShape(_ shape: some Shape) -> AnyView {
         var resolved = AnyShape(shape)
-        if let trim = node.modifiers.first(where: { $0.renderedKind == .trim }) {
+        let renderedModifiers = node.modifiers.compactMap {
+            $0.normalizedRenderedEffect(
+                on: node.kind,
+                using: styleResolver
+            )
+        }
+        if let trim = renderedModifiers.first(where: {
+            $0.renderedKind == .trim
+        }) {
             resolved = AnyShape(resolved.trim(from: CGFloat(modDouble(trim, "from") ?? 0),
                                               to: CGFloat(modDouble(trim, "to") ?? 1)))
         }
-        if let stroke = node.modifiers.first(where: {
+        if let stroke = renderedModifiers.first(where: {
             $0.renderedKind == .stroke || $0.renderedKind == .strokeBorder
         }) {
-            let color = dslColor(cleanRenderToken(stroke.firstValue)) ?? .secondary
+            let color = styleResolver.color(stroke.firstValue) ?? .secondary
             let width = modDouble(stroke, "lineWidth") ?? 1
             return AnyView(resolved.stroke(color, lineWidth: CGFloat(width)))
         }
@@ -373,11 +429,17 @@ struct RenderNodeView: View {
     @ViewBuilder
     private func modifierChildren(_ modifier: RenderModifier) -> some View {
         if modifier.children.count == 1 {
-            RenderNodeView(node: modifier.children[0])
+            RenderNodeView(
+                node: modifier.children[0],
+                styleResolver: styleResolver
+            )
         } else {
             ZStack {
                 ForEach(Array(modifier.children.enumerated()), id: \.offset) { _, child in
-                    RenderNodeView(node: child)
+                    RenderNodeView(
+                        node: child,
+                        styleResolver: styleResolver
+                    )
                 }
             }
         }
@@ -385,18 +447,9 @@ struct RenderNodeView: View {
 
     /// A labeled `Double` argument of a modifier (e.g. `.shadow(radius: 4)`).
     private func modDouble(_ modifier: RenderModifier, _ label: String) -> Double? {
-        modifier.value(label).map { cleanRenderToken($0) ?? $0 }.flatMap { Double($0) }
-    }
-
-    /// Degrees from an angle token like `.degrees(45)` or `.radians(1.5)`.
-    private func angleDegrees(_ token: String?) -> Double? {
-        guard let token else { return nil }
-        if let open = token.firstIndex(of: "("), let close = token.lastIndex(of: ")") {
-            let inner = String(token[token.index(after: open)..<close])
-            guard let value = Double(inner.trimmingCharacters(in: .whitespaces)) else { return nil }
-            return token.contains("radians") ? value * 180 / .pi : value
-        }
-        return Double(token)
+        modifier.value(label)
+            .map { styleResolver.cleanToken($0) ?? $0 }
+            .flatMap(Double.init)
     }
 
     /// Resolves a `.clipShape(<Shape>())` token to a clip.
@@ -418,7 +471,9 @@ struct RenderNodeView: View {
             if raw == ".infinity" || raw == "infinity" { return .infinity }
             return Double(raw).map { CGFloat($0) }
         }
-        let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
+        let alignment = frameAlignment(
+            styleResolver.cleanToken(modifier.value("alignment"))
+        )
         return AnyView(
             view.frame(
                 minWidth: dim("minWidth"),

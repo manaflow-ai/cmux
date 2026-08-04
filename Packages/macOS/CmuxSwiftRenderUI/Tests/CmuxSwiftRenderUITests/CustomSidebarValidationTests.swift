@@ -302,6 +302,28 @@ struct CustomSidebarValidationTests {
         }
     }
 
+    @Test("renderer fallback symbols count as visible content")
+    func acceptsFallbackSymbols() throws {
+        let directory = try temporaryDirectory()
+        let sources = [
+            "image": "Image()",
+            "label": "Label()",
+        ]
+
+        for (name, source) in sources {
+            let fileURL = directory.appendingPathComponent("\(name).swift")
+            try source.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let entry = validator.validate(fileURL: fileURL)
+
+            #expect(entry.errorMessage == nil)
+            #expect(
+                entry.warningMessages.isEmpty,
+                "Expected \(name) to render its fallback symbol"
+            )
+        }
+    }
+
     @Test("safe-area inset children count as visible output")
     func acceptsVisibleSafeAreaInset() throws {
         let directory = try temporaryDirectory()
@@ -416,23 +438,6 @@ struct CustomSidebarValidationTests {
         )
     }
 
-    @Test("changed-field detection includes stable keys with empty values")
-    func tracksChangedStableWorkspaceFields() {
-        let richFields: [String: SwiftValue] = [
-            "prs": .array([.object(["number": .int(412)])]),
-        ]
-        let comparisonFields: [String: SwiftValue] = [
-            "prs": .array([]),
-        ]
-
-        #expect(
-            changedWorkspaceFieldNames(
-                between: richFields,
-                and: comparisonFields
-            ) == ["prs"]
-        )
-    }
-
     @Test("ignored modifiers cannot masquerade as optional-data output")
     func warnsWhenOptionalDataOnlyChangesIgnoredModifier() throws {
         let directory = try temporaryDirectory()
@@ -442,6 +447,30 @@ struct CustomSidebarValidationTests {
             ForEach(workspaces) { workspace in
                 Text("Fixed")
                     .custom(workspace.branch)
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(
+            entry.warningMessages
+                == [
+                    "Sidebar output did not change when its referenced optional workspace data was removed.",
+                ]
+        )
+    }
+
+    @Test("renderer no-op arguments cannot masquerade as optional-data output")
+    func warnsWhenOptionalDataOnlyChangesNoOpModifierArgument() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("noop.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                Text("Fixed")
+                    .opacity(workspace.branch)
             }
         }
         """.write(to: fileURL, atomically: true, encoding: .utf8)
@@ -472,41 +501,87 @@ struct CustomSidebarValidationTests {
             emptyTree = RenderNode(kind: .vstack, children: [emptyTree])
         }
 
-        #expect(visibleTree.containsVisibleContent)
-        #expect(!emptyTree.containsVisibleContent)
-        #expect(visibleTree.hasSameValidationOutput(as: matchingTree))
-        #expect(!visibleTree.hasSameValidationOutput(as: emptyTree))
+        let inspector = RenderOutputInspector(
+            styleResolver: RenderStyleResolver()
+        )
+        #expect(inspector.containsVisibleContent(in: visibleTree))
+        #expect(!inspector.containsVisibleContent(in: emptyTree))
+        #expect(
+            inspector.hasSameValidationOutput(
+                visibleTree,
+                as: matchingTree
+            )
+        )
+        #expect(
+            !inspector.hasSameValidationOutput(
+                visibleTree,
+                as: emptyTree
+            )
+        )
     }
 
     @Test("warning strings resolve through package localizations")
-    func warningStringsResolveThroughPackageLocalizations() {
-        let english = Locale(identifier: "en")
-        let japanese = Locale(identifier: "ja")
+    func warningStringsResolveThroughPackageLocalizations() throws {
+        let directory = try temporaryDirectory()
+        let sources = [
+            "empty": "VStack {}",
+            "optional-empty": """
+            VStack {
+                ForEach(workspaces) { workspace in
+                    if let branch = workspace.branch {
+                        Text(branch)
+                    }
+                }
+            }
+            """,
+            "unchanged": """
+            VStack {
+                ForEach(workspaces) { workspace in
+                    Text("Fixed").custom(workspace.branch)
+                }
+            }
+            """,
+        ]
+        for (name, source) in sources {
+            try source.write(
+                to: directory.appendingPathComponent("\(name).swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
-        #expect(
-            localizedEmptySidebarRenderWarning(locale: english)
-                == "Sidebar rendered no visible content."
-        )
-        #expect(
-            localizedEmptySidebarRenderWithoutOptionalDataWarning(locale: english)
-                == "Sidebar rendered no visible content when optional workspace data was absent."
-        )
-        #expect(
-            localizedMissingOptionalDataCoverageWarning(locale: english)
-                == "Sidebar output did not change when its referenced optional workspace data was removed."
-        )
-        #expect(
-            localizedEmptySidebarRenderWarning(locale: japanese)
-                == "サイドバーに表示可能な内容がレンダリングされませんでした。"
-        )
-        #expect(
-            localizedEmptySidebarRenderWithoutOptionalDataWarning(locale: japanese)
-                == "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。"
-        )
-        #expect(
-            localizedMissingOptionalDataCoverageWarning(locale: japanese)
-                == "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。"
-        )
+        let expectedByLocale = [
+            "en": [
+                "empty": "Sidebar rendered no visible content.",
+                "optional-empty": "Sidebar rendered no visible content when optional workspace data was absent.",
+                "unchanged": "Sidebar output did not change when its referenced optional workspace data was removed.",
+            ],
+            "ja": [
+                "empty": "サイドバーに表示可能な内容がレンダリングされませんでした。",
+                "optional-empty": "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。",
+                "unchanged": "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。",
+            ],
+            "fr": [
+                "empty": "Sidebar rendered no visible content.",
+                "optional-empty": "Sidebar rendered no visible content when optional workspace data was absent.",
+                "unchanged": "Sidebar output did not change when its referenced optional workspace data was removed.",
+            ],
+        ]
+
+        for (localeIdentifier, expectedMessages) in expectedByLocale {
+            let localizedValidator = CustomSidebarValidator(
+                warningLocale: Locale(identifier: localeIdentifier)
+            )
+            for (name, expectedMessage) in expectedMessages {
+                let entry = localizedValidator.validate(
+                    fileURL: directory.appendingPathComponent("\(name).swift")
+                )
+                #expect(
+                    entry.warningMessages == [expectedMessage],
+                    "Expected \(localeIdentifier) localization for \(name)"
+                )
+            }
+        }
     }
 
     @MainActor
@@ -635,7 +710,7 @@ struct CustomSidebarValidationTests {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return CustomSidebarDataContextBuilder(calendar: calendar).dataContext(
             for: CustomSidebarContextSnapshot(
-                workspaces: [richWorkspace, sparseWorkspace],
+                workspaces: [sparseWorkspace, richWorkspace],
                 selectedWorkspaceId: selectedId,
                 selectedWorkspaceTitle: richWorkspace.title,
                 totalUnreadCount: 3,

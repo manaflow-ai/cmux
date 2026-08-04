@@ -1,16 +1,5 @@
 import CmuxFoundation
-import CmuxSwiftRender
 import SwiftUI
-
-/// Strips syntax decoration from a captured modifier token before resolving it.
-func cleanRenderToken(_ raw: String?) -> String? {
-    guard let raw else { return nil }
-    if raw.hasPrefix(".") { return String(raw.dropFirst()) }
-    if raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") {
-        return String(raw.dropFirst().dropLast())
-    }
-    return raw
-}
 
 /// Resolves a style token to a SwiftUI `Color`.
 ///
@@ -61,51 +50,6 @@ func dslColor(_ token: String?) -> Color? {
         return nil
     }
     return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
-}
-
-/// Whether a captured color token resolves to a nontransparent rendered fill.
-func dslColorTokenIsVisible(_ rawToken: String?) -> Bool {
-    guard let token = cleanRenderToken(rawToken), dslColor(token) != nil else {
-        return false
-    }
-    if token.lowercased() == "clear" {
-        return false
-    }
-    if token.hasPrefix("#"), token.count == 9, token.suffix(2) == "00" {
-        return false
-    }
-    return true
-}
-
-/// Gradient colors after applying the same invalid-stop fallback as rendering.
-func dslResolvedGradient(_ tokens: [String]) -> (colors: [Color], isVisible: Bool) {
-    let resolved = tokens.compactMap { token -> (color: Color, isVisible: Bool)? in
-        guard let color = dslColor(cleanRenderToken(token)) else { return nil }
-        return (color, dslColorTokenIsVisible(token))
-    }
-    let colors = resolved.map(\.color)
-    return (
-        colors: colors.count >= 2 ? colors : (colors + [.clear, .clear]),
-        isVisible: resolved.contains(where: \.isVisible)
-    )
-}
-
-/// Border values after applying the renderer's secondary/one-point defaults.
-func dslResolvedBorder(
-    _ modifier: RenderModifier
-) -> (color: Color, width: CGFloat, isVisible: Bool) {
-    let token = cleanRenderToken(modifier.firstValue)
-    let resolvedColor = dslColor(token)
-    let width = modifier.value("width")
-        .map { cleanRenderToken($0) ?? $0 }
-        .flatMap(Double.init)
-        ?? 1
-    return (
-        color: resolvedColor ?? .secondary,
-        width: CGFloat(width),
-        isVisible: width > 0
-            && (resolvedColor == nil || dslColorTokenIsVisible(token))
-    )
 }
 
 /// Resolves a font token (or explicit size) to a magnification-aware font spec.
