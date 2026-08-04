@@ -16759,18 +16759,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         onCancel: (() -> Void)?
     ) -> Bool {
-        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: onCancel)
-        if !shouldClose {
-            closedWindowHistorySuppressedWindowIds.remove(windowId)
-            // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
-            // kill-on-close marker so a later window/quit close detaches. A
-            // CONFIRMED quit of the last tab keeps the marker set so
-            // applicationWillTerminate kills the session before exit.
-            if !isTerminatingApp {
-                remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        let cancellationAction: (() -> Void)? = onCancel.map { action in
+            { [weak self] in
+                self?.handleCancelledMainTerminalWindowClose(windowId: windowId)
+                action()
             }
         }
+        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: cancellationAction)
+        if !shouldClose, onCancel == nil {
+            handleCancelledMainTerminalWindowClose(windowId: windowId)
+        }
         return shouldClose
+    }
+
+    private func handleCancelledMainTerminalWindowClose(windowId: UUID) {
+        closedWindowHistorySuppressedWindowIds.remove(windowId)
+        // A cancelled close must not leave an explicit kill-on-close marker for
+        // a later window or app close. A confirmed quit keeps the marker so
+        // applicationWillTerminate kills the remote session before exit.
+        if !isTerminatingApp {
+            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        }
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
