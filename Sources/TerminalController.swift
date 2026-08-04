@@ -2354,6 +2354,9 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
 
+        // Diff review comments
+        case "comments.list": return v2Result(id: id, self.v2CommentsList(params: params))
+
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
         // Browser
@@ -2466,6 +2469,7 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "comments.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",

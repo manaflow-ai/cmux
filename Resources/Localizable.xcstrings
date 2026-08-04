@@ -35954,6 +35954,17 @@
         }
       }
     },
+    "cli.comments.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        }
+      }
+    },
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {

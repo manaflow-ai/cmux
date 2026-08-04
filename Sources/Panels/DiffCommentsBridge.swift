@@ -224,7 +224,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     // MARK: - JSON mapping
 
-    nonisolated private static func commentJSON(_ comment: DiffComment) -> [String: Any] {
+    nonisolated static func commentJSON(_ comment: DiffComment) -> [String: Any] {
         let formatter = ISO8601DateFormatter()
         var json: [String: Any] = [
             "id": comment.id.uuidString,

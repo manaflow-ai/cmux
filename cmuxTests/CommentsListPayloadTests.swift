@@ -1,0 +1,98 @@
+import Foundation
+import XCTest
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Covers the `comments.list` reply shape: which comments a caller sees by
+/// default, and how a delivered comment is reported.
+final class CommentsListPayloadTests: XCTestCase {
+    private func makeComment(
+        message: String,
+        startLine: Int = 10,
+        consumedAt: Date? = nil
+    ) -> DiffComment {
+        DiffComment(
+            id: UUID(),
+            filePath: "Sources/App.swift",
+            side: "additions",
+            startLine: startLine,
+            endLine: startLine,
+            endSide: nil,
+            lineText: "    let value = compute()",
+            message: message,
+            submissionText: "Review comment\n",
+            consumedAt: consumedAt,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+    }
+
+    func testDefaultListingOmitsConsumedComments() {
+        let payload = TerminalController.commentsListPayload(
+            comments: [
+                makeComment(message: "still open"),
+                makeComment(message: "already delivered", startLine: 20, consumedAt: Date(timeIntervalSince1970: 2_000)),
+            ],
+            repoRoot: "/tmp/example-repo",
+            includeConsumed: false
+        )
+
+        XCTAssertEqual(payload["count"] as? Int, 1)
+        XCTAssertEqual(payload["repo_root"] as? String, "/tmp/example-repo")
+        let comments = payload["comments"] as? [[String: Any]]
+        XCTAssertEqual(comments?.count, 1)
+        XCTAssertEqual(comments?.first?["message"] as? String, "still open")
+        XCTAssertNil(comments?.first?["consumedAt"])
+    }
+
+    func testIncludeConsumedListsDeliveredCommentsWithTimestamp() {
+        let consumedAt = Date(timeIntervalSince1970: 2_000)
+        let payload = TerminalController.commentsListPayload(
+            comments: [
+                makeComment(message: "still open"),
+                makeComment(message: "already delivered", startLine: 20, consumedAt: consumedAt),
+            ],
+            repoRoot: "/tmp/example-repo",
+            includeConsumed: true
+        )
+
+        XCTAssertEqual(payload["count"] as? Int, 2)
+        let comments = payload["comments"] as? [[String: Any]]
+        XCTAssertEqual(comments?.count, 2)
+        let delivered = comments?.first { $0["message"] as? String == "already delivered" }
+        XCTAssertEqual(
+            delivered?["consumedAt"] as? String,
+            ISO8601DateFormatter().string(from: consumedAt)
+        )
+    }
+
+    func testListedCommentCarriesAnchorFields() {
+        let payload = TerminalController.commentsListPayload(
+            comments: [makeComment(message: "needs a guard")],
+            repoRoot: "/tmp/example-repo",
+            includeConsumed: false
+        )
+
+        let comment = (payload["comments"] as? [[String: Any]])?.first
+        XCTAssertEqual(comment?["filePath"] as? String, "Sources/App.swift")
+        XCTAssertEqual(comment?["side"] as? String, "additions")
+        XCTAssertEqual(comment?["startLine"] as? Int, 10)
+        XCTAssertEqual(comment?["endLine"] as? Int, 10)
+        XCTAssertEqual(comment?["lineText"] as? String, "    let value = compute()")
+    }
+
+    func testEmptyStoreReportsZeroCount() {
+        let payload = TerminalController.commentsListPayload(
+            comments: [],
+            repoRoot: "/tmp/example-repo",
+            includeConsumed: true
+        )
+
+        XCTAssertEqual(payload["count"] as? Int, 0)
+        XCTAssertEqual((payload["comments"] as? [[String: Any]])?.isEmpty, true)
+    }
+}
