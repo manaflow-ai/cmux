@@ -1,0 +1,13 @@
+# Context filter for cmux-tui/scripts/iroh-docker-demo/Dockerfile, which is
+# built from the repo root and copies only ghostty/ and cmux-tui/.
+*
+!ghostty
+!cmux-tui
+ghostty/.git
+ghostty/zig-out
+ghostty/.zig-cache
+cmux-tui/target
+cmux-tui/frontends
+cmux-tui/dist
+cmux-tui/bindings/typescript/node_modules
+**/.DS_Store
