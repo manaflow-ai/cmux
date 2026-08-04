@@ -45,12 +45,16 @@ pub struct JournalIngress {
     pub manifest_version: u32,
     pub kind: String,
     pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub occurred_at_ms: Option<WireDecimal>,
     #[serde(default)]
     pub subjects: Vec<JournalSubject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<JournalSensitivity>,
     pub payload: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub causation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
 }
 
