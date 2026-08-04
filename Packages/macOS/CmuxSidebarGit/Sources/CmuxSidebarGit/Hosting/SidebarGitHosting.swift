@@ -46,7 +46,12 @@ public protocol SidebarGitHosting: AnyObject {
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
-    /// The panel's currently displayed repository-link primitives, if any.
+    /// Returns the panel's currently displayed repository-link primitives.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel whose repository link is requested.
+    /// - Returns: The displayed remote name, label, and destination, or `nil`.
     func panelRepositoryLink(
         workspaceId: UUID,
         panelId: UUID
@@ -82,6 +87,13 @@ public protocol SidebarGitHosting: AnyObject {
     /// Clears the panel's branch (and any dependent badge state).
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID)
     /// Shows a browser-safe repository link on the panel.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel receiving the repository link.
+    ///   - remoteName: The Git remote name that supplied the link.
+    ///   - displayName: The compact repository path shown in the sidebar.
+    ///   - url: The sanitized HTTP(S) browser destination.
     func updatePanelRepositoryLink(
         workspaceId: UUID,
         panelId: UUID,
@@ -90,6 +102,10 @@ public protocol SidebarGitHosting: AnyObject {
         url: URL
     )
     /// Clears the panel's repository link.
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace containing the panel.
+    ///   - panelId: The panel whose repository link should be cleared.
     func clearPanelRepositoryLink(workspaceId: UUID, panelId: UUID)
     /// Shows `badge` on the panel.
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge)

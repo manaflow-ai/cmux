@@ -11215,6 +11215,13 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
+        .sidebarRepositoryLinkObservations(
+            ids: renderContext.workspaceIds,
+            workspaces: renderContext.tabs
+        ) { workspaceId in
+            guard isPresented else { return }
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
         .onAppear {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
@@ -11991,6 +11998,12 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
+            .sidebarRepositoryLinkObservations(
+                ids: renderContext.workspaceIds,
+                workspaces: renderContext.tabs
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)

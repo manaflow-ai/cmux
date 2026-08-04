@@ -137,7 +137,9 @@ struct WorkspaceRepositorySidebarTests {
         for workspace: Workspace,
         showsBranchDirectory: Bool = true
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
-        let defaults = UserDefaults(suiteName: "WorkspaceRepositorySidebarTests.\(UUID().uuidString)")!
+        let suiteName = "WorkspaceRepositorySidebarTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(
             showsBranchDirectory,
             forKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
