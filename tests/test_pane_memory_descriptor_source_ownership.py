@@ -13,11 +13,18 @@ SAMPLER_SOURCE = ROOT / "Sources" / "PaneMemoryGuardrail.swift"
 
 def main() -> None:
     descriptor_source = DESCRIPTOR_SOURCE.read_text(encoding="utf-8")
-    for forbidden in (".controllingTTYName()", ".foregroundProcessID()"):
+    for forbidden in (
+        ".controllingTTYName()",
+        ".foregroundProcessID()",
+        "terminalPanel.displayTitle",
+    ):
         if forbidden in descriptor_source:
             raise AssertionError(
-                f"periodic pane-memory descriptor collection still calls libghostty: {forbidden}"
+                f"periodic pane-memory descriptor collection still reads live panel state: {forbidden}"
             )
+
+    if "workspace.panelTitles[terminalPanel.id]" not in descriptor_source:
+        raise AssertionError("pane-memory descriptors must use the workspace's cached panel title")
 
     sampler_source = SAMPLER_SOURCE.read_text(encoding="utf-8")
     if "pids(forCMUXSurfaceID: descriptor.panelId)" not in sampler_source:
