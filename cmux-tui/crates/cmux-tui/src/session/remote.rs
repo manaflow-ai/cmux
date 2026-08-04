@@ -73,9 +73,22 @@ const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
     u64::MAX,
 ];
 #[cfg(not(test))]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+fn remote_write_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
 #[cfg(test)]
-const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+fn remote_write_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        Duration::from_millis(100).saturating_mul(scale)
+    })
+}
 #[cfg(not(test))]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
@@ -1171,7 +1184,7 @@ impl InteractiveWriter {
 
     fn close(&self) {
         self.request_close();
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1412,7 +1425,7 @@ impl RemoteTransport {
     }
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
+        stream.set_write_timeout(Some(remote_write_timeout()))?;
         let read_half = stream.try_clone_box()?;
         let abort_stream = stream.try_clone_box()?;
         Ok(Self {
@@ -2625,7 +2638,7 @@ impl RemoteSession {
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, REMOTE_WRITE_TIMEOUT) {
+        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -5071,7 +5084,7 @@ mod tests {
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        stream.set_write_timeout(Some(remote_write_timeout())).unwrap();
         test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
     }
 
@@ -5404,10 +5417,13 @@ mod tests {
         peer.join().unwrap();
 
         let error = result.unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after EOF canceled the request, got {error:?}"
+        );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(session.pending.lock().unwrap().is_empty());
@@ -5460,11 +5476,14 @@ mod tests {
         );
 
         control.release();
-        let error = finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap().unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Shutdown)
-        ));
+        let error = finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap().unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after the ordered write completed, got {error:?}"
+        );
         release.join().unwrap();
     }
 
@@ -5486,7 +5505,7 @@ mod tests {
         );
 
         control.release();
-        finished_rx.recv_timeout(REMOTE_WRITE_TIMEOUT * 2).unwrap();
+        finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
     }
 
@@ -5503,8 +5522,8 @@ mod tests {
         let started = Instant::now();
         let error = session.wait_for_ordered_write(sequence).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        assert!(started.elapsed() < remote_write_timeout() * 5);
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = session.interactive_writer.shared.state.lock().unwrap();
             if state.writer_closed {
@@ -5534,7 +5553,7 @@ mod tests {
 
         drop(session);
 
-        let deadline = Instant::now() + REMOTE_WRITE_TIMEOUT;
+        let deadline = Instant::now() + remote_write_timeout();
         loop {
             let state = control.state.0.lock().unwrap();
             if state.aborted {
@@ -5556,7 +5575,7 @@ mod tests {
         let started = Instant::now();
         session.disconnect_transport();
 
-        assert!(started.elapsed() < REMOTE_WRITE_TIMEOUT * 5);
+        assert!(started.elapsed() < remote_write_timeout() * 5);
         let state = control.state.0.lock().unwrap();
         assert!(state.aborted);
         drop(state);
@@ -5586,7 +5605,7 @@ mod tests {
                     .send(
                         session
                             .interactive_writer
-                            .wait_until_written(sequence, REMOTE_WRITE_TIMEOUT * 2),
+                            .wait_until_written(sequence, remote_write_timeout() * 2),
                     )
                     .unwrap();
             }));
@@ -5595,7 +5614,7 @@ mod tests {
         control.fail();
         for _ in 0..2 {
             let error = finished_rx
-                .recv_timeout(REMOTE_WRITE_TIMEOUT * 2)
+                .recv_timeout(remote_write_timeout() * 2)
                 .expect("write failure did not wake a waiter")
                 .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);

@@ -7,12 +7,22 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const SESSION: &str = "session_00000000000000000000000000000001";
 const VIEW: &str = "sidebar_view_00000000000000000000000000000002";
 static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
+
+fn test_duration(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1);
+    duration.saturating_mul(scale)
+}
 
 fn socket_path() -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -285,6 +295,8 @@ fn runtime_receives_render_snapshots_forwards_input_and_cancels_cleanly() {
 fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapshot() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let request_timeout = test_duration(Duration::from_millis(250));
+    let (snapshot_tx, snapshot_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -294,7 +306,7 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
         let stream_id = attach["params"]["stream_id"].as_str().unwrap().to_string();
         success(&mut stream, &attach, json!({"stream_id": stream_id}));
 
-        thread::sleep(Duration::from_millis(150));
+        snapshot_rx.recv_timeout(test_duration(Duration::from_secs(2))).unwrap();
         snapshot(&mut stream, &stream_id, 0);
 
         let cancel = request(&mut reader);
@@ -304,21 +316,21 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let view = client
         .session(SessionId::parse(SESSION).unwrap())
         .sidebar_view(SidebarViewId::parse(VIEW).unwrap());
     let mut runtime = SidebarRuntime::start(view, SidebarConfig::default()).unwrap();
 
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(request_timeout + test_duration(Duration::from_millis(25)));
     assert_eq!(runtime.poll_updates(), 0);
     assert!(matches!(runtime.state(), SidebarRuntimeState::Attached));
     assert!(runtime.model().error.is_none());
+    snapshot_tx.send(()).unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(1);
+    let deadline = Instant::now() + test_duration(Duration::from_secs(1));
     while runtime.poll_updates() == 0 {
         assert!(Instant::now() < deadline);
         thread::sleep(Duration::from_millis(5));
@@ -336,6 +348,7 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
 fn bounded_queue_overflow_cancels_and_reports_recovery() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let (overflow_tx, overflow_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -350,12 +363,14 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         assert_eq!(cancel["operation"], "stream.cancel");
         success(&mut stream, &cancel, json!({}));
         end_canceled(&mut stream, &stream_id);
+        overflow_tx.send(()).unwrap();
         drop(control);
     });
 
-    let client =
-        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(Duration::from_secs(2)))
-            .unwrap();
+    let client = cmux::Client::connect(
+        Config::from_socket_path(&path).with_timeout(test_duration(Duration::from_secs(2))),
+    )
+    .unwrap();
     let view = client
         .session(SessionId::parse(SESSION).unwrap())
         .sidebar_view(SidebarViewId::parse(VIEW).unwrap());
@@ -364,8 +379,8 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
-    thread::sleep(Duration::from_millis(50));
-    let deadline = Instant::now() + Duration::from_secs(2);
+    overflow_rx.recv_timeout(test_duration(Duration::from_secs(2))).unwrap();
+    let deadline = Instant::now() + test_duration(Duration::from_secs(2));
     loop {
         runtime.poll_updates();
         if runtime.model().error.is_some() {

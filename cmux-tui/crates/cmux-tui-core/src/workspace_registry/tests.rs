@@ -1856,7 +1856,35 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
         .unwrap();
     let elapsed = started.elapsed();
     let changed_rows = registry.connection.total_changes() - changes_before;
-    assert!(changed_rows <= 8, "rename changed {changed_rows} rows");
+    // The fixed write budget includes one append-only journal row and its
+    // session and workspace subject-index rows. It must not grow with the
+    // number of workspaces in the registry.
+    assert!(changed_rows <= 10, "rename changed {changed_rows} rows");
+    let latest_sequence = registry
+        .connection
+        .query_row("SELECT MAX(sequence) FROM session_journal", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    let indexed_subjects = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_subject_index WHERE sequence = ?1",
+            [latest_sequence],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(indexed_subjects, 2);
+    let expected_subjects = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_subject_index
+             WHERE sequence = ?1
+               AND ((kind = 'session' AND id = ?2)
+                 OR (kind = 'workspace' AND id = ?3))",
+            params![latest_sequence, registry.session_id().as_str(), target.public_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(expected_subjects, 2);
     assert!(elapsed < std::time::Duration::from_secs(1), "targeted rename took {elapsed:?}");
     assert_eq!(
         registry
