@@ -339,6 +339,13 @@ pub enum SurfaceHandle {
     RemoteBrowserUnsupported,
 }
 
+pub(crate) enum SurfaceAttach {
+    Attached(SurfaceHandle),
+    Retired,
+    Deferred,
+    Missing,
+}
+
 impl Session {
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
@@ -577,8 +584,11 @@ impl Session {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
                         {
-                            Ok(Some(_)) => Some(id),
-                            Ok(None) => {
+                            Ok(remote::RemoteSurfaceAttach::Attached(_)) => Some(id),
+                            Ok(
+                                remote::RemoteSurfaceAttach::Retired
+                                | remote::RemoteSurfaceAttach::Deferred,
+                            ) => {
                                 error.get_or_insert_with(|| {
                                     format!("sidebar plugin surface {id} is unavailable")
                                 });
@@ -679,7 +689,7 @@ impl Session {
         &self,
         id: SurfaceId,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Option<SurfaceHandle>> {
+    ) -> anyhow::Result<SurfaceAttach> {
         match self {
             Session::Local(mux) => mux
                 .surface(id)
@@ -687,21 +697,33 @@ impl Session {
                     if let Some((cols, rows)) = size {
                         mux.resize_surface_for_client(id, 0, cols, rows)?;
                     }
-                    Ok(SurfaceHandle::Local(surface, mux.clone()))
+                    Ok(SurfaceAttach::Attached(SurfaceHandle::Local(surface, mux.clone())))
                 })
-                .transpose(),
+                .transpose()
+                .map(|surface| surface.unwrap_or(SurfaceAttach::Missing)),
             Session::Remote(remote) => {
                 if remote.surface_kind(id) == SurfaceKind::Browser {
                     if remote.supports_browser_attach() {
-                        remote.try_ensure_surface(id, size).map(|surface| {
-                            surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                        remote.try_ensure_surface(id, size).map(|outcome| match outcome {
+                            remote::RemoteSurfaceAttach::Attached(surface) => {
+                                SurfaceAttach::Attached(SurfaceHandle::Remote(
+                                    surface,
+                                    remote.clone(),
+                                ))
+                            }
+                            remote::RemoteSurfaceAttach::Retired => SurfaceAttach::Retired,
+                            remote::RemoteSurfaceAttach::Deferred => SurfaceAttach::Deferred,
                         })
                     } else {
-                        Ok(Some(SurfaceHandle::RemoteBrowserUnsupported))
+                        Ok(SurfaceAttach::Attached(SurfaceHandle::RemoteBrowserUnsupported))
                     }
                 } else {
-                    remote.try_ensure_surface(id, size).map(|surface| {
-                        surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                    remote.try_ensure_surface(id, size).map(|outcome| match outcome {
+                        remote::RemoteSurfaceAttach::Attached(surface) => {
+                            SurfaceAttach::Attached(SurfaceHandle::Remote(surface, remote.clone()))
+                        }
+                        remote::RemoteSurfaceAttach::Retired => SurfaceAttach::Retired,
+                        remote::RemoteSurfaceAttach::Deferred => SurfaceAttach::Deferred,
                     })
                 }
             }

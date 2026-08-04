@@ -70,7 +70,7 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt, Session,
-    SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_surface_unavailable,
+    SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView, is_remote_surface_unavailable,
     is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -1161,6 +1161,7 @@ struct SurfaceAttachResult {
 enum SurfaceAttachOutcome {
     Attached,
     Retired { surface: SurfaceId },
+    Deferred,
     Failed { surface: SurfaceId, operation: &'static str, error: String, reconnect_required: bool },
 }
 
@@ -1212,7 +1213,7 @@ fn perform_surface_attach(
     let result = session.try_surface_sized(id, size);
     let retired = attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired);
     match result {
-        Ok(Some(_)) if retired => {
+        Ok(SurfaceAttach::Attached(_)) if retired => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Retired { surface: id },
@@ -1220,7 +1221,7 @@ fn perform_surface_attach(
                 requested_size: size,
             }
         }
-        Ok(Some(surface)) => {
+        Ok(SurfaceAttach::Attached(surface)) => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Attached,
@@ -1228,7 +1229,29 @@ fn perform_surface_attach(
                 requested_size: size,
             }
         }
-        Ok(None) if retired => {
+        Ok(SurfaceAttach::Retired) => {
+            retire_missing_surface_attach(
+                session,
+                retired_surfaces,
+                attach_claims,
+                attach_failures,
+                id,
+            );
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Deferred) => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Deferred,
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Missing) if retired => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Retired { surface: id },
@@ -1236,7 +1259,7 @@ fn perform_surface_attach(
                 requested_size: size,
             }
         }
-        Ok(None) => {
+        Ok(SurfaceAttach::Missing) => {
             let mut failures = attach_failures.lock().unwrap();
             let state = next_surface_sync_failure(failures.get(&id).copied(), false, false);
             failures.insert(id, state);
@@ -2075,19 +2098,25 @@ impl OrderedSession {
                 let attach_claims = attach_claims.lock().unwrap();
                 let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
                 match result {
-                    Ok(Some(_)) => {
+                    Ok(SurfaceAttach::Attached(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
-                    Ok(None) if retired => {
+                    Ok(SurfaceAttach::Retired | SurfaceAttach::Deferred) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
-                    Ok(None) => {
+                    Ok(SurfaceAttach::Missing) if retired => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(SurfaceAttach::Missing) => {
                         let mut failures = attach_failures.lock().unwrap();
                         let state =
                             next_surface_sync_failure(failures.get(&id).copied(), false, false);
@@ -11359,6 +11388,7 @@ impl App {
                     SurfaceAttachOutcome::Attached => {
                         self.claim_active_terminal_geometry(false);
                     }
+                    SurfaceAttachOutcome::Deferred => {}
                     SurfaceAttachOutcome::Retired { surface } => {
                         self.retire_surface_state(surface);
                         self.remove_surface_from_cached_tree(surface);
@@ -18691,8 +18721,8 @@ mod tests {
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
-        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
-        TreeView, test_remote_session_with_deferred_attach,
+        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceAttach,
+        SurfaceHandle, TreeView, test_remote_session_with_deferred_attach,
         test_remote_session_with_deferred_attach_and_first_resize_failure,
         test_remote_session_with_deferred_sized_attach,
     };
@@ -22339,7 +22369,11 @@ mod tests {
         let remote = RemoteSession::connect(&socket).unwrap();
         let session = Session::Remote(remote);
         let tree = session.refresh_tree().unwrap();
-        let mirror = session.try_surface_sized(surface.id, Some((20, 8))).unwrap().unwrap();
+        let SurfaceAttach::Attached(mirror) =
+            session.try_surface_sized(surface.id, Some((20, 8))).unwrap()
+        else {
+            panic!("authoritative surface did not attach");
+        };
         assert_eq!(
             mirror.with_terminal(|terminal| terminal.active_screen()),
             Some(Screen::Primary)
@@ -27118,8 +27152,7 @@ mod tests {
     #[test]
     fn mirror_retirement_before_tree_refresh_is_a_silent_attach_retirement() {
         let surface = 7;
-        let (session, attach_started, release_attach) =
-            test_remote_session_with_deferred_attach();
+        let (session, attach_started, release_attach) = test_remote_session_with_deferred_attach();
         let (mut app, events) = test_app_with_events(session);
         app.replace_tree(notify_tree(surface, false));
 

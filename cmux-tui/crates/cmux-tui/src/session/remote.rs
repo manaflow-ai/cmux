@@ -1339,6 +1339,12 @@ pub struct RemoteSession {
     provider_workspaces_guarded: AtomicBool,
 }
 
+pub(super) enum RemoteSurfaceAttach {
+    Attached(Arc<RemoteSurface>),
+    Retired,
+    Deferred,
+}
+
 /// Receive complete JSON protocol messages from one transport.
 ///
 /// Message framing belongs to the transport adapter: Unix sockets and SSH
@@ -2916,11 +2922,11 @@ impl RemoteSession {
     /// Mirror for a surface, attaching on first use. Servers advertising
     /// initial attach sizing receive the first viewer claim atomically with
     /// the attach, so the initial replay already has its final geometry.
-    pub fn try_ensure_surface(
+    pub(super) fn try_ensure_surface(
         self: &Arc<Self>,
         id: SurfaceId,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
+    ) -> anyhow::Result<RemoteSurfaceAttach> {
         let kind = {
             let tree = self.tree.lock().unwrap();
             tree.view.surface_kind(id)
@@ -2928,20 +2934,20 @@ impl RemoteSession {
         self.try_ensure_surface_with_kind(id, kind, size)
     }
 
-    pub fn try_ensure_surface_with_kind(
+    pub(super) fn try_ensure_surface_with_kind(
         self: &Arc<Self>,
         id: SurfaceId,
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
+    ) -> anyhow::Result<RemoteSurfaceAttach> {
         if self.retired_surfaces.lock().unwrap().contains(&id) {
-            return Ok(None);
+            return Ok(RemoteSurfaceAttach::Retired);
         }
         if !self.can_attach_after_overflow(id) {
-            return Ok(None);
+            return Ok(RemoteSurfaceAttach::Deferred);
         }
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
-            return Ok(Some(surface.clone()));
+            return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
         }
         let source = {
             let tree = self.tree.lock().unwrap();
@@ -2957,13 +2963,13 @@ impl RemoteSession {
             // retain this lifecycle lock while it waits.
             let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
             if self.retired_surfaces.lock().unwrap().contains(&id) {
-                return Ok(None);
+                return Ok(RemoteSurfaceAttach::Retired);
             }
             if !self.can_attach_after_overflow(id) {
-                return Ok(None);
+                return Ok(RemoteSurfaceAttach::Deferred);
             }
             if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
-                return Ok(Some(surface.clone()));
+                return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
             }
             let cell_pixels = *self.cell_pixels.lock().unwrap();
             let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
@@ -3027,7 +3033,7 @@ impl RemoteSession {
         } else {
             None
         };
-        let discarded = {
+        let superseded = {
             // Retirement can race the remote response. Commit the completed
             // attach only while this exact mirror is still the live entry.
             let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
@@ -3037,8 +3043,16 @@ impl RemoteSession {
                 .unwrap()
                 .get(&id)
                 .is_some_and(|candidate| Arc::ptr_eq(candidate, &surface));
-            if self.retired_surfaces.lock().unwrap().contains(&id) || !current {
-                true
+            if self.retired_surfaces.lock().unwrap().contains(&id) {
+                Some(RemoteSurfaceAttach::Retired)
+            } else if !current {
+                let overflowed = self.surface_overflow_recovery.lock().unwrap().contains_key(&id)
+                    || self.surface_overflow_reconnect_required.load(Ordering::Acquire);
+                Some(if overflowed {
+                    RemoteSurfaceAttach::Deferred
+                } else {
+                    RemoteSurfaceAttach::Retired
+                })
             } else {
                 if let Some(lease) = &attachment_lease {
                     self.surface_leases.lock().unwrap().insert(id, lease.clone());
@@ -3051,10 +3065,10 @@ impl RemoteSession {
                     recovery.attached_at = Some(Instant::now());
                     recovery.retry_after = None;
                 }
-                false
+                None
             }
         };
-        if discarded {
+        if let Some(outcome) = superseded {
             if let Some(lease) = attachment_lease
                 && self.supports_capability(VIEW_ATTACHMENT_DETACH_CAPABILITY)
             {
@@ -3068,16 +3082,16 @@ impl RemoteSession {
                     // server-side attachment owned by this connection.
                     self.disconnect_transport();
                     return Err(anyhow::anyhow!(
-                        "could not release retired view attachment {id}: {error:#}"
+                        "could not release superseded view attachment {id}: {error:#}"
                     ));
                 }
             } else {
                 // Older peers have no lease-addressed detach operation.
                 self.disconnect_transport();
             }
-            return Ok(None);
+            return Ok(outcome);
         }
-        Ok(Some(surface))
+        Ok(RemoteSurfaceAttach::Attached(surface))
     }
 
     pub fn retire_surface(&self, id: SurfaceId) {
@@ -3951,6 +3965,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn attached_surface(outcome: RemoteSurfaceAttach) -> Arc<RemoteSurface> {
+        let RemoteSurfaceAttach::Attached(surface) = outcome else {
+            panic!("surface attach did not produce a mirror");
+        };
+        surface
+    }
 
     #[test]
     fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
@@ -5372,8 +5393,9 @@ mod tests {
         let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
 
         let started = Instant::now();
-        let surface =
-            session.try_ensure_surface_with_kind(7, SurfaceKind::Browser, None).unwrap().unwrap();
+        let surface = attached_surface(
+            session.try_ensure_surface_with_kind(7, SurfaceKind::Browser, None).unwrap(),
+        );
 
         assert_eq!(surface.id, 7);
         assert_eq!(surface.kind, SurfaceKind::Browser);
@@ -5471,8 +5493,8 @@ mod tests {
             second_session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, None)
         });
 
-        assert!(first.join().unwrap().unwrap().is_some());
-        assert!(second.join().unwrap().unwrap().is_some());
+        assert!(matches!(first.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
+        assert!(matches!(second.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
         assert!(!session.shutdown.load(Ordering::Acquire));
         release_tx.send(()).unwrap();
         peer.join().unwrap();
@@ -5493,7 +5515,7 @@ mod tests {
         assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
         assert_eq!(session.surface(7).unwrap().cell_pixel_size(), (9, 18));
         release_attach_tx.send(()).unwrap();
-        assert!(worker.join().unwrap().unwrap().is_some());
+        assert!(matches!(worker.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
     }
 
     #[test]
@@ -5508,7 +5530,7 @@ mod tests {
         session.retire_surface(7);
         release_attach_tx.send(()).unwrap();
 
-        assert!(worker.join().unwrap().unwrap().is_none());
+        assert!(matches!(worker.join().unwrap().unwrap(), RemoteSurfaceAttach::Retired));
         assert!(session.surface(7).is_none());
         assert!(session.retired_surfaces.lock().unwrap().contains(&7));
     }
@@ -5528,7 +5550,7 @@ mod tests {
         session.retire_surface(7);
         release_attach_tx.send(()).unwrap();
 
-        assert!(worker.join().unwrap().unwrap().is_none());
+        assert!(matches!(worker.join().unwrap().unwrap(), RemoteSurfaceAttach::Retired));
         let release = requests
             .recv_timeout(Duration::from_secs(1))
             .expect("retired in-flight attach must release its server lease");
@@ -7007,10 +7029,9 @@ mod tests {
         let update = session.set_cell_pixel_size(9, 18).unwrap();
         assert_eq!(update.failures, vec![(7, "injected fan-out failure".to_string())]);
         surface.apply_stream_resize(90, 31, None, &[]).unwrap();
-        let created = session
-            .try_ensure_surface_with_kind(8, SurfaceKind::Pty, Some((80, 24)))
-            .unwrap()
-            .unwrap();
+        let created = attached_surface(
+            session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, Some((80, 24))).unwrap(),
+        );
 
         assert_eq!(
             surface.cell_pixel_size(),
@@ -7313,10 +7334,11 @@ mod tests {
 
         let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
         let remote = RemoteSession::connect(&socket).unwrap();
-        let mirror = remote
-            .try_ensure_surface_with_kind(authoritative.id, SurfaceKind::Pty, Some((20, 4)))
-            .unwrap()
-            .unwrap();
+        let mirror = attached_surface(
+            remote
+                .try_ensure_surface_with_kind(authoritative.id, SurfaceKind::Pty, Some((20, 4)))
+                .unwrap(),
+        );
 
         let wait_for = |mut predicate: Box<dyn FnMut() -> bool>| {
             let deadline = Instant::now() + Duration::from_secs(5);
@@ -7664,6 +7686,29 @@ mod tests {
         let received = events.try_iter().collect::<Vec<_>>();
         assert!(received.iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(7))));
         assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
+    }
+
+    #[test]
+    fn overflow_backoff_defers_attach_without_claiming_surface_retirement() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed }));
+        session.surface_overflow_recovery.lock().unwrap().insert(
+            7,
+            SurfaceOverflowRecovery {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(1)),
+                attached_at: None,
+                stopped: false,
+            },
+        );
+
+        let outcome =
+            session.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24))).unwrap();
+
+        assert!(matches!(outcome, RemoteSurfaceAttach::Deferred));
+        assert!(!session.retired_surfaces.lock().unwrap().contains(&7));
+        assert!(!session.has_surface(7));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]
