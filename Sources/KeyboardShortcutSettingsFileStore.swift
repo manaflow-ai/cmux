@@ -1646,14 +1646,10 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        // Sorted keys matter here, not just tidiness: a Swift dictionary's encoding order follows
-        // the per-process hash seed, so without this the first reload after a relaunch can encode
-        // identical content to different bytes, fail the comparison, and write anyway -- firing
-        // exactly the notification cascade this guard exists to avoid.
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        guard let data = try? encoder.encode(imported),
-              defaults.data(forKey: Self.importedManagedDefaultsDefaultsKey) != data else { return }
+        guard let data = canonicalEncodingIfSemanticallyChanged(
+            imported,
+            storedData: defaults.data(forKey: Self.importedManagedDefaultsDefaultsKey)
+        ) else { return }
         defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
 
@@ -1675,13 +1671,29 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        // Sorted keys for the same reason as saveImportedManagedDefaults: an unsorted encoding is
-        // not stable across process launches, so the comparison would spuriously miss.
+        guard let data = canonicalEncodingIfSemanticallyChanged(
+            backups,
+            storedData: defaults.data(forKey: Self.backupsDefaultsKey)
+        ) else { return }
+        defaults.set(data, forKey: Self.backupsDefaultsKey)
+    }
+
+    private func canonicalEncodingIfSemanticallyChanged<Value: Codable & Equatable>(
+        _ value: Value,
+        storedData: Data?
+    ) -> Data? {
+        // Older releases encoded dictionaries in process-dependent key order. Decode before
+        // comparing so upgrading does not rewrite equivalent legacy bytes and post a notification.
+        if let storedData,
+           let storedValue = try? JSONDecoder().decode(Value.self, from: storedData),
+           storedValue == value {
+            return nil
+        }
+
+        // Changed and repaired values use a deterministic representation for future persistence.
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        guard let data = try? encoder.encode(backups),
-              defaults.data(forKey: Self.backupsDefaultsKey) != data else { return }
-        defaults.set(data, forKey: Self.backupsDefaultsKey)
+        return try? encoder.encode(value)
     }
 
     private func applyBooleanSettings(
