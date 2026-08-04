@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 import Testing
 
@@ -24,7 +25,7 @@ struct MarkdownPanelFileLinkResolverTests {
         try "# Runner design".write(to: targetFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let resolved = MarkdownPanelFileLinkResolver.resolve(
+        let resolved = makeResolver(fallbackDirectoryPath: root.path).resolve(
             rawPath: "https://raw/plans/agent-ticket-v2/w5-runner-design.md",
             relativeToMarkdownFile: sourceFile.path
         )
@@ -44,14 +45,14 @@ struct MarkdownPanelFileLinkResolverTests {
         try "# Chapter".write(to: targetFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let resolved = MarkdownPanelFileLinkResolver.resolve(
+        let resolved = makeResolver(fallbackDirectoryPath: root.path).resolve(
             rawPath: "./chapter:one.md",
             relativeToMarkdownFile: sourceFile.path
         )
 
         #expect(resolved == targetFile.path)
-        #expect(MarkdownPanelFileLinkResolver.isMarkdownPathLike("./chapter:one.md"))
-        #expect(!MarkdownPanelFileLinkResolver.isMarkdownPathLike("chapter:one.md"))
+        #expect(MarkdownLinkPath("./chapter:one.md").isMarkdownFile)
+        #expect(!MarkdownLinkPath("chapter:one.md").isMarkdownFile)
     }
 
     @Test("Dotted HTTPS hosts remain remote even when a matching local path exists")
@@ -69,7 +70,7 @@ struct MarkdownPanelFileLinkResolverTests {
         try "# Local".write(to: matchingLocalFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let resolved = MarkdownPanelFileLinkResolver.resolve(
+        let resolved = makeResolver(fallbackDirectoryPath: root.path).resolve(
             rawPath: "https://example.com/plan.md",
             relativeToMarkdownFile: sourceFile.path
         )
@@ -100,7 +101,7 @@ struct MarkdownPanelFileLinkResolverTests {
         try "# Local".write(to: matchingLocalFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        #expect(MarkdownPanelFileLinkResolver.resolveLocalFile(
+        #expect(makeResolver(fallbackDirectoryPath: root.path).resolveLocalFile(
             rawPath: rawPath,
             relativeToMarkdownFile: sourceFile.path
         ) == nil)
@@ -118,7 +119,7 @@ struct MarkdownPanelFileLinkResolverTests {
         try "# Local".write(to: matchingLocalFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let resolved = MarkdownPanelFileLinkResolver.resolve(
+        let resolved = makeResolver(fallbackDirectoryPath: root.path).resolve(
             rawPath: "obsidian:chapter.md",
             relativeToMarkdownFile: sourceFile.path
         )
@@ -141,15 +142,65 @@ struct MarkdownPanelFileLinkResolverTests {
         try "Spec".write(to: targetFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let localFile = MarkdownPanelFileLinkResolver.resolveLocalFile(
+        let resolver = makeResolver(fallbackDirectoryPath: root.path)
+        let localFile = resolver.resolveLocalFile(
             rawPath: "assets/spec.txt",
             relativeToMarkdownFile: sourceFile.path
         )
 
         #expect(localFile == targetFile.path)
-        #expect(MarkdownPanelFileLinkResolver.resolve(
+        #expect(resolver.resolve(
             rawPath: "assets/spec.txt",
             relativeToMarkdownFile: sourceFile.path
         ) == nil)
+    }
+
+    private func makeResolver(fallbackDirectoryPath: String) -> CmuxPanes.MarkdownPanelFileLinkResolver {
+        CmuxPanes.MarkdownPanelFileLinkResolver(
+            fileManager: .default,
+            fallbackDirectoryPath: fallbackDirectoryPath
+        )
+    }
+}
+
+// Keep legacy resolver and renderer tests source-compatible without adding
+// default/global dependencies back to production initializers.
+enum MarkdownPanelFileLinkResolver {
+    static func isMarkdownPathLike(_ rawPath: String) -> Bool {
+        MarkdownLinkPath(rawPath).isMarkdownFile
+    }
+
+    static func resolve(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
+        let fileManager = FileManager.default
+        return CmuxPanes.MarkdownPanelFileLinkResolver(
+            fileManager: fileManager,
+            fallbackDirectoryPath: fileManager.currentDirectoryPath
+        ).resolve(rawPath: rawPath, relativeToMarkdownFile: markdownFilePath)
+    }
+}
+
+@MainActor
+extension MarkdownWebRenderer.Coordinator {
+    convenience init() {
+        let fileManager = FileManager.default
+        self.init(
+            fileLinkResolver: CmuxPanes.MarkdownPanelFileLinkResolver(
+                fileManager: fileManager,
+                fallbackDirectoryPath: fileManager.currentDirectoryPath
+            )
+        )
+    }
+}
+
+@MainActor
+extension MarkdownRendererSession {
+    convenience init() {
+        let fileManager = FileManager.default
+        self.init(
+            fileLinkResolver: CmuxPanes.MarkdownPanelFileLinkResolver(
+                fileManager: fileManager,
+                fallbackDirectoryPath: fileManager.currentDirectoryPath
+            )
+        )
     }
 }

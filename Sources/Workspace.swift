@@ -11398,7 +11398,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> (any Panel)? {
-        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+        if MarkdownLinkPath(filePath).isMarkdownFile {
             return splitPaneWithMarkdown(
                 targetPane: paneId,
                 orientation: orientation,

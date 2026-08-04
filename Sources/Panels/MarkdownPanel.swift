@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxPanes
 import Combine
 import Foundation
 
@@ -71,7 +72,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
-    let rendererSession = MarkdownRendererSession()
+    let rendererSession: MarkdownRendererSession
 
     // MARK: - File watching
 
@@ -100,6 +101,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
     init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+        let fileManager = FileManager.default
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
@@ -113,6 +115,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
+        self.rendererSession = MarkdownRendererSession(
+            fileLinkResolver: MarkdownPanelFileLinkResolver(
+                fileManager: fileManager,
+                fallbackDirectoryPath: fileManager.currentDirectoryPath
+            )
+        )
 
         loadFileContent()
         startWatching()

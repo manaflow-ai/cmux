@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import SwiftUI
 import WebKit
 
@@ -138,6 +139,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
+        private let fileLinkResolver: MarkdownPanelFileLinkResolver
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -176,6 +178,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
+
+        init(fileLinkResolver: MarkdownPanelFileLinkResolver) {
+            self.fileLinkResolver = fileLinkResolver
+            super.init()
+        }
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -621,7 +628,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+            return fileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
         }
 
         private func openMarkdownFile(_ path: String) {
@@ -838,11 +845,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
 #endif
             if url.isFileURL,
-               let localPath = MarkdownPanelFileLinkResolver.resolveLocalFile(
+               let localPath = fileLinkResolver.resolveLocalFile(
                    rawPath: url.path,
                    relativeToMarkdownFile: filePath
                ) {
-                if MarkdownPanelFileLinkResolver.isMarkdownPathLike(localPath) {
+                if MarkdownLinkPath(localPath).isMarkdownFile {
                     openMarkdownFile(localPath)
                 } else {
                     NSWorkspace.shared.open(URL(fileURLWithPath: localPath))

@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import Foundation
 
 extension Workspace {
@@ -24,7 +25,7 @@ extension Workspace {
                     focus: shouldFocusNewTabs,
                     targetIndex: nextIndex
                 )
-            } else if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+            } else if MarkdownLinkPath(filePath).isMarkdownFile {
                 if reuseExisting {
                     panel = openOrFocusMarkdownSurface(
                         inPane: paneId,
