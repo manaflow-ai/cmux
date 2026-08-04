@@ -706,8 +706,19 @@ final class ApplicationCaptureView: NSView {
         }
         let relativeDelta: CGPoint
         if kind.isCoalescibleMotion {
-            relativeDelta = Self.normalizedMouseDelta(
-                delta: CGPoint(x: event.deltaX, y: event.deltaY),
+            let previousPoint: CGPoint?
+            switch kind {
+            case .leftMouseDragged:
+                previousPoint = lastEnqueuedLeftMousePoint
+            case .rightMouseDragged:
+                previousPoint = lastEnqueuedRightMousePoint
+            default:
+                previousPoint = nil
+            }
+            relativeDelta = Self.resolvedNormalizedMouseDelta(
+                reportedDelta: CGPoint(x: event.deltaX, y: event.deltaY),
+                previousPoint: previousPoint,
+                currentPoint: point,
                 in: bounds,
                 sourceFrameSize: remoteFrameView.framePixelSize
             ) ?? .zero
@@ -1296,10 +1307,21 @@ final class ApplicationCaptureView: NSView {
         in bounds: CGRect,
         sourceFrameSize: CGSize
     ) -> CGPoint? {
-        normalizedMouseDelta(
+        guard let reported = normalizedMouseDelta(
             delta: reportedDelta,
             in: bounds,
             sourceFrameSize: sourceFrameSize
+        ) else {
+            return nil
+        }
+        guard let previousPoint else { return reported }
+        let fallback = CGPoint(
+            x: currentPoint.x - previousPoint.x,
+            y: currentPoint.y - previousPoint.y
+        )
+        return CGPoint(
+            x: reported.x == 0 ? fallback.x : reported.x,
+            y: reported.y == 0 ? fallback.y : reported.y
         )
     }
 
