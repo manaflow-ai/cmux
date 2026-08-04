@@ -47,7 +47,7 @@ import os
         await waitForProcessed(log, processedAfter)
     }
 
-    @Test func recordThenExportRoundTrips() async {
+    @Test func recordThenExportRoundTrips() async throws {
         let log = DiagnosticLog(
             capacity: 16,
             buildStamp: "cmux DEV test",
@@ -70,7 +70,7 @@ import os
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
         let humanReadableExport = report.humanReadableExport(locale: englishLocale)
-        let text = String(decoding: humanReadableExport, as: UTF8.self)
+        let text = try #require(String(bytes: humanReadableExport, encoding: .utf8))
         #expect(report.compactExport() == report.humanReadableExport())
         let inputSequenceLine = "2023-11-14 22:13:20.500 UTC | "
             + "Terminal input acknowledgements fell behind "
@@ -90,7 +90,8 @@ import os
 
         """)
 
-        let liveText = String(decoding: await log.export(), as: UTF8.self)
+        let liveData = await log.export()
+        let liveText = try #require(String(bytes: liveData, encoding: .utf8))
         let currentConnectTitle = DiagnosticEventPresentation().describe(
             DiagnosticEvent(code: .connect, tNanos: 0)
         ).name
@@ -199,14 +200,16 @@ import os
         #expect(await log.snapshot().events.map(\.tNanos) == [9, 10, 11, 12])
     }
 
-    @Test func exportOnEmptyLogHasHeaderOnly() async {
+    @Test func exportOnEmptyLogHasHeaderOnly() async throws {
         let report = DiagnosticReport(
             role: .unspecified,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
-        let text = String(
-            decoding: report.humanReadableExport(locale: englishLocale),
-            as: UTF8.self
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: englishLocale),
+                encoding: .utf8
+            )
         )
         #expect(text == """
         cmux Iroh and transport report
@@ -223,7 +226,7 @@ import os
         #expect(!text.contains("anchorMonoNs"))
     }
 
-    @Test func exportUsesReadableRelativeTimesWithoutAWallClockAnchor() {
+    @Test func exportUsesReadableRelativeTimesWithoutAWallClockAnchor() throws {
         let report = DiagnosticReport(
             role: .macHost,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
@@ -233,9 +236,11 @@ import os
             ]
         )
 
-        let text = String(
-            decoding: report.humanReadableExport(locale: englishLocale),
-            as: UTF8.self
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: englishLocale),
+                encoding: .utf8
+            )
         )
         #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
         #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
@@ -245,7 +250,7 @@ import os
         if: LocalizationTestSupport().hasCompiledLocalization(for: Locale(identifier: "ja")),
         "Command-line SwiftPM copies string catalogs without compiling locale resources"
     ))
-    func exportUsesJapaneseCatalogCopy() async {
+    func exportUsesJapaneseCatalogCopy() async throws {
         let report = DiagnosticReport(
             role: .macHost,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
@@ -255,9 +260,11 @@ import os
         )
 
         let locale = Locale(identifier: "ja")
-        let text = String(
-            decoding: report.humanReadableExport(locale: locale),
-            as: UTF8.self
+        let text = try #require(
+            String(
+                bytes: report.humanReadableExport(locale: locale),
+                encoding: .utf8
+            )
         )
         #expect(text.contains("cmux Irohとトランスポートのレポート"))
         #expect(text.contains("+0.000 秒 | ネットワーク到達性が変更されました（ネットワーク: オフライン）"))
@@ -639,7 +646,7 @@ import os
         )
 
         let data = try JSONEncoder().encode(report)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = try #require(String(bytes: data, encoding: .utf8))
         #expect(!text.contains("endpoint"))
         #expect(!text.contains("address"))
         #expect(!text.contains("relayURL"))
