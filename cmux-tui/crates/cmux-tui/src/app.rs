@@ -11812,7 +11812,12 @@ impl App {
     }
 
     fn handle_paste(&mut self, text: String) -> anyhow::Result<RenderAction> {
-        self.status_message = None;
+        // A context menu acts on the resources visible when it opened. Keep a
+        // status message alive while the menu owns input so status actions can
+        // still validate and copy that exact message.
+        if self.menu.is_none() {
+            self.status_message = None;
+        }
         if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
             Ok(RenderAction::Draw)
         } else if let Some(prompt) = self.prompt.as_mut() {
@@ -13235,7 +13240,12 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
         }
-        self.status_message = None;
+        // A context menu acts on the resources visible when it opened. Keep a
+        // status message alive while the menu owns input so status actions can
+        // still validate and copy that exact message.
+        if self.menu.is_none() {
+            self.status_message = None;
+        }
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_key(key);
         }
