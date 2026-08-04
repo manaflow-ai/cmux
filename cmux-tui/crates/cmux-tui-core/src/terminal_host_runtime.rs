@@ -402,8 +402,7 @@ mod unix {
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{
-        Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel as mpsc_channel,
-        sync_channel,
+        Receiver, RecvTimeoutError, Sender, SyncSender, channel as mpsc_channel, sync_channel,
     };
     use std::sync::{Arc, Condvar, Mutex, Weak};
     use std::thread;
@@ -2281,23 +2280,19 @@ mod unix {
 
     #[derive(Clone)]
     struct HostTap {
-        sender: SyncSender<Frame>,
+        sender: Sender<Frame>,
         queued_bytes: Arc<AtomicUsize>,
         queued_output_bytes: Arc<AtomicUsize>,
         shutdown: Arc<UnixStream>,
         max_queued_bytes: usize,
     }
 
-    fn host_tap_channel() -> (SyncSender<Frame>, Receiver<Frame>) {
-        sync_channel(256)
+    fn host_tap_channel() -> (Sender<Frame>, Receiver<Frame>) {
+        mpsc_channel()
     }
 
     impl HostTap {
-        fn new(
-            sender: SyncSender<Frame>,
-            shutdown: Arc<UnixStream>,
-            max_queued_bytes: usize,
-        ) -> Self {
+        fn new(sender: Sender<Frame>, shutdown: Arc<UnixStream>, max_queued_bytes: usize) -> Self {
             Self {
                 sender,
                 queued_bytes: Arc::new(AtomicUsize::new(0)),
@@ -2347,9 +2342,9 @@ mod unix {
                 self.close();
                 return false;
             }
-            match self.sender.try_send(frame) {
+            match self.sender.send(frame) {
                 Ok(()) => true,
-                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                Err(_) => {
                     self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
                     if is_output {
                         self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
@@ -3802,6 +3797,9 @@ mod unix {
         write_frame(&mut stream, &hello_response)?;
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
+        // The atomic reservations bound retained memory by bytes. An
+        // additional fixed frame-count bound disconnects healthy readers
+        // when platforms split one modest PTY burst into many small reads.
         let (sender, receiver) = host_tap_channel();
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
@@ -5564,13 +5562,13 @@ mod unix {
         fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
             let host = test_host_shared();
             let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();
-            let (renderer_tx, renderer_rx) = sync_channel(4);
+            let (renderer_tx, renderer_rx) = mpsc_channel();
             host.taps
                 .lock()
                 .unwrap()
                 .insert(1, HostTap::new(renderer_tx, Arc::new(renderer_socket), usize::MAX));
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
-            let (target_tx, target_rx) = sync_channel(1);
+            let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
             assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
@@ -5595,7 +5593,7 @@ mod unix {
                 .unwrap()
                 .vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
-            let (target_tx, target_rx) = sync_channel(3);
+            let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
             host.taps.lock().unwrap().insert(1, target.clone());
             let limits = KittyGraphicsLimits::disabled();
@@ -5822,7 +5820,7 @@ mod unix {
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(8);
+            let (sender, _receiver) = mpsc_channel();
             let one_frame = crate::terminal_host_protocol::HEADER_LEN + 4;
             let tap = HostTap::new(sender, Arc::new(host_socket), one_frame);
 
@@ -5836,7 +5834,7 @@ mod unix {
         fn host_tap_snapshot_headroom_does_not_expand_live_output_budget() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(8);
+            let (sender, _receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
             let half_output_budget = 4 * 1024 * 1024;
 
@@ -5859,14 +5857,14 @@ mod unix {
         }
 
         #[test]
-        fn host_tap_channel_overflow_closes_the_client_socket() {
+        fn host_tap_disconnected_queue_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(1);
+            let (sender, receiver) = mpsc_channel();
+            drop(receiver);
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
 
-            assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1])));
-            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
+            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![1])));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
         }
@@ -5942,7 +5940,7 @@ mod unix {
         fn exit_waits_for_final_pty_output_in_either_completion_order() {
             for child_first in [false, true] {
                 let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-                let (sender, receiver) = sync_channel(8);
+                let (sender, receiver) = mpsc_channel();
                 let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
@@ -6189,7 +6187,7 @@ mod unix {
         #[test]
         fn coupled_color_frames_stay_adjacent_under_concurrent_exit_and_resize() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-            let (sender, receiver) = sync_channel(8);
+            let (sender, receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
@@ -6286,7 +6284,7 @@ mod unix {
         #[test]
         fn pwd_change_stays_contiguous_with_its_output_boundary() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-            let (sender, receiver) = sync_channel(8);
+            let (sender, receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);

@@ -14,6 +14,15 @@ static TEST_LOCK: Mutex<()> = Mutex::new(());
 static SOCKET_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 const CAPTURE_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyAQAAAACCTkMTAAAAD0lEQVQoz2NgGAWjYGgCAAK8AAFtkh10AAAAAElFTkSuQmCC";
 
+fn test_duration(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1);
+    duration.saturating_mul(scale)
+}
+
 fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
     loop {
         match ws.read().unwrap() {
@@ -124,7 +133,7 @@ fn recv_method_where(
     method: &str,
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + test_duration(Duration::from_secs(30));
     // On timeout, the panic lists what DID arrive during this wait so a
     // CI-only failure identifies the stalled step without a rerun.
     let mut drained = Vec::new();
@@ -146,7 +155,7 @@ fn recv_method_where(
 }
 
 fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + test_duration(Duration::from_secs(30));
     loop {
         assert!(Instant::now() < deadline, "timed out waiting for attach event {event}");
         let mut line = String::new();
@@ -1542,7 +1551,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     assert_eq!(mouse["params"]["type"], "mousePressed");
 
     surface.browser_mouse_event("mousePressed", 13.0, 10.0, Some("left"), Some(1)).unwrap();
-    let second_mouse = seen_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let second_mouse = seen_rx.recv_timeout(test_duration(Duration::from_secs(2))).unwrap();
     assert_eq!(second_mouse["method"], "Input.dispatchMouseEvent");
     assert_eq!(second_mouse["params"]["x"], 13.0);
 

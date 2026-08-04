@@ -1000,13 +1000,14 @@ mod tests {
 
     #[test]
     fn pending_connect_observes_cancellation_while_reusing_its_socket() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
         let cancellation = super::super::options::CancellationToken::new();
-        let cancel_from_thread = cancellation.clone();
-        let canceler = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(25));
-            cancel_from_thread.cancel();
-        });
+        let cancel_after_reuse = cancellation.clone();
+        let probe =
+            crate::codec::ForcedPendingConnectProbe::install_with_poll_observer(move |polls| {
+                if polls == 2 {
+                    cancel_after_reuse.cancel();
+                }
+            });
         let options = RequestOptions::new()
             .with_timeout(Duration::from_secs(1))
             .unwrap()
@@ -1019,7 +1020,6 @@ mod tests {
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Cancelled(_))
         ));
-        canceler.join().unwrap();
         assert!(started.elapsed() < Duration::from_millis(250));
         assert!(probe.polls() >= 2, "the cancellation should interrupt a pending connect");
         assert_eq!(probe.attempts(), 1, "cancellation must close one pending Unix socket");

@@ -11,11 +11,17 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
+type ForcedConnectPollObserver = Box<dyn FnMut(usize)>;
+
+#[cfg(test)]
 thread_local! {
     static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static FORCED_CONNECT_POLLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static FORCED_CONNECT_MAX_POLLS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static FORCED_CONNECT_POLL_OBSERVER: std::cell::RefCell<Option<ForcedConnectPollObserver>> = const {
+        std::cell::RefCell::new(None)
+    };
 }
 
 #[cfg(test)]
@@ -23,18 +29,24 @@ pub(crate) struct ForcedPendingConnectProbe;
 
 #[cfg(test)]
 impl ForcedPendingConnectProbe {
-    pub(crate) fn install() -> Self {
-        Self::install_with_max_polls(None)
-    }
-
     pub(crate) fn install_until_poll(max_polls: usize) -> Self {
         assert!(max_polls > 0, "a pending-connect probe needs at least one poll");
-        Self::install_with_max_polls(Some(max_polls))
+        Self::install_with(Some(max_polls), None)
     }
 
-    fn install_with_max_polls(max_polls: Option<usize>) -> Self {
+    pub(crate) fn install_with_poll_observer(observer: impl FnMut(usize) + 'static) -> Self {
+        Self::install_with(None, Some(Box::new(observer)))
+    }
+
+    fn install_with(max_polls: Option<usize>, observer: Option<Box<dyn FnMut(usize)>>) -> Self {
         FORCE_PENDING_CONNECT.with(|forced| {
             assert!(!forced.replace(true), "a pending-connect probe is already installed");
+        });
+        FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
+            assert!(
+                std::mem::replace(&mut *installed.borrow_mut(), observer).is_none(),
+                "a pending-connect poll observer is already installed"
+            );
         });
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
@@ -55,6 +67,9 @@ impl ForcedPendingConnectProbe {
 impl Drop for ForcedPendingConnectProbe {
     fn drop(&mut self) {
         FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
+        FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
+            installed.borrow_mut().take();
+        });
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
         FORCED_CONNECT_MAX_POLLS.with(|limit| limit.set(None));
@@ -291,6 +306,11 @@ fn connect_unix_with_poll_checks(
                 let next = polls.get() + 1;
                 polls.set(next);
                 next
+            });
+            FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
+                if let Some(observer) = installed.borrow_mut().as_mut() {
+                    observer(polls);
+                }
             });
             if FORCED_CONNECT_MAX_POLLS
                 .with(std::cell::Cell::get)

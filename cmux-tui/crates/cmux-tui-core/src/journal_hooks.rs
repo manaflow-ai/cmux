@@ -1152,11 +1152,12 @@ mod tests {
             .unwrap();
         let mut hook = manifest();
         hook.hook_id = "agent_completion_probe".into();
-        hook.filter.kinds = vec!["agent.turn.completed".into()];
+        hook.filter.kinds = vec!["agent.child.completed".into()];
         hook.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
         hook.exec.argv = vec!["/bin/sleep".into(), "0.005".into()];
         hook.exec.timeout_ms = 10_000;
         hook.exec.max_parallel = u16::try_from(MAX_DELIVERY_WORKERS).unwrap();
+        hook.delivery.retry = JournalHookRetry { max_attempts: 3, backoff_ms: 10 };
         hook.permissions = vec!["journal.read.sensitive".into()];
         mux.put_journal_hook(&hook, "client_probe", "hook_probe_v1").unwrap();
 
@@ -1167,17 +1168,27 @@ mod tests {
                 let mux = mux.clone();
                 let barrier = barrier.clone();
                 std::thread::spawn(move || {
-                    let ingress = crate::agent_hook_journal_ingress(
-                        "codex",
-                        "Stop",
-                        None,
-                        json!({"session_id":format!("agent-{agent}"),"message":"done"}),
-                    )
-                    .unwrap();
                     barrier.wait();
                     (0..EVENTS_PER_AGENT)
                         .map(|event| {
                             let started = Instant::now();
+                            // Include lossless normalization and stable nested
+                            // topology hashing in the measured ingress path.
+                            let ingress = crate::agent_hook_journal_ingress(
+                                "codex",
+                                "SubagentStop",
+                                None,
+                                json!({
+                                    "session_id":format!("agent-{agent}"),
+                                    "root_session_id":format!("root-session-{agent}"),
+                                    "root_agent_id":format!("root-{agent}"),
+                                    "parent_agent_id":format!("parent-{agent}"),
+                                    "child_agent_id":format!("child-{agent}-{event}"),
+                                    "agent_depth":2,
+                                    "message":"done"
+                                }),
+                            )
+                            .unwrap();
                             mux.append_journal_ingress(
                                 &ingress,
                                 "client_probe",
@@ -1227,14 +1238,21 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut cursor = 0;
         let mut completed = 0;
+        let mut failed_attempts = Vec::new();
+        let mut abandoned = Vec::new();
         let mut epoch = mux.journal_event_epoch();
-        while completed < event_count && Instant::now() < deadline {
+        while completed + abandoned.len() < event_count && Instant::now() < deadline {
             let page = mux.session_journal_after(cursor, 1024).unwrap();
             for record in page.records {
                 cursor = record.sequence;
                 completed += usize::from(record.kind == "hook.delivery.completed");
+                if record.kind == "hook.delivery.failed" {
+                    failed_attempts.push(record.payload.clone());
+                } else if record.kind == "hook.delivery.abandoned" {
+                    abandoned.push(record.payload.clone());
+                }
             }
-            if completed < event_count {
+            if completed + abandoned.len() < event_count {
                 epoch = mux.wait_for_journal_event(epoch, Duration::from_millis(100));
             }
         }
@@ -1246,19 +1264,23 @@ mod tests {
         let terminal_mib_per_second = terminal_mib as f64 / terminal_elapsed.as_secs_f64();
         eprintln!(
             "multi-agent hook saturation: {event_count} events from {AGENTS} agents in \
-             {append_elapsed:?} ({appends_per_second:.0}/s), append p50={:?} p95={:?} \
+             {append_elapsed:?} ({appends_per_second:.0}/s), ingress p50={:?} p95={:?} \
              p99={:?} max={:?}; terminal {terminal_mib} MiB durable in \
              {terminal_elapsed:?} ({terminal_mib_per_second:.1} MiB/s), max enqueue \
-             {maximum_enqueue:?}; {completed} hook children completed",
+             {maximum_enqueue:?}; {completed} hook children completed, {} attempts retried, \
+             {} deliveries abandoned",
             percentile(50),
             percentile(95),
             percentile(99),
             append_latencies.last().unwrap(),
+            failed_attempts.len(),
+            abandoned.len(),
         );
+        assert!(abandoned.is_empty(), "hook deliveries were abandoned: {abandoned:#?}");
         assert_eq!(completed, event_count, "hook deliveries did not drain before the deadline");
         assert!(
             percentile(99) < Duration::from_millis(100),
-            "agent append p99 regressed to {:?}",
+            "agent ingress p99 regressed to {:?}",
             percentile(99)
         );
         assert!(
