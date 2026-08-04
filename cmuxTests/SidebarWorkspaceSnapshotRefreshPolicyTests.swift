@@ -177,6 +177,64 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test @MainActor
+    func currentWorkSnapshotStaysWithStableWorkspaceIdAfterInsertion() throws {
+        let settings = SidebarTabItemSettingsSnapshot(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!
+        )
+        let workspaceA = Workspace()
+        workspaceA.title = "Workspace A"
+        let workspaceB = Workspace()
+        workspaceB.title = "Workspace B"
+        var workspaces = [workspaceA, workspaceB]
+        let currentWork = SidebarStatusEntry(
+            key: "current_work",
+            value: "Needs input"
+        )
+        workspaceA.statusEntries[currentWork.key] = currentWork
+
+        func snapshot(
+            for workspace: Workspace
+        ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+            SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: false
+            ).makeSnapshot()
+        }
+
+        let snapshotsByWorkspaceId = Dictionary(
+            uniqueKeysWithValues: workspaces.map { ($0.id, snapshot(for: $0)) }
+        )
+        let cachedRowZeroSnapshot = try #require(snapshotsByWorkspaceId[workspaceA.id])
+        let workspaceAInitialIndex = try #require(
+            workspaces.firstIndex { $0.id == workspaceA.id }
+        )
+
+        let addedWorkspace = Workspace()
+        addedWorkspace.title = "New Workspace"
+        workspaces.insert(addedWorkspace, at: 0)
+
+        #expect(workspaces.first?.id == addedWorkspace.id)
+        #expect(
+            workspaces.firstIndex { $0.id == workspaceA.id } == workspaceAInitialIndex + 1
+        )
+        #expect(snapshotsByWorkspaceId[workspaceA.id]?.metadataEntries == [currentWork])
+        #expect(snapshotsByWorkspaceId[workspaceB.id]?.metadataEntries.isEmpty == true)
+
+        let addedWorkspaceSnapshot = snapshot(for: addedWorkspace)
+        let displayedRowZeroSnapshot =
+            cachedRowZeroSnapshot.presentationKey == addedWorkspaceSnapshot.presentationKey
+                ? cachedRowZeroSnapshot
+                : addedWorkspaceSnapshot
+
+        #expect(addedWorkspaceSnapshot.metadataEntries.isEmpty)
+        #expect(
+            displayedRowZeroSnapshot.metadataEntries.isEmpty,
+            "A recycled row must not render workspace A's current-work recap for the newly inserted workspace."
+        )
+    }
+
     static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
