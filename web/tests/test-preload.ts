@@ -19,3 +19,5 @@ process.env.STACK_SECRET_SERVER_KEY ??= "stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-publishable-client-key";
 process.env.SLACK_ENTERPRISE_WEBHOOK_URL ??= "https://slack.test/enterprise";
+process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??=
+  "0123456789abcdef0123456789abcdef-test";

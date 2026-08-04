@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
+// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -433,6 +433,11 @@ pub struct FocusPaneRequest {
 
 #[rustfmt::skip]
 pub type FocusPaneResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetCellPixelsRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1043,6 +1048,8 @@ pub type SetWindowTitleResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
     pub generation: String,
     pub pid: u32,
 }
@@ -1311,6 +1318,10 @@ impl CmuxClient {
 
     pub fn focus_pane(&mut self, request: FocusPaneRequest) -> Result<FocusPaneResult> {
         self.execute(&FOCUS_PANE_METADATA, &request)
+    }
+
+    pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
+        self.execute(&GET_CELL_PIXELS_METADATA, &request)
     }
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
@@ -1585,6 +1596,10 @@ impl CmuxClient {
     }
 
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
+        if request.force.is_some() {
+            self.require_protocol_field("shutdown-daemon", 10)?;
+            self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
