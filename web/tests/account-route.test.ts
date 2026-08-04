@@ -310,6 +310,7 @@ const postHogDeleteFetch = mock(async (...args: unknown[]) => {
     hostedTenantDeleteRequests.push(fetchArgs);
     const body = JSON.parse(String(init?.body)) as { readonly teamId?: unknown };
     accountLifecycleEvents.push(`subrouter-delete:${String(body.teamId)}`);
+    await beforeHostedTenantDeleteResponse?.();
     return Response.json(hostedTenantDeleteResponse, {
       status: hostedTenantDeleteStatus,
     });
@@ -372,6 +373,7 @@ let legacySubrouterRevokeStatus = 200;
 let legacyTenantRows: Array<{ readonly tenantId: string }> = [];
 let hostedTenantDeleteStatus = 200;
 let hostedTenantDeleteResponse: unknown = { ok: true, deleted: true };
+let beforeHostedTenantDeleteResponse: (() => Promise<void>) | null = null;
 let postHogDeleteError: unknown = null;
 let postHogDeleteStatus = 202;
 let postHogDeleteResponse: unknown = {
@@ -708,6 +710,7 @@ beforeEach(() => {
   legacyTenantRows = [];
   hostedTenantDeleteStatus = 200;
   hostedTenantDeleteResponse = { ok: true, deleted: true };
+  beforeHostedTenantDeleteResponse = null;
   postHogDeleteError = null;
   postHogDeleteStatus = 202;
   postHogDeleteResponse = {
@@ -955,6 +958,35 @@ describe("account deletion route", () => {
     expect(accountLifecycleEvents).toEqual([
       "subrouter-delete:account-user-1",
     ]);
+  });
+
+  test("keeps the active deletion lease while hosted deletion is in flight", async () => {
+    let signalHostedDeleteStarted!: () => void;
+    let releaseHostedDelete!: () => void;
+    const hostedDeleteStarted = new Promise<void>((resolve) => {
+      signalHostedDeleteStarted = resolve;
+    });
+    const hostedDeleteReleased = new Promise<void>((resolve) => {
+      releaseHostedDelete = resolve;
+    });
+    beforeHostedTenantDeleteResponse = async () => {
+      signalHostedDeleteStarted();
+      await hostedDeleteReleased;
+    };
+
+    const deletion = DELETE(accountDeletionRequest());
+    try {
+      await hostedDeleteStarted;
+      expect(tombstoneUpdates.some((values) =>
+        (values as { readonly status?: unknown }).status === "hosted_delete_pending"
+      )).toBe(false);
+    } finally {
+      releaseHostedDelete();
+    }
+
+    const response = await deletion;
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("checkpoints bounded hosted tenant deletion and resumes with fresh auth", async () => {
