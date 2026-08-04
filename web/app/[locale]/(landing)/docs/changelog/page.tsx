@@ -46,6 +46,13 @@ export default async function ChangelogPage({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.changelog" });
   const versions = readChangelog();
+  const sectionLabels = {
+    added: t("sections.added"),
+    changed: t("sections.changed"),
+    fixed: t("sections.fixed"),
+    removed: t("sections.removed"),
+    contributors: t("sections.contributors"),
+  };
 
   return (
     <div className="w-full max-w-[640px] min-w-0">
@@ -61,6 +68,7 @@ export default async function ChangelogPage({
             release={release}
             locale={locale}
             media={changelogMedia[release.version]}
+            sectionLabels={sectionLabels}
             versionHref={localizedChangelogPath(locale, release.version)}
             first={index === 0}
           />

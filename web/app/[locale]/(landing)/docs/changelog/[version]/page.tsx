@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import {
   buildAlternates,
+  joinMetadataSentences,
   openGraphDefaults,
   seoDescription,
   seoTitle,
@@ -18,6 +19,7 @@ import {
   changelogVersionDescription,
   changelogVersionPath,
   findChangelogVersion,
+  findChangelogVersionContext,
   localizedChangelogPath,
   readChangelog,
   type ChangelogVersion,
@@ -45,11 +47,15 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "docs.changelog" });
   const path = changelogVersionPath(release.version);
   const alternates = buildAlternates(locale, path);
+  const localizedVersionTitle = t("versionTitle", {
+    version: release.version,
+  });
   const { title, description } = versionSeoCopy(
     locale,
     release,
     changelogMedia[release.version],
-    t("metaTitle"),
+    localizedVersionTitle,
+    t("metaDescription"),
   );
 
   return {
@@ -74,13 +80,10 @@ export default async function ChangelogVersionPage({
   params: Promise<PageParams>;
 }) {
   const { locale, version } = await params;
-  const versions = readChangelog();
-  const releaseIndex = versions.findIndex(
-    (candidate) => candidate.version === version,
-  );
-  if (releaseIndex < 0) notFound();
+  const context = findChangelogVersionContext(version);
+  if (!context) notFound();
 
-  const release = versions[releaseIndex];
+  const { release, index: releaseIndex, versions } = context;
   const media = changelogMedia[release.version];
   const [t, links, nav] = await Promise.all([
     getTranslations({ locale, namespace: "docs.changelog" }),
@@ -88,15 +91,26 @@ export default async function ChangelogVersionPage({
     getTranslations({ locale, namespace: "nav" }),
   ]);
   const path = changelogVersionPath(release.version);
+  const localizedVersionTitle = t("versionTitle", {
+    version: release.version,
+  });
   const { description } = versionSeoCopy(
     locale,
     release,
     media,
-    t("metaTitle"),
+    localizedVersionTitle,
+    t("metaDescription"),
   );
-  const headline = media?.title
+  const headline = locale === "en" && media?.title
     ? `cmux ${release.version}: ${media.title}`
-    : `cmux ${release.version}`;
+    : localizedVersionTitle;
+  const sectionLabels = {
+    added: t("sections.added"),
+    changed: t("sections.changed"),
+    fixed: t("sections.fixed"),
+    removed: t("sections.removed"),
+    contributors: t("sections.contributors"),
+  };
   const newerRelease = versions[releaseIndex - 1];
   const olderRelease = versions[releaseIndex + 1];
 
@@ -134,12 +148,16 @@ export default async function ChangelogVersionPage({
         release={release}
         locale={locale}
         media={media}
+        sectionLabels={sectionLabels}
+        standaloneHeading={headline}
         standalone
       />
 
       {(olderRelease || newerRelease) && (
         <nav
-          aria-label={`${t("title")} ${release.version}`}
+          aria-label={t("releaseNavLabel", {
+            version: release.version,
+          })}
           className="not-prose flex items-center justify-between border-t border-border pt-6 text-[13px]"
         >
           {olderRelease ? (
@@ -172,22 +190,28 @@ function versionSeoCopy(
   locale: string,
   release: ChangelogVersion,
   media: VersionMedia | undefined,
-  changelogTitle: string,
+  localizedVersionTitle: string,
+  changelogDescription: string,
 ) {
-  const conciseTitle = `cmux ${release.version} · ${changelogTitle}`;
-  const titleCandidate = media?.title
+  const conciseTitle = localizedVersionTitle;
+  const titleCandidate = locale === "en" && media?.title
     ? `cmux ${release.version}: ${media.title}`
     : conciseTitle;
   const title = seoTitle(locale, titleCandidate, {
     appendLocalizedContext: false,
     fallbackCandidates: [conciseTitle],
   });
-  const description = seoDescription(
-    locale,
-    changelogVersionDescription(
-      release,
-      media?.features?.[0]?.description,
-    ),
-  );
+  const descriptionCandidate =
+    locale === "en"
+      ? changelogVersionDescription(
+          release,
+          media?.features?.[0]?.description,
+        )
+      : joinMetadataSentences(
+          locale,
+          `cmux ${release.version}`,
+          changelogDescription,
+        );
+  const description = seoDescription(locale, descriptionCandidate);
   return { title, description };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createTranslator } from "use-intl/core";
 import {
   changelogPath,
   changelogVersionDescription,
@@ -11,8 +12,11 @@ import {
 } from "../app/lib/changelog";
 import sitemap from "../app/sitemap";
 import middleware from "../proxy";
+import { locales } from "../i18n/routing";
 import { ChangelogRelease } from "../app/[locale]/(landing)/docs/changelog/changelog-release";
 import { generateStaticParams } from "../app/[locale]/(landing)/docs/changelog/[version]/page";
+
+type Messages = typeof import("../messages/en.json");
 
 describe("per-version changelog pages", () => {
   test("parses each release into independently renderable content", () => {
@@ -45,6 +49,13 @@ Release intro.
       <ChangelogRelease
         release={release}
         locale="ja"
+        sectionLabels={{
+          added: "追加",
+          changed: "変更",
+          fixed: "修正",
+          removed: "削除",
+          contributors: "コントリビューター",
+        }}
         versionHref={localizedChangelogPath("ja", release.version)}
         first
       />,
@@ -52,6 +63,7 @@ Release intro.
     expect(html).toContain('href="/ja/docs/changelog/1.2.3"');
     expect(html).toContain('dateTime="2026-08-03"');
     expect(html).toContain("2026年8月3日");
+    expect(html).toContain("追加");
     expect(html).toContain("cmux example");
   });
 
@@ -131,6 +143,34 @@ Release intro.
       } else {
         process.env.CMUX_DOCS_CHANNEL = previousDocsChannel;
       }
+    }
+  });
+
+  test("provides changelog section labels for every supported locale", async () => {
+    for (const locale of locales) {
+      // The locale is dynamic so this test follows the routing registry.
+      const messages = (
+        await import(`../messages/${locale}.json`)
+      ).default as Messages;
+      const labels = messages.docs.changelog.sections;
+      const t = createTranslator({
+        locale,
+        messages,
+        namespace: "docs.changelog",
+      });
+
+      expect(Object.keys(labels).sort()).toEqual([
+        "added",
+        "changed",
+        "contributors",
+        "fixed",
+        "removed",
+      ]);
+      for (const label of Object.values(labels)) {
+        expect(label.trim().length).toBeGreaterThan(0);
+      }
+      expect(t("versionTitle", { version: "1.2.3" })).toContain("1.2.3");
+      expect(t("releaseNavLabel", { version: "1.2.3" })).toContain("1.2.3");
     }
   });
 });

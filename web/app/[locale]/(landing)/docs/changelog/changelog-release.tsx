@@ -4,10 +4,20 @@ import type { ChangelogVersion } from "@/app/lib/changelog";
 import { pngDimensions } from "./png-dimensions";
 import type { VersionMedia } from "./changelog-media";
 
+export interface ChangelogSectionLabels {
+  added: string;
+  changed: string;
+  fixed: string;
+  removed: string;
+  contributors: string;
+}
+
 export function ChangelogRelease({
   release,
   locale,
   media,
+  sectionLabels,
+  standaloneHeading,
   versionHref,
   standalone = false,
   first = false,
@@ -15,13 +25,17 @@ export function ChangelogRelease({
   release: ChangelogVersion;
   locale: string;
   media?: VersionMedia;
+  sectionLabels: ChangelogSectionLabels;
+  standaloneHeading?: string;
   versionHref?: string;
   standalone?: boolean;
   first?: boolean;
 }) {
-  const heading = media?.title
-    ? `cmux ${release.version}: ${media.title}`
-    : `cmux ${release.version}`;
+  const heading =
+    standaloneHeading ??
+    (locale === "en" && media?.title
+      ? `cmux ${release.version}: ${media.title}`
+      : `cmux ${release.version}`);
 
   return (
     <article
@@ -136,7 +150,10 @@ export function ChangelogRelease({
           if (isContributors) {
             return (
               <div key={index}>
-                <SectionBadge heading={section.heading} />
+                <SectionBadge
+                  heading={section.heading}
+                  labels={sectionLabels}
+                />
                 <ContributorList items={section.items} />
               </div>
             );
@@ -145,7 +162,10 @@ export function ChangelogRelease({
           return (
             <div key={index}>
               {section.heading && (
-                <SectionBadge heading={section.heading} />
+                <SectionBadge
+                  heading={section.heading}
+                  labels={sectionLabels}
+                />
               )}
               <ul
                 style={{
@@ -325,7 +345,13 @@ function ContributorList({ items }: { items: string[] }) {
   );
 }
 
-function SectionBadge({ heading }: { heading: string }) {
+function SectionBadge({
+  heading,
+  labels,
+}: {
+  heading: string;
+  labels: ChangelogSectionLabels;
+}) {
   const lower = heading.toLowerCase();
 
   let color = "bg-border/50 text-muted";
@@ -333,16 +359,19 @@ function SectionBadge({ heading }: { heading: string }) {
 
   if (lower === "added") {
     color = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-    label = "Added";
+    label = labels.added;
   } else if (lower === "changed") {
     color = "bg-blue-500/10 text-blue-600 dark:text-blue-400";
-    label = "Changed";
+    label = labels.changed;
   } else if (lower === "fixed") {
     color = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-    label = "Fixed";
+    label = labels.fixed;
+  } else if (lower === "removed") {
+    color = "bg-red-500/10 text-red-600 dark:text-red-400";
+    label = labels.removed;
   } else if (lower.startsWith("thanks")) {
     color = "bg-purple-500/10 text-purple-600 dark:text-purple-400";
-    label = "Contributors";
+    label = labels.contributors;
   }
 
   return (

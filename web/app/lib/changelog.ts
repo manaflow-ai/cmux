@@ -15,8 +15,27 @@ export interface ChangelogVersion {
 
 export const changelogPath = "/docs/changelog";
 
-let cachedChangelog: readonly ChangelogVersion[] | undefined;
+export interface ChangelogVersionEntry {
+  release: ChangelogVersion;
+  index: number;
+}
 
+export interface ChangelogVersionContext extends ChangelogVersionEntry {
+  versions: readonly ChangelogVersion[];
+}
+
+interface ChangelogSnapshot {
+  path: string;
+  modifiedAt: number;
+  changedAt: number;
+  size: number;
+  versions: readonly ChangelogVersion[];
+  entries: ReadonlyMap<string, ChangelogVersionEntry>;
+}
+
+let cachedChangelog: ChangelogSnapshot | undefined;
+
+/** Parses the repository changelog into ordered release records. */
 export function parseChangelog(markdown: string): ChangelogVersion[] {
   const versions: ChangelogVersion[] = [];
   let current: ChangelogVersion | null = null;
@@ -66,25 +85,33 @@ export function parseChangelog(markdown: string): ChangelogVersion[] {
   return versions;
 }
 
+/** Returns the current changelog, refreshing the cache when its source changes. */
 export function readChangelog(): readonly ChangelogVersion[] {
-  if (cachedChangelog) return cachedChangelog;
-
-  cachedChangelog = parseChangelog(
-    fs.readFileSync(resolveChangelogPath(), "utf-8"),
-  );
-  return cachedChangelog;
+  return readChangelogSnapshot().versions;
 }
 
+/** Looks up one release together with its adjacent-release source list. */
+export function findChangelogVersionContext(
+  version: string,
+): ChangelogVersionContext | undefined {
+  const snapshot = readChangelogSnapshot();
+  const entry = snapshot.entries.get(version);
+  return entry ? { ...entry, versions: snapshot.versions } : undefined;
+}
+
+/** Looks up one release by its version number. */
 export function findChangelogVersion(
   version: string,
 ): ChangelogVersion | undefined {
-  return readChangelog().find((release) => release.version === version);
+  return readChangelogSnapshot().entries.get(version)?.release;
 }
 
+/** Returns the canonical path for one changelog release. */
 export function changelogVersionPath(version: string): string {
   return `${changelogPath}/${encodeURIComponent(version)}`;
 }
 
+/** Returns the locale-prefixed path for the changelog or one release. */
 export function localizedChangelogPath(
   locale: string,
   version?: string,
@@ -93,6 +120,7 @@ export function localizedChangelogPath(
   return locale === "en" ? releasePath : `/${locale}${releasePath}`;
 }
 
+/** Builds a bounded English search summary from one release. */
 export function changelogVersionDescription(
   release: ChangelogVersion,
   featuredDescription?: string,
@@ -115,6 +143,35 @@ export function changelogVersionDescription(
   );
 }
 
+function readChangelogSnapshot(): ChangelogSnapshot {
+  const changelog = resolveChangelogPath();
+  const stats = fs.statSync(changelog);
+  if (
+    cachedChangelog?.path === changelog &&
+    cachedChangelog.modifiedAt === stats.mtimeMs &&
+    cachedChangelog.changedAt === stats.ctimeMs &&
+    cachedChangelog.size === stats.size
+  ) {
+    return cachedChangelog;
+  }
+
+  const versions = parseChangelog(fs.readFileSync(changelog, "utf-8"));
+  cachedChangelog = {
+    path: changelog,
+    modifiedAt: stats.mtimeMs,
+    changedAt: stats.ctimeMs,
+    size: stats.size,
+    versions,
+    entries: new Map(
+      versions.map((release, index) => [
+        release.version,
+        { release, index },
+      ]),
+    ),
+  };
+  return cachedChangelog;
+}
+
 function resolveChangelogPath(): string {
   const candidates = [
     path.resolve(process.cwd(), "..", "CHANGELOG.md"),
@@ -122,9 +179,7 @@ function resolveChangelogPath(): string {
   ];
   const changelog = candidates.find((candidate) => fs.existsSync(candidate));
   if (!changelog) {
-    throw new Error(
-      `CHANGELOG.md not found from ${process.cwd()}`,
-    );
+    throw new Error("Changelog unavailable");
   }
   return changelog;
 }
