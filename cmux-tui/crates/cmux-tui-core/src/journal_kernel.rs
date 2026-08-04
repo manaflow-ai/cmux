@@ -313,6 +313,10 @@ impl JournalKernel {
     }
 
     pub(crate) fn wake_waiters(&self) {
+        let mut state = self.state.lock().unwrap();
+        // The generation is the wait predicate. Advancing it makes a wake
+        // observable even when the signal arrives just before wait() locks.
+        state.epoch = state.epoch.wrapping_add(1);
         self.changed.notify_all();
     }
 

@@ -258,7 +258,10 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
 
         if active.len() < workers.capacity {
             let capacity = workers.capacity - active.len();
-            if let Ok(deliveries) = mux.pending_journal_hook_deliveries(capacity.max(1)) {
+            // The query includes executing rows so a replacement dispatcher
+            // can retry them. Ask for the complete worker window, otherwise
+            // active rows can consume the limit and leave idle workers empty.
+            if let Ok(deliveries) = mux.pending_journal_hook_deliveries(workers.capacity) {
                 let mut per_hook = HashMap::<HookVersion, usize>::new();
                 for key in &active {
                     *per_hook.entry(key.hook.clone()).or_default() += 1;
