@@ -1775,13 +1775,15 @@ final class MenuBarExtraNotificationItemReuseTests: XCTestCase {
             store.replaceNotificationsForTesting(originalNotifications)
         }
 
-        let initialIdentities = controller.notificationItemIdentitiesForTesting
-        XCTAssertEqual(initialIdentities.count, 1)
+        let initialItems = controller.notificationItemsForTesting
+        XCTAssertEqual(initialItems.count, 1)
 
         store.replaceNotificationsForTesting([makeNotification(title: "Second")])
         controller.refreshForDebugControls()
 
-        XCTAssertEqual(controller.notificationItemIdentitiesForTesting, initialIdentities)
+        let refreshedItems = controller.notificationItemsForTesting
+        XCTAssertEqual(refreshedItems.count, initialItems.count)
+        XCTAssertTrue(refreshedItems[0] === initialItems[0])
     }
 
     private func makeNotification(title: String) -> TerminalNotification {

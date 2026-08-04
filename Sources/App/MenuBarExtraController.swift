@@ -169,8 +169,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
 #if DEBUG
-    var notificationItemIdentitiesForTesting: [ObjectIdentifier] {
-        notificationItems.map(ObjectIdentifier.init)
+    var notificationItemsForTesting: [NSMenuItem] {
+        notificationItems
     }
 #endif
 
