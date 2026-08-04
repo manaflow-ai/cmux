@@ -265,8 +265,8 @@ extension TerminalSurface {
     }
 
     /// Merges base, additional, and override environments with key
-    /// protection, Claude auth-selection inheritance, and config-dir
-    /// normalization.
+    /// protection, independent Claude launch sanitization, auth-selection
+    /// inheritance, and config-dir normalization.
     public static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
@@ -284,6 +284,9 @@ extension TerminalSurface {
         }
         for (key, value) in initialEnvironmentOverrides where !protectedKeys.contains(key) {
             merged[key] = value
+        }
+        for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
+            merged.removeValue(forKey: key)
         }
         if let claudeConfigDir = merged["CLAUDE_CONFIG_DIR"], !claudeConfigDir.isEmpty {
             merged["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(claudeConfigDir)
