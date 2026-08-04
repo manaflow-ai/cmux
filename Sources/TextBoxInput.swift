@@ -1,13 +1,13 @@
 import CmuxFoundation
 import CmuxWorkspaces
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxTerminal
 import Carbon.HIToolbox
 import Combine
 import CmuxSettings
 import CmuxSettingsUI
 import Observation
-import SwiftUI
 import UniformTypeIdentifiers
 import os
 
@@ -133,83 +133,179 @@ final class TextBoxFilePanelFocusRestorer {
     }
 }
 
-private struct TextBoxInputGlassPillBackground: View {
-    let foreground: Color
-    let fallbackTint: Color
+@MainActor
+private final class TextBoxComposerPillView: NSView {
+    let contentView = NSView()
+    private let chromeView: NSView
 
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: TextBoxLayout.pillCornerRadius, style: .continuous)
-
-#if compiler(>=6.2)
+    override init(frame frameRect: NSRect) {
         if #available(macOS 26.0, *) {
-            shape
-                .fill(Color.clear)
-                .glassEffect(.regular.interactive(true), in: shape)
-                .overlay {
-                    shape.stroke(Color.white.opacity(0.24), lineWidth: 0.85)
-                }
-                .shadow(color: Color.black.opacity(0.18), radius: 12, y: 4)
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = TextBoxLayout.pillCornerRadius
+            chromeView = glass
         } else {
-            fallback(shape)
+            let visual = NSVisualEffectView()
+            visual.material = .popover
+            visual.blendingMode = .withinWindow
+            visual.state = .active
+            chromeView = visual
         }
-#else
-        fallback(shape)
-#endif
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.cornerRadius = TextBoxLayout.pillCornerRadius
+        layer?.cornerCurve = .continuous
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 12
+        layer?.shadowOffset = NSSize(width: 0, height: -4)
+
+        chromeView.translatesAutoresizingMaskIntoConstraints = false
+        chromeView.wantsLayer = true
+        chromeView.layer?.cornerRadius = TextBoxLayout.pillCornerRadius
+        chromeView.layer?.cornerCurve = .continuous
+        chromeView.layer?.masksToBounds = true
+        chromeView.layer?.borderWidth = 1
+        addSubview(chromeView)
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        if #available(macOS 26.0, *), let glass = chromeView as? NSGlassEffectView {
+            glass.contentView = contentView
+        } else {
+            chromeView.addSubview(contentView)
+            NSLayoutConstraint.activate([
+                contentView.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor),
+                contentView.trailingAnchor.constraint(equalTo: chromeView.trailingAnchor),
+                contentView.topAnchor.constraint(equalTo: chromeView.topAnchor),
+                contentView.bottomAnchor.constraint(equalTo: chromeView.bottomAnchor),
+            ])
+        }
+        NSLayoutConstraint.activate([
+            chromeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chromeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            chromeView.topAnchor.constraint(equalTo: topAnchor),
+            chromeView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
-    @ViewBuilder
-    private func fallback(_ shape: RoundedRectangle) -> some View {
-        shape
-            .fill(.regularMaterial)
-            .overlay(
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.12),
-                            fallbackTint.opacity(0.20),
-                            Color.black.opacity(0.06)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-            )
-            .overlay(
-                shape.stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.34),
-                            foreground.opacity(0.16),
-                            Color.black.opacity(0.16)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-            )
-            .shadow(color: Color.black.opacity(0.18), radius: 12, y: 4)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(foregroundColor: NSColor, backgroundColor: NSColor) {
+        chromeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.24).cgColor
+        if let visual = chromeView as? NSVisualEffectView {
+            visual.layer?.backgroundColor = backgroundColor.withAlphaComponent(0.20).cgColor
+            visual.layer?.borderColor = foregroundColor.withAlphaComponent(0.16).cgColor
+        }
     }
 }
 
-struct TextBoxSendButtonStyle: ButtonStyle {
-    let canSend: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(
-                Circle()
-                    .fill(backgroundColor(isPressed: configuration.isPressed))
-            )
-            .scaleEffect(configuration.isPressed && canSend ? 0.94 : 1.0)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+@MainActor
+private final class TextBoxComposerRootView: NSView {
+    let composerView = TextBoxComposerPillView()
+    var widthPresentation = SessionContentWidthPresentation.disabled {
+        didSet { needsLayout = true }
+    }
+    var contentHeight: CGFloat = TextBoxLayout.minimumTextHeight + 7 {
+        didSet {
+            guard abs(contentHeight - oldValue) > 0.5 else { return }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
     }
 
-    private func backgroundColor(isPressed: Bool) -> Color {
-        guard canSend else {
-            return Color.white.opacity(0.74)
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: contentHeight)
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        composerView.autoresizingMask = []
+        addSubview(composerView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let horizontalInset: CGFloat = 10
+        let bottomInset: CGFloat = 7
+        let availableBounds = bounds.insetBy(dx: horizontalInset, dy: 0)
+        let contentFrame = widthPresentation.contentFrame(in: availableBounds)
+        composerView.frame = NSRect(
+            x: contentFrame.minX,
+            y: bottomInset,
+            width: contentFrame.width,
+            height: max(0, bounds.height - bottomInset)
+        )
+    }
+}
+
+@MainActor
+private final class TextBoxCircleButton: NSButton {
+    enum Role {
+        case secondary
+        case send
+    }
+
+    private let role: Role
+    private var foregroundColor = NSColor.labelColor
+
+    init(role: Role, target: AnyObject?, action: Selector?) {
+        self.role = role
+        super.init(frame: .zero)
+        self.target = target
+        self.action = action
+        isBordered = false
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        wantsLayer = true
+        layer?.cornerRadius = TextBoxLayout.iconButtonSize / 2
+        layer?.cornerCurve = .continuous
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: TextBoxLayout.iconButtonSize),
+            heightAnchor.constraint(equalToConstant: TextBoxLayout.iconButtonSize),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isHighlighted: Bool {
+        didSet { updateAppearance() }
+    }
+
+    override var isEnabled: Bool {
+        didSet { updateAppearance() }
+    }
+
+    func update(foregroundColor: NSColor) {
+        self.foregroundColor = foregroundColor
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        switch role {
+        case .secondary:
+            layer?.backgroundColor = foregroundColor.withAlphaComponent(isHighlighted ? 0.16 : 0.10).cgColor
+            layer?.borderWidth = 0.8
+            layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+            contentTintColor = foregroundColor.withAlphaComponent(0.82)
+        case .send:
+            let opacity: CGFloat = isEnabled ? (isHighlighted ? 0.72 : 1.0) : 0.74
+            layer?.backgroundColor = NSColor.white.withAlphaComponent(opacity).cgColor
+            layer?.borderWidth = 0
+            contentTintColor = NSColor.black.withAlphaComponent(isEnabled ? 0.86 : 0.76)
         }
-        return Color.white.opacity(isPressed ? 0.72 : 1.0)
     }
 }
 
@@ -938,56 +1034,6 @@ private final class TextBoxAttachmentPreviewController: NSViewController {
             ])
         }
         return root
-    }
-}
-
-private struct TextBoxAttachmentChip: View {
-    let attachment: TextBoxAttachment
-    let foreground: Color
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if let thumbnail = attachment.thumbnail {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            } else {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-            }
-
-            Text(attachment.displayName)
-                .cmuxFont(size: 11, weight: .medium)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 118, alignment: .leading)
-
-            Button(action: onRemove) {
-                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold)
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(foreground.opacity(0.62))
-            .help(String(localized: "textbox.removeAttachment.tooltip", defaultValue: "Remove Attachment"))
-            .accessibilityLabel(String(localized: "textbox.removeAttachment.tooltip", defaultValue: "Remove Attachment"))
-        }
-        .foregroundStyle(foreground.opacity(0.88))
-        .padding(.leading, 0)
-        .padding(.trailing, 4)
-        .frame(height: TextBoxLayout.attachmentChipHeight)
-        .background(
-            Capsule(style: .continuous)
-                .fill(foreground.opacity(0.10))
-        )
     }
 }
 
@@ -2258,53 +2304,694 @@ private final class TextBoxSubmitEventRunner {
     }
 }
 
-struct TextBoxInputContainer: View {
-    @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
-    var configuredDefaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
-    @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
-    var configuredSubmitActionsJSON = ""
-    @State var submitActionImageCache: [String: NSImage] = [:]
-    @State var submitActionAssetAvailabilityCache: [String: Bool] = [:]
-    @State var cachedSubmitActionsJSON: String?
-    @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
-    @Binding var text: String
-    @Binding var attachments: [TextBoxAttachment]
-    @Binding var selectedSubmitActionID: String?
-    @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
-    @Binding var pendingProviderLaunchStartedAt: Date?
+@MainActor
+final class TextBoxInputContainer: NSViewController {
+    private let panel: TerminalPanel
     let surface: TerminalSurface
-    let terminalBackgroundColor: NSColor
-    let terminalForegroundColor: NSColor
-    let terminalFont: NSFont
-    let maxLines: Int
-    let terminalAgentContext: String
-    let shellActivityState: PanelShellActivityState
-    let allowsCommandTemplateSubmit: Bool
-    let onFocusTextBox: () -> Void
-    let onToggleFocus: () -> Void
-    let onSelectSubmitAction: (String) -> Void
-    let onRecordLaunchCommand: (String) -> Void
-    let onClearLaunchCommand: () -> Void
-    let onEscape: () -> Void
-    let onTextViewCreated: (TextBoxInputTextView) -> Void
-    let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
-    let onTextViewDismantled: (TextBoxInputTextView) -> Void
-    @State private var textViewHeight: CGFloat = 0
-    @State private var hasPendingAttachmentUpload = false
-    @State private var hasMarkedText = false
-    @State private var textViewReference = TextBoxInputViewReference()
-    @State private var contentRevision: UInt64 = 0
-    @State var pendingProviderLaunchTimeoutTimer: Timer?
-    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+    var terminalBackgroundColor: NSColor
+    var terminalForegroundColor: NSColor
+    var terminalFont: NSFont
+    var maxLines: Int
+    private var baseTerminalAgentContext: String
+    var sessionContentWidthPresentation: SessionContentWidthPresentation
+    private var externalOnFocus: () -> Void
+
+    var configuredDefaultSubmitActionID: String {
+        UserDefaults.standard.string(forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+            ?? TerminalTextBoxInputSettings.defaultSubmitActionID
+    }
+    var configuredSubmitActionsJSON: String {
+        UserDefaults.standard.string(forKey: TerminalTextBoxInputSettings.submitActionsKey) ?? ""
+    }
+    var submitActionImageCache: [String: NSImage] = [:]
+    var submitActionAssetAvailabilityCache: [String: Bool] = [:]
+    var cachedSubmitActionsJSON: String?
+    var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
+
+    var text: String {
+        get { panel.textBoxContent }
+        set { panel.textBoxContent = newValue }
+    }
+    var attachments: [TextBoxAttachment] {
+        get { panel.textBoxAttachments }
+        set { panel.textBoxAttachments = newValue }
+    }
+    var selectedSubmitActionID: String? {
+        get { panel.textBoxState.selectedSubmitActionID }
+        set { panel.textBoxState.selectedSubmitActionID = newValue }
+    }
+    var pendingProviderLaunchAction: TextBoxSubmitAction? {
+        get { panel.textBoxState.pendingProviderLaunchAction }
+        set { panel.textBoxState.pendingProviderLaunchAction = newValue }
+    }
+    var pendingProviderLaunchStartedAt: Date? {
+        get { panel.textBoxState.pendingProviderLaunchStartedAt }
+        set { panel.textBoxState.pendingProviderLaunchStartedAt = newValue }
+    }
+    var terminalAgentContext: String {
+        TerminalPanel.effectiveTerminalAgentContext(
+            baseTerminalAgentContext,
+            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
+        )
+    }
+    var shellActivityState: PanelShellActivityState { panel.shellActivity.state }
+    var allowsCommandTemplateSubmit: Bool {
+        Self.allowsCommandTemplateSubmit(shellActivityState: shellActivityState)
+    }
+
+    var onFocusTextBox: () -> Void {
+        { [weak self] in
+            guard let self else { return }
+            panel.textBoxDidBecomeFocused()
+            externalOnFocus()
+        }
+    }
+    var onToggleFocus: () -> Void {
+        { [weak panel] in _ = panel?.focusTextBoxInputOrTerminal() }
+    }
+    var onSelectSubmitAction: (String) -> Void {
+        { [weak self] actionID in
+            guard let self else { return }
+            panel.textBoxState.selectSubmitAction(actionID)
+            refreshComposer()
+        }
+    }
+    var onRecordLaunchCommand: (String) -> Void {
+        { [weak panel] command in panel?.recordTextBoxLaunchCommand(command) }
+    }
+    var onClearLaunchCommand: () -> Void {
+        { [weak panel] in panel?.clearTextBoxLaunchCommand() }
+    }
+    var onEscape: () -> Void {
+        { [weak panel] in panel?.handleTextBoxEscape() }
+    }
+    var onTextViewCreated: (TextBoxInputTextView) -> Void {
+        { [weak panel] view in panel?.registerTextBoxInputView(view) }
+    }
+    var onTextViewMovedToWindow: (TextBoxInputTextView) -> Void {
+        { [weak panel] view in panel?.textBoxInputViewDidMoveToWindow(view) }
+    }
+    var onTextViewDismantled: (TextBoxInputTextView) -> Void {
+        { [weak panel] view in panel?.preserveTextBoxContentForUnmount(from: view) }
+    }
+
+    private var textViewHeight: CGFloat = 0
+    private var hasPendingAttachmentUpload = false
+    private var hasMarkedText = false
+    private let textViewReference = TextBoxInputViewReference()
+    private var contentRevision: UInt64 = 0
+    var pendingProviderLaunchTimeoutTask: Task<Void, Never>?
+    private let commentPool = DiffCommentSubmissionPool.shared
+
+    private let composerRootView = TextBoxComposerRootView()
+    private let verticalStack = NSStackView()
+    private let mainRow = NSStackView()
+    private let editorContainer = NSView()
+    private let placeholderLabel = NSTextField(labelWithString: "")
+    private let addFilesButton = TextBoxCircleButton(role: .secondary, target: nil, action: nil)
+    private let sendButton = TextBoxCircleButton(role: .send, target: nil, action: nil)
+    private let pendingCommentsStack = NSStackView()
+    private let pendingCommentsButton = NSButton()
+    private let dismissCommentsButton = NSButton()
+    private var editorHeightConstraint: NSLayoutConstraint?
+    private var textBoxInputView: TextBoxInputView?
+    private var commentsPopover: NSPopover?
+
+    private var panelCancellable: AnyCancellable?
+    private var commentPoolCancellable: AnyCancellable?
+    private var defaultsCancellable: AnyCancellable?
+    private var stateObservationGeneration: UInt64 = 0
+    private var refreshTask: Task<Void, Never>?
+    private var imageCacheTask: Task<Void, Never>?
+    private var loadedImageCacheTaskKey: String?
+    private var lastConfiguredDefaultSubmitActionID: String
 
     private var pendingCommentCount: Int {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
     }
 
-    private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
+    private var textBasePointSize: CGFloat {
+        max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2)
+    }
 
     private var textFont: NSFont {
         GlobalFontMagnification.systemFont(ofSize: textBasePointSize, weight: .regular)
+    }
+
+    init(
+        panel: TerminalPanel,
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        self.panel = panel
+        surface = panel.surface
+        self.terminalBackgroundColor = terminalBackgroundColor
+        self.terminalForegroundColor = terminalForegroundColor
+        self.terminalFont = terminalFont
+        self.maxLines = maxLines
+        baseTerminalAgentContext = terminalAgentContext
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        externalOnFocus = onFocus
+        lastConfiguredDefaultSubmitActionID = UserDefaults.standard.string(
+            forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey
+        ) ?? TerminalTextBoxInputSettings.defaultSubmitActionID
+        super.init(nibName: nil, bundle: nil)
+        startObserving()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    isolated deinit {
+        panelCancellable?.cancel()
+        commentPoolCancellable?.cancel()
+        defaultsCancellable?.cancel()
+        refreshTask?.cancel()
+        imageCacheTask?.cancel()
+        pendingProviderLaunchTimeoutTask?.cancel()
+        textBoxInputView?.dismantle()
+    }
+
+    override func loadView() {
+        let inputView = TextBoxInputView(configuration: makeInputConfiguration())
+        textBoxInputView = inputView
+        configureViewHierarchy(inputView: inputView)
+        composerRootView.widthPresentation = sessionContentWidthPresentation
+        view = composerRootView
+        refreshComposer()
+        reconcilePendingProviderLaunch()
+        if pendingProviderLaunchAction != nil {
+            schedulePendingProviderLaunchTimeout()
+        }
+    }
+
+    func update(
+        terminalBackgroundColor: NSColor,
+        terminalForegroundColor: NSColor,
+        terminalFont: NSFont,
+        maxLines: Int,
+        terminalAgentContext: String,
+        sessionContentWidthPresentation: SessionContentWidthPresentation,
+        onFocus: @escaping () -> Void
+    ) {
+        self.terminalBackgroundColor = terminalBackgroundColor
+        self.terminalForegroundColor = terminalForegroundColor
+        self.terminalFont = terminalFont
+        self.maxLines = maxLines
+        baseTerminalAgentContext = terminalAgentContext
+        self.sessionContentWidthPresentation = sessionContentWidthPresentation
+        externalOnFocus = onFocus
+        reconcilePendingProviderLaunch()
+        refreshComposer()
+    }
+
+    private func startObserving() {
+        panelCancellable = panel.objectWillChange.sink { [weak self] in
+            self?.scheduleRefresh(reconcilePendingLaunch: true)
+        }
+        commentPoolCancellable = commentPool.objectWillChange.sink { [weak self] in
+            self?.scheduleRefresh()
+        }
+        defaultsCancellable = NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        ).sink { [weak self] _ in
+            self?.handleDefaultsChange()
+        }
+        observePanelState()
+    }
+
+    private func observePanelState() {
+        stateObservationGeneration &+= 1
+        let generation = stateObservationGeneration
+        withObservationTracking {
+            _ = panel.textBoxState.selectedSubmitActionID
+            _ = panel.textBoxState.pendingProviderLaunchAction
+            _ = panel.textBoxState.pendingProviderLaunchStartedAt
+            _ = panel.textBoxState.pendingLaunchCommand
+            _ = panel.shellActivity.state
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, stateObservationGeneration == generation else { return }
+                reconcilePendingProviderLaunch()
+                refreshComposer()
+                observePanelState()
+            }
+        }
+    }
+
+    private func scheduleRefresh(reconcilePendingLaunch: Bool = false) {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            if reconcilePendingLaunch {
+                self.reconcilePendingProviderLaunch()
+            }
+            self.refreshComposer()
+        }
+    }
+
+    private func handleDefaultsChange() {
+        let nextDefaultSubmitActionID = configuredDefaultSubmitActionID
+        refreshSubmitActionsCacheIfNeeded()
+        if nextDefaultSubmitActionID != lastConfiguredDefaultSubmitActionID,
+           selectedSubmitActionID == nil,
+           pendingProviderLaunchAction != nil {
+            cancelPendingProviderLaunch()
+        }
+        lastConfiguredDefaultSubmitActionID = nextDefaultSubmitActionID
+        loadedImageCacheTaskKey = nil
+        refreshComposer()
+    }
+
+    private func configureViewHierarchy(inputView: TextBoxInputView) {
+        let contentView = composerRootView.composerView.contentView
+
+        verticalStack.orientation = .vertical
+        verticalStack.alignment = .leading
+        verticalStack.spacing = 6
+        verticalStack.detachesHiddenViews = true
+        verticalStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(verticalStack)
+
+        configurePendingCommentsStack()
+        verticalStack.addArrangedSubview(pendingCommentsStack)
+
+        mainRow.orientation = .horizontal
+        mainRow.alignment = .bottom
+        mainRow.spacing = 6
+        mainRow.distribution = .fill
+        mainRow.translatesAutoresizingMaskIntoConstraints = false
+        verticalStack.addArrangedSubview(mainRow)
+
+        addFilesButton.target = self
+        addFilesButton.action = #selector(chooseFilesFromButton)
+        let addTooltip = String(localized: "textbox.addFiles.tooltip", defaultValue: "Add Files")
+        addFilesButton.toolTip = addTooltip
+        addFilesButton.setAccessibilityLabel(addTooltip)
+        addFilesButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: addTooltip)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(
+                pointSize: TextBoxLayout.iconSymbolSize,
+                weight: .semibold
+            ))
+        mainRow.addArrangedSubview(buttonWrapper(addFilesButton))
+
+        editorContainer.translatesAutoresizingMaskIntoConstraints = false
+        inputView.translatesAutoresizingMaskIntoConstraints = false
+        inputView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        inputView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        editorContainer.addSubview(inputView)
+
+        placeholderLabel.stringValue = String(localized: "textbox.placeholder", defaultValue: "Prompt or command")
+        placeholderLabel.isEditable = false
+        placeholderLabel.isSelectable = false
+        placeholderLabel.drawsBackground = false
+        placeholderLabel.isBordered = false
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        editorContainer.addSubview(placeholderLabel)
+
+        let heightConstraint = editorContainer.heightAnchor.constraint(
+            equalToConstant: max(TextBoxLayout.minimumTextHeight, heightForLines(TextBoxLayout.minLines))
+        )
+        editorHeightConstraint = heightConstraint
+        NSLayoutConstraint.activate([
+            heightConstraint,
+            inputView.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
+            inputView.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
+            inputView.topAnchor.constraint(equalTo: editorContainer.topAnchor),
+            inputView.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
+            placeholderLabel.leadingAnchor.constraint(
+                equalTo: editorContainer.leadingAnchor,
+                constant: TextBoxLayout.textInset.width
+            ),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: editorContainer.trailingAnchor),
+            placeholderLabel.centerYAnchor.constraint(
+                equalTo: editorContainer.centerYAnchor,
+                constant: TextBoxLayout.placeholderVerticalOffset
+            ),
+        ])
+        mainRow.addArrangedSubview(editorContainer)
+
+        sendButton.target = self
+        sendButton.action = #selector(submitFromButton)
+        mainRow.addArrangedSubview(buttonWrapper(sendButton))
+
+        NSLayoutConstraint.activate([
+            verticalStack.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: TextBoxLayout.pillHorizontalPadding
+            ),
+            verticalStack.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -TextBoxLayout.pillHorizontalPadding
+            ),
+            verticalStack.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: TextBoxLayout.pillVerticalPadding
+            ),
+            verticalStack.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor,
+                constant: -TextBoxLayout.pillVerticalPadding
+            ),
+            mainRow.widthAnchor.constraint(equalTo: verticalStack.widthAnchor),
+        ])
+    }
+
+    private func configurePendingCommentsStack() {
+        pendingCommentsStack.orientation = .horizontal
+        pendingCommentsStack.alignment = .centerY
+        pendingCommentsStack.spacing = 5
+        pendingCommentsStack.edgeInsets = NSEdgeInsets(top: 0, left: 9, bottom: 0, right: 5)
+        pendingCommentsStack.wantsLayer = true
+        pendingCommentsStack.layer?.cornerRadius = 13
+        pendingCommentsStack.layer?.cornerCurve = .continuous
+        pendingCommentsStack.layer?.borderWidth = 1
+        pendingCommentsStack.translatesAutoresizingMaskIntoConstraints = false
+        pendingCommentsStack.heightAnchor.constraint(equalToConstant: 26).isActive = true
+
+        pendingCommentsButton.isBordered = false
+        pendingCommentsButton.imagePosition = .imageLeading
+        pendingCommentsButton.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
+        pendingCommentsButton.target = self
+        pendingCommentsButton.action = #selector(showPendingComments)
+        pendingCommentsButton.toolTip = String(
+            localized: "textbox.diffComments.preview",
+            defaultValue: "Show comments"
+        )
+        pendingCommentsStack.addArrangedSubview(pendingCommentsButton)
+
+        dismissCommentsButton.isBordered = false
+        dismissCommentsButton.imagePosition = .imageOnly
+        dismissCommentsButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .bold))
+        dismissCommentsButton.target = self
+        dismissCommentsButton.action = #selector(dismissPendingCommentsFromButton)
+        dismissCommentsButton.toolTip = String(
+            localized: "textbox.diffComments.dismiss",
+            defaultValue: "Dismiss comments without sending"
+        )
+        dismissCommentsButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            dismissCommentsButton.widthAnchor.constraint(equalToConstant: 16),
+            dismissCommentsButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+        pendingCommentsStack.addArrangedSubview(dismissCommentsButton)
+    }
+
+    private func buttonWrapper(_ button: NSButton) -> NSView {
+        let wrapper = NSView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(button)
+        NSLayoutConstraint.activate([
+            wrapper.widthAnchor.constraint(equalToConstant: TextBoxLayout.iconButtonSize),
+            wrapper.heightAnchor.constraint(equalToConstant: TextBoxLayout.iconButtonSize + TextBoxLayout.buttonBottomPadding),
+            button.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            button.topAnchor.constraint(equalTo: wrapper.topAnchor),
+        ])
+        return wrapper
+    }
+
+    private func makeInputConfiguration() -> TextBoxInputConfiguration {
+        TextBoxInputConfiguration(
+            text: { [weak self] in self?.text ?? "" },
+            setText: { [weak self] value in
+                self?.text = value
+                self?.scheduleRefresh()
+            },
+            attachments: { [weak self] in self?.attachments ?? [] },
+            setAttachments: { [weak self] value in
+                self?.attachments = value
+                self?.scheduleRefresh()
+            },
+            textViewHeight: { [weak self] in self?.textViewHeight ?? 0 },
+            setTextViewHeight: { [weak self] value in
+                self?.textViewHeight = value
+                self?.refreshComposer()
+            },
+            hasPendingAttachmentUpload: { [weak self] in self?.hasPendingAttachmentUpload ?? false },
+            setHasPendingAttachmentUpload: { [weak self] value in
+                self?.hasPendingAttachmentUpload = value
+                self?.scheduleRefresh()
+            },
+            font: textFont,
+            backgroundColor: terminalBackgroundColor,
+            foregroundColor: terminalForegroundColor,
+            terminalTitle: terminalAgentContext,
+            completionRootDirectory: completionRootDirectory,
+            onSubmit: { [weak self] in self?.submit() },
+            onEscape: onEscape,
+            onFocusTextBox: onFocusTextBox,
+            onToggleFocus: onToggleFocus,
+            onCycleSubmitAction: { [weak self] in self?.cycleSubmitAction() },
+            onForwardText: { [weak self] text, focusTerminalAfterSend in
+                self?.forwardText(text, focusTerminalAfterSend: focusTerminalAfterSend)
+            },
+            onForwardKey: { [weak self] key in self?.forwardKey(key) },
+            onForwardControl: { [weak self] key in self?.forwardControl(key) },
+            onPaste: { [weak self] pasteboard, textView in
+                self?.handlePaste(pasteboard, into: textView) ?? false
+            },
+            onInsertFileURLs: { [weak self] urls, textView in
+                self?.insertSelectedFileURLs(urls, into: textView) ?? false
+            },
+            onChooseFiles: { [weak self] in self?.chooseFiles() },
+            onContentChanged: { [weak self] in self?.markContentChanged() },
+            onMarkedTextStateChanged: { [weak self] value in self?.updateMarkedTextState(value) },
+            onTextViewCreated: { [weak self] textView in self?.registerTextView(textView) },
+            onTextViewMovedToWindow: onTextViewMovedToWindow,
+            onTextViewDismantled: onTextViewDismantled
+        )
+    }
+
+    private func refreshComposer() {
+        guard isViewLoaded, let textBoxInputView else { return }
+        refreshSubmitActionsCacheIfNeeded()
+        textBoxInputView.update(configuration: makeInputConfiguration())
+
+        let minHeight = max(TextBoxLayout.minimumTextHeight, heightForLines(TextBoxLayout.minLines))
+        let maxHeight = heightForLines(max(TextBoxLayout.minLines, maxLines))
+        let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
+        editorHeightConstraint?.constant = clampedHeight
+
+        let count = pendingCommentCount
+        pendingCommentsStack.isHidden = count == 0
+        pendingCommentsButton.title = pendingCommentsLabel(count)
+        pendingCommentsButton.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        pendingCommentsButton.contentTintColor = terminalForegroundColor.withAlphaComponent(0.92)
+        pendingCommentsButton.setAccessibilityLabel(pendingCommentsLabel(count))
+        dismissCommentsButton.contentTintColor = terminalForegroundColor.withAlphaComponent(0.62)
+        pendingCommentsStack.layer?.backgroundColor = terminalForegroundColor.withAlphaComponent(0.10).cgColor
+        pendingCommentsStack.layer?.borderColor = terminalForegroundColor.withAlphaComponent(0.18).cgColor
+
+        placeholderLabel.font = GlobalFontMagnification.systemFont(ofSize: textBasePointSize)
+        placeholderLabel.textColor = terminalForegroundColor.withAlphaComponent(0.36)
+        placeholderLabel.isHidden = !TextBoxSubmitAvailability.shouldShowPlaceholder(
+            text: text,
+            attachmentCount: attachments.count,
+            hasMarkedText: hasMarkedText
+        )
+
+        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
+            text: text,
+            attachmentCount: attachments.count + count,
+            hasPendingAttachmentUpload: hasPendingAttachmentUpload,
+            hasMarkedText: hasMarkedText
+        )
+        let canSend = Self.shouldEnableSubmitButton(
+            baseCanSend: baseCanSend,
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            action: effectiveSubmitAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        )
+        let presentation = submitActionPresentation
+        sendButton.isEnabled = canSend
+        sendButton.toolTip = presentation.helpText
+        sendButton.setAccessibilityLabel(presentation.accessibilityLabel)
+        sendButton.image = nativeSubmitActionImage(presentation.action, forSendButton: true)
+        sendButton.menu = makeSubmitActionMenu()
+        addFilesButton.update(foregroundColor: terminalForegroundColor)
+        sendButton.update(foregroundColor: terminalForegroundColor)
+
+        composerRootView.composerView.update(
+            foregroundColor: terminalForegroundColor,
+            backgroundColor: terminalBackgroundColor
+        )
+        composerRootView.widthPresentation = sessionContentWidthPresentation
+        let commentsHeight: CGFloat = count > 0 ? 38 : 0
+        composerRootView.contentHeight = max(clampedHeight, TextBoxLayout.iconButtonSize + 3)
+            + commentsHeight
+            + 7
+        view.invalidateIntrinsicContentSize()
+        view.needsLayout = true
+
+        let imageTaskKey = submitActionImageCacheTaskKey
+        if loadedImageCacheTaskKey != imageTaskKey {
+            loadedImageCacheTaskKey = imageTaskKey
+            imageCacheTask?.cancel()
+            let keys = submitActionImageCacheKeys
+            imageCacheTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await refreshSubmitActionImageCache(keys: keys)
+                guard !Task.isCancelled else { return }
+                sendButton.image = nativeSubmitActionImage(submitActionPresentation.action, forSendButton: true)
+                sendButton.menu = makeSubmitActionMenu()
+            }
+        }
+    }
+
+    private func nativeSubmitActionImage(
+        _ action: TextBoxSubmitAction,
+        forSendButton: Bool
+    ) -> NSImage? {
+        let image: NSImage?
+        if let cached = submitActionNSImage(for: action) {
+            image = cached.copy() as? NSImage
+        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
+            image = CmuxResolvedIconRenderer().image(
+                for: submitActionIconRequest(
+                    assetName: assetName,
+                    tintColor: forSendButton && action.id == "codex" ? .black : nil
+                ),
+                appearance: view.effectiveAppearance
+            )
+        } else {
+            image = NSImage(systemSymbolName: action.systemImage, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(
+                    pointSize: TextBoxLayout.sendSymbolSize,
+                    weight: .bold
+                ))
+        }
+        if forSendButton, action.id == "codex" {
+            image?.isTemplate = true
+        }
+        return image
+    }
+
+    private func makeSubmitActionMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if pendingProviderLaunchAction != nil {
+            let cancel = NSMenuItem(
+                title: String(
+                    localized: "textbox.submitAction.cancelPending",
+                    defaultValue: "Cancel Pending Launch"
+                ),
+                action: #selector(cancelPendingLaunchFromMenu),
+                keyEquivalent: ""
+            )
+            cancel.target = self
+            cancel.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
+            cancel.isEnabled = true
+            menu.addItem(cancel)
+            menu.addItem(.separator())
+        }
+        if allowsSubmitActionSelection {
+            for action in submitActions {
+                let item = NSMenuItem(
+                    title: TextBoxSubmitActionPresentation.localizedTitle(for: action),
+                    action: #selector(selectSubmitActionFromMenu(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = action.id
+                item.state = action.id == selectedSubmitAction.id ? .on : .off
+                item.image = action.id == selectedSubmitAction.id
+                    ? nil
+                    : nativeSubmitActionImage(action, forSendButton: false)
+                item.isEnabled = true
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+        }
+        let docs = NSMenuItem(
+            title: String(
+                localized: "textbox.submitAction.docs",
+                defaultValue: "TextBox Submit Actions Docs"
+            ),
+            action: #selector(openSubmitActionsDocumentationFromMenu),
+            keyEquivalent: ""
+        )
+        docs.target = self
+        docs.image = NSImage(systemSymbolName: "book", accessibilityDescription: nil)
+        docs.isEnabled = true
+        menu.addItem(docs)
+        return menu
+    }
+
+    @objc private func chooseFilesFromButton() {
+        chooseFiles()
+    }
+
+    @objc private func submitFromButton() {
+        guard sendButton.isEnabled else {
+            NSSound.beep()
+            return
+        }
+        submit()
+    }
+
+    @objc private func cancelPendingLaunchFromMenu() {
+        cancelPendingProviderLaunch()
+        refreshComposer()
+    }
+
+    @objc private func selectSubmitActionFromMenu(_ sender: NSMenuItem) {
+        guard let actionID = sender.representedObject as? String else { return }
+        onSelectSubmitAction(actionID)
+    }
+
+    @objc private func openSubmitActionsDocumentationFromMenu() {
+        openSubmitActionsDocumentation()
+    }
+
+    @objc private func showPendingComments() {
+        let entries = surface.owningWorkspace().map {
+            commentPool.entriesByWorkspace[$0.id] ?? []
+        } ?? []
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 14, height: 12)
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.string = entries
+            .map { $0.submissionText.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n\n")
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        let controller = NSViewController()
+        controller.view = scrollView
+        controller.preferredContentSize = NSSize(width: 440, height: 240)
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        commentsPopover?.performClose(nil)
+        commentsPopover = popover
+        popover.show(relativeTo: pendingCommentsButton.bounds, of: pendingCommentsButton, preferredEdge: .maxY)
+    }
+
+    @objc private func dismissPendingCommentsFromButton() {
+        dismissPendingComments()
+        commentsPopover?.performClose(nil)
+        commentsPopover = nil
+        refreshComposer()
     }
 
     private func heightForLines(_ lines: Int) -> CGFloat {
@@ -2328,229 +3015,6 @@ struct TextBoxInputContainer: View {
         }
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return directory.isEmpty ? nil : directory
-    }
-
-    var body: some View {
-        let minHeight = max(TextBoxLayout.minimumTextHeight, heightForLines(TextBoxLayout.minLines))
-        let maxHeight = heightForLines(max(TextBoxLayout.minLines, maxLines))
-        let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
-        let foreground = Color(nsColor: terminalForegroundColor)
-        let background = Color(nsColor: terminalBackgroundColor)
-        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
-            text: text,
-            attachmentCount: attachments.count + pendingCommentCount,
-            hasPendingAttachmentUpload: hasPendingAttachmentUpload,
-            hasMarkedText: hasMarkedText
-        )
-        let canSend = Self.shouldEnableSubmitButton(baseCanSend: baseCanSend, pendingProviderLaunchAction: pendingProviderLaunchAction, action: effectiveSubmitAction, shouldForceTextEntrySubmit: shouldForceTextEntrySubmit, allowsCommandTemplateSubmit: allowsCommandTemplateSubmit)
-
-        VStack(alignment: .leading, spacing: 6) {
-            if pendingCommentCount > 0 {
-                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
-                    .padding(.top, 6)
-            }
-            HStack(alignment: .bottom, spacing: 6) {
-            addFilesButton(foreground: foreground)
-                .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
-                .padding(.bottom, TextBoxLayout.buttonBottomPadding)
-
-            ZStack(alignment: .leading) {
-                TextBoxInputRepresentable(
-                    text: $text,
-                    attachments: $attachments,
-                    textViewHeight: $textViewHeight,
-                    hasPendingAttachmentUpload: $hasPendingAttachmentUpload,
-                    font: textFont,
-                    backgroundColor: terminalBackgroundColor,
-                    foregroundColor: terminalForegroundColor,
-                    terminalTitle: terminalAgentContext,
-                    completionRootDirectory: completionRootDirectory,
-                    onSubmit: submit,
-                    onEscape: onEscape,
-                    onFocusTextBox: onFocusTextBox,
-                    onToggleFocus: onToggleFocus,
-                    onCycleSubmitAction: cycleSubmitAction,
-                    onForwardText: forwardText(_:focusTerminalAfterSend:),
-                    onForwardKey: forwardKey(_:),
-                    onForwardControl: forwardControl(_:),
-                    onPaste: handlePaste(_:into:),
-                    onInsertFileURLs: insertSelectedFileURLs(_:into:),
-                    onChooseFiles: chooseFiles,
-                    onContentChanged: markContentChanged,
-                    onMarkedTextStateChanged: updateMarkedTextState(_:),
-                    onTextViewCreated: registerTextView(_:),
-                    onTextViewMovedToWindow: onTextViewMovedToWindow,
-                    onTextViewDismantled: onTextViewDismantled
-                )
-
-                if TextBoxSubmitAvailability.shouldShowPlaceholder(
-                    text: text,
-                    attachmentCount: attachments.count,
-                    hasMarkedText: hasMarkedText
-                ) {
-                    Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
-                        .cmuxFont(size: textBasePointSize)
-                        .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
-                        .padding(.leading, TextBoxLayout.textInset.width)
-                        .frame(height: clampedHeight, alignment: .center)
-                        .offset(y: TextBoxLayout.placeholderVerticalOffset)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(height: clampedHeight)
-            .frame(maxWidth: .infinity)
-
-            sendButton(canSend: canSend, presentation: submitActionPresentation)
-                .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
-                .padding(.bottom, TextBoxLayout.buttonBottomPadding)
-            }
-        }
-        .padding(.horizontal, TextBoxLayout.pillHorizontalPadding)
-        .padding(.vertical, TextBoxLayout.pillVerticalPadding)
-        .background(
-            TextBoxInputGlassPillBackground(
-                foreground: foreground,
-                fallbackTint: background
-            )
-        )
-        .padding(.horizontal, 10)
-        .padding(.bottom, 7)
-        .task(id: submitActionImageCacheTaskKey) {
-            await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
-        }
-        .onAppear {
-            refreshSubmitActionsCacheIfNeeded()
-            reconcilePendingProviderLaunch()
-            if pendingProviderLaunchAction != nil {
-                schedulePendingProviderLaunchTimeout()
-            }
-        }
-        .onDisappear {
-            pendingProviderLaunchTimeoutTimer?.invalidate()
-            pendingProviderLaunchTimeoutTimer = nil
-        }
-        .onChange(of: configuredSubmitActionsJSON) { _, _ in
-            refreshSubmitActionsCacheIfNeeded()
-        }
-        .onChange(of: terminalAgentContext) { _, _ in
-            reconcilePendingProviderLaunch()
-        }
-        .onChange(of: shellActivityState) { _, _ in
-            reconcilePendingProviderLaunch()
-        }
-        .onChange(of: allowsCommandTemplateSubmit) { _, _ in
-            reconcilePendingProviderLaunch()
-        }
-        .onChange(of: configuredDefaultSubmitActionID) { _, _ in
-            guard selectedSubmitActionID == nil else { return }
-            cancelPendingProviderLaunch()
-        }
-    }
-
-    private func addFilesButton(foreground: Color) -> some View {
-        Button(action: chooseFiles) {
-            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold)
-                .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-                .background(
-                    Circle()
-                        .fill(foreground.opacity(0.10))
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(foreground.opacity(0.82))
-        .help(String(localized: "textbox.addFiles.tooltip", defaultValue: "Add Files"))
-        .accessibilityLabel(String(localized: "textbox.addFiles.tooltip", defaultValue: "Add Files"))
-        .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-    }
-
-    private func attachmentStrip(foreground: Color) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(attachments) { attachment in
-                    TextBoxAttachmentChip(
-                        attachment: attachment,
-                        foreground: foreground,
-                        onRemove: {
-                            attachments.removeAll { $0.id == attachment.id }
-                        }
-                    )
-                }
-            }
-        }
-        .frame(maxWidth: 280)
-        .frame(height: TextBoxLayout.attachmentChipHeight)
-    }
-
-    @State private var showPendingCommentsPreview = false
-
-    private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
-        HStack(spacing: 5) {
-            Button {
-                showPendingCommentsPreview.toggle()
-            } label: {
-                HStack(spacing: 5) {
-                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium)
-                    Text(pendingCommentsLabel(count))
-                        .cmuxFont(size: 12, weight: .medium)
-                        .lineLimit(1)
-                }
-            }
-            .buttonStyle(.plain)
-            .help(String(
-                localized: "textbox.diffComments.preview",
-                defaultValue: "Show comments"
-            ))
-            Button {
-                dismissPendingComments()
-            } label: {
-                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold)
-                    .frame(width: 16, height: 16)
-                    .background(Circle().fill(foreground.opacity(0.12)))
-            }
-            .buttonStyle(.plain)
-            .help(String(
-                localized: "textbox.diffComments.dismiss",
-                defaultValue: "Dismiss comments without sending"
-            ))
-        }
-        .padding(.leading, 9)
-        .padding(.trailing, 5)
-        .frame(height: 26)
-        .background(
-            Capsule().fill(foreground.opacity(0.10))
-        )
-        .overlay(
-            Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
-        )
-        .foregroundStyle(foreground.opacity(0.92))
-        .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
-            pendingCommentsPreview()
-        }
-        .accessibilityLabel(pendingCommentsLabel(count))
-    }
-
-    private func pendingCommentsPreview() -> some View {
-        let entries = surface.owningWorkspace().map {
-            commentPool.entriesByWorkspace[$0.id] ?? []
-        } ?? []
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .cmuxFont(size: 11, design: .monospaced)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
-        }
-        .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
     }
 
     private func dismissPendingComments() {
@@ -2610,8 +3074,8 @@ struct TextBoxInputContainer: View {
                 via: surface
             ) { completionContext in
                 if !completionContext.didSubmit {
-                    clearPendingProviderLaunch()
-                    onClearLaunchCommand()
+                    self.clearPendingProviderLaunch()
+                    self.onClearLaunchCommand()
                     NSSound.beep()
                 }
             }
@@ -2651,8 +3115,8 @@ struct TextBoxInputContainer: View {
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {
-                    clearPendingProviderLaunch()
-                    onClearLaunchCommand()
+                    self.clearPendingProviderLaunch()
+                    self.onClearLaunchCommand()
                 }
                 if let poolWorkspaceId, !pendingComments.isEmpty {
                     DiffCommentSubmissionPool.shared.restorePending(
@@ -2662,7 +3126,7 @@ struct TextBoxInputContainer: View {
                 }
                 guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
                     rollbackSnapshot: rollbackSnapshot,
-                    currentSnapshot: currentRollbackSnapshot()
+                    currentSnapshot: self.currentRollbackSnapshot()
                 ) else {
                     NSSound.beep()
                     return
@@ -2670,8 +3134,8 @@ struct TextBoxInputContainer: View {
                 if let preservedContent {
                     submittedTextView?.installPreservedContent(preservedContent)
                 } else {
-                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
-                    attachments = submittedParts.compactMap { part in
+                    self.text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
+                    self.attachments = submittedParts.compactMap { part in
                         if case .attachment(let attachment) = part { return attachment }
                         return nil
                     }
@@ -2684,7 +3148,7 @@ struct TextBoxInputContainer: View {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
                 }
             }
-            resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
+            self.resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil
@@ -2754,11 +3218,11 @@ struct TextBoxInputContainer: View {
         panel.prompt = String(localized: "textbox.addFiles.panel.prompt", defaultValue: "Add")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
-            focusTextViewAfterFilePanel(textView)
+            self.focusTextViewAfterFilePanel(textView)
             guard response == .OK else { return }
-            if !insertSelectedFileURLs(panel.urls, into: textView) {
+            if !self.insertSelectedFileURLs(panel.urls, into: textView) {
                 NSSound.beep()
-                focusTextViewAfterFilePanel(textView)
+                self.focusTextViewAfterFilePanel(textView)
             }
         }
 
@@ -2880,12 +3344,12 @@ struct TextBoxInputContainer: View {
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
                 @MainActor func removePendingPlaceholder() {
-                    guard textViewReference.textView === textView,
+                    guard self.textViewReference.textView === textView,
                           textView.removePendingAttachmentUploadPlaceholder(id: placeholderID) else {
                         return
                     }
-                    attachments = textView.inlineAttachments()
-                    text = textView.plainText()
+                    self.attachments = textView.inlineAttachments()
+                    self.text = textView.plainText()
                 }
 
                 surface?.hostedView.endImageTransferIndicator(for: operation)
@@ -2918,7 +3382,7 @@ struct TextBoxInputContainer: View {
                         NSSound.beep()
                         return
                     }
-                    guard textViewReference.textView === textView,
+                    guard self.textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
@@ -2932,8 +3396,8 @@ struct TextBoxInputContainer: View {
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
                     }
-                    attachments = textView.inlineAttachments()
-                    text = textView.plainText()
+                    self.attachments = textView.inlineAttachments()
+                    self.text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
                     GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
@@ -2967,180 +3431,6 @@ struct TextBoxInputContainer: View {
     private func insertText(_ insertedText: String, into textView: TextBoxInputTextView) {
         textView.window?.makeFirstResponder(textView)
         textView.insertText(insertedText, replacementRange: textView.selectedRange())
-    }
-}
-
-@MainActor
-final class TerminalTextBoxInputPresentationModel: ObservableObject {
-    @Published var terminalBackgroundColor: NSColor
-    @Published var terminalForegroundColor: NSColor
-    @Published var terminalFont: NSFont
-    @Published var maxLines: Int
-    @Published var terminalAgentContext: String
-    @Published var sessionContentWidthPresentation: SessionContentWidthPresentation
-    @Published var onFocus: () -> Void
-
-    init(
-        terminalBackgroundColor: NSColor,
-        terminalForegroundColor: NSColor,
-        terminalFont: NSFont,
-        maxLines: Int,
-        terminalAgentContext: String,
-        sessionContentWidthPresentation: SessionContentWidthPresentation,
-        onFocus: @escaping () -> Void
-    ) {
-        self.terminalBackgroundColor = terminalBackgroundColor
-        self.terminalForegroundColor = terminalForegroundColor
-        self.terminalFont = terminalFont
-        self.maxLines = maxLines
-        self.terminalAgentContext = terminalAgentContext
-        self.sessionContentWidthPresentation = sessionContentWidthPresentation
-        self.onFocus = onFocus
-    }
-
-    func update(
-        terminalBackgroundColor: NSColor,
-        terminalForegroundColor: NSColor,
-        terminalFont: NSFont,
-        maxLines: Int,
-        terminalAgentContext: String,
-        sessionContentWidthPresentation: SessionContentWidthPresentation,
-        onFocus: @escaping () -> Void
-    ) {
-        self.terminalBackgroundColor = terminalBackgroundColor
-        self.terminalForegroundColor = terminalForegroundColor
-        self.terminalFont = terminalFont
-        self.maxLines = maxLines
-        self.terminalAgentContext = terminalAgentContext
-        self.sessionContentWidthPresentation = sessionContentWidthPresentation
-        self.onFocus = onFocus
-    }
-}
-
-struct TerminalTextBoxInputHostedRoot: View {
-    @ObservedObject var panel: TerminalPanel
-    @ObservedObject var presentation: TerminalTextBoxInputPresentationModel
-
-    var body: some View {
-        @Bindable var textBoxState = panel.textBoxState
-        let widthPresentation = presentation.sessionContentWidthPresentation
-
-        TextBoxInputContainer(
-            text: $panel.textBoxContent,
-            attachments: $panel.textBoxAttachments,
-            selectedSubmitActionID: $textBoxState.selectedSubmitActionID,
-            pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
-            pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
-            surface: panel.surface,
-            terminalBackgroundColor: presentation.terminalBackgroundColor,
-            terminalForegroundColor: presentation.terminalForegroundColor,
-            terminalFont: presentation.terminalFont,
-            maxLines: presentation.maxLines,
-            terminalAgentContext: TerminalPanel.effectiveTerminalAgentContext(
-                presentation.terminalAgentContext,
-                pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
-            ),
-            shellActivityState: panel.shellActivity.state,
-            allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
-                shellActivityState: panel.shellActivity.state
-            ),
-            onFocusTextBox: {
-                panel.textBoxDidBecomeFocused()
-                presentation.onFocus()
-            },
-            onToggleFocus: {
-                _ = panel.focusTextBoxInputOrTerminal()
-            },
-            onSelectSubmitAction: { actionID in
-                panel.textBoxState.selectSubmitAction(actionID)
-            },
-            onRecordLaunchCommand: { command in
-                panel.recordTextBoxLaunchCommand(command)
-            },
-            onClearLaunchCommand: {
-                panel.clearTextBoxLaunchCommand()
-            },
-            onEscape: {
-                panel.handleTextBoxEscape()
-            },
-            onTextViewCreated: { view in
-                panel.registerTextBoxInputView(view)
-            },
-            onTextViewMovedToWindow: { view in
-                panel.textBoxInputViewDidMoveToWindow(view)
-            },
-            onTextViewDismantled: { view in
-                panel.preserveTextBoxContentForUnmount(from: view)
-            }
-        )
-        .frame(maxWidth: widthPresentation.maximumWidth ?? .infinity)
-        .frame(maxWidth: .infinity, alignment: alignment(for: widthPresentation.alignment))
-    }
-
-    private func alignment(for alignment: SessionContentAlignment) -> Alignment {
-        switch alignment {
-        case .left:
-            .leading
-        case .center:
-            .center
-        case .right:
-            .trailing
-        }
-    }
-}
-
-/// Transitional owner for the composer while its controls are being moved to
-/// AppKit. Terminal pane ownership and layout remain entirely native.
-@MainActor
-final class TerminalTextBoxInputHostingController: NSHostingController<TerminalTextBoxInputHostedRoot> {
-    private let presentation: TerminalTextBoxInputPresentationModel
-
-    init(
-        panel: TerminalPanel,
-        terminalBackgroundColor: NSColor,
-        terminalForegroundColor: NSColor,
-        terminalFont: NSFont,
-        maxLines: Int,
-        terminalAgentContext: String,
-        sessionContentWidthPresentation: SessionContentWidthPresentation,
-        onFocus: @escaping () -> Void
-    ) {
-        let presentation = TerminalTextBoxInputPresentationModel(
-            terminalBackgroundColor: terminalBackgroundColor,
-            terminalForegroundColor: terminalForegroundColor,
-            terminalFont: terminalFont,
-            maxLines: maxLines,
-            terminalAgentContext: terminalAgentContext,
-            sessionContentWidthPresentation: sessionContentWidthPresentation,
-            onFocus: onFocus
-        )
-        self.presentation = presentation
-        super.init(rootView: TerminalTextBoxInputHostedRoot(panel: panel, presentation: presentation))
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(
-        terminalBackgroundColor: NSColor,
-        terminalForegroundColor: NSColor,
-        terminalFont: NSFont,
-        maxLines: Int,
-        terminalAgentContext: String,
-        sessionContentWidthPresentation: SessionContentWidthPresentation,
-        onFocus: @escaping () -> Void
-    ) {
-        presentation.update(
-            terminalBackgroundColor: terminalBackgroundColor,
-            terminalForegroundColor: terminalForegroundColor,
-            terminalFont: terminalFont,
-            maxLines: maxLines,
-            terminalAgentContext: terminalAgentContext,
-            sessionContentWidthPresentation: sessionContentWidthPresentation,
-            onFocus: onFocus
-        )
     }
 }
 
@@ -3519,134 +3809,6 @@ final class TextBoxInputView: NSScrollView {
     }
 }
 
-struct TextBoxInputRepresentable: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var attachments: [TextBoxAttachment]
-    @Binding var textViewHeight: CGFloat
-    @Binding var hasPendingAttachmentUpload: Bool
-    let font: NSFont
-    let backgroundColor: NSColor
-    let foregroundColor: NSColor
-    let terminalTitle: String
-    let completionRootDirectory: String?
-    let onSubmit: () -> Void
-    let onEscape: () -> Void
-    let onFocusTextBox: () -> Void
-    let onToggleFocus: () -> Void
-    let onCycleSubmitAction: () -> Void
-    let onForwardText: (String, Bool) -> Void
-    let onForwardKey: (TextBoxTerminalKey) -> Void
-    let onForwardControl: (String) -> Void
-    let onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool
-    let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
-    let onChooseFiles: () -> Void
-    let onContentChanged: () -> Void
-    let onMarkedTextStateChanged: (Bool) -> Void
-    let onTextViewCreated: (TextBoxInputTextView) -> Void
-    let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
-    let onTextViewDismantled: (TextBoxInputTextView) -> Void
-
-    init(
-        text: Binding<String>,
-        attachments: Binding<[TextBoxAttachment]>,
-        textViewHeight: Binding<CGFloat>,
-        hasPendingAttachmentUpload: Binding<Bool>,
-        font: NSFont,
-        backgroundColor: NSColor,
-        foregroundColor: NSColor,
-        terminalTitle: String,
-        completionRootDirectory: String?,
-        onSubmit: @escaping () -> Void,
-        onEscape: @escaping () -> Void,
-        onFocusTextBox: @escaping () -> Void,
-        onToggleFocus: @escaping () -> Void,
-        onCycleSubmitAction: @escaping () -> Void = {},
-        onForwardText: @escaping (String, Bool) -> Void,
-        onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
-        onForwardControl: @escaping (String) -> Void,
-        onPaste: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
-        onInsertFileURLs: @escaping ([URL], TextBoxInputTextView) -> Bool,
-        onChooseFiles: @escaping () -> Void,
-        onContentChanged: @escaping () -> Void,
-        onMarkedTextStateChanged: @escaping (Bool) -> Void = { _ in },
-        onTextViewCreated: @escaping (TextBoxInputTextView) -> Void,
-        onTextViewMovedToWindow: @escaping (TextBoxInputTextView) -> Void,
-        onTextViewDismantled: @escaping (TextBoxInputTextView) -> Void
-    ) {
-        _text = text
-        _attachments = attachments
-        _textViewHeight = textViewHeight
-        _hasPendingAttachmentUpload = hasPendingAttachmentUpload
-        self.font = font
-        self.backgroundColor = backgroundColor
-        self.foregroundColor = foregroundColor
-        self.terminalTitle = terminalTitle
-        self.completionRootDirectory = completionRootDirectory
-        self.onSubmit = onSubmit
-        self.onEscape = onEscape
-        self.onFocusTextBox = onFocusTextBox
-        self.onToggleFocus = onToggleFocus
-        self.onCycleSubmitAction = onCycleSubmitAction
-        self.onForwardText = onForwardText
-        self.onForwardKey = onForwardKey
-        self.onForwardControl = onForwardControl
-        self.onPaste = onPaste
-        self.onInsertFileURLs = onInsertFileURLs
-        self.onChooseFiles = onChooseFiles
-        self.onContentChanged = onContentChanged
-        self.onMarkedTextStateChanged = onMarkedTextStateChanged
-        self.onTextViewCreated = onTextViewCreated
-        self.onTextViewMovedToWindow = onTextViewMovedToWindow
-        self.onTextViewDismantled = onTextViewDismantled
-    }
-
-    func makeNSView(context _: Context) -> TextBoxInputView {
-        TextBoxInputView(configuration: configuration)
-    }
-
-    static func dismantleNSView(_ nativeView: TextBoxInputView, coordinator _: ()) {
-        nativeView.dismantle()
-    }
-
-    func updateNSView(_ nativeView: TextBoxInputView, context _: Context) {
-        nativeView.update(configuration: configuration)
-    }
-
-    private var configuration: TextBoxInputConfiguration {
-        TextBoxInputConfiguration(
-            text: { text },
-            setText: { text = $0 },
-            attachments: { attachments },
-            setAttachments: { attachments = $0 },
-            textViewHeight: { textViewHeight },
-            setTextViewHeight: { textViewHeight = $0 },
-            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
-            setHasPendingAttachmentUpload: { hasPendingAttachmentUpload = $0 },
-            font: font,
-            backgroundColor: backgroundColor,
-            foregroundColor: foregroundColor,
-            terminalTitle: terminalTitle,
-            completionRootDirectory: completionRootDirectory,
-            onSubmit: onSubmit,
-            onEscape: onEscape,
-            onFocusTextBox: onFocusTextBox,
-            onToggleFocus: onToggleFocus,
-            onCycleSubmitAction: onCycleSubmitAction,
-            onForwardText: onForwardText,
-            onForwardKey: onForwardKey,
-            onForwardControl: onForwardControl,
-            onPaste: onPaste,
-            onInsertFileURLs: onInsertFileURLs,
-            onChooseFiles: onChooseFiles,
-            onContentChanged: onContentChanged,
-            onMarkedTextStateChanged: onMarkedTextStateChanged,
-            onTextViewCreated: onTextViewCreated,
-            onTextViewMovedToWindow: onTextViewMovedToWindow,
-            onTextViewDismantled: onTextViewDismantled
-        )
-    }
-}
-
 final class TextBoxInputTextView: NSTextView {
     fileprivate private(set) var isHandlingDidChangeText = false
 
@@ -3914,7 +4076,7 @@ final class TextBoxInputTextView: NSTextView {
     ///
     /// Pass `false` for `notifyingTextChange` only from representable construction paths where
     /// the owning panel already has the current draft state. That restores AppKit storage without
-    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    /// running delegate or state-publication side effects during AppKit mounting.
     func installPreservedContent(_ content: NSAttributedString, notifyingTextChange: Bool = true) {
         installAttributedContent(content, notifyingTextChange: notifyingTextChange)
     }
@@ -3923,7 +4085,7 @@ final class TextBoxInputTextView: NSTextView {
     ///
     /// Pass `false` for `notifyingTextChange` only from representable construction paths where
     /// the owning panel already has the current draft state. That restores AppKit storage without
-    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    /// running delegate or state-publication side effects during AppKit mounting.
     func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot, notifyingTextChange: Bool = true) {
         installAttributedContent(
             attributedContent(from: draft),

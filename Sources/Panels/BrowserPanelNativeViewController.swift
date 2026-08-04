@@ -15,7 +15,7 @@ func resolvedBrowserChromeBackgroundColor(
     guard drawsBackground else { return .clear }
     switch colorScheme {
     case .dark, .light:
-        themeBackgroundColor
+        return themeBackgroundColor
     }
 }
 

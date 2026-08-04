@@ -1,7 +1,5 @@
 import AppKit
-import CmuxAppKitSupportUI
 import CmuxWorkspaces
-import SwiftUI
 
 extension TextBoxInputContainer {
     static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12
@@ -120,8 +118,8 @@ extension TextBoxInputContainer {
     func clearPendingProviderLaunch() {
         pendingProviderLaunchAction = nil
         pendingProviderLaunchStartedAt = nil
-        pendingProviderLaunchTimeoutTimer?.invalidate()
-        pendingProviderLaunchTimeoutTimer = nil
+        pendingProviderLaunchTimeoutTask?.cancel()
+        pendingProviderLaunchTimeoutTask = nil
     }
 
     func cancelPendingProviderLaunch() {
@@ -147,10 +145,16 @@ extension TextBoxInputContainer {
     }
 
     func schedulePendingProviderLaunchTimeout() {
-        pendingProviderLaunchTimeoutTimer?.invalidate()
+        pendingProviderLaunchTimeoutTask?.cancel()
         let remainingSeconds = Self.pendingProviderLaunchTimeoutDelay(startedAt: pendingProviderLaunchStartedAt)
-        pendingProviderLaunchTimeoutTimer = Timer.scheduledTimer(withTimeInterval: remainingSeconds, repeats: false) { _ in
-            reconcilePendingProviderLaunch()
+        pendingProviderLaunchTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .seconds(remainingSeconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.reconcilePendingProviderLaunch()
         }
     }
 
@@ -174,7 +178,7 @@ extension TextBoxInputContainer {
     static func isPendingProviderLaunchExpired(
         startedAt: Date?,
         now: Date = Date(),
-        timeoutSeconds: TimeInterval = Self.pendingProviderLaunchTimeoutSeconds
+        timeoutSeconds: TimeInterval = TextBoxInputContainer.pendingProviderLaunchTimeoutSeconds
     ) -> Bool {
         guard let startedAt else { return false }
         return now.timeIntervalSince(startedAt) >= timeoutSeconds
@@ -183,7 +187,7 @@ extension TextBoxInputContainer {
     static func pendingProviderLaunchTimeoutDelay(
         startedAt: Date?,
         now: Date = Date(),
-        timeoutSeconds: TimeInterval = Self.pendingProviderLaunchTimeoutSeconds
+        timeoutSeconds: TimeInterval = TextBoxInputContainer.pendingProviderLaunchTimeoutSeconds
     ) -> TimeInterval {
         guard let startedAt else { return timeoutSeconds }
         return max(0, timeoutSeconds - now.timeIntervalSince(startedAt))
@@ -296,138 +300,6 @@ extension TextBoxInputContainer {
         )
     }
 
-    func sendButton(
-        canSend: Bool,
-        presentation: TextBoxSubmitActionPresentation
-    ) -> some View {
-        Button {
-            guard canSend else {
-                NSSound.beep()
-                return
-            }
-            submit()
-        } label: {
-            submitButtonActionImage(presentation.action, canSend: canSend)
-                .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-                .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-        }
-        .buttonStyle(TextBoxSendButtonStyle(
-            canSend: canSend
-        ))
-        .help(presentation.helpText)
-        .accessibilityLabel(presentation.accessibilityLabel)
-        .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-        .contextMenu {
-            if pendingProviderLaunchAction != nil {
-                Button {
-                    cancelPendingProviderLaunch()
-                } label: {
-                    Label(
-                        String(localized: "textbox.submitAction.cancelPending", defaultValue: "Cancel Pending Launch"),
-                        systemImage: "xmark.circle"
-                    )
-                }
-                Divider()
-            }
-            if allowsSubmitActionSelection {
-                ForEach(submitActions) { action in
-                    Button {
-                        onSelectSubmitAction(action.id)
-                    } label: {
-                        submitActionMenuLabel(action)
-                    }
-                }
-                Divider()
-            }
-            Button {
-                openSubmitActionsDocumentation()
-            } label: {
-                Label(
-                    String(localized: "textbox.submitAction.docs", defaultValue: "TextBox Submit Actions Docs"),
-                    systemImage: "book"
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    func submitButtonActionImage(_ action: TextBoxSubmitAction, canSend: Bool) -> some View {
-        let iconOpacity = canSend ? 0.86 : 0.76
-        if let image = submitActionNSImage(for: action) {
-            Image(nsImage: image)
-                .renderingMode(action.id == "codex" ? .template : .original)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color.black)
-                .opacity(iconOpacity)
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
-            NativeResolvedIconImage(request: submitActionIconRequest(
-                assetName: assetName,
-                tintColor: action.id == "codex" ? .black : nil
-            ))
-                .opacity(iconOpacity)
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        } else {
-            Image(systemName: action.systemImage)
-                .foregroundStyle(Color.black)
-                .opacity(iconOpacity)
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        }
-    }
-
-    @ViewBuilder
-    func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
-        if let image = submitActionNSImage(for: action) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        } else if let assetName = resolvedSubmitActionAssetName(for: action) {
-            NativeResolvedIconImage(request: submitActionIconRequest(assetName: assetName))
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        } else {
-            Image(systemName: action.systemImage)
-                .frame(
-                    width: TextBoxSubmitActionImageSupport.iconSize,
-                    height: TextBoxSubmitActionImageSupport.iconSize
-                )
-        }
-    }
-
-    @ViewBuilder
-    func submitActionMenuLabel(_ action: TextBoxSubmitAction) -> some View {
-        let title = TextBoxSubmitActionPresentation.localizedTitle(for: action)
-        if action.id == selectedSubmitAction.id {
-            Label(title, systemImage: "checkmark")
-        } else {
-            Label {
-                Text(title)
-            } icon: {
-                submitActionImage(action)
-            }
-        }
-    }
-
     func submitActionNSImage(for action: TextBoxSubmitAction) -> NSImage? {
         if let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {
@@ -445,11 +317,12 @@ extension TextBoxInputContainer {
         for key in keys {
             if let path = submitActionPath(fromCacheKey: key) {
                 guard submitActionImageCache[key] == nil else { continue }
-                let image = await Task.detached(priority: .utility) {
-                    TextBoxSubmitActionImageSupport.image(atPath: path)
+                let data = await Task.detached(priority: .utility) {
+                    TextBoxSubmitActionImageSupport.imageData(atPath: path)
                 }.value
                 guard !Task.isCancelled else { return }
-                if let image {
+                if let data,
+                   let image = TextBoxSubmitActionImageSupport.downsampledImage(data: data) {
                     submitActionImageCache[key] = image
                 }
             } else if let assetName = submitActionAssetName(fromCacheKey: key),

@@ -25,7 +25,7 @@ final class TerminalPanelNativeViewController: NSViewController, PanelContentCon
     private let panel: TerminalPanel
     private let contentContainer = NSView()
     private var terminalView: GhosttyTerminalView?
-    private var textBoxController: TerminalTextBoxInputHostingController?
+    private var textBoxController: TextBoxInputContainer?
     private var placeholderController: AgentHibernationPlaceholderNativeViewController?
     private var contentConstraints: [NSLayoutConstraint] = []
     private var panelCancellable: AnyCancellable?
@@ -279,7 +279,7 @@ final class TerminalPanelNativeViewController: NSViewController, PanelContentCon
         )
     }
 
-    private func installOrUpdateTextBoxController() -> TerminalTextBoxInputHostingController {
+    private func installOrUpdateTextBoxController() -> TextBoxInputContainer {
         let font = NSFont.monospacedSystemFont(ofSize: terminalFontSize, weight: .regular)
         if let textBoxController {
             textBoxController.update(
@@ -294,7 +294,7 @@ final class TerminalPanelNativeViewController: NSViewController, PanelContentCon
             return textBoxController
         }
 
-        let controller = TerminalTextBoxInputHostingController(
+        let controller = TextBoxInputContainer(
             panel: panel,
             terminalBackgroundColor: configuration.appearance.backgroundColor,
             terminalForegroundColor: configuration.appearance.foregroundColor,

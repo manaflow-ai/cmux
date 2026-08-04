@@ -11510,7 +11510,13 @@ struct VerticalTabsSidebar: View, Equatable {
             setSelectionToTabs: { selection = .tabs },
             currentWindowMoveTargets: { [weak tabManager] in
                 guard let tabManager, let app = AppDelegate.shared else { return [] }
-                return app.windowMoveTargets(referenceWindowId: app.windowId(for: tabManager))
+                return app.windowMoveTargets(referenceWindowId: app.windowId(for: tabManager)).map {
+                    SidebarWorkspaceWindowMoveTarget(
+                        windowId: $0.windowId,
+                        label: $0.label,
+                        isCurrentWindow: $0.isCurrentWindow
+                    )
+                }
             },
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
