@@ -1,11 +1,10 @@
 import AppKit
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
 @Suite("TextBox IME composition layout")
@@ -20,22 +19,20 @@ struct TextBoxIMECompositionLayoutTests {
         var hasPendingAttachmentUpload = false
         var markedTextStates: [Bool] = []
 
-        let inputView = TextBoxInputView(
-            text: Binding(get: { text }, set: { text = $0 }),
-            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
-            textViewHeight: Binding(
-                get: { textViewHeight },
-                set: {
-                    if abs(textViewHeight - $0) > 0.5 {
-                        heightPublicationCount += 1
-                    }
-                    textViewHeight = $0
+        let configuration = TextBoxInputConfiguration(
+            text: { text },
+            setText: { text = $0 },
+            attachments: { attachments },
+            setAttachments: { attachments = $0 },
+            textViewHeight: { textViewHeight },
+            setTextViewHeight: {
+                if abs(textViewHeight - $0) > 0.5 {
+                    heightPublicationCount += 1
                 }
-            ),
-            hasPendingAttachmentUpload: Binding(
-                get: { hasPendingAttachmentUpload },
-                set: { hasPendingAttachmentUpload = $0 }
-            ),
+                textViewHeight = $0
+            },
+            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
+            setHasPendingAttachmentUpload: { hasPendingAttachmentUpload = $0 },
             font: NSFont.systemFont(ofSize: 16),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,
@@ -57,7 +54,7 @@ struct TextBoxIMECompositionLayoutTests {
             onTextViewMovedToWindow: { _ in },
             onTextViewDismantled: { _ in }
         )
-        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        let coordinator = TextBoxInputCoordinator(configuration: configuration)
         let textView = makeTextView()
         let scrollView = NSScrollView(frame: textView.bounds)
         scrollView.documentView = textView

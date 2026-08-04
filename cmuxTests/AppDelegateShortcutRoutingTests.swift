@@ -95,7 +95,6 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
         pasteAsPlainTextCallCount += 1
     }
 }
-
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private static var retainedTextBoxUndoWindows: [NSWindow] = []
@@ -10553,7 +10552,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(remountedTextView.submissionText(), "hello world")
     }
 
-    func testTextBoxRepresentableDismantleDoesNotWriteSwiftUIBindings() {
+    func testNativeTextBoxDismantleDoesNotWriteStateBindings() {
         var text = "old"
         var attachments: [TextBoxAttachment] = []
         var height: CGFloat = 24
@@ -10564,35 +10563,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         var pendingWriteCount = 0
         var dismantledText: String?
 
-        let inputView = TextBoxInputView(
-            text: Binding(
-                get: { text },
-                set: { newValue in
-                    textWriteCount += 1
-                    text = newValue
-                }
-            ),
-            attachments: Binding(
-                get: { attachments },
-                set: { newValue in
-                    attachmentWriteCount += 1
-                    attachments = newValue
-                }
-            ),
-            textViewHeight: Binding(
-                get: { height },
-                set: { newValue in
-                    heightWriteCount += 1
-                    height = newValue
-                }
-            ),
-            hasPendingAttachmentUpload: Binding(
-                get: { hasPendingAttachmentUpload },
-                set: { newValue in
-                    pendingWriteCount += 1
-                    hasPendingAttachmentUpload = newValue
-                }
-            ),
+        let configuration = TextBoxInputConfiguration(
+            text: { text },
+            setText: { newValue in
+                textWriteCount += 1
+                text = newValue
+            },
+            attachments: { attachments },
+            setAttachments: { newValue in
+                attachmentWriteCount += 1
+                attachments = newValue
+            },
+            textViewHeight: { height },
+            setTextViewHeight: { newValue in
+                heightWriteCount += 1
+                height = newValue
+            },
+            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
+            setHasPendingAttachmentUpload: { newValue in
+                pendingWriteCount += 1
+                hasPendingAttachmentUpload = newValue
+            },
             font: NSFont.systemFont(ofSize: 14),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,
@@ -10615,15 +10606,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 dismantledText = textView.plainText()
             }
         )
-        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let inputView = TextBoxInputView(configuration: configuration)
+        inputView.frame = NSRect(x: 0, y: 0, width: 320, height: 30)
+        let textView = inputView.textView
         textView.string = "preserve this"
-        let scrollView = NSScrollView(frame: textView.frame)
-        scrollView.documentView = textView
 
-        TextBoxInputView.dismantleNSView(
-            scrollView,
-            coordinator: TextBoxInputView.Coordinator(parent: inputView)
-        )
+        inputView.dismantle()
 
         XCTAssertEqual(dismantledText, "preserve this")
         XCTAssertEqual(textWriteCount, 0)

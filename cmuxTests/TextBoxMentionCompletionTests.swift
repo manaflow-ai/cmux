@@ -1,20 +1,19 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
 @Suite("Text box mention completion")
 @MainActor
 struct TextBoxMentionCompletionTests {
     @Test
-    func testTextBoxControlNavigationRoutingUsesTranslatedCharacters() {
+    func textBoxControlNavigationRoutingUsesTranslatedCharacters() {
         #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
             firstResponderIsTextBoxInput: true,
@@ -25,20 +24,20 @@ struct TextBoxMentionCompletionTests {
             firstResponderIsTextBoxInput: true,
             flags: [.control]
         ))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(!shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "b",
             firstResponderIsTextBoxInput: true,
             flags: [.control]
-        )))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        ))
+        #expect(!shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
             firstResponderIsTextBoxInput: true,
             flags: [.control, .command]
-        )))
+        ))
     }
 
     @Test
-    func testTextBoxMentionControlNavigationUsesTranslatedCharacters() {
+    func textBoxMentionControlNavigationUsesTranslatedCharacters() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
@@ -58,7 +57,7 @@ struct TextBoxMentionCompletionTests {
                     subtitle: "beta.txt",
                     insertionText: "[@beta.txt](/tmp/beta.txt)",
                     systemImageName: "doc"
-                )
+                ),
             ]
         )
 
@@ -78,7 +77,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxControlForwardingKeepsPhysicalControlKeyRouting() {
+    func textBoxControlForwardingKeepsPhysicalControlKeyRouting() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         guard let event = makeKeyDownEvent(
             key: "N",
@@ -101,7 +100,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
+    func textBoxPlaceholderHidesDuringActiveIMEMarkedText() {
         #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
@@ -120,7 +119,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
+    func textBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
         #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "に",
             attachmentCount: 0,
@@ -144,21 +143,22 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxPublishesCommittedIMETextBeforeClearingMarkedState() {
+    func textBoxPublishesCommittedIMETextBeforeClearingMarkedState() {
         var text = ""
         var attachments: [TextBoxAttachment] = []
         var textViewHeight: CGFloat = 24
         var hasPendingAttachmentUpload = false
         var markedTextEvents: [(hasMarkedText: Bool, text: String)] = []
 
-        let inputView = TextBoxInputView(
-            text: Binding(get: { text }, set: { text = $0 }),
-            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
-            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
-            hasPendingAttachmentUpload: Binding(
-                get: { hasPendingAttachmentUpload },
-                set: { hasPendingAttachmentUpload = $0 }
-            ),
+        let configuration = TextBoxInputConfiguration(
+            text: { text },
+            setText: { text = $0 },
+            attachments: { attachments },
+            setAttachments: { attachments = $0 },
+            textViewHeight: { textViewHeight },
+            setTextViewHeight: { textViewHeight = $0 },
+            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
+            setHasPendingAttachmentUpload: { hasPendingAttachmentUpload = $0 },
             font: NSFont.systemFont(ofSize: 14),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,
@@ -183,7 +183,7 @@ struct TextBoxMentionCompletionTests {
             onTextViewDismantled: { _ in }
         )
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
-        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        let coordinator = TextBoxInputCoordinator(configuration: configuration)
 
         coordinator.noteMarkedTextStateChanged(true, from: textView)
         textView.string = "日本語"
@@ -196,21 +196,22 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxLiveMarkedTextStateCancelsQueuedInitialSync() {
+    func textBoxLiveMarkedTextStateCancelsQueuedInitialSync() {
         var text = ""
         var attachments: [TextBoxAttachment] = []
         var textViewHeight: CGFloat = 24
         var hasPendingAttachmentUpload = false
         var markedTextEvents: [Bool] = []
 
-        let inputView = TextBoxInputView(
-            text: Binding(get: { text }, set: { text = $0 }),
-            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
-            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
-            hasPendingAttachmentUpload: Binding(
-                get: { hasPendingAttachmentUpload },
-                set: { hasPendingAttachmentUpload = $0 }
-            ),
+        let configuration = TextBoxInputConfiguration(
+            text: { text },
+            setText: { text = $0 },
+            attachments: { attachments },
+            setAttachments: { attachments = $0 },
+            textViewHeight: { textViewHeight },
+            setTextViewHeight: { textViewHeight = $0 },
+            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
+            setHasPendingAttachmentUpload: { hasPendingAttachmentUpload = $0 },
             font: NSFont.systemFont(ofSize: 14),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,
@@ -233,7 +234,7 @@ struct TextBoxMentionCompletionTests {
             onTextViewDismantled: { _ in }
         )
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
-        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        let coordinator = TextBoxInputCoordinator(configuration: configuration)
 
         coordinator.queuePendingMarkedTextStateSync(from: textView)
         coordinator.noteMarkedTextStateChanged(true, from: textView)
@@ -243,7 +244,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxRepeatedUnmarkedStateDoesNotRepublishContent() {
+    func textBoxRepeatedUnmarkedStateDoesNotRepublishContent() {
         var text = "ready"
         var attachments: [TextBoxAttachment] = []
         var textViewHeight: CGFloat = 24
@@ -251,14 +252,15 @@ struct TextBoxMentionCompletionTests {
         var contentChangeCount = 0
         var markedTextEvents: [Bool] = []
 
-        let inputView = TextBoxInputView(
-            text: Binding(get: { text }, set: { text = $0 }),
-            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
-            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
-            hasPendingAttachmentUpload: Binding(
-                get: { hasPendingAttachmentUpload },
-                set: { hasPendingAttachmentUpload = $0 }
-            ),
+        let configuration = TextBoxInputConfiguration(
+            text: { text },
+            setText: { text = $0 },
+            attachments: { attachments },
+            setAttachments: { attachments = $0 },
+            textViewHeight: { textViewHeight },
+            setTextViewHeight: { textViewHeight = $0 },
+            hasPendingAttachmentUpload: { hasPendingAttachmentUpload },
+            setHasPendingAttachmentUpload: { hasPendingAttachmentUpload = $0 },
             font: NSFont.systemFont(ofSize: 14),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,
@@ -282,7 +284,7 @@ struct TextBoxMentionCompletionTests {
         )
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "changed without composition"
-        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        let coordinator = TextBoxInputCoordinator(configuration: configuration)
 
         coordinator.noteMarkedTextStateChanged(false, from: textView)
         coordinator.noteMarkedTextStateChanged(false, from: textView)
@@ -293,7 +295,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxStandardEditShortcutUsesTranslatedCommandCharacter() {
+    func textBoxStandardEditShortcutUsesTranslatedCommandCharacter() {
         guard let event = makeKeyDownEvent(
             key: "c",
             modifiers: [.command],
@@ -323,7 +325,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxUndoShortcutUsesTranslatedCommandCharacter() {
+    func textBoxUndoShortcutUsesTranslatedCommandCharacter() {
         guard let event = makeKeyDownEvent(
             key: "z",
             modifiers: [.command],
@@ -353,7 +355,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
+    func textBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(
             in: filePrompt,
@@ -412,7 +414,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
+    func textBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-\(UUID().uuidString)",
@@ -449,7 +451,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionMarkdownEscapesAngleTargetDelimiters() {
+    func textBoxMentionMarkdownEscapesAngleTargetDelimiters() {
         let link = TextBoxMentionMarkdown.link(
             label: "@Docs/[draft].md",
             path: "Docs/roadmap <draft>.md"
@@ -459,7 +461,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxProcessTerminationStatusResumesMultipleWaiters() async {
+    func textBoxProcessTerminationStatusResumesMultipleWaiters() async {
         let status = TextBoxProcessTerminationStatus()
 
         async let firstWaiter: Int32 = status.wait()
@@ -475,7 +477,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsReturnRootFilesForEmptyQuery() async throws {
+    func textBoxMentionFileSuggestionsReturnRootFilesForEmptyQuery() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-empty-file-mentions-\(UUID().uuidString)",
@@ -505,7 +507,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsIncludeDirectoriesForEmptyQuery() async throws {
+    func textBoxMentionFileSuggestionsIncludeDirectoriesForEmptyQuery() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-empty-directory-mentions-\(UUID().uuidString)",
@@ -575,7 +577,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {
+    func textBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-nested-file-mentions-\(UUID().uuidString)",
@@ -594,7 +596,7 @@ struct TextBoxMentionCompletionTests {
             atomically: true,
             encoding: .utf8
         )
-        for index in 0..<40 {
+        for index in 0 ..< 40 {
             try "fixture \(index)".write(
                 to: fixturesDirectory.appendingPathComponent("Fixture\(index).txt"),
                 atomically: true,
@@ -642,7 +644,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsSkipPackageContents() async throws {
+    func textBoxMentionFileSuggestionsSkipPackageContents() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-package-mentions-\(UUID().uuidString)",
@@ -674,7 +676,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsKeepCaseVariantProjectDirectories() async throws {
+    func textBoxMentionFileSuggestionsKeepCaseVariantProjectDirectories() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-library-mentions-\(UUID().uuidString)",
@@ -704,7 +706,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
+    func textBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
@@ -749,7 +751,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
+    func textBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-skills-\(UUID().uuidString)",
@@ -785,7 +787,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionSkillSuggestionsUseTypedSlashTriggerForEmptyQuery() async throws {
+    func textBoxMentionSkillSuggestionsUseTypedSlashTriggerForEmptyQuery() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-slash-skills-\(UUID().uuidString)",
@@ -823,7 +825,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionEmptySkillSuggestionsKeepNearestProjectSkillsBeforeCap() async throws {
+    func textBoxMentionEmptySkillSuggestionsKeepNearestProjectSkillsBeforeCap() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-local-skill-priority-\(UUID().uuidString)",
@@ -842,7 +844,7 @@ struct TextBoxMentionCompletionTests {
             encoding: .utf8
         )
 
-        for index in 0..<520 {
+        for index in 0 ..< 520 {
             let skillName = String(format: "aaa-global-%03d", index)
             let skillDirectory = ancestorSkillsDirectory.appendingPathComponent(skillName, isDirectory: true)
             try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
@@ -871,7 +873,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionSkillSuggestionsFindNestedSkillPacks() async throws {
+    func textBoxMentionSkillSuggestionsFindNestedSkillPacks() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-nested-skills-\(UUID().uuidString)",
@@ -906,7 +908,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionSkillSuggestionsPreferExactNameOverPathOnlyFuzzyMatches() async throws {
+    func textBoxMentionSkillSuggestionsPreferExactNameOverPathOnlyFuzzyMatches() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-skill-fuzzy-filter-\(UUID().uuidString)",
@@ -924,8 +926,8 @@ struct TextBoxMentionCompletionTests {
             "close-issues",
             "pi-agent-rust",
             "xcodebuildmcp-cli",
-            "iterate-pr"
-        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+            "iterate-pr",
+        ] + (0 ..< 40).map { String(format: "zzz-distractor-%02d", $0) }
         for skillName in skillNames {
             let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
             try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
@@ -954,7 +956,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionSkillSuggestionsFilterWeakPartialFuzzyMatches() async throws {
+    func textBoxMentionSkillSuggestionsFilterWeakPartialFuzzyMatches() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-skill-partial-fuzzy-filter-\(UUID().uuidString)",
@@ -967,7 +969,7 @@ struct TextBoxMentionCompletionTests {
             "agent-browser",
             "agent-cli-integration",
             "pi-agent-rust",
-            "iterate-pr"
+            "iterate-pr",
         ] {
             let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
             try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
@@ -994,7 +996,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
+    func textBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
         let skillNames = [
             "agent-browser",
             "agent-cli-integration",
@@ -1003,8 +1005,8 @@ struct TextBoxMentionCompletionTests {
             "cleanup-dev-builds",
             "close-issues",
             "pi-agent-rust",
-            "xcodebuildmcp-cli"
-        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+            "xcodebuildmcp-cli",
+        ] + (0 ..< 40).map { String(format: "zzz-distractor-%02d", $0) }
         let candidates = skillNames.map { skillName in
             TextBoxMentionCandidate(
                 title: "/\(skillName)",
@@ -1025,12 +1027,12 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionCandidateIndexFiltersWeakPartialFuzzyRows() {
+    func textBoxMentionCandidateIndexFiltersWeakPartialFuzzyRows() {
         let candidates = [
             "agent-browser",
             "agent-cli-integration",
             "pi-agent-rust",
-            "iterate-pr"
+            "iterate-pr",
         ].map { skillName in
             TextBoxMentionCandidate(
                 title: "/\(skillName)",
@@ -1051,12 +1053,12 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionCandidateIndexStopsPrefilterWhenCancelled() {
+    func textBoxMentionCandidateIndexStopsPrefilterWhenCancelled() {
         let candidates = [
             "agent-browser",
             "agent-cli-integration",
             "pi-agent-rust",
-            "iterate-pr"
+            "iterate-pr",
         ].map { skillName in
             TextBoxMentionCandidate(
                 title: "/\(skillName)",
@@ -1082,7 +1084,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
+    func textBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
@@ -1115,7 +1117,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionDidChangeTextRefreshesRowsWithoutDelegateNotification() {
+    func textBoxMentionDidChangeTextRefreshesRowsWithoutDelegateNotification() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
@@ -1147,7 +1149,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
+    func textBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1179,7 +1181,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
+    func textBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1218,7 +1220,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
+    func textBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1262,7 +1264,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshClearsFilteredRowsWhenQueryReturnsToBareTrigger() {
+    func textBoxMentionRefreshClearsFilteredRowsWhenQueryReturnsToBareTrigger() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1305,7 +1307,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
+    func textBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
         let fileManager = FileManager.default
         let oldRoot = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-old-root-\(UUID().uuidString)",
@@ -1335,7 +1337,7 @@ struct TextBoxMentionCompletionTests {
                     subtitle: "alpha.txt",
                     insertionText: "[@alpha.txt](\(oldRoot.path)/alpha.txt)",
                     systemImageName: "doc"
-                )
+                ),
             ],
             rootDirectory: oldRoot.path
         )
@@ -1348,7 +1350,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshOpensPopoverImmediatelyForBareFileTrigger() throws {
+    func textBoxMentionRefreshOpensPopoverImmediatelyForBareFileTrigger() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-loading-file-mentions-\(UUID().uuidString)",
@@ -1375,7 +1377,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionEscapeFallsThroughWhenQueryHasNoSuggestions() {
+    func textBoxMentionEscapeFallsThroughWhenQueryHasNoSuggestions() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@missing"
         textView.setSelectedRange(NSRange(location: 8, length: 0))
@@ -1401,7 +1403,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionEscapeDismissesLoadingPopover() {
+    func textBoxMentionEscapeDismissesLoadingPopover() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@"
         textView.setSelectedRange(NSRange(location: 1, length: 0))
@@ -1429,10 +1431,10 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionBareSkillTriggerReturnSubmitsInsteadOfAcceptingFirstSuggestion() {
+    func textBoxMentionBareSkillTriggerReturnSubmitsInsteadOfAcceptingFirstSuggestion() {
         let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String)] = [
             ("cd /", NSRange(location: 3, length: 1), "/", "[/sample-skill](/tmp/sample-skill/SKILL.md)"),
-            ("echo $", NSRange(location: 5, length: 1), "$", "$sample-skill")
+            ("echo $", NSRange(location: 5, length: 1), "$", "$sample-skill"),
         ]
 
         for scenario in scenarios {
@@ -1453,7 +1455,7 @@ struct TextBoxMentionCompletionTests {
                         subtitle: "/tmp/sample-skill/SKILL.md",
                         insertionText: scenario.insertionText,
                         systemImageName: "sparkle.magnifyingglass"
-                    )
+                    ),
                 ]
             )
             var submitCount = 0
@@ -1468,7 +1470,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionBareSkillTriggerTabAcceptsFirstSuggestion() {
+    func textBoxMentionBareSkillTriggerTabAcceptsFirstSuggestion() {
         let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String, expected: String)] = [
             (
                 "cd /",
@@ -1483,7 +1485,7 @@ struct TextBoxMentionCompletionTests {
                 "$",
                 "$sample-skill",
                 "echo $sample-skill "
-            )
+            ),
         ]
 
         for scenario in scenarios {
@@ -1504,7 +1506,7 @@ struct TextBoxMentionCompletionTests {
                         subtitle: "/tmp/sample-skill/SKILL.md",
                         insertionText: scenario.insertionText,
                         systemImageName: "sparkle.magnifyingglass"
-                    )
+                    ),
                 ]
             )
 

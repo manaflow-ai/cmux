@@ -1,11 +1,10 @@
 import AppKit
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
 @MainActor
@@ -17,9 +16,9 @@ struct TextBoxSelectionReplacementTests {
         var publishedText: String?
         var createdTextView: TextBoxInputTextView?
 
-        let makeHarness = { refreshToken in
-            TextBoxSelectionReplacementHarness(
-                externalText: staleExternalText,
+        let makeConfiguration = { refreshToken in
+            Self.makeConfiguration(
+                externalText: { staleExternalText },
                 refreshToken: refreshToken,
                 onPublishedText: { publishedText = $0 },
                 onTextViewCreated: { textView in
@@ -28,22 +27,23 @@ struct TextBoxSelectionReplacementTests {
                 }
             )
         }
-        let hostingView = NSHostingView(rootView: makeHarness(0))
-        hostingView.frame = NSRect(x: 0, y: 0, width: 360, height: 60)
+        let inputView = TextBoxInputView(configuration: makeConfiguration(0))
+        inputView.frame = NSRect(x: 0, y: 0, width: 360, height: 60)
         let window = NSWindow(
-            contentRect: hostingView.frame,
+            contentRect: inputView.frame,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.contentView = hostingView
+        window.contentView = inputView
         defer {
+            inputView.dismantle()
             window.contentView = nil
             window.close()
         }
 
-        hostingView.layoutSubtreeIfNeeded()
+        inputView.layoutSubtreeIfNeeded()
         let textView = try #require(createdTextView)
         #expect(window.makeFirstResponder(textView))
         textView.setSelectedRange(NSRange(location: 6, length: 5))
@@ -53,28 +53,29 @@ struct TextBoxSelectionReplacementTests {
         #expect(textView.string == "hello x")
         #expect(publishedText == "hello x")
 
-        hostingView.rootView = makeHarness(1)
-        hostingView.layoutSubtreeIfNeeded()
+        inputView.update(configuration: makeConfiguration(1))
+        inputView.layoutSubtreeIfNeeded()
 
         #expect(createdTextView === textView)
         #expect(textView.string == "hello x")
         #expect(textView.selectedRange() == NSRange(location: 7, length: 0))
     }
-}
 
-@MainActor
-private struct TextBoxSelectionReplacementHarness: View {
-    let externalText: String
-    let refreshToken: Int
-    let onPublishedText: (String) -> Void
-    let onTextViewCreated: (TextBoxInputTextView) -> Void
-
-    var body: some View {
-        TextBoxInputView(
-            text: Binding(get: { externalText }, set: onPublishedText),
-            attachments: .constant([]),
-            textViewHeight: .constant(TextBoxLayout.minimumTextHeight),
-            hasPendingAttachmentUpload: .constant(false),
+    private static func makeConfiguration(
+        externalText: @escaping () -> String,
+        refreshToken: Int,
+        onPublishedText: @escaping (String) -> Void,
+        onTextViewCreated: @escaping (TextBoxInputTextView) -> Void
+    ) -> TextBoxInputConfiguration {
+        TextBoxInputConfiguration(
+            text: externalText,
+            setText: onPublishedText,
+            attachments: { [] },
+            setAttachments: { _ in },
+            textViewHeight: { TextBoxLayout.minimumTextHeight },
+            setTextViewHeight: { _ in },
+            hasPendingAttachmentUpload: { false },
+            setHasPendingAttachmentUpload: { _ in },
             font: .systemFont(ofSize: 14),
             backgroundColor: .textBackgroundColor,
             foregroundColor: .labelColor,

@@ -6,7 +6,6 @@ import Carbon.HIToolbox
 import Darwin
 import PDFKit
 import Testing
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -24,7 +23,6 @@ import struct CmuxSettings.FileRouteSettingsStore
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 
@@ -330,8 +328,8 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             fileExplorerState: FileExplorerState()
         )
 
-        // SwiftUI can replace the NSWindow identifier string at runtime.
-        window.identifier = NSUserInterfaceItemIdentifier("SwiftUI.AppWindow.IdentifierChanged")
+        // A content-root replacement can change the NSWindow identifier at runtime.
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.AppWindow.IdentifierChanged")
 
         let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: window)
         XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
@@ -784,7 +782,7 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     /// A sibling view whose hitTest re-enters windowDragHandleShouldCaptureHit,
-    /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
+    /// simulating the crash path where sibling.hitTest triggers a nested layout
     /// pass that calls back into the drag handle's hit resolution.
     private final class ReentrantSiblingView: NSView {
         weak var dragHandle: NSView?
@@ -792,7 +790,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point), let dragHandle else { return nil }
-            // Simulate the re-entry: during sibling hit test, SwiftUI layout
+            // Simulate the re-entry: during sibling hit test, nested layout
             // calls windowDragHandleShouldCaptureHit on the drag handle again.
             reenteredResult = windowDragHandleShouldCaptureHit(
                 point, in: dragHandle, eventType: .leftMouseDown, eventWindow: dragHandle.window
@@ -1887,27 +1885,27 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let rootView = RightSidebarPanelView(
+        let controller = RightSidebarNativeViewController(
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
-            titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
-            workspaceId: nil,
+            titlebarHeight: 36,
+            windowAppearance: .rightSidebarPanelViewTestDefault,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )
-        let hostingView = NSHostingView(rootView: rootView)
-        hostingView.frame = window.contentRect(forFrameRect: window.frame)
-        window.contentView = hostingView
+        defer { controller.teardown() }
+        controller.view.frame = window.contentRect(forFrameRect: window.frame)
+        window.contentViewController = controller
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
 
         guard let dragHandle = Self.firstSubview(
-            in: hostingView,
+            in: controller.view,
             matching: { $0.identifier == WindowDragHandleView.viewIdentifier }
         ) else {
             XCTFail("Expected right-sidebar mode bar to install a titlebar drag handle")
@@ -1976,31 +1974,24 @@ final class DraggableFolderHitTests: XCTestCase {
 
 
 @MainActor
-@Suite struct MainWindowHostingViewTests {
+@Suite struct MainWindowContentViewTests {
     @Test func testReportsPolicyMinimumInsteadOfChildMinimum() {
         _ = NSApplication.shared
 
-        let root = HStack(spacing: 0) {
-            Color.clear
-                .frame(width: 900, height: 240)
-        }
-            .frame(
-                minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
-            )
-        let hostingView = MainWindowHostingView(rootView: root)
+        let oversizedContent = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        let contentView = MainWindowContentView(contentView: oversizedContent)
         let expectedMinimumWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
 
         for width in [520, 1_200] as [CGFloat] {
-            hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
-            hostingView.layoutSubtreeIfNeeded()
+            contentView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
+            contentView.layoutSubtreeIfNeeded()
 
             #expect(
-                abs(hostingView.fittingSize.width - expectedMinimumWidth) <= 0.001,
+                abs(contentView.fittingSize.width - expectedMinimumWidth) <= 0.001,
                 "Main window AppKit fitting width must equal minimumWindowWidth at \(width)pt."
             )
             #expect(
-                abs(hostingView.intrinsicContentSize.width - expectedMinimumWidth) <= 0.001,
+                abs(contentView.intrinsicContentSize.width - expectedMinimumWidth) <= 0.001,
                 "Main window AppKit intrinsic width must equal minimumWindowWidth at \(width)pt."
             )
         }
@@ -2024,8 +2015,8 @@ final class DraggableFolderHitTests: XCTestCase {
 
 @MainActor
 final class MainWindowDragBehaviorTests: XCTestCase {
-    func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
-        let view = MainWindowHostingView(rootView: Color.clear)
+    func testMainWindowContentViewCannotMoveWindowViaMouseDown() {
+        let view = MainWindowContentView()
         XCTAssertFalse(
             view.mouseDownCanMoveWindow,
             "Main content must never become an implicit AppKit window-drag region; explicit titlebar chrome owns app-window dragging"
@@ -2538,7 +2529,7 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
+        let host = FilePreviewPDFChromeHostingView()
 
         XCTAssertTrue(host.acceptsFirstMouse(for: nil))
     }
@@ -2573,7 +2564,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
     #endif
 
-    func testPDFChromeControlsUseSwiftUILiquidGlassHosts() throws {
+    func testPDFChromeControlsUseNativeAppKitHosts() throws {
         let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let mirror = Mirror(reflecting: container)
         let sidebarChromeHost = try XCTUnwrap(
