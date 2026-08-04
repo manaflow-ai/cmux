@@ -518,14 +518,14 @@ struct FilePreviewTextEditorTextKitTests {
     private final class TextEditingPanelSpy: ObservableObject, FilePreviewTextEditingPanel {
         var textContent: String
         var saveCount = 0
-        weak var attachedTextView: NSTextView?
+        weak var attachedTextView: SavingTextView?
 
         init(textContent: String = "") {
             self.textContent = textContent
         }
 
         func attachTextView(_ textView: NSTextView) {
-            attachedTextView = textView
+            attachedTextView = textView as? SavingTextView
         }
         func retryPendingFocus() {}
         func updateTextContent(_ nextContent: String) {
