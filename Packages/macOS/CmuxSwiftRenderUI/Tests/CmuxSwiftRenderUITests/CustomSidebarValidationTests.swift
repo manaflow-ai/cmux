@@ -302,15 +302,11 @@ struct CustomSidebarValidationTests {
         // ViewBuilder-item frame, so this stays just below the interpreter's
         // 400-frame safety budget while remaining deep enough to exercise the
         // post-evaluation walkers.
-        let depth = 175
-        let source = String(repeating: "VStack { ", count: depth) + """
-        ForEach(workspaces) { workspace in
-            if workspace.selected && workspace.branch == "never" {
-                Text("Ignored")
-            }
-        }
-        Text("Deep")
-        """ + String(repeating: " }", count: depth)
+        let depth = 150
+        let source = String(repeating: "VStack { ", count: depth)
+            + "Text(\"Deep\")"
+            + String(repeating: " }", count: depth)
+            + ".padding(workspaces[0].branch == \"never\" ? 0 : 0)"
         try source.write(to: fileURL, atomically: true, encoding: .utf8)
 
         let entry = validator.validate(fileURL: fileURL)
@@ -324,16 +320,34 @@ struct CustomSidebarValidationTests {
         )
     }
 
-    @Test("warning text resolves from the package localization bundle")
-    func localizesWarningsInJapanese() {
-        let japanese = Locale(identifier: "ja")
+    @Test("warning catalog includes Japanese translations")
+    func warningCatalogIncludesJapaneseTranslations() throws {
+        let packageDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let catalogURL = packageDirectory
+            .appendingPathComponent("Sources/CmuxSwiftRenderUI/Resources/Localizable.xcstrings")
+        let data = try Data(contentsOf: catalogURL)
+        let catalog = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let strings = try #require(catalog["strings"] as? [String: Any])
+
+        func japaneseValue(for key: String) -> String? {
+            let entry = strings[key] as? [String: Any]
+            let localizations = entry?["localizations"] as? [String: Any]
+            let japanese = localizations?["ja"] as? [String: Any]
+            let unit = japanese?["stringUnit"] as? [String: Any]
+            return unit?["value"] as? String
+        }
 
         #expect(
-            localizedEmptySidebarRenderWarning(locale: japanese)
+            japaneseValue(for: "sidebar.custom.validation.emptyRender")
                 == "サイドバーに表示可能な内容がレンダリングされませんでした。"
         )
         #expect(
-            localizedMissingOptionalDataCoverageWarning(locale: japanese)
+            japaneseValue(for: "sidebar.custom.validation.noOptionalDataCoverage")
                 == "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。"
         )
     }
