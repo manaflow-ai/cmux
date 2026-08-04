@@ -130,7 +130,9 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil(attempts: 1_000) {
+        store.macConnectionStatus == .connected
+    })
 
     await router.delaySubscribeRequest(number: 2)
     store.resyncTerminalOutput(
