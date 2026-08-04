@@ -2939,20 +2939,17 @@ import Testing
     /// A themes command posts a distributed notification back to the app-hosted
     /// test process before it exits. Blocking the host thread in `waitUntilExit`
     /// makes that parent/child handshake deadlock.
+    @concurrent
     private func runProcessOffHostThread(
         executablePath: String,
         arguments: [String],
         environment: [String: String]
     ) async -> ProcessRunResult {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: self.runProcess(
-                    executablePath: executablePath,
-                    arguments: arguments,
-                    environment: environment
-                ))
-            }
-        }
+        runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment
+        )
     }
 
     /// Runs a child to completion in its own process group, capturing stdout and stderr separately.
