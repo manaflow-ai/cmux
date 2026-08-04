@@ -10995,10 +10995,10 @@ class TerminalController {
     /// base64 encode/decode round-trip — kept verbatim so the reply bytes
     /// match the legacy `readTerminalTextBase64` pipeline exactly — run off
     /// the main actor.
-    /// Serves the v1 `iroh_diag` socket command: the host's iroh Connection
-    /// Report in the same `cmuxdiag v1` compact format the Settings pane
-    /// exports, read from the same `DiagnosticLog` snapshot path so the two
-    /// can never disagree. Empty ring prints just the header (count=0).
+    /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
+    /// Report in the same plain-language format the Settings pane exports,
+    /// read from the same `DiagnosticLog` snapshot path so the two can never
+    /// disagree.
     private nonisolated func irohDiagText() -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
@@ -11009,7 +11009,7 @@ class TerminalController {
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
             let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            export = String(decoding: report.compactExport(), as: UTF8.self)
+            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
         semaphore.wait()

@@ -13,11 +13,6 @@ import {
 const trimEnv = (value: string | undefined): string | undefined =>
   typeof value === "string" ? value.trim() : value;
 
-const defaultSubrouterBaseUrl = (): string =>
-  process.env.VERCEL_ENV === "production"
-    ? "https://subrouter.cmux.dev"
-    : "https://subrouter-staging.cmux.dev";
-
 const isDocsZone =
   process.env.CMUX_DOCS_CHANNEL === "release" ||
   process.env.CMUX_DOCS_CHANNEL === "nightly";
@@ -217,9 +212,15 @@ export const env = createEnv({
     // /api/enterprise/contact route falls back to the waitlist webhook, then
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
+    // Temporary retirement credentials for DB-mapped tenants created before
+    // hosted Stack onboarding. Remove after subrouter_tenants is empty.
     SUBROUTER_BASE_URL: z.string().url().optional(),
-    SUBROUTER_ADMIN_TOKEN: z.string().min(1).optional(),
-    SUBROUTER_TENANT_KEY_SECRET: z.string().min(1).optional(),
+    SUBROUTER_ADMIN_TOKEN: z.string().min(1).max(1_024).optional(),
+    SUBROUTER_HOSTED_URL: z.string().url().optional(),
+    SUBROUTER_STACK_TENANT_DELETE_TOKEN: requireVercelNonPreviewValue(
+      "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
+      z.string().min(32).max(1_024),
+    ),
     SUBROUTER_ENFORCE_STACK_PERMISSIONS: requireVercelNonPreviewValue(
       "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
       z.enum(["0", "1"]),
@@ -349,9 +350,12 @@ export const env = createEnv({
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
-    SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),
+    SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
-    SUBROUTER_TENANT_KEY_SECRET: trimEnv(process.env.SUBROUTER_TENANT_KEY_SECRET),
+    SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
+    SUBROUTER_STACK_TENANT_DELETE_TOKEN: trimEnv(
+      process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN,
+    ),
     SUBROUTER_ENFORCE_STACK_PERMISSIONS: trimEnv(
       process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
     ),
