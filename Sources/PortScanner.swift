@@ -103,10 +103,11 @@ final class PortScanner: @unchecked Sendable {
         ) else {
             return
         }
+        let scanTTYName = Self.canonicalTTYName(ttyName)
         queue.async { [self] in
             let previousTTY = ttyNames[key]
             panelPortSnapshot.remove(keys: [key])
-            ttyNames[key] = ttyName
+            ttyNames[key] = scanTTYName
             panelRevisionByKey[key] = revision
             if previousTTY != nil {
                 enqueuePanelPublication([

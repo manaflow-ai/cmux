@@ -26,10 +26,10 @@ extension PortScanner {
         lsofScan: PortLsofScanResult?
     ) -> [PanelKey: PortScanCompleteness] {
         let pidsByTTY = pidToTTY.reduce(into: [String: Set<Int>]()) { result, item in
-            result[item.value, default: []].insert(item.key)
+            result[canonicalTTYName(item.value), default: []].insert(item.key)
         }
         return panelTTYs.reduce(into: [:]) { result, item in
-            let panelPIDs = pidsByTTY[item.value] ?? []
+            let panelPIDs = pidsByTTY[canonicalTTYName(item.value)] ?? []
             let lsofCompleteness: PortScanCompleteness
             if panelPIDs.isEmpty {
                 lsofCompleteness = .complete
@@ -331,7 +331,7 @@ extension PortScanner {
                     parsedEveryRow = false
                     continue
                 }
-                mapping[pid] = String(parts[1])
+                mapping[pid] = Self.canonicalTTYName(String(parts[1]))
             }
             if Self.isCompletePSResult(result) && parsedEveryRow {
                 return (mapping, .complete)
@@ -377,10 +377,10 @@ extension PortScanner {
     /// `ps` emits this exact text even under a non-English `LC_ALL`.
     static func vanishedTTYNames(inStderr stderr: String?, requested: Set<String>) -> Set<String> {
         guard let stderr, !stderr.isEmpty else { return [] }
-        // Terminals are registered verbatim, so both `ttys1` and `/dev/ttys1`
-        // can reach `ps`; match on the device name either form names.
+        // Direct callers can supply either `ttys1` or `/dev/ttys1`; match on
+        // the canonical device name either form names.
         let requestedByDeviceName = requested.reduce(into: [String: Set<String>]()) { result, name in
-            result[Self.deviceName(in: name), default: []].insert(name)
+            result[Self.canonicalTTYName(name), default: []].insert(name)
         }
         var vanished: Set<String> = []
         for line in stderr.split(separator: "\n") {
@@ -400,7 +400,9 @@ extension PortScanner {
         return vanished
     }
 
-    private static func deviceName(in ttyName: String) -> String {
+    /// Canonicalizes the shell's full device path and `ps`'s abbreviated TTY
+    /// field to one identity used by every scan join.
+    static func canonicalTTYName(_ ttyName: String) -> String {
         guard ttyName.hasPrefix(Self.deviceDirectoryPrefix) else { return ttyName }
         return String(ttyName.dropFirst(Self.deviceDirectoryPrefix.count))
     }
