@@ -1408,7 +1408,16 @@
     "changelog": {
       "title": "Zapisnik promjena",
       "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
-      "metaTitle": "Dnevnik promjena"
+      "metaTitle": "Dnevnik promjena",
+      "versionTitle": "cmux {version} · Dnevnik promjena",
+      "releaseNavLabel": "Izdanja oko cmux {version}",
+      "sections": {
+        "added": "Dodano",
+        "changed": "Promijenjeno",
+        "fixed": "Ispravljeno",
+        "removed": "Uklonjeno",
+        "contributors": "Doprinositelji"
+      }
     },
     "navItems": {
       "gettingStarted": "Početak rada",
