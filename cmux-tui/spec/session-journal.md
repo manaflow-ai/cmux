@@ -149,6 +149,11 @@ fails with `cursor.invalid`. A bounded subscriber that falls behind receives a
 `gap` stream end with its last safe cursor and reconnects from that cursor.
 `start` and `cursor` are mutually exclusive.
 
+Each committed subject is also inserted into an append-only
+`(kind, id, sequence)` index in the record transaction. Retained catch-up for
+exact subjects, such as one `agent_tree`, reads only matching sequences. Live
+delivery uses the bounded in-memory fanout and checks each new record once.
+
 Filters are optional. Filter dimensions are ANDed, entries within one
 dimension are ORed, and filtered records still advance the cursor:
 

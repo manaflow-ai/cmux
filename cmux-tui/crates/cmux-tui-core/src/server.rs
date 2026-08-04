@@ -68,10 +68,10 @@ use crate::surface::{
 use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
-    DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, LayoutLeafSpec,
-    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
-    PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
+    DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
+    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
     SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
 };
@@ -4696,6 +4696,7 @@ struct SessionJournalStreamStart {
     last_sequence: u64,
     epoch: u64,
     filter: JournalStreamFilter,
+    indexed_subjects: Option<Vec<JournalSubject>>,
     reader: Option<crate::workspace_registry::SessionJournalReader>,
     shared_fanout: bool,
     remote_redacted: bool,
@@ -4955,6 +4956,24 @@ impl JournalStreamFilter {
             && subject_matches
             && sensitivity_matches
             && self.regex.as_ref().is_none_or(|regex| regex.matches(document))
+    }
+
+    fn indexed_subjects(&self) -> Option<Vec<JournalSubject>> {
+        if !self.has_subject_filter
+            || !self.subject_kinds.is_empty()
+            || !self.subject_ids.is_empty()
+            || self.exact_subjects.is_empty()
+        {
+            return None;
+        }
+        Some(
+            self.exact_subjects
+                .iter()
+                .flat_map(|(kind, ids)| {
+                    ids.iter().map(|id| JournalSubject { kind: kind.clone(), id: id.clone() })
+                })
+                .collect(),
+        )
     }
 }
 
@@ -7435,14 +7454,26 @@ fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceErr
 fn session_journal_page(
     mux: &Mux,
     reader: Option<&crate::workspace_registry::SessionJournalReader>,
+    indexed_subjects: Option<&[JournalSubject]>,
     shared_fanout: bool,
     sequence: u64,
     limit: usize,
 ) -> anyhow::Result<SharedJournalRead> {
     if let Some(reader) = reader {
+        if let Some(subjects) = indexed_subjects {
+            let page = reader.after_subjects(sequence, limit, subjects)?;
+            return Ok(SharedJournalRead::Page(SharedJournalPage {
+                head_sequence: page.head_sequence,
+                scanned_through: page.scanned_through,
+                records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
+            }));
+        }
         let page = reader.after(sequence, limit)?;
+        let scanned_through =
+            page.records.last().map_or(page.head_sequence, |record| record.sequence);
         return Ok(SharedJournalRead::Page(SharedJournalPage {
             head_sequence: page.head_sequence,
+            scanned_through,
             records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
         }));
     }
@@ -7450,8 +7481,10 @@ fn session_journal_page(
         return Ok(mux.shared_journal_after(sequence, limit));
     }
     let page = mux.session_journal_after(sequence, limit)?;
+    let scanned_through = page.records.last().map_or(page.head_sequence, |record| record.sequence);
     Ok(SharedJournalRead::Page(SharedJournalPage {
         head_sequence: page.head_sequence,
+        scanned_through,
         records: page.records.into_iter().map(JournalDocument::new).map(Arc::new).collect(),
     }))
 }
@@ -7561,6 +7594,7 @@ fn prepare_session_journal_stream(
         }
         filter.max_sensitivity = Some(JournalSensitivity::Metadata);
     }
+    let indexed_subjects = filter.indexed_subjects();
     let opened_cursor = journal_cursor(&session_id, last_sequence);
     let overflow = resource_stream_end(
         &stream_id,
@@ -7591,6 +7625,7 @@ fn prepare_session_journal_stream(
             last_sequence,
             epoch,
             filter,
+            indexed_subjects,
             reader,
             shared_fanout,
             remote_redacted,
@@ -7645,6 +7680,7 @@ fn run_session_journal_stream(
             let page = match session_journal_page(
                 mux,
                 stream.reader.as_ref(),
+                stream.indexed_subjects.as_deref(),
                 stream.shared_fanout,
                 stream.last_sequence,
                 JOURNAL_STREAM_PAGE_SIZE,
@@ -7695,7 +7731,9 @@ fn run_session_journal_stream(
                 }
             };
             let head_sequence = page.head_sequence;
+            let scanned_through = page.scanned_through;
             if page.records.is_empty() {
+                stream.last_sequence = stream.last_sequence.max(scanned_through);
                 if stream.last_sequence < head_sequence {
                     let end = resource_stream_end(
                         &stream.stream_id,
@@ -7741,6 +7779,17 @@ fn run_session_journal_stream(
                     stream.next_sequence = stream.next_sequence.saturating_add(1);
                 }
                 stream.last_sequence = record_sequence;
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
+                    Some("reconnect with the last journal cursor"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+            }
+            if scanned_through > stream.last_sequence {
+                stream.last_sequence = scanned_through;
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",

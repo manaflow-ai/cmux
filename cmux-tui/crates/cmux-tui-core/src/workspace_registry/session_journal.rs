@@ -131,6 +131,12 @@ pub struct SessionJournalPage {
     pub records: Vec<SessionJournalRecord>,
 }
 
+pub(crate) struct SessionJournalSubjectPage {
+    pub(crate) head_sequence: u64,
+    pub(crate) scanned_through: u64,
+    pub(crate) records: Vec<SessionJournalRecord>,
+}
+
 /// A short-lived WAL reader owned by one subscriber thread. It never shares
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
@@ -151,6 +157,15 @@ impl SessionJournalReader {
 
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
         query_session_journal_after(&self.connection, sequence, limit)
+    }
+
+    pub(crate) fn after_subjects(
+        &self,
+        sequence: u64,
+        limit: usize,
+        subjects: &[JournalSubject],
+    ) -> anyhow::Result<SessionJournalSubjectPage> {
+        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
     }
 }
 
@@ -175,6 +190,14 @@ pub(super) struct JournalAppend<'a> {
 }
 
 pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let subject_index_existed = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'journal_subject_index'
+         )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS session_journal (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +233,14 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS session_journal_by_correlation_sequence
            ON session_journal(correlation_id, sequence)
            WHERE correlation_id IS NOT NULL;
+         CREATE TABLE IF NOT EXISTS journal_subject_index (
+           sequence INTEGER NOT NULL CHECK(sequence > 0),
+           kind TEXT NOT NULL,
+           id TEXT NOT NULL,
+           PRIMARY KEY(sequence, kind, id)
+         ) WITHOUT ROWID;
+         CREATE INDEX IF NOT EXISTS journal_subject_index_by_subject_sequence
+           ON journal_subject_index(kind, id, sequence);
          CREATE TABLE IF NOT EXISTS journal_event_index (
            event_id TEXT PRIMARY KEY NOT NULL,
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
@@ -228,8 +259,29 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            BEFORE DELETE ON session_journal
          BEGIN
            SELECT RAISE(ABORT, 'session journal is append-only');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_update
+           BEFORE UPDATE ON journal_subject_index
+         BEGIN
+           SELECT RAISE(ABORT, 'journal subject index is append-only');
+         END;
+         CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_delete
+           BEFORE DELETE ON journal_subject_index
+         BEGIN
+           SELECT RAISE(ABORT, 'journal subject index is append-only');
          END;",
     )?;
+    if !subject_index_existed {
+        transaction.execute_batch(
+            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+               SELECT journal.sequence,
+                      json_extract(subject.value, '$.kind'),
+                      json_extract(subject.value, '$.id')
+               FROM session_journal AS journal, json_each(journal.subjects_json) AS subject
+               WHERE json_type(subject.value, '$.kind') = 'text'
+                 AND json_type(subject.value, '$.id') = 'text';",
+        )?;
+    }
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
     Ok(())
@@ -555,6 +607,7 @@ pub(super) fn append_journal_record(
     );
     let committed_at_ms =
         if append.occurred_at_ms == 0 { unix_epoch_ms()? } else { append.occurred_at_ms };
+    let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
     transaction.execute(
         "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
@@ -581,7 +634,7 @@ pub(super) fn append_journal_record(
             append.causation_id,
             append.correlation_id,
             i64::from(append.causation_depth),
-            canonical_json(&serde_json::to_value(append.subjects)?)?,
+            &subjects_json,
             append.sensitivity.as_str(),
             canonical_json(append.payload)?,
             append.content,
@@ -620,6 +673,12 @@ pub(super) fn append_journal_record(
             append.causation_id,
             causal_hook_id,
         ],
+    )?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+         SELECT ?1, json_extract(value, '$.kind'), json_extract(value, '$.id')
+         FROM json_each(?2)",
+        params![sequence, subjects_json],
     )?;
     u64::try_from(sequence).context("journal sequence is negative")
 }
@@ -764,6 +823,73 @@ pub(super) fn query_session_journal_sequences(
         "one or more requested journal records are absent"
     );
     Ok(records.into_values().collect())
+}
+
+fn query_session_journal_after_subjects(
+    connection: &Connection,
+    sequence: u64,
+    limit: usize,
+    subjects: &[JournalSubject],
+) -> anyhow::Result<SessionJournalSubjectPage> {
+    anyhow::ensure!(limit > 0, "journal page limit must be positive");
+    anyhow::ensure!(
+        limit <= MAX_JOURNAL_PAGE_SIZE,
+        "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+    );
+    anyhow::ensure!(!subjects.is_empty(), "journal subject filter must not be empty");
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let head_sequence =
+        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    anyhow::ensure!(
+        sequence <= head_sequence,
+        "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
+    );
+    let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT indexed.sequence
+         FROM json_each(?1) AS requested
+         JOIN journal_subject_index AS indexed
+           INDEXED BY journal_subject_index_by_subject_sequence
+           ON indexed.kind = json_extract(requested.value, '$.kind')
+          AND indexed.id = json_extract(requested.value, '$.id')
+         WHERE indexed.sequence > ?2
+         ORDER BY indexed.sequence ASC
+         LIMIT ?3",
+    )?;
+    let sequences = statement
+        .query_map(
+            params![
+                requested_json,
+                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
+            ],
+            |row| row.get::<_, i64>(0),
+        )?
+        .map(|row| {
+            u64::try_from(row?).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Integer,
+                    Box::new(error),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let records = query_session_journal_sequences(connection, &sequences)?;
+    let scanned_through = if sequences.len() == limit {
+        sequences.last().copied().unwrap_or(sequence)
+    } else {
+        head_sequence
+    };
+    Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
 type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
@@ -1414,6 +1540,16 @@ mod tests {
         assert!(
             record.subjects.iter().any(|subject| subject.kind == "pane" && subject.id == pane_id)
         );
+        let indexed = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_subject_index
+                 WHERE kind = 'pane' AND id = ?1 AND sequence = 1",
+                [&pane_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, 1);
 
         let update = registry
             .connection
@@ -1421,6 +1557,8 @@ mod tests {
         assert!(update.unwrap_err().to_string().contains("append-only"));
         let delete = registry.connection.execute("DELETE FROM session_journal", []);
         assert!(delete.unwrap_err().to_string().contains("append-only"));
+        let delete_index = registry.connection.execute("DELETE FROM journal_subject_index", []);
+        assert!(delete_index.unwrap_err().to_string().contains("append-only"));
     }
 
     #[test]
@@ -1508,7 +1646,8 @@ mod tests {
         let reader = SessionJournalReader::open(&database_path).unwrap();
         assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
 
-        let result = serde_json::json!({"workspace_id":format!("ws_{}", "1".repeat(32))});
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        let result = serde_json::json!({"workspace_id":workspace_id});
         let tx = registry.connection.transaction().unwrap();
         tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
         append_resource_journal_record(
@@ -1528,6 +1667,20 @@ mod tests {
         let page = reader.after(0, 1).unwrap();
         assert_eq!(page.head_sequence, 1);
         assert_eq!(page.records[0].kind, "workspace.focus");
+        let matching = reader
+            .after_subjects(0, 1, &[JournalSubject { kind: "workspace".into(), id: workspace_id }])
+            .unwrap();
+        assert_eq!(matching.scanned_through, 1);
+        assert_eq!(matching.records.len(), 1);
+        let absent = reader
+            .after_subjects(
+                0,
+                1,
+                &[JournalSubject { kind: "agent_tree".into(), id: "agenttree_absent".into() }],
+            )
+            .unwrap();
+        assert_eq!(absent.scanned_through, 1);
+        assert!(absent.records.is_empty());
         drop(reader);
         drop(registry);
         fs::remove_dir_all(root).unwrap();

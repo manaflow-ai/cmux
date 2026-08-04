@@ -174,6 +174,7 @@ fn journal_record_value(record: &SessionJournalRecord) -> Value {
 
 pub(crate) struct SharedJournalPage {
     pub(crate) head_sequence: u64,
+    pub(crate) scanned_through: u64,
     pub(crate) records: Vec<Arc<JournalDocument>>,
 }
 
@@ -339,6 +340,7 @@ impl JournalKernel {
             } else {
                 SharedJournalRead::Page(SharedJournalPage {
                     head_sequence: state.head_sequence,
+                    scanned_through: state.head_sequence,
                     records: Vec::new(),
                 })
             };
@@ -354,8 +356,14 @@ impl JournalKernel {
             .unwrap_or(state.records.len())
             .min(state.records.len());
         let end = start.saturating_add(limit).min(state.records.len());
-        let records = state.records.range(start..end).cloned().collect();
-        SharedJournalRead::Page(SharedJournalPage { head_sequence: state.head_sequence, records })
+        let records: Vec<_> = state.records.range(start..end).cloned().collect();
+        let scanned_through =
+            records.last().map_or(state.head_sequence, |record| record.record.sequence);
+        SharedJournalRead::Page(SharedJournalPage {
+            head_sequence: state.head_sequence,
+            scanned_through,
+            records,
+        })
     }
 
     pub(crate) fn prepare_producer(
@@ -574,14 +582,20 @@ mod performance_tests {
 
     fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
         let state = kernel.state.lock().unwrap();
-        let records = state
+        let records: Vec<_> = state
             .records
             .iter()
             .filter(|record| record.record.sequence > sequence)
             .take(limit)
             .cloned()
             .collect();
-        SharedJournalRead::Page(SharedJournalPage { head_sequence: state.head_sequence, records })
+        let scanned_through =
+            records.last().map_or(state.head_sequence, |record| record.record.sequence);
+        SharedJournalRead::Page(SharedJournalPage {
+            head_sequence: state.head_sequence,
+            scanned_through,
+            records,
+        })
     }
 
     #[test]

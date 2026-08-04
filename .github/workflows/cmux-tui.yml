@@ -231,6 +231,10 @@ jobs:
         with:
           version: 0.15.2
 
+      - name: Install TypeScript adapter build tools
+        working-directory: cmux-tui/bindings/typescript
+        run: npm ci --no-audit --no-fund
+
       - name: Python conformance fixtures
         env:
           CMUX_ZIG: zig
