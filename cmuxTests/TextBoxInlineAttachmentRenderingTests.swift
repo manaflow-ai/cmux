@@ -23,7 +23,7 @@ private final class TextBoxDelegateTestDouble: NSObject, NSTextViewDelegate {}
         #expect(textView.delegate === delegate)
     }
 
-    @Test func largeAttachmentBatchUsesOneInlineCellWithoutDroppingFiles() {
+    @Test func largeAttachmentBatchUsesOneInlineCellWithoutDroppingFiles() throws {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 420, height: 30)
         )
@@ -57,6 +57,12 @@ private final class TextBoxDelegateTestDouble: NSObject, NSTextViewDelegate {}
         #expect(prefix == "existing text ")
         #expect(firstAttachment.submissionPath == "/tmp/file-0.txt")
         #expect(lastAttachment.submissionPath == "/tmp/file-999.txt")
+
+        let firstDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
+        let secondDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
+        let firstDraftStorage = firstDraft.parts.withUnsafeBufferPointer { $0.baseAddress }
+        let secondDraftStorage = secondDraft.parts.withUnsafeBufferPointer { $0.baseAddress }
+        #expect(firstDraftStorage == secondDraftStorage)
     }
 
     @Test func normalAttachmentBatchKeepsIndividualCells() {

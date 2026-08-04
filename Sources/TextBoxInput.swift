@@ -3164,12 +3164,19 @@ struct TextBoxInputView: NSViewRepresentable {
             let nextText = textView.plainText()
             let nextAttachments = textView.inlineAttachments()
             let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            let contentChanged = parent.text != nextText
-                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
-                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
-            parent.text = nextText
-            parent.attachments = nextAttachments
-            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            let textChanged = parent.text != nextText
+            let attachmentsChanged = parent.attachments.map(\.id) != nextAttachments.map(\.id)
+            let pendingUploadChanged = parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            if textChanged {
+                parent.text = nextText
+            }
+            if attachmentsChanged {
+                parent.attachments = nextAttachments
+            }
+            if pendingUploadChanged {
+                parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            }
+            let contentChanged = textChanged || attachmentsChanged || pendingUploadChanged
             if contentChanged {
                 parent.onContentChanged()
             }
@@ -3309,6 +3316,9 @@ final class TextBoxInputTextView: NSTextView {
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
+    private var sessionDraftContentRevision: UInt64 = 0
+    private var cachedSessionDraftRevision: UInt64?
+    private var cachedSessionDraftSnapshot: SessionTextBoxInputDraftSnapshot?
     var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
@@ -3455,6 +3465,7 @@ final class TextBoxInputTextView: NSTextView {
         if activeInsertTextDepth > 0 {
             didChangeTextDuringActiveInsertText = true
         }
+        sessionDraftContentRevision &+= 1
         isHandlingDidChangeText = true
         defer { isHandlingDidChangeText = false }
         if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
@@ -3546,6 +3557,7 @@ final class TextBoxInputTextView: NSTextView {
         if notifyingTextChange {
             didChangeText()
         } else {
+            sessionDraftContentRevision &+= 1
             flushAutomaticAttachmentFileCleanup()
         }
     }
@@ -3557,7 +3569,16 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func sessionDraftSnapshot(isActive: Bool) -> SessionTextBoxInputDraftSnapshot? {
-        Self.sessionDraftSnapshot(from: attributedContentForPreservation(), isActive: isActive)
+        if cachedSessionDraftRevision != sessionDraftContentRevision {
+            cachedSessionDraftSnapshot = Self.sessionDraftSnapshot(
+                from: attributedContentForPreservation(),
+                isActive: false
+            )
+            cachedSessionDraftRevision = sessionDraftContentRevision
+        }
+        guard var snapshot = cachedSessionDraftSnapshot else { return nil }
+        snapshot.isActive = isActive
+        return snapshot
     }
 
     static func sessionDraftSnapshot(

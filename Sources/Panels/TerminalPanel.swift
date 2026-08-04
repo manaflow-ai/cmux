@@ -6,6 +6,92 @@ import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
 
+@MainActor
+private final class TerminalPanelTextBoxDraftCache {
+    private var text = ""
+    private var attachmentIDs: [UUID] = []
+    private var isActive = false
+    private var snapshot: SessionTextBoxInputDraftSnapshot?
+
+    func updateText(_ nextText: String) {
+        guard nextText != text else { return }
+        text = nextText
+        updateTextPart()
+    }
+
+    func updateAttachments(_ attachments: [TextBoxAttachment]) {
+        let nextIDs = attachments.map(\.id)
+        guard nextIDs != attachmentIDs else { return }
+        attachmentIDs = nextIDs
+        rebuildSnapshot(attachments: attachments)
+    }
+
+    func updateIsActive(_ nextIsActive: Bool) {
+        guard nextIsActive != isActive else { return }
+        isActive = nextIsActive
+        snapshot?.isActive = nextIsActive
+    }
+
+    func recordExactSnapshot(_ nextSnapshot: SessionTextBoxInputDraftSnapshot?) {
+        snapshot = nextSnapshot
+    }
+
+    func currentSnapshot() -> SessionTextBoxInputDraftSnapshot? {
+        snapshot
+    }
+
+    private func updateTextPart() {
+        guard snapshot != nil else {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                snapshot = SessionTextBoxInputDraftSnapshot(
+                    isActive: isActive,
+                    parts: [.text(text)]
+                )
+            }
+            return
+        }
+
+        if text.isEmpty {
+            if snapshot?.parts.first?.kind == .text {
+                snapshot?.parts.removeFirst()
+            }
+        } else if snapshot?.parts.first?.kind == .text {
+            snapshot?.parts[0] = .text(text)
+        } else {
+            snapshot?.parts.insert(.text(text), at: 0)
+        }
+
+        if snapshot?.parts.contains(where: Self.isMeaningful) != true {
+            snapshot = nil
+        }
+    }
+
+    private func rebuildSnapshot(attachments: [TextBoxAttachment]) {
+        var parts: [SessionTextBoxInputDraftPart] = []
+        parts.reserveCapacity(attachments.count + (text.isEmpty ? 0 : 1))
+        if !text.isEmpty {
+            parts.append(.text(text))
+        }
+        parts.append(contentsOf: attachments.map {
+            .attachment(SessionTextBoxInputAttachmentSnapshot($0))
+        })
+        guard parts.contains(where: Self.isMeaningful) else {
+            snapshot = nil
+            return
+        }
+        snapshot = SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: parts)
+    }
+
+    private static func isMeaningful(_ part: SessionTextBoxInputDraftPart) -> Bool {
+        switch part.kind {
+        case .text:
+            return part.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        case .attachment:
+            return part.attachment != nil
+        }
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -48,9 +134,16 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
     let textBoxState = TerminalPanelTextBoxState()
-    @Published var isTextBoxActive: Bool = false
-    @Published var textBoxContent: String = ""
-    @Published var textBoxAttachments: [TextBoxAttachment] = []
+    private let textBoxDraftCache = TerminalPanelTextBoxDraftCache()
+    @Published var isTextBoxActive: Bool = false {
+        didSet { textBoxDraftCache.updateIsActive(isTextBoxActive) }
+    }
+    @Published var textBoxContent: String = "" {
+        didSet { textBoxDraftCache.updateText(textBoxContent) }
+    }
+    @Published var textBoxAttachments: [TextBoxAttachment] = [] {
+        didSet { textBoxDraftCache.updateAttachments(textBoxAttachments) }
+    }
     weak var textBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -391,6 +484,9 @@ final class TerminalPanel: Panel, ObservableObject {
             return
         }
         let preservedContent = textBoxInputView.attributedContentForPreservation()
+        textBoxDraftCache.recordExactSnapshot(
+            textBoxInputView.sessionDraftSnapshot(isActive: isTextBoxActive)
+        )
         textBoxInputView.invalidatePendingAttachmentUploads()
         preservedTextBoxAttributedContent = NSAttributedString(
             attributedString: preservedContent
@@ -440,18 +536,7 @@ final class TerminalPanel: Panel, ObservableObject {
             return restoredTextBoxDraft
         }
 
-        if let preservedTextBoxAttributedContent {
-            return TextBoxInputTextView.sessionDraftSnapshot(
-                from: preservedTextBoxAttributedContent,
-                isActive: isTextBoxActive
-            )
-        }
-
-        return TextBoxInputTextView.sessionDraftSnapshot(
-            text: textBoxContent,
-            attachments: textBoxAttachments,
-            isActive: isTextBoxActive
-        )
+        return textBoxDraftCache.currentSnapshot()
     }
 
     func restoreSessionTextBoxDraft(_ draft: SessionTextBoxInputDraftSnapshot?) {
@@ -474,6 +559,7 @@ final class TerminalPanel: Panel, ObservableObject {
         textBoxContent = TextBoxInputTextView.plainText(from: draft)
         textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
         isTextBoxActive = draft.isActive
+        textBoxDraftCache.recordExactSnapshot(draft)
         textBoxInputFocusIntent = draft.isActive ? .textBox : .hidden
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
