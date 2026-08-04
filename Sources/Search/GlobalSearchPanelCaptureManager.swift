@@ -29,9 +29,10 @@ final class GlobalSearchPanelCaptureManager {
     /// Reconciles content during each Search presentation.
     ///
     /// Markdown content/file callbacks own subsequent dirty captures. Browser
-    /// panels are recaptured once per reconciliation because same-document DOM
-    /// changes do not emit a reliable browser lifecycle callback; the per-panel
-    /// debounce keeps rapid refreshes coalesced to one active capture.
+    /// panels are recaptured immediately because same-document DOM changes do
+    /// not emit a reliable browser lifecycle callback, and the refresh must not
+    /// return before the active query can see them. Independent browser events
+    /// continue to use the per-panel debounce below.
     func refreshPanelContent(for context: GlobalSearchPanelContext) async {
         if let markdownPanel = context.panel as? MarkdownPanel {
             guard !indexedMarkdownPanelIDs.contains(context.panelID) else {
@@ -39,7 +40,7 @@ final class GlobalSearchPanelCaptureManager {
             }
             await captureInitialMarkdownPanel(markdownPanel, context: context)
         } else if let browserPanel = context.panel as? BrowserPanel {
-            captureBrowserPanel(browserPanel)
+            await captureBrowserPanelForRefresh(browserPanel, context: context)
         }
     }
 
@@ -72,51 +73,118 @@ final class GlobalSearchPanelCaptureManager {
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
         let panelID = panel.id
-        let taskID = UUID()
-        let generation = contentIndexGeneration
-        let panelRevision = markPanelContentDirty(panelID)
-        cancelPanelPurge(panelID)
-        cancelBrowserCapture(forPanelID: panelID)
-        indexedBrowserPanelIDs.remove(panelID)
-        browserCaptureTaskIDs[panelID] = taskID
+        let capture = beginBrowserCapture(for: panel)
 
         let timer = makeDebounceTimer(milliseconds: browserCaptureDebounceMilliseconds) { [weak self, weak panel] in
             Task { @MainActor [weak self, weak panel] in
                 guard let self,
-                      self.browserCaptureTaskIDs[panelID] == taskID else {
+                      self.browserCaptureTaskIDs[panelID] == capture.taskID else {
                     return
                 }
                 self.browserCaptureTimers[panelID]?.cancel()
                 self.browserCaptureTimers[panelID] = nil
 
-                let task = Task { @MainActor [weak self, weak panel] in
-                    guard let self else { return }
-                    defer {
-                        if self.browserCaptureTaskIDs[panelID] == taskID {
-                            self.browserCaptureTasks[panelID] = nil
-                            self.browserCaptureTaskIDs[panelID] = nil
-                        }
-                    }
-
-                    guard !Task.isCancelled,
-                          self.browserCaptureTaskIDs[panelID] == taskID,
-                          self.contentIndexGeneration == generation,
-                          self.panelContentRevisions[panelID] == panelRevision,
-                          let panel else {
-                        return
-                    }
-
-                    await self.indexBrowserPanel(
-                        panel,
-                        generation: generation,
-                        panelRevision: panelRevision
-                    )
+                guard let panel else {
+                    self.browserCaptureTaskIDs[panelID] = nil
+                    return
                 }
+                let task = self.makeBrowserCaptureTask(
+                    panel,
+                    context: nil,
+                    taskID: capture.taskID,
+                    generation: capture.generation,
+                    panelRevision: capture.panelRevision
+                )
                 self.browserCaptureTasks[panelID] = task
             }
         }
         browserCaptureTimers[panelID] = timer
         timer.resume()
+    }
+
+    private func captureBrowserPanelForRefresh(
+        _ panel: BrowserPanel,
+        context: GlobalSearchPanelContext
+    ) async {
+        let capture = beginBrowserCapture(for: panel)
+        let task = makeBrowserCaptureTask(
+            panel,
+            context: context,
+            taskID: capture.taskID,
+            generation: capture.generation,
+            panelRevision: capture.panelRevision
+        )
+        browserCaptureTasks[panel.id] = task
+
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func beginBrowserCapture(
+        for panel: BrowserPanel
+    ) -> (taskID: UUID, generation: UInt64, panelRevision: UInt64) {
+        let panelID = panel.id
+        let generation = contentIndexGeneration
+        let panelRevision = markPanelContentDirty(panelID)
+        cancelPanelPurge(panelID)
+        cancelBrowserCapture(forPanelID: panelID)
+        indexedBrowserPanelIDs.remove(panelID)
+
+        let taskID = UUID()
+        browserCaptureTaskIDs[panelID] = taskID
+        return (taskID, generation, panelRevision)
+    }
+
+    private func makeBrowserCaptureTask(
+        _ panel: BrowserPanel,
+        context: GlobalSearchPanelContext?,
+        taskID: UUID,
+        generation: UInt64,
+        panelRevision: UInt64
+    ) -> Task<Void, Never> {
+        let panelID = panel.id
+        return Task { @MainActor [weak self, weak panel] in
+            guard let self else { return }
+            defer {
+                if self.browserCaptureTaskIDs[panelID] == taskID {
+                    self.browserCaptureTasks[panelID] = nil
+                    self.browserCaptureTaskIDs[panelID] = nil
+                }
+            }
+
+            guard self.isCurrentBrowserCapture(
+                panelID: panelID,
+                taskID: taskID,
+                generation: generation,
+                panelRevision: panelRevision
+            ),
+                  let panel else {
+                return
+            }
+
+            await self.indexBrowserPanel(
+                panel,
+                context: context,
+                taskID: taskID,
+                generation: generation,
+                panelRevision: panelRevision
+            )
+        }
+    }
+
+    private func isCurrentBrowserCapture(
+        panelID: UUID,
+        taskID: UUID,
+        generation: UInt64,
+        panelRevision: UInt64
+    ) -> Bool {
+        !Task.isCancelled
+            && browserCaptureTaskIDs[panelID] == taskID
+            && contentIndexGeneration == generation
+            && panelContentRevisions[panelID] == panelRevision
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
@@ -338,10 +406,13 @@ final class GlobalSearchPanelCaptureManager {
 
     private func indexBrowserPanel(
         _ panel: BrowserPanel,
+        context: GlobalSearchPanelContext?,
+        taskID: UUID,
         generation: UInt64,
         panelRevision: UInt64
     ) async {
-        guard let context = AppDelegate.shared?.globalSearchContext(
+        let panelID = panel.id
+        guard let resolvedContext = context ?? AppDelegate.shared?.globalSearchContext(
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId
         ),
@@ -349,9 +420,23 @@ final class GlobalSearchPanelCaptureManager {
             return
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBrowserCapture(
+            panelID: panelID,
+            taskID: taskID,
+            generation: generation,
+            panelRevision: panelRevision
+        ) else {
+            return
+        }
         let payload = await browserPagePayload(for: panel)
-        guard !Task.isCancelled else { return }
+        guard isCurrentBrowserCapture(
+            panelID: panelID,
+            taskID: taskID,
+            generation: generation,
+            panelRevision: panelRevision
+        ) else {
+            return
+        }
         let fallbackTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = GlobalSearchDocuments.firstNonEmpty(payload?.title, panel.pageTitle, fallbackTitle)
             ?? String(localized: "globalSearch.untitled", defaultValue: "Untitled")
@@ -362,26 +447,36 @@ final class GlobalSearchPanelCaptureManager {
 
         let anchor = GlobalSearchDocuments.firstNonEmpty(location, panel.id.uuidString) ?? panel.id.uuidString
         let document = SearchIndexDocument(
-            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: .browser),
-            windowID: context.windowID,
-            workspaceID: context.workspaceID,
-            panelID: context.panelID,
+            id: SearchIndexDocument.panelStableID(panelID: resolvedContext.panelID, kind: .browser),
+            windowID: resolvedContext.windowID,
+            workspaceID: resolvedContext.workspaceID,
+            panelID: resolvedContext.panelID,
             kind: .browser,
             title: title,
-            location: location.isEmpty ? context.location : location,
+            location: location.isEmpty ? resolvedContext.location : location,
             anchor: anchor,
             text: text
         )
 
         do {
-            guard !Task.isCancelled else { return }
-            try await index.upsert(document)
-            guard !Task.isCancelled,
-                  contentIndexGeneration == generation,
-                  panelContentRevisions[panel.id] == panelRevision else {
+            guard isCurrentBrowserCapture(
+                panelID: panelID,
+                taskID: taskID,
+                generation: generation,
+                panelRevision: panelRevision
+            ) else {
                 return
             }
-            indexedBrowserPanelIDs.insert(panel.id)
+            try await index.upsert(document)
+            guard isCurrentBrowserCapture(
+                panelID: panelID,
+                taskID: taskID,
+                generation: generation,
+                panelRevision: panelRevision
+            ) else {
+                return
+            }
+            indexedBrowserPanelIDs.insert(panelID)
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG
