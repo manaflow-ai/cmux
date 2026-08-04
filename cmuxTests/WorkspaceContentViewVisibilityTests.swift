@@ -25,19 +25,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -50,58 +37,68 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
-    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
-        let source = try Self.sourceText("Sources/ContentView.swift")
-        let legacyState = [
-            "sidebarResizerCursorReleaseWorkItem",
-            "commandPaletteRestoreTimeoutWorkItem",
-        ].filter(source.contains)
-        #expect(
-            legacyState.isEmpty,
-            """
-            ContentView must not keep the legacy DispatchWorkItem state properties that \
-            previously let queued closures retain prior work-item state:
-            \(legacyState.joined(separator: "\n"))
-            """
-        )
-        #expect(
-            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
-            """
-            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
-            mouse-down and drag-start callbacks can establish resize state before the cursor \
-            can be reset.
-            """
-        )
-    }
-
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
-        let scheduler = SidebarResizerCursorReleaseScheduler()
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
+        let releaseEvents = AsyncStream<Bool>.makeStream()
+        defer { releaseEvents.continuation.finish() }
+        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
         var releases: [Bool] = []
 
         scheduler.schedule(force: false, delay: .zero) { force in
             releases.append(force)
+            releaseEvents.continuation.yield(force)
         }
         #expect(releases.isEmpty)
-        try await Task.sleep(for: .milliseconds(10))
+        let immediateRelease = await releaseIterator.next()
+        #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .milliseconds(1))
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
         #expect(releases == [false])
         releases.removeAll()
 
         scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
             releases.append(force)
+            releaseEvents.continuation.yield(force)
         }
+        await clock.waitUntilSleeping(for: .milliseconds(200))
         scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
             releases.append(force)
+            releaseEvents.continuation.yield(force)
         }
+        await clock.waitUntilSleeping(for: .milliseconds(10))
 
-        try await Task.sleep(for: .milliseconds(80))
+        clock.advance(by: .milliseconds(10))
+        let replacementRelease = await releaseIterator.next()
+        #expect(replacementRelease == true)
         #expect(releases == [true])
 
-        scheduler.cancelPendingRelease()
-        try await Task.sleep(for: .milliseconds(160))
-        #expect(releases == [true])
+        await clock.waitUntilIdle()
+        clock.advance(by: .milliseconds(190))
+        scheduler.schedule(force: true, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        let sentinelRelease = await releaseIterator.next()
+        #expect(sentinelRelease == true)
+        #expect(releases == [true, true])
     }
 
     @Test

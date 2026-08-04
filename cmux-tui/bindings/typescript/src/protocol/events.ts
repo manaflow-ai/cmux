@@ -61,6 +61,13 @@ export interface ClientChangedEvent {
   kind: string | null;
 }
 export interface ClientDetachedEvent { event: "client-detached"; client: Id }
+export interface TerminalRegistryChangedEvent {
+  event: "terminal-registry-changed";
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+  refetch: "terminal-events-or-list-terminals";
+}
 export interface EmptyEvent { event: "empty" }
 
 export interface WorkspaceAddedEvent {
@@ -178,12 +185,12 @@ export interface TerminalColors {
   cursor: ColorHex | null;
   selection_bg: ColorHex | null;
   selection_fg: ColorHex | null;
-  /** Protocol v7 sparse OSC 4 overrides keyed by palette index. Older servers omit this field. */
-  palette?: Record<string, ColorHex>;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_blink?: boolean | null;
+  /** Protocol v7 sparse application-authored OSC 4 overrides by palette index. */
+  palette?: Record<string, ColorHex>;
 }
 
 /** Initial base64 VT replay for an attached PTY surface. */
@@ -198,14 +205,20 @@ export interface VtStateEvent {
 }
 
 /** Live base64 PTY bytes after the attach snapshot. */
-export interface OutputEvent { event: "output"; surface: Id; data: Base64 }
+export interface OutputEvent {
+  event: "output";
+  surface: Id;
+  data: Base64;
+  /** Present when output and its complete color state are one transition. */
+  colors?: TerminalColors;
+}
 
 interface ResizedEventBase {
   event: "resized";
   surface: Id;
   cols: number;
   rows: number;
-  /** Protocol v7 fresh color snapshot for the replacement replay. Older servers omit it. */
+  /** Protocol v7 theme-portable color snapshot for the replacement replay. Older servers omit it. */
   colors?: TerminalColors;
 }
 
@@ -233,8 +246,14 @@ export interface ColorsChangedEvent extends TerminalColors {
 
 export interface BrowserFrame {
   seq: number;
+  /** CSS viewport width used for browser input mapping, or 0 when CDP omits it. */
   width: number;
+  /** CSS viewport height used for browser input mapping, or 0 when CDP omits it. */
   height: number;
+  /** Encoded PNG width. Older servers omit this field. */
+  image_width?: number;
+  /** Encoded PNG height. Older servers omit this field. */
+  image_height?: number;
   data: Base64;
 }
 
@@ -296,6 +315,7 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | TerminalRegistryChangedEvent
   | EmptyEvent
   | OverflowEvent;
 
@@ -341,14 +361,31 @@ export interface DecodedResizedEvent extends Omit<ResizedEvent, "data" | "replay
 /** A special-color update yielded by `attachSurface()`. */
 export type DecodedColorsChangedEvent = ColorsChangedEvent;
 
+/** Browser frame dimensions after the client fills legacy CSS-size defaults. */
+export interface DecodedBrowserFrame extends BrowserFrame {
+  image_width: number;
+  image_height: number;
+}
+
+/** A browser-state event whose optional frame has normalized image dimensions. */
+export interface DecodedBrowserStateEvent extends Omit<BrowserStateEvent, "frame"> {
+  frame?: DecodedBrowserFrame | null;
+}
+
+/** A frame event with normalized image dimensions. */
+export interface DecodedBrowserFrameEvent extends BrowserFrameEvent {
+  image_width: number;
+  image_height: number;
+}
+
 /** Attach events as yielded by the client after base64 decoding. */
 export type DecodedAttachEvent =
   | DecodedVtStateEvent
   | DecodedOutputEvent
   | DecodedResizedEvent
   | DecodedColorsChangedEvent
-  | BrowserStateEvent
-  | BrowserFrameEvent
+  | DecodedBrowserStateEvent
+  | DecodedBrowserFrameEvent
   | ScrollChangedEvent
   | DetachedEvent
   | OverflowEvent

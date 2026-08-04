@@ -1,4 +1,6 @@
 import AppKit
+import CmuxControlSocket
+import CmuxRemoteSession
 import Foundation
 import Testing
 import CmuxTerminal
@@ -34,7 +36,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     // MARK: - Harness (mirrors MirrorTitleHarness in RemoteTmuxMirrorTargetingTests)
 
     @MainActor
-    private final class Harness {
+    final class Harness {
         let windowId: UUID
         let controller: RemoteTmuxController
         let host: RemoteTmuxHost
@@ -94,7 +96,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             )
             return try #require(
                 workspace.remoteTmuxWindowMirror(forPanelId: panelId),
-                "Expected a multi-pane window mirror"
+                "Expected a window mirror"
             )
         }
 
@@ -166,21 +168,110 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         try expectDistinctSurfacesPerPane(mirror)
     }
 
+    @Test
+    func staleCachedActivePaneFallsBackToFirstLivePane() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@paneinput"),
+            sessionName: "input-map"
+        )
+        connection.activePaneByWindow[2] = 99
+        let layout = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(4)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(5)),
+            ])
+        )
+
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 2,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            appearance: .default,
+            makePanel: { _ in nil }
+        )
+
+        #expect(mirror.activePaneId == 4)
+    }
+
+    @Test
+    func unresolvedSessionMirrorActivePaneFailsClosed() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] work",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            "%4 0 0 60 40 0 off :0 \"host\"",
+            "%5 61 0 59 40 1 off :1 \"host\"",
+        ]])
+
+        let mirror = try harness.mirror()
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelId = try #require(sessionMirror.panelIdByWindow[2])
+        let previousRemoteActivePane = harness.connection.activePaneByWindow[2]
+        harness.connection.activePaneByWindow[2] = nil
+        let previousOwnerWindow = sessionMirror.windowIdByPane.removeValue(forKey: 5)
+        defer {
+            harness.connection.activePaneByWindow[2] = previousRemoteActivePane
+            sessionMirror.windowIdByPane[5] = previousOwnerWindow
+        }
+
+        #expect(mirror.activePaneId == 5)
+        #expect(
+            sessionMirror.activeControlPaneLocation(containerPanelID: containerPanelId) == nil
+        )
+        #expect(harness.workspace.focusedTerminalInputTarget() == nil)
+    }
+
     /// The reported repro: a window cmux first saw as a single pane, then split.
-    /// The original display pane is adopted as pane one; the new split pane gets a
-    /// freshly wired handler. After the split + the `%window-pane-changed` event
-    /// tmux emits (the new pane becomes active), select-target and input-target
-    /// must still agree for both panes, and the new pane must be the active/input
-    /// target — with no intervening manual click.
+    /// After the split + the `%window-pane-changed` event tmux emits (the new pane
+    /// becomes active), the outer workspace tab must remain a container rather
+    /// than also becoming an inner pane, and workspace focus navigation must enter
+    /// the mirror and select the adjacent tmux pane.
     @Test
     func singlePaneToSplitKeepsSelectAndInputTargetsAlignedForNewPane() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
+        tabManager.selectWorkspace(harness.workspace)
 
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",
         ])
         try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"host\""]])
+
+        let initialMirror = try harness.mirror()
+        let originalPanePanel = try #require(initialMirror.panel(forPane: 4))
+        let originalPaneSurface = originalPanePanel.surface
+        let containerPanelId = try #require(
+            harness.workspace.remoteTmuxSessionMirror?.panelIdByWindow[2]
+        )
+        let containerPanel = try #require(
+            harness.workspace.panels[containerPanelId] as? TerminalPanel
+        )
+
+        #expect(
+            TerminalController.shared.mobileTerminalPanels(in: harness.workspace).map(\.id)
+                == [originalPanePanel.id],
+            "Mobile must enumerate the live pane rather than the closed workspace container"
+        )
+        let initialMobileTarget = try #require(
+            TerminalController.shared.mobileResolveWorkspaceAndSurface(
+                params: [
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "surface_id": originalPanePanel.id.uuidString,
+                ],
+                requireTerminal: true
+            )
+        )
+        #expect(initialMobileTarget.surfaceId == originalPanePanel.id)
+        let scriptTab = ScriptTab(windowId: harness.windowId, tabId: harness.workspace.id)
+        #expect(scriptTab.terminals.map(\.stableID) == [originalPanePanel.id.uuidString])
 
         // tmux splits window @2: pane %5 is created and becomes the active pane.
         harness.connection.handleMessageForTesting(.layoutChange(
@@ -197,14 +288,156 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         harness.connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 5))
 
         let mirror = try harness.mirror()
+        #expect(
+            mirror === initialMirror,
+            "A later split must reconcile the mirror created for the initial one-pane layout"
+        )
+        #expect(
+            mirror.panel(forPane: 4) === originalPanePanel,
+            "The original pane panel and its local scrollback must survive the split"
+        )
+        #expect(mirror.panel(forPane: 4)?.surface === originalPaneSurface)
         try expectSelectTargetMatchesInputTarget(mirror)
         try expectDistinctSurfacesPerPane(mirror)
+
+        #expect(containerPanel.surface.portalBindingStateLabel() == "closed")
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: containerPanelId) == nil)
+        for paneId in mirror.paneIDsInOrder {
+            let panePanel = try #require(mirror.panel(forPane: paneId))
+            #expect(
+                containerPanel !== panePanel,
+                "The outer workspace container must never also own inner tmux pane \(paneId)"
+            )
+        }
 
         // The freshly split pane is the one the user is looking at; it must be the
         // mirror's active/input target immediately, not the original pane.
         #expect(
             mirror.activePaneId == 5,
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
+        )
+        let expectedInputPanel = try #require(mirror.panel(forPane: 5))
+        let expectedExternalPanelIDs = mirror.paneIDsInOrder.compactMap {
+            mirror.panel(forPane: $0)?.id
+        }
+        #expect(
+            TerminalController.shared.mobileTerminalPanels(in: harness.workspace).map(\.id)
+                == expectedExternalPanelIDs
+        )
+        #expect(scriptTab.terminals.map(\.stableID) == expectedExternalPanelIDs.map(\.uuidString))
+        #expect(scriptTab.focusedTerminal?.stableID == expectedInputPanel.id.uuidString)
+        mirror.updatePaneCwd(paneId: 5, path: "/srv/project")
+        #expect(harness.workspace.panelTitle(panelId: expectedInputPanel.id) == mirror.title(forPane: 5))
+        #expect(harness.workspace.effectivePanelDirectory(panelId: expectedInputPanel.id) == "/srv/project")
+        let notificationRouting = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            paneID: nil
+        )
+        let notificationResult = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: notificationRouting,
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            title: "Projected tmux pane",
+            subtitle: "",
+            body: "Body"
+        )
+        #expect(notificationResult == .delivered(
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            windowID: harness.windowId
+        ))
+        TerminalNotificationStore.shared.clearNotifications(forTabId: harness.workspace.id, surfaceId: expectedInputPanel.id)
+        #expect(TerminalController.shared.resolveTerminalPanel(
+            from: containerPanelId.uuidString,
+            tabManager: tabManager
+        ) === expectedInputPanel)
+        #expect(TerminalController.shared.resolveTerminalPanel(
+            from: expectedInputPanel.id.uuidString,
+            tabManager: tabManager
+        ) === expectedInputPanel)
+        #expect(harness.workspace.focusedTerminalPanel === containerPanel)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.panel === expectedInputPanel)
+        #expect(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: harness.workspace,
+                preferredPanelId: containerPanelId
+            ) === expectedInputPanel
+        )
+
+        harness.workspace.moveFocus(direction: .left)
+
+        #expect(
+            mirror.activePaneId == 4,
+            "Workspace directional focus must enter the nested mirror and select the adjacent tmux pane"
+        )
+
+        // Selecting the outer tab is part of every nested pane focus callback.
+        // The outer tab's TerminalPanel is only a container: allowing
+        // it to become active again makes its old surface steal first responder,
+        // so the focus ring moves while keystrokes still reach the original pane.
+        let containerPaneId = try #require(harness.workspace.paneId(forPanelId: containerPanelId))
+        let containerTabId = try #require(harness.workspace.surfaceIdFromPanelId(containerPanelId))
+        let activePanePanel = try #require(mirror.panel(forPane: 4))
+        containerPanel.hostedView.setActive(true)
+        activePanePanel.hostedView.setActive(false)
+
+        harness.workspace.applyTabSelection(tabId: containerTabId, inPane: containerPaneId)
+
+        #expect(
+            !containerPanel.hostedView.debugPortalActive,
+            "A window container must never compete with its inner panes for input focus"
+        )
+        #expect(
+            activePanePanel.hostedView.debugPortalActive,
+            "Selecting the window container must activate the tmux-active inner pane"
+        )
+
+        harness.workspace.focusRemoteTmuxContainerPaneIfNeeded(containerPaneId)
+
+        #expect(!containerPanel.hostedView.debugPortalActive)
+        #expect(activePanePanel.hostedView.debugPortalActive)
+
+        // A real nested edge may continue into the outer workspace tree, but a
+        // stale nested identity must fail closed instead of looking like that
+        // edge. Otherwise a transient pane-map mismatch can move focus into an
+        // unrelated outer split.
+        harness.workspace.isRemoteTmuxMirror = false
+        let outerNeighborCandidate = harness.workspace.splitPaneWithNewTerminal(
+            targetPane: containerPaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
+        )
+        harness.workspace.isRemoteTmuxMirror = true
+        let outerNeighbor = try #require(outerNeighborCandidate)
+        let outerNeighborPaneId = try #require(
+            harness.workspace.paneId(forPanelId: outerNeighbor.id)
+        )
+
+        mirror.setActivePane(5, fromTmux: true)
+        harness.workspace.focusPanel(containerPanelId)
+        harness.workspace.moveFocus(direction: .right)
+
+        #expect(
+            harness.workspace.bonsplitController.focusedPaneId == outerNeighborPaneId,
+            "A valid edge in the nested tree must continue into the outer workspace tree"
+        )
+
+        mirror.setActivePane(5, fromTmux: true)
+        harness.workspace.focusPanel(containerPanelId)
+        let staleFocusedPane = try #require(mirror.bonsplitController.focusedPaneId)
+        mirror.paneIdByBonsplitPane[staleFocusedPane] = nil
+
+        harness.workspace.moveFocus(direction: .right)
+
+        #expect(
+            harness.workspace.bonsplitController.focusedPaneId == containerPaneId,
+            "An invalid nested focus identity must not escape into an outer workspace pane"
         )
     }
 }

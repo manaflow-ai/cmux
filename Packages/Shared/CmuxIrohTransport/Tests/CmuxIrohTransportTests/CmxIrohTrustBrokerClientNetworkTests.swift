@@ -128,8 +128,7 @@ extension CmxIrohTrustBrokerClientTests {
         let client = try CmxIrohTrustBrokerClient(
             baseURL: try #require(URL(string: "https://cmux.example")),
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { nil },
-                refreshToken: { "refresh" }
+                credentialPair: { nil }
             ),
             transport: transport
         )
@@ -212,8 +211,9 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     private static let networkTokenSource = CmxIrohBrokerTokenSource(
-        accessToken: { "access" },
-        refreshToken: { "refresh" }
+        credentialPair: {
+            CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
+        }
     )
 }
 

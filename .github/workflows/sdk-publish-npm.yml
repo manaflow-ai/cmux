@@ -19,6 +19,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 concurrency:
   group: sdk-publish-npm-${{ github.ref }}
   cancel-in-progress: false
@@ -100,13 +103,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Build cmux-tui server
         working-directory: cmux-tui

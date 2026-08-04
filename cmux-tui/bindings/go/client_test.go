@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +34,64 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
+func TestClientInfoNormalizesProtocolNineSizingParticipation(t *testing.T) {
+	var result ClientInfo
+	if err := json.Unmarshal([]byte(`{
+		"client":7,
+		"transport":"ws",
+		"connected_seconds":12,
+		"attached":[31,32],
+		"sizes":[
+			{"surface":31,"cols":126,"rows":38},
+			{"surface":32,"cols":100,"rows":30,"size_participating":true}
+		],
+		"size_participating":false,
+		"self":true
+	}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Sizes[0].SizeParticipating == nil || *result.Sizes[0].SizeParticipating {
+		t.Fatalf("legacy participation = %v, want false", result.Sizes[0].SizeParticipating)
+	}
+	if result.Sizes[1].SizeParticipating == nil || !*result.Sizes[1].SizeParticipating {
+		t.Fatalf("surface participation = %v, want true", result.Sizes[1].SizeParticipating)
+	}
+}
+
+func TestCommandErrorPreservesMachineReadableCode(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout: time.Second,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id":         request["id"],
+			"ok":         false,
+			"error":      "layout changed",
+			"error_code": "layout-undo-stale",
+		})
+	}()
+
+	err := client.request(context.Background(), "undo-layout", nil, nil)
+	var commandError *CommandError
+	if !errors.As(err, &commandError) {
+		t.Fatalf("error = %v, want CommandError", err)
+	}
+	if commandError.ErrorCode != "layout-undo-stale" {
+		t.Fatalf("error code = %q, want layout-undo-stale", commandError.ErrorCode)
+	}
+}
+
 func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	var tree Tree
 	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"pane_revision":7,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
@@ -46,6 +106,15 @@ func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	}
 	if legacyTree.PaneRevision != nil {
 		t.Fatalf("legacy pane revision = %v, want nil", legacyTree.PaneRevision)
+	}
+	var viewportTree Tree
+	if err := json.Unmarshal([]byte(`{"workspaces":[{"id":1,"name":"one","active":true,"screens":[{"id":2,"name":null,"active":true,"active_pane":3,"layout":{"type":"leaf","pane":3},"viewport_base_width":0.75,"viewport_splits":[{"split":4,"width":0.5}],"panes":[]}]}]}`), &viewportTree); err != nil {
+		t.Fatal(err)
+	}
+	viewport := viewportTree.Workspaces[0].Screens[0]
+	if viewport.ViewportBaseWidth == nil || *viewport.ViewportBaseWidth != 0.75 ||
+		len(viewport.ViewportSplits) != 1 || viewport.ViewportSplits[0] != (ViewportSplit{Split: 4, Width: 0.5}) {
+		t.Fatalf("viewport screen = %#v", viewport)
 	}
 
 	var placement WorkspacePlacement
@@ -73,6 +142,114 @@ func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
 	argv, ok := params["argv"].([]any)
 	if !ok || len(argv) != 0 {
 		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
+	}
+}
+
+func TestNewPaneRightRejectsInvalidWidthsWithoutSendingACommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-splits-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{
+				"id":   request["id"],
+				"ok":   true,
+				"data": map[string]any{"surface": 9},
+			})
+		}
+	}()
+
+	for _, width := range []float32{
+		float32(math.NaN()),
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+		0.09,
+		1.01,
+	} {
+		_, err := client.NewPaneRight(
+			context.Background(),
+			7,
+			NewPaneRightOptions{Width: &width},
+		)
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("NewPaneRight(width=%v) error = %v, want invalid argument", width, err)
+		}
+	}
+
+	select {
+	case request := <-requests:
+		t.Fatalf("invalid width sent request: %#v", request)
+	default:
+	}
+}
+
+func TestSetViewportPaneWidthRejectsInvalidWidthsWithoutSendingACommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-column-resize-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{
+				"id":   request["id"],
+				"ok":   true,
+				"data": map[string]any{},
+			})
+		}
+	}()
+
+	for _, width := range []float32{
+		float32(math.NaN()),
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+		0.09,
+		1.01,
+	} {
+		err := client.SetViewportPaneWidth(context.Background(), 7, width)
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf(
+				"SetViewportPaneWidth(width=%v) error = %v, want invalid argument",
+				width,
+				err,
+			)
+		}
+	}
+
+	select {
+	case request := <-requests:
+		t.Fatalf("invalid width sent request: %#v", request)
+	default:
 	}
 }
 
@@ -196,11 +373,382 @@ func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	}
 }
 
+func TestClearHistoryRequiresCapability(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{protocol: &protocol}
+	err := client.ClearHistory(context.Background(), 7)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("ClearHistory() error = %v, want protocol mismatch", err)
+	}
+}
+
+func TestClearHistorySendsCapabilityGatedWireCommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(9)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"clear-history-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requests <- request
+		_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+	}()
+
+	if err := client.ClearHistory(context.Background(), 7); err != nil {
+		t.Fatalf("ClearHistory() error = %v", err)
+	}
+	request := <-requests
+	if request["cmd"] != "clear-history" || request["surface"] != float64(7) {
+		t.Fatalf("ClearHistory() request = %#v", request)
+	}
+}
+
+func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
+	protocol := uint32(9)
+	codepoint := "k"
+	baseCodepoint := "k"
+	action := TerminalKeyPress
+	fallback := TerminalKeyInput{
+		Key:                 TerminalKeyK,
+		Mods:                TerminalModifiers{Super: true},
+		UnshiftedCodepoint:  &codepoint,
+		BaseLayoutCodepoint: &baseCodepoint,
+		Action:              &action,
+		MacOSOptionAsAlt:    true,
+	}
+	client := &Client{
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"clear-history-v1": {}},
+	}
+	err := client.ClearHistoryWithFallback(context.Background(), 7, fallback)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want protocol mismatch", err)
+	}
+
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client = &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requests <- request
+		_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+	}()
+
+	if err := client.ClearHistoryWithFallback(context.Background(), 7, fallback); err != nil {
+		t.Fatalf("ClearHistoryWithFallback() error = %v", err)
+	}
+	request := <-requests
+	key, ok := request["fallback_key"].(map[string]any)
+	if !ok {
+		t.Fatalf("fallback_key = %#v", request["fallback_key"])
+	}
+	mods, ok := key["mods"].(map[string]any)
+	if !ok ||
+		key["key"] != "k" ||
+		mods["super"] != true ||
+		key["composing"] != false ||
+		key["unshifted_codepoint"] != "k" ||
+		key["shifted_codepoint"] != nil ||
+		key["base_layout_codepoint"] != "k" ||
+		key["action"] != "press" ||
+		key["macos_option_as_alt"] != true {
+		t.Fatalf("ClearHistoryWithFallback() fallback_key = %#v", key)
+	}
+}
+
+func TestClearHistoryFailurePreservesDeliveryClassification(t *testing.T) {
+	protocol := uint32(9)
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id":             request["id"],
+			"ok":             false,
+			"error":          "clear failed",
+			"error_delivery": "known-not-delivered",
+		})
+	}()
+
+	err := client.ClearHistoryWithFallback(
+		context.Background(),
+		7,
+		TerminalKeyInput{Key: TerminalKeyK},
+	)
+	var commandError *CommandError
+	if !errors.As(err, &commandError) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want CommandError", err)
+	}
+	if commandError.Delivery != ErrorDeliveryKnownNotDelivered {
+		t.Fatalf("CommandError.Delivery = %q", commandError.Delivery)
+	}
+}
+
+func TestClearHistoryFallbackRejectsOversizedKeyTextLocally(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	err := client.ClearHistoryWithFallback(context.Background(), 7, TerminalKeyInput{
+		Key:  TerminalKeyK,
+		UTF8: strings.Repeat("x", TerminalKeyTextMaxBytes+1),
+	})
+	if err == nil || !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want invalid argument", err)
+	}
+	if !strings.Contains(err.Error(), "terminal key text exceeds the 4 KiB protocol limit") {
+		t.Fatalf("ClearHistoryWithFallback() error = %v", err)
+	}
+}
+
 func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	protocol := uint32(9)
 	client := &Client{protocol: &protocol}
 	if err := client.requireProtocol(context.Background(), 8, "set-split-ratio"); err != nil {
 		t.Fatalf("requireProtocol() error = %v, want protocol 9 accepted", err)
+	}
+}
+
+func TestResizeMethodsForwardExplicitTransactions(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-column-resize-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 2)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for range 2 {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+		}
+	}()
+
+	if err := client.SetSplitRatioInTransaction(context.Background(), 42, 0.6, 17); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetViewportPaneWidthInTransaction(context.Background(), 9, 0.75, 17); err != nil {
+		t.Fatal(err)
+	}
+
+	split := <-requests
+	if split["cmd"] != "set-split-ratio" || split["transaction"] != float64(17) {
+		t.Fatalf("split request = %#v", split)
+	}
+	column := <-requests
+	if column["cmd"] != "set-viewport-pane-width" || column["transaction"] != float64(17) {
+		t.Fatalf("column request = %#v", column)
+	}
+}
+
+func TestUndoLayoutPreservesPreviewRevisionForConfirmation(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"layout-undo-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 2)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for range 2 {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			data := map[string]any{
+				"undone": false, "confirmation_required": true,
+				"screen": 3, "revision": 8, "closes_panes": []uint64{15},
+			}
+			if request["confirm_close"] == true {
+				data = map[string]any{"undone": true, "screen": 3, "revision": 9}
+			}
+			_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": data})
+		}
+	}()
+
+	preview, err := client.UndoLayout(context.Background(), 15, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmation, ok := preview.(LayoutUndoConfirmationRequired)
+	if !ok || confirmation.Revision != 8 || len(confirmation.ClosesPanes) != 1 {
+		t.Fatalf("preview = %#v", preview)
+	}
+	result, err := client.UndoLayout(context.Background(), 15, &confirmation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := result.(LayoutUndoUndone); !ok {
+		t.Fatalf("result = %#v", result)
+	}
+	<-requests
+	confirm := <-requests
+	if confirm["revision"] != float64(8) || confirm["confirm_close"] != true {
+		t.Fatalf("confirmation request = %#v", confirm)
+	}
+}
+
+func TestUndoLayoutRejectsMissingClosesPanes(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"layout-undo-v1": {}},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id": request["id"],
+			"ok": true,
+			"data": map[string]any{
+				"undone": false, "confirmation_required": true,
+				"screen": 3, "revision": 8,
+			},
+		})
+	}()
+
+	_, err := client.UndoLayout(context.Background(), 15, nil)
+	if err == nil || !errors.Is(err, ErrDecode) {
+		t.Fatalf("UndoLayout() error = %v, want decode error", err)
+	}
+}
+
+func TestUndoLayoutRejectsMalformedResultVariants(t *testing.T) {
+	tests := map[string]map[string]any{
+		"missing undone discriminator": {
+			"confirmation_required": true,
+			"screen":                3,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+		"missing screen": {
+			"undone":                false,
+			"confirmation_required": true,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+		"missing revision": {
+			"undone":                false,
+			"confirmation_required": true,
+			"screen":                3,
+			"closes_panes":          []uint64{15},
+		},
+		"contradictory outcomes": {
+			"undone":                true,
+			"confirmation_required": true,
+			"screen":                3,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+	}
+
+	for name, data := range tests {
+		t.Run(name, func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			defer serverConn.Close()
+			protocol := uint32(10)
+			client := &Client{
+				timeout:      time.Second,
+				conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+				protocol:     &protocol,
+				capabilities: map[string]struct{}{"layout-undo-v1": {}},
+			}
+			defer client.Close()
+
+			go func() {
+				decoder := json.NewDecoder(serverConn)
+				encoder := json.NewEncoder(serverConn)
+				var request map[string]any
+				if decoder.Decode(&request) != nil {
+					return
+				}
+				_ = encoder.Encode(map[string]any{
+					"id": request["id"], "ok": true, "data": data,
+				})
+			}()
+
+			_, err := client.UndoLayout(context.Background(), 15, nil)
+			if err == nil || !errors.Is(err, ErrDecode) {
+				t.Fatalf("UndoLayout() error = %v, want decode error", err)
+			}
+		})
 	}
 }
 

@@ -25,4 +25,7 @@ test("includes every dynamically read Open Graph asset in traced route output", 
     "./app/**/assets/landing-image.png",
     "./public/logo.png",
   ]);
+  expect(
+    nextConfig.outputFileTracingIncludes?.["**/browser-opengraph-image"],
+  ).toEqual(["./public/logo.png"]);
 });

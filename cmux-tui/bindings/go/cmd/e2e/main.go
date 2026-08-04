@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 9 {
+	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 10 {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
@@ -70,6 +70,24 @@ func run() error {
 	workspace, ok := findWorkspaceForSurface(tree, created.Surface)
 	if !ok {
 		return fmt.Errorf("workspace not found")
+	}
+	pane, ok := findPaneForSurface(tree, created.Surface)
+	if !ok {
+		return fmt.Errorf("pane not found")
+	}
+	width := float32(0.5)
+	if _, err := client.NewPaneRight(ctx, pane, cmux.NewPaneRightOptions{Width: &width}); err != nil {
+		return err
+	}
+	viewportTree, err := client.ListWorkspaces(ctx)
+	if err != nil {
+		return err
+	}
+	viewportScreen, ok := findScreenForSurface(viewportTree, created.Surface)
+	if !ok || viewportScreen.ViewportBaseWidth == nil || *viewportScreen.ViewportBaseWidth != 1 ||
+		len(viewportScreen.ViewportSplits) != 1 ||
+		absFloat32(viewportScreen.ViewportSplits[0].Width-0.5) >= 0.0001 {
+		return fmt.Errorf("viewport metadata missing or incorrect: %+v", viewportScreen)
 	}
 	if err := client.RenameSurface(ctx, created.Surface, marker+"-renamed"); err != nil {
 		return err
@@ -107,6 +125,28 @@ func run() error {
 	}
 	if first.EventName() != "vt-state" {
 		return fmt.Errorf("first attach event was %s", first.EventName())
+	}
+	if info.Protocol >= 10 {
+		sizingClient, size, ok, err := findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
+			return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
+			return err
+		}
+		_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
+			return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
+			return err
+		}
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
 	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {
@@ -198,4 +238,60 @@ func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 		}
 	}
 	return 0, false
+}
+
+func findPaneForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
+	for _, workspace := range tree.Workspaces {
+		for _, screen := range workspace.Screens {
+			for _, pane := range screen.Panes {
+				for _, tab := range pane.Tabs {
+					if tab.Surface == surface {
+						return pane.ID, true
+					}
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func findScreenForSurface(tree cmux.Tree, surface uint64) (cmux.Screen, bool) {
+	for _, workspace := range tree.Workspaces {
+		for _, screen := range workspace.Screens {
+			for _, pane := range screen.Panes {
+				for _, tab := range pane.Tabs {
+					if tab.Surface == surface {
+						return screen, true
+					}
+				}
+			}
+		}
+	}
+	return cmux.Screen{}, false
+}
+
+func absFloat32(value float32) float32 {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
+func findClientSurfaceSize(
+	ctx context.Context,
+	client *cmux.Client,
+	surface uint64,
+) (uint64, cmux.ClientSurfaceSize, bool, error) {
+	clients, err := client.ListClients(ctx)
+	if err != nil {
+		return 0, cmux.ClientSurfaceSize{}, false, err
+	}
+	for _, info := range clients {
+		for _, size := range info.Sizes {
+			if size.Surface == surface {
+				return info.Client, size, true, nil
+			}
+		}
+	}
+	return 0, cmux.ClientSurfaceSize{}, false, nil
 }

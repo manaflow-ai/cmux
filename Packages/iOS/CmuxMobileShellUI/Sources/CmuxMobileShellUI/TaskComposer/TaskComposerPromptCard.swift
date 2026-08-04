@@ -5,12 +5,12 @@ import SwiftUI
 
 /// A large, automatically focused prompt canvas for the agent's first instruction.
 struct TaskComposerPromptCard: View {
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Binding var prompt: String
     let placeholder: String
     let isDisabled: Bool
+    let endEditing: () -> Void
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
@@ -20,21 +20,19 @@ struct TaskComposerPromptCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TaskComposerAgentMenu(
-                    value: TaskComposerAgentMenuValue(
-                        templates: templates,
-                        selectedTemplateID: selectedTemplateID,
-                        isDisabled: isDisabled
-                    ),
-                    actions: TaskComposerAgentMenuActions(
-                        selectTemplate: selectTemplate,
-                        editTemplates: editTemplates
-                    )
+            TaskComposerAgentMenu(
+                value: TaskComposerAgentMenuValue(
+                    templates: templates,
+                    selectedTemplateID: selectedTemplateID,
+                    isDisabled: isDisabled
+                ),
+                actions: TaskComposerAgentMenuActions(
+                    selectTemplate: selectTemplate,
+                    editTemplates: editTemplates
                 )
-                .equatable()
-                Spacer(minLength: 0)
-            }
+            )
+            .equatable()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             TextField(placeholder, text: $prompt, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -47,26 +45,14 @@ struct TaskComposerPromptCard: View {
                 .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
+                .taskComposerEditingCompletion(
+                    isFocused: isFocused,
+                    endEditing: endEditing
+                )
+
         }
         .padding(14)
         .mobileGlassField(cornerRadius: 26)
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(
-                    isFocused ? Color.accentColor.opacity(0.58) : Color.primary.opacity(0.06),
-                    lineWidth: isFocused ? 1.25 : 1
-                )
-                .allowsHitTesting(false)
-        }
-        .shadow(
-            color: isFocused ? Color.accentColor.opacity(0.1) : Color.black.opacity(0.035),
-            radius: isFocused ? 16 : 10,
-            y: 6
-        )
-        .animation(
-            accessibilityReduceMotion ? nil : .easeOut(duration: 0.18),
-            value: isFocused
-        )
     }
 
     private var promptLineLimit: ClosedRange<Int> {

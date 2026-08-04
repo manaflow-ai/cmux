@@ -17,6 +17,7 @@ extension MobileShellComposite {
     /// Exact remote target captured before a workspace-create request suspends.
     struct WorkspaceCreatePinnedContext {
         let macDeviceID: String?
+        let instanceTag: String?
         let client: MobileCoreRPCClient
         let generation: UUID
         let supportedHostCapabilities: Set<String>
@@ -25,10 +26,12 @@ extension MobileShellComposite {
         /// Whether the caller still exposes the same Mac, client, and generation.
         func isCurrent(
             macDeviceID currentMacDeviceID: String?,
+            instanceTag currentInstanceTag: String?,
             client currentClient: MobileCoreRPCClient?,
             generation currentGeneration: UUID
         ) -> Bool {
             macDeviceID == currentMacDeviceID
+                && instanceTag == currentInstanceTag
                 && client === currentClient
                 && generation == currentGeneration
         }

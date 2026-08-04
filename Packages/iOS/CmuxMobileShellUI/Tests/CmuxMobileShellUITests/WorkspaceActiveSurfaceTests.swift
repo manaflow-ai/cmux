@@ -43,6 +43,26 @@ import CmuxMobileShellModel
         ) == .browser)
     }
 
+    @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true
+        ) == .browserStream)
+    }
+
+    @Test func browserStreamOverlaysASelectedMacSurface() {
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true,
+            selectedMacSurface: surface
+        ) == .browserStream)
+    }
+
     @Test func chromeReturnRefocusesTheSelectedTerminal() {
         #expect(WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
             selectedTerminalID: "terminal-1",

@@ -5,6 +5,99 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
+    @Test func connectedTransportReceivesLiveSessionPurposeUpdates()
+        async throws {
+        let transport = SessionPurposeRecordingTransport(
+            automaticallyRespondingRequestIDs: ["purpose-probe"]
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .backgroundControl
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await client.updateTransportSessionPurpose(.foregroundControl)
+
+        #expect(await transport.recordedPurposes() == [
+            .backgroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
+    @Test func overlappingPurposeUpdatesReconcileToLatestRole()
+        async throws {
+        let transport = InterleavingSessionPurposeTransport()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .foregroundControl
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await transport.blockNextUpdate(to: .backgroundControl)
+        let olderDemotion = Task {
+            await client.updateTransportSessionPurpose(.backgroundControl)
+        }
+        await transport.waitUntilUpdateIsBlocked(on: .backgroundControl)
+        await client.updateTransportSessionPurpose(.foregroundControl)
+        await transport.releaseBlockedUpdate()
+        await olderDemotion.value
+
+        #expect(await transport.currentPurpose() == .foregroundControl)
+        #expect(await transport.recordedCompletedPurposes().suffix(3) == [
+            .foregroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
     @Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
@@ -109,6 +202,9 @@ import Testing
               "id": "ws-1",
               "window_id": "window-1",
               "title": "cmux",
+              "description": "Ship the mobile sidebar",
+              "description_truncated": true,
+              "custom_color": "#1565C0",
               "current_directory": "/Users/test/project",
               "is_selected": true,
               "terminals": [
@@ -133,13 +229,45 @@ import Testing
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
         #expect(workspace.windowID == "window-1")
+        #expect(workspace.customDescription == "Ship the mobile sidebar")
+        #expect(workspace.customDescriptionIsTruncated == true)
+        #expect(workspace.customColorHex == "#1565C0")
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.windowID == "window-1")
+        #expect(mapped.customDescription == "Ship the mobile sidebar")
+        #expect(mapped.customDescriptionIsTruncated)
+        #expect(mapped.customColorHex == "#1565C0")
         #expect(mapped.currentDirectory == "/Users/test/project")
         #expect(mapped.terminals.first?.currentDirectory == "/Users/test/project")
+    }
+
+    @Test func workspaceListResponseKeepsMetadataNilWhenOlderMacOmitsFields() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-older",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let workspace = try #require(response.workspaces.first)
+        #expect(workspace.customDescription == nil)
+        #expect(workspace.customDescriptionIsTruncated == nil)
+        #expect(workspace.customColorHex == nil)
+
+        let mapped = MobileWorkspacePreview(remote: workspace)
+        #expect(mapped.customDescription == nil)
+        #expect(!mapped.customDescriptionIsTruncated)
+        #expect(mapped.customColorHex == nil)
     }
 
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest

@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     let identify = client.identify()?;
     assert!(identify.app == "cmux-tui", "unexpected app {}", identify.app);
-    assert!((5..=9).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
+    assert!((5..=10).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
 
     let created = client.new_workspace(Some(&marker), Some(80), Some(24))?;
     client.send(created.surface, Some(&format!("printf '{marker}\\n'\r")), None)?;
@@ -21,8 +21,17 @@ fn main() -> Result<()> {
     let screen = client.read_screen(created.surface)?;
     assert!(screen.text.contains(&marker), "marker missing from read-screen");
 
-    let workspace_id = find_workspace_for_surface(&client.list_workspaces()?, created.surface)
-        .expect("workspace not found");
+    let tree = client.list_workspaces()?;
+    let workspace_id =
+        find_workspace_for_surface(&tree, created.surface).expect("workspace not found");
+    let pane_id = find_pane_for_surface(&tree, created.surface).expect("pane not found");
+    client.new_pane_right(pane_id, Some(0.5), None, None)?;
+    let viewport_tree = client.list_workspaces()?;
+    let viewport_screen = find_screen_for_surface(&viewport_tree, created.surface)
+        .expect("viewport screen not found");
+    assert_eq!(viewport_screen.viewport_base_width, Some(1.0));
+    assert_eq!(viewport_screen.viewport_splits.len(), 1);
+    assert!((viewport_screen.viewport_splits[0].width - 0.5).abs() < 0.0001);
     client.rename_surface(created.surface, &format!("{marker}-renamed"))?;
     let mut events = client.subscribe()?;
     client.resize_surface(created.surface, 100, 31)?;
@@ -41,6 +50,14 @@ fn main() -> Result<()> {
     )?;
     let first = attach.recv()?;
     assert!(matches!(first, Event::VtState(_)), "first attach event was {first:?}");
+    if identify.protocol >= 10 {
+        let (sizing_client, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(true));
+        client.set_client_sizing(created.surface, sizing_client, false)?;
+        let (_, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(false));
+        client.set_client_sizing(created.surface, sizing_client, true)?;
+    }
     client.send(created.surface, Some(&format!("printf '{later}\\n'\r")), None)?;
     next_attach_output(&mut attach, Duration::from_secs(3))?;
 
@@ -115,6 +132,44 @@ fn find_workspace_for_surface(tree: &Tree, surface: u64) -> Option<u64> {
         }
     }
     None
+}
+
+fn find_pane_for_surface(tree: &Tree, surface: u64) -> Option<u64> {
+    for workspace in &tree.workspaces {
+        for screen in &workspace.screens {
+            for pane in &screen.panes {
+                if pane.tabs.iter().any(|tab| tab.surface == surface) {
+                    return Some(pane.id);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_screen_for_surface(tree: &Tree, surface: u64) -> Option<&cmux_client::Screen> {
+    for workspace in &tree.workspaces {
+        for screen in &workspace.screens {
+            if screen.panes.iter().any(|pane| pane.tabs.iter().any(|tab| tab.surface == surface)) {
+                return Some(screen);
+            }
+        }
+    }
+    None
+}
+
+fn find_client_surface_size(
+    client: &mut CmuxClient,
+    surface: u64,
+) -> Result<(u64, cmux_client::ClientSurfaceSize)> {
+    for info in client.list_clients()? {
+        for size in info.sizes {
+            if size.surface == surface {
+                return Ok((info.client, size));
+            }
+        }
+    }
+    panic!("client size for surface {surface} not found");
 }
 
 fn now_ms() -> u128 {

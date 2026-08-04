@@ -59,6 +59,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
     case chat(sessionID: String)
     /// Artifacts currently visible in one terminal surface.
     case terminal(workspaceID: String, surfaceID: String)
+    /// One changed-file revision in a workspace changes snapshot.
+    case workspaceChanges(workspaceID: String, revision: String, path: String)
     /// Unsupported fixture/default scope.
     case unsupported
 
@@ -68,6 +70,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
             return "chat:\(sessionID)"
         case .terminal(let workspaceID, let surfaceID):
             return "terminal:\(workspaceID):\(surfaceID)"
+        case .workspaceChanges(let workspaceID, let revision, let path):
+            return "workspace-changes:\(workspaceID):\(revision):\(path)"
         case .unsupported:
             return "unsupported"
         }

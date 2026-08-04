@@ -2,19 +2,10 @@ import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
 import { env } from "../../app/env";
 
-export const DEFAULT_IROH_ACCOUNT_BINDING_LIMIT = 32;
 export const DEFAULT_IROH_DEVICE_BINDING_LIMIT = 8;
 export const DEFAULT_IROH_DEV_ACCOUNT_BINDING_LIMIT = 256;
 export const DEFAULT_IROH_DEV_DEVICE_BINDING_LIMIT = 128;
-export const DEFAULT_IROH_DEV_BINDING_STALE_AFTER_MS = 24 * 60 * 60 * 1_000;
 const MAX_IROH_CONFIGURED_BINDING_LIMIT = 4_096;
-
-export type IrohBindingQuota = {
-  readonly account: number;
-  readonly device: number;
-  readonly baselineDevice: number;
-  readonly staleAfterMs: number | null;
-};
 
 export type IrohChallengeQuota = {
   readonly account: number;
@@ -83,29 +74,6 @@ export function developmentBindingQuotaAllowed(
     config.deviceLimitOverrideEnvironments.has(config.deploymentEnvironment);
 }
 
-export function bindingQuotaForUser(
-  config: IrohTrustBrokerConfigShape,
-  authenticatedUserId: string,
-): IrohBindingQuota {
-  if (!developmentBindingQuotaAllowed(config, authenticatedUserId)) {
-    return {
-      account: DEFAULT_IROH_ACCOUNT_BINDING_LIMIT,
-      device: DEFAULT_IROH_DEVICE_BINDING_LIMIT,
-      baselineDevice: DEFAULT_IROH_DEVICE_BINDING_LIMIT,
-      staleAfterMs: null,
-    };
-  }
-  return {
-    account: config.developmentAccountBindingLimit,
-    device: Math.min(
-      config.developmentDeviceBindingLimit,
-      config.developmentAccountBindingLimit,
-    ),
-    baselineDevice: DEFAULT_IROH_DEVICE_BINDING_LIMIT,
-    staleAfterMs: DEFAULT_IROH_DEV_BINDING_STALE_AFTER_MS,
-  };
-}
-
 export function challengeQuotaForUser(
   config: IrohTrustBrokerConfigShape,
   authenticatedUserId: string,
@@ -114,8 +82,8 @@ export function challengeQuotaForUser(
     return { account: 120, deviceInstance: 6, outstanding: 32 };
   }
   return {
-    // Give every allowed dev binding the normal per-instance launch budget,
-    // while retaining one bounded account fence against a runaway client.
+    // Give tagged dev launch bursts the normal per-instance launch budget,
+    // while retaining one bounded account request-rate fence.
     account: Math.max(
       120,
       Math.min(

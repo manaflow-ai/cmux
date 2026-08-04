@@ -4,6 +4,27 @@ import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        let hadStoredChange = CmxIrohPathPreference.stored(in: .standard) != preference
+        let hadEffectiveChange = transportVerificationMode != preference.transportVerificationMode
+        UserDefaults.standard.set(
+            preference.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        #if DEBUG
+        UserDefaults.standard.removeObject(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        UserDefaults.standard.removeObject(forKey: Self.debugRelayOnlyDefaultsKey)
+        #endif
+        guard hadStoredChange || hadEffectiveChange else { return }
+        publishIrohSettingsUpdate()
+        await scheduleReconcile(
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
+    }
+
     func irohSettingsUpdates() -> AsyncStream<CmxIrohSettingsSnapshot> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in

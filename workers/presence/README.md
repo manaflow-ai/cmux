@@ -17,7 +17,8 @@ solo-account user id).
 | `/healthz` | GET | liveness (no auth) |
 | `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
-| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
+| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events. With `?deviceScope=<deviceId>` it is instead a directed nudge channel: WebSocket-only, no snapshot, only `nudge` frames for that device |
+| `/v1/presence/nudge` | POST | directed wake-up `{deviceId, tag?, kind}` delivered to that device's `deviceScope` subscribers; caller must be the device's pinned owner |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -40,6 +41,26 @@ user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a
 co-member cannot forge another member's device online or goodbye it offline.
 
+Nudges reuse that pin on both ends. Subscribing device-scoped requires being
+the device's pinned owner (an unpinned device is allowed so a Mac can
+subscribe before its first heartbeat, but the subscription never writes the
+pin), and `POST /v1/presence/nudge` rejects callers who are not the pinned
+owner (`404 device_unknown` when unpinned). `kind` comes from a server-side
+allowlist (currently `iroh-binding-changed`); the frame tells the device
+"server-side state for you changed, re-check now", carries no route or binding
+data, and delivery is best-effort (`delivered: 0` is success — an offline Mac
+catches up on its next scheduled round trip). Nudge frames are sent only to
+device-scoped sockets, mirroring how sync frames are gated on `sync.hello`, so
+legacy presence decoders that throw on unknown event types never see them.
+
+The pin's known first-writer residual (a team member can claim an unclaimed
+device id by heartbeating it first) extends to nudges, accepted deliberately:
+the worker keeps no synchronous registry dependency, and a squatted pin only
+costs the real Mac the acceleration — it falls back to its pre-nudge renewal
+cadence, never to a correctness failure. Registry-anchored device credentials
+(the planned key-pinning phase) replace the pin for both heartbeats and
+nudges when they land.
+
 ## Develop
 
 ```bash
@@ -56,10 +77,13 @@ lifecycle proof, including real Stack sign-in and the alarm-driven timeout, is
 
 ## Deploy
 
-Deploys run automatically from `.github/workflows/presence.yml` on push to
-main (path-filtered). `wrangler deploy` applies the `[[migrations]]` block in
-`wrangler.toml` atomically with the upload, so Durable Object storage classes
-can never lag the deployed code.
+Deploys run from `.github/workflows/presence.yml` via manual dispatch on
+main: `gh workflow run presence.yml` deploys production, and
+`gh workflow run presence.yml -f target=dev` deploys the shared
+`cmux-presence-dev` baseline, both with the repository's Cloudflare secrets
+(no personal Cloudflare account membership needed). `wrangler deploy` applies
+the `[[migrations]]` block atomically with the upload, so Durable Object
+storage classes can never lag the deployed code.
 
 Required GitHub repository secrets:
 
@@ -85,8 +109,10 @@ Stack project's Worker secrets:
 https://cmux-presence-dev.debussy.workers.dev
 ```
 
-Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
-(its `STACK_*` Worker secrets are already provisioned and survive deploys).
+Redeploy it with `gh workflow run presence.yml -f target=dev` (or locally with
+`bunx wrangler deploy --config wrangler.dev.toml` if your Cloudflare login has
+the account); its `STACK_*` Worker secrets are already provisioned and survive
+deploys.
 
 > [!IMPORTANT]
 > Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default

@@ -67,6 +67,20 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Sends `split-window -P -F '#{pane_id}'` and returns the stable pane id
+    /// printed by that exact command block. Concurrent pane publications cannot
+    /// be mistaken for the locally-created pane.
+    @discardableResult
+    func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        let token = UUID()
+        newPaneCompletions[token] = completion
+        guard sendInternal(command, kind: .newPane(token)) else {
+            newPaneCompletions.removeValue(forKey: token)?(nil)
+            return false
+        }
+        return true
+    }
+
     /// Requests the current window list + layouts (used to (re)build topology).
     ///
     /// `#{window_name}` is placed last because it can contain spaces, while the

@@ -137,7 +137,8 @@ extension MobileShellComposite {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: context.macDeviceID
+                        macDeviceID: context.macDeviceID,
+                        instanceTag: context.instanceTag
                     ) ?? createdWorkspace
                 )
             }
@@ -192,6 +193,7 @@ extension MobileShellComposite {
         guard connectionState == .connected, let remoteClient else { return nil }
         return WorkspaceCreatePinnedContext(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration,
             supportedHostCapabilities: supportedHostCapabilities,
@@ -202,6 +204,7 @@ extension MobileShellComposite {
     private func isCurrentWorkspaceCreateContext(_ context: WorkspaceCreatePinnedContext) -> Bool {
         context.isCurrent(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration
         ) && isSignedIn && connectionState == .connected

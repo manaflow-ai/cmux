@@ -7,7 +7,8 @@ import Foundation
 /// grammar revision that still carry `e` (expiry) and `n` (display name)
 /// decode here with both intentionally dropped: a pairing QR never expires,
 /// and the Mac's name is read post-handshake from `mobile.host.status`.
-/// New Iroh pairing payloads disclose only EndpointID identity. The explicit
+/// Compact Iroh fallbacks disclose only EndpointID identity. The primary
+/// scannable Iroh code uses ``CmxPairingQRCode`` instead; the explicit
 /// compatibility mode temporarily retains released clients' legacy routes.
 struct CompactAttachTicket: Codable {
     let v: Int

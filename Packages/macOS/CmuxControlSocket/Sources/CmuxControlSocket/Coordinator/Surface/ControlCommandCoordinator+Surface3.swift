@@ -113,15 +113,36 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentSessionEnded: Bool
+        switch params["agent_session_ended"] {
+        case .none:
+            agentSessionEnded = false
+        case .some(.bool(let value)):
+            agentSessionEnded = value
+        case .some:
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().agentSessionEndedMustBeBoolean,
+                data: nil
+            )
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
             hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
-            expectedSource: optionalTrimmedRawString(params, "source")
+            expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
+    }
+
+    /// The localized surface-resume strings supplied by the app bundle.
+    private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: ""
+        )
     }
 
     /// Shapes the shared `surface.resume.*` result.
@@ -135,6 +156,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Surface not found", data: nil)
         case .emptyResumeCommand:
             return .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+        case .approvalPending(let message):
+            return .err(
+                code: "busy",
+                message: message,
+                data: .object(["retryable": .bool(true)])
+            )
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):

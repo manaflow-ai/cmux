@@ -263,6 +263,55 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Remove one exact tagged app instance in the EXACT captured team scope.
+    ///
+    /// Identical to ``remove(macDeviceID:instanceTag:stackUserID:teamID:)``
+    /// except it does NOT substitute a nil `teamID` with the currently-selected
+    /// team (``resolvedTeam``). The forget-hidden-computer path captures its
+    /// scope before an async revoke; if the user switches teams during that
+    /// await, resolving a nil (team-less) captured scope to the live team would
+    /// delete the newly-selected team's row instead of the team-less one this
+    /// call was issued against.
+    ///
+    /// Forward the captured scope straight to `inner.removeExactScope`. Do NOT
+    /// re-derive the row's team through ``visibleScope`` / ``visibleMac``: those
+    /// call `inner.loadAll(teamID:)`, which broadens (a nil team returns every
+    /// team's rows; a set team also returns team-less rows) and orders by
+    /// `lastSeenAt` descending, so `.first` can resolve a DIFFERENT team's row
+    /// than the captured scope and delete that instead. `inner.removeExactScope`
+    /// deletes by the exact `(stackUserID, teamID, instanceTag)` owner key, and
+    /// the layers below (``MobileMacCompatiblePairedMacStore``,
+    /// ``IOSBuildScopedPairedMacStore``) do not substitute the team, so the
+    /// captured scope is honored verbatim all the way down. Mirrors
+    /// ``BackingUpPairedMacStore/removeExactScope(macDeviceID:instanceTag:stackUserID:teamID:)``.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Cross-team by contract: forward verbatim, WITHOUT substituting the live
+    /// team. This decorator's whole job is scoping reads to the selected team;
+    /// the instance enumeration exists precisely to see past that boundary
+    /// (a wildcard forget's revoke is account-wide, so its cleanup must be too).
+    public func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+    }
+
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()

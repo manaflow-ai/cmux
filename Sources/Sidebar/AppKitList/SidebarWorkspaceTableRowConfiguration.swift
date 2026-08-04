@@ -44,6 +44,36 @@ struct SidebarWorkspaceTableRowConfiguration {
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
 
+    private init(
+        id: SidebarWorkspaceRenderItemID,
+        workspaceId: UUID,
+        groupId: UUID?,
+        isGroupHeader: Bool,
+        isPinned: Bool,
+        makeContent: @escaping ContentFactory,
+        appKitGroupHeaderModel: SidebarGroupHeaderRowModel?,
+        appKitWorkspaceRowModel: SidebarWorkspaceRowModel?,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
+        equivalenceValue: Any,
+        isEquivalentValue: @escaping (Any) -> Bool
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.groupId = groupId
+        self.isGroupHeader = isGroupHeader
+        self.isPinned = isPinned
+        self.makeContent = makeContent
+        self.appKitGroupHeaderModel = appKitGroupHeaderModel
+        self.appKitGroupHeaderActions = nil
+        self.appKitWorkspaceRowModel = appKitWorkspaceRowModel
+        self.appKitWorkspaceRowActions = nil
+        self.appKitWorkspaceRowWorkspace = nil
+        self.appKitWorkspaceRowRebuild = nil
+        self.environment = environment
+        self.equivalenceValue = equivalenceValue
+        self.isEquivalentValue = isEquivalentValue
+    }
+
     init<Content: View & Equatable>(
         id: SidebarWorkspaceRenderItemID,
         workspaceId: UUID,
@@ -131,6 +161,24 @@ struct SidebarWorkspaceTableRowConfiguration {
     func hasEquivalentContent(to other: Self) -> Bool {
         environment.hasEquivalentPresentation(to: other.environment)
             && isEquivalentValue(other.equivalenceValue)
+    }
+
+    /// Keeps the immutable paint model while dropping every live action,
+    /// workspace, and hosted-content capture during retained hidden display.
+    func presentationSnapshot() -> Self {
+        Self(
+            id: id,
+            workspaceId: workspaceId,
+            groupId: groupId,
+            isGroupHeader: isGroupHeader,
+            isPinned: isPinned,
+            makeContent: { _, _ in AnyView(EmptyView()) },
+            appKitGroupHeaderModel: appKitGroupHeaderModel,
+            appKitWorkspaceRowModel: appKitWorkspaceRowModel,
+            environment: environment,
+            equivalenceValue: id,
+            isEquivalentValue: { ($0 as? SidebarWorkspaceRenderItemID) == id }
+        )
     }
 
     var estimatedHeight: CGFloat {

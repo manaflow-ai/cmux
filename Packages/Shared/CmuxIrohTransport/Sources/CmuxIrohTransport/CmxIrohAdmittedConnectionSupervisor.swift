@@ -7,19 +7,31 @@
 ///
 /// ```swift
 /// let supervisor = CmxIrohAdmittedConnectionSupervisor(
-///     runControl: { await serveControl() },
-///     runApplicationLanes: { await serveApplicationLanes() },
+///     runControl: {
+///         await serveControl()
+///         return CmxIrohAdmittedConnectionExit(
+///             lifecycle: .remoteClosed,
+///             failure: .connectionClosed
+///         )
+///     },
+///     runApplicationLanes: {
+///         await serveApplicationLanes()
+///         return CmxIrohAdmittedConnectionExit(
+///             lifecycle: .applicationLaneFailed,
+///             failure: .connectionClosed
+///         )
+///     },
 ///     closeConnection: { await connection.close() },
 ///     stopApplicationLanes: { await lanes.stop() }
 /// )
-/// await supervisor.run()
+/// let exit = await supervisor.run()
 /// ```
 public actor CmxIrohAdmittedConnectionSupervisor {
-    private let runControl: @Sendable () async -> Void
-    private let runApplicationLanes: @Sendable () async -> Void
+    private let runControl: @Sendable () async -> CmxIrohAdmittedConnectionExit
+    private let runApplicationLanes: @Sendable () async -> CmxIrohAdmittedConnectionExit
     private let closeConnection: @Sendable () async -> Void
     private let stopApplicationLanes: @Sendable () async -> Void
-    private var didRun = false
+    private var runTask: Task<CmxIrohAdmittedConnectionExit, Never>?
 
     /// Creates the sole lifetime owner for one admitted connection.
     ///
@@ -33,8 +45,8 @@ public actor CmxIrohAdmittedConnectionSupervisor {
     ///   - stopApplicationLanes: Cancels and joins every accepted application
     ///     lane after the connection starts closing.
     public init(
-        runControl: @escaping @Sendable () async -> Void,
-        runApplicationLanes: @escaping @Sendable () async -> Void,
+        runControl: @escaping @Sendable () async -> CmxIrohAdmittedConnectionExit,
+        runApplicationLanes: @escaping @Sendable () async -> CmxIrohAdmittedConnectionExit,
         closeConnection: @escaping @Sendable () async -> Void,
         stopApplicationLanes: @escaping @Sendable () async -> Void
     ) {
@@ -44,26 +56,43 @@ public actor CmxIrohAdmittedConnectionSupervisor {
         self.stopApplicationLanes = stopApplicationLanes
     }
 
-    /// Runs the connection until either child exits, then closes all owned work.
-    public func run() async {
-        guard !didRun else { return }
-        didRun = true
+    /// Runs until either child exits, closes owned work, and returns that first exit reason.
+    public func run() async -> CmxIrohAdmittedConnectionExit {
+        if let runTask { return await runTask.value }
         let runControl = runControl
         let runApplicationLanes = runApplicationLanes
         let closeConnection = closeConnection
         let stopApplicationLanes = stopApplicationLanes
 
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await runControl()
+        let task = Task {
+            await withTaskGroup(
+                of: CmxIrohAdmittedConnectionExit.self,
+                returning: CmxIrohAdmittedConnectionExit.self
+            ) { group in
+                group.addTask {
+                    await runControl()
+                }
+                group.addTask {
+                    await runApplicationLanes()
+                }
+                let firstExit = await group.next() ?? CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: .none
+                )
+                group.cancelAll()
+                await closeConnection()
+                await stopApplicationLanes()
+                return firstExit
             }
-            group.addTask {
-                await runApplicationLanes()
-            }
-            _ = await group.next()
-            group.cancelAll()
-            await closeConnection()
-            await stopApplicationLanes()
         }
+        runTask = task
+        return await withTaskCancellationHandler(
+            operation: {
+                await task.value
+            },
+            onCancel: {
+                task.cancel()
+            }
+        )
     }
 }

@@ -61,7 +61,10 @@ struct WorkspaceCanvasHostView: View {
                         content: Self.makeContent(
                             panel: panel,
                             workspace: workspace,
+                            pointerInputOwner: container,
+                            isFocused: isFocused,
                             isWorkspaceVisible: isWorkspaceVisible,
+                            allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                             portalPriority: portalPriority,
                             appearance: appearance,
                             windowAppearance: windowAppearance,
@@ -79,6 +82,7 @@ struct WorkspaceCanvasHostView: View {
                     guard let mount = mount as? CanvasPaneContentMount else { return }
                     mount.updatePresentation(
                         isFocused: isFocused,
+                        allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                         showsInactiveOverlay: isSplit && !isFocused,
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                         inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
@@ -97,6 +101,7 @@ struct WorkspaceCanvasHostView: View {
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"
         case .customSidebar: return "wand.and.stars"
+        case .simulator: return "iphone.gen3"
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
@@ -109,7 +114,10 @@ struct WorkspaceCanvasHostView: View {
     private static func makeContent(
         panel: any Panel,
         workspace: Workspace?,
+        pointerInputOwner: NSView,
+        isFocused: Bool,
         isWorkspaceVisible: Bool,
+        allowsPointerInput: Bool,
         portalPriority: Int,
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
@@ -121,11 +129,16 @@ struct WorkspaceCanvasHostView: View {
         }
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: isFocused,
+            allowsPointerInput: allowsPointerInput,
+            pointerInputOwner: pointerInputOwner
+        )
         let content = CanvasHostedPanelContentView(
+            presentation: presentation,
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: false,
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,
@@ -141,7 +154,7 @@ struct WorkspaceCanvasHostView: View {
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
-        return .hosted(panel, hosted)
+        return .hosted(panel, hosted, presentation)
     }
 }
 

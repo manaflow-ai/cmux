@@ -192,66 +192,60 @@ struct SessionIndexView: View {
             await store.loadDirectorySnapshot(cwd: cwd)
         }
 
-        return ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
-                    // Drop above this row -> insert dragged section BEFORE this section's key.
-                    SectionReorderGap(
-                        beforeKey: section.key,
-                        isValidDrop: draggedKey == nil || draggedKey != section.key,
-                        actions: gapActions
-                    ).equatable()
-                    IndexSectionView(
-                        section: section,
-                        rowLimit: Self.collapsedRowLimit,
-                        isDragged: draggedKey == section.key,
-                        previewEntryId: previewEntry?.id,
-                        isCollapsed: Binding(
-                            get: { collapsedSections.contains(section.key) },
-                            set: { newValue in
-                                if newValue {
-                                    collapsedSections.insert(section.key)
-                                } else {
-                                    collapsedSections.remove(section.key)
-                                }
-                            }
-                        ),
-                        isPopoverOpen: Binding(
-                            get: { openPopoverSection == section.key },
-                            set: { newValue in
-                                openPopoverSection = newValue ? section.key : nil
-                            }
-                        ),
-                        actions: IndexSectionActions(
-                            onBeginDrag: { dragCoordinator.draggedKey = section.key },
-                            onPreviewEntry: { entry in
-                                previewEntry = entry
-                            },
-                            onDismissPreview: { id in
-                                if previewEntry?.id == id {
-                                    previewEntry = nil
-                                }
-                            },
-                            onResume: onResumeClosure,
-                            search: searchFn,
-                            loadSnapshot: loadSnapshotFn
-                        )
-                    ).equatable()
-                    let _ = index
-                }
-                // Trailing gap -> append.
-                SectionReorderGap(
-                    beforeKey: nil,
-                    isValidDrop: true,
+        let rows = sections.flatMap { section in
+            let sectionActions = IndexSectionActions(
+                onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                onPreviewEntry: { entry in
+                    previewEntry = entry
+                },
+                onDismissPreview: { id in
+                    if previewEntry?.id == id {
+                        previewEntry = nil
+                    }
+                },
+                onResume: onResumeClosure,
+                search: searchFn,
+                loadSnapshot: loadSnapshotFn
+            )
+            return [
+                SessionIndexTableRow.gap(
+                    beforeKey: section.key,
+                    isValidDrop: draggedKey == nil || draggedKey != section.key,
                     actions: gapActions
-                ).equatable()
-            }
-            .padding(.bottom, 8)
-        }
-        .modifier(ClearScrollBackground())
-        .background(
-            DragCancelMonitor(dragCoordinator: dragCoordinator)
-        )
+                ),
+                SessionIndexTableRow.section(
+                    section: section,
+                    rowLimit: Self.collapsedRowLimit,
+                    isDragged: draggedKey == section.key,
+                    previewEntryId: SessionIndexTableRow.containedPreviewEntryID(previewEntry?.id, in: section),
+                    isCollapsed: collapsedSections.contains(section.key),
+                    isPopoverOpen: openPopoverSection == section.key,
+                    actions: sectionActions,
+                    setCollapsed: { newValue in
+                        if newValue {
+                            collapsedSections.insert(section.key)
+                        } else {
+                            collapsedSections.remove(section.key)
+                        }
+                    },
+                    setPopoverOpen: { newValue in
+                        openPopoverSection = newValue ? section.key : nil
+                    }
+                ),
+            ]
+        } + [
+            SessionIndexTableRow.gap(
+                beforeKey: nil,
+                isValidDrop: true,
+                actions: gapActions
+            ),
+        ]
+
+        return SessionIndexTableView(rows: rows)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                DragCancelMonitor(dragCoordinator: dragCoordinator)
+            )
     }
 }
 
@@ -342,7 +336,7 @@ struct SectionGapActions {
     let clearDraggedKey: @MainActor () -> Void
 }
 
-private struct IndexSectionView: View, Equatable {
+struct IndexSectionView: View, Equatable {
     let section: IndexSection
     let rowLimit: Int
     /// True iff this section is the one currently being dragged. Precomputed
@@ -359,9 +353,9 @@ private struct IndexSectionView: View, Equatable {
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
-    /// capture stable object references above the list boundary). Excluding
-    /// it from `==` is the core optimization that keeps LazyVStack's layout
-    /// cache from thrashing when unrelated store fields change.
+    /// capture stable object references above the table boundary). Excluding
+    /// it from `==` keeps a recycled cell's hosted graph stable when unrelated
+    /// store fields change.
     static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
         lhs.section == rhs.section
             && lhs.rowLimit == rhs.rowLimit
@@ -478,7 +472,7 @@ private struct IndexSectionView: View, Equatable {
     }
 }
 
-private struct SectionReorderGap: View, Equatable {
+struct SectionReorderGap: View, Equatable {
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
@@ -1060,7 +1054,7 @@ private extension SessionEntry {
     }
 }
 
-private enum SessionTranscriptLoader {
+enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
@@ -1311,8 +1305,11 @@ private enum SessionTranscriptLoader {
         var lineIndex = 0
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
+        let metrics = SessionIndexJSONLReader().fromTailPages(
+            url: url,
+            maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+            maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit
+        ) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
             guard turns.count < maxPreviewTurns else {
@@ -1329,9 +1326,10 @@ private enum SessionTranscriptLoader {
             turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
             return false
         }
-        if didHitTurnLimit {
+        if didHitTurnLimit || !metrics.didReachStart {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
+        turns.reverse()
         return coalesce(turns)
     }
 

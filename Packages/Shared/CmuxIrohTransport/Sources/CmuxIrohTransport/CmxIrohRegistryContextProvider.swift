@@ -495,8 +495,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             $0.platform == .mac && $0.pairingEnabled
         }
         let counts = Dictionary(grouping: pairableMacs, by: \.endpointID).mapValues(\.count)
-        for target in pairableMacs.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
-        where counts[target.endpointID] == 1 {
+        for target in pairableMacs where counts[target.endpointID] == 1 {
             replacement[target.endpointID] = CmxIrohRegistryLANAuthority(
                 target: target,
                 bindings: discovery.bindings,
@@ -517,12 +516,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             bindings: bindings ?? [policy.targetBinding],
             rendezvous: policy.lanRendezvous
         )
-        if lanAuthorities.count > CmxIrohDiscoveryResponse.maximumBindingCount {
-            let keep = Set(lanAuthorities.keys.sorted {
-                $0.endpointID < $1.endpointID
-            }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
-            lanAuthorities = lanAuthorities.filter { keep.contains($0.key) }
-        }
     }
 
     public func validatePrivateFallback(

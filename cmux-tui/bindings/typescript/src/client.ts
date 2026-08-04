@@ -18,6 +18,7 @@ import type {
   ColorHex,
   CopyMode,
   CopyResult,
+  DecodedBrowserFrame,
   DecodedAttachEvent,
   EmptyResult,
   ExportLayoutResult,
@@ -30,6 +31,9 @@ import type {
   JsonObject,
   ListAgentsResult,
   ListClientsResult,
+  ListTerminalsResult,
+  LayoutUndoResult,
+  MoveTerminalResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -41,13 +45,16 @@ import type {
   ReloadConfigResult,
   ResizeSurfaceResult,
   ReportAgentResult,
+  ResolveTerminalResult,
   RunResult,
   RenderAttachEvent,
   SidebarPluginResult,
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalKeyInput,
   TerminalPlacement,
+  TerminalEventsResult,
   Tree,
   WorkspacePlacement,
   WorkspaceMutation,
@@ -57,6 +64,7 @@ import type {
   ZoomPaneResult,
   AgentReportSource,
   AgentState,
+  CloseTerminalResult,
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
@@ -76,6 +84,65 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
+
+function validateViewportPaneWidth(width: unknown): asserts width is number {
+  if (
+    typeof width !== "number"
+    || !Number.isFinite(width)
+    || width < 0.1
+    || width > 1.0
+  ) {
+    throw new CmuxProtocolError("viewport pane width must be between 0.1 and 1.0");
+  }
+}
+
+function layoutUndoUint(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new CmuxProtocolError(`layout undo ${field} is not a nonnegative integer`);
+  }
+  return value;
+}
+
+function decodeLayoutUndoResult(value: unknown): LayoutUndoResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CmuxProtocolError("layout undo result is not an object");
+  }
+  const result = value as Record<string, unknown>;
+  const screen = layoutUndoUint(result.screen, "screen");
+  const revision = layoutUndoUint(result.revision, "revision");
+
+  if (
+    result.undone === true
+    && (result.confirmation_required === undefined
+      || result.confirmation_required === false)
+  ) {
+    return { undone: true, screen, revision };
+  }
+  if (result.undone === false && result.confirmation_required === true) {
+    if (!Array.isArray(result.closes_panes)) {
+      throw new CmuxProtocolError("layout undo closes_panes is not an array");
+    }
+    return {
+      undone: false,
+      confirmation_required: true,
+      screen,
+      revision,
+      closes_panes: result.closes_panes.map((pane) => layoutUndoUint(pane, "pane ID")),
+    };
+  }
+  throw new CmuxProtocolError("layout undo result does not contain exactly one valid outcome");
+}
+
+function decodeResponseData(command: CmuxCommand, value: unknown): unknown {
+  if (command === "undo-layout") return decodeLayoutUndoResult(value);
+  return value;
+}
+
+export interface ResizeTransactionOptions {
+  /** Reuse across one continuous drag, then choose a new value for the next drag. */
+  transaction?: number | null;
+}
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result
@@ -93,16 +160,36 @@ function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): Works
   throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
 }
 
+function normalizeClientSizing(clients: ListClientsResult): ListClientsResult {
+  return clients.map((client) => {
+    const fallback = client.size_participating ?? true;
+    if (client.sizes.every((size) => size.size_participating !== undefined)) return client;
+    return {
+      ...client,
+      sizes: client.sizes.map((size) => (
+        size.size_participating === undefined
+          ? { ...size, size_participating: fallback }
+          : size
+      )),
+    };
+  });
+}
+
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type CreateWorkspaceOptions = CmuxRequestParams<"create-workspace">;
 export type CreateTerminalOptions = CmuxRequestParams<"create-terminal">;
+export type CloseTerminalOptions = Omit<
+  CmuxRequestParams<"close-terminal">,
+  "terminal_id" | "terminal_incarnation"
+>;
 export type CloseWorkspaceOptions = CmuxRequestParams<"close-workspace">;
 export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
 export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
 export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
+export type NewPaneRightOptions = Omit<CmuxRequestParams<"new-pane-right">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -415,8 +502,16 @@ export class CmuxClient {
       ? { cmd: requestOrCommand, ...(params ?? {}) }
       : requestOrCommand;
     const response = await this.sendRaw(request as unknown as JsonObject);
-    if (response.ok) return response.data as CmuxResponseDataFor<C>;
-    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    if (response.ok) {
+      return decodeResponseData(request.cmd, response.data) as CmuxResponseDataFor<C>;
+    }
+    throw new CmuxCommandError(
+      response.error || "unknown error",
+      response.id,
+      response,
+      response.error_code,
+      response.error_delivery,
+    );
   }
 
   async identify(): Promise<IdentifyResult> {
@@ -433,21 +528,30 @@ export class CmuxClient {
   setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
     return this.request("set-client-info", { name, kind });
   }
-  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  async listClients(): Promise<ListClientsResult> {
+    return normalizeClientSizing(await this.request("list-clients"));
+  }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
-  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled });
+  async setClientSizing(surface: Id, client: Id, enabled: boolean): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled });
   }
-  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  async useOnlyClientSizing(surface: Id, client: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled: true, exclusive: true });
   }
-  useAllClientSizing(): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { enabled: true });
+  async useAllClientSizing(surface: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, enabled: true });
   }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
   listWorkspaces(): Promise<Tree> { return this.request("list-workspaces"); }
+  listTerminals(): Promise<ListTerminalsResult> { return this.request("list-terminals"); }
+  terminalEvents(afterRevision = 0): Promise<TerminalEventsResult> {
+    return this.request("terminal-events", { after_revision: afterRevision });
+  }
   exportLayout(screen?: Id | null): Promise<ExportLayoutResult> { return this.request("export-layout", { screen }); }
   applyLayout(layout: DeclarativeLayout, options: Omit<CmuxRequestParams<"apply-layout">, "layout"> = {}): Promise<ApplyLayoutResult> {
     return this.request("apply-layout", { ...options, layout });
@@ -459,6 +563,17 @@ export class CmuxClient {
     return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
   }
 
+  async clearHistory(surface: Id, fallbackKey?: TerminalKeyInput): Promise<EmptyResult> {
+    await this.requireCapability("clear-history-v1", "clear-history");
+    if (fallbackKey !== undefined) {
+      await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+      if (new TextEncoder().encode(fallbackKey.utf8).byteLength > TERMINAL_KEY_TEXT_MAX_BYTES) {
+        throw new TypeError("terminal key text exceeds the 4 KiB protocol limit");
+      }
+    }
+    return this.request("clear-history", { surface, fallback_key: fallbackKey });
+  }
+
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }
   readScrollback(surface: Id, start: number, count: number): Promise<ReadScrollbackResult> {
     return this.request("read-scrollback", { surface, start, count });
@@ -467,6 +582,20 @@ export class CmuxClient {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
   vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
+    return this.request("resolve-terminal", { terminal_id: terminalId });
+  }
+  closeTerminal(
+    terminalId: string,
+    terminalIncarnation?: string | null,
+    options: CloseTerminalOptions = {},
+  ): Promise<CloseTerminalResult> {
+    return this.request("close-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      terminal_incarnation: terminalIncarnation,
+    });
+  }
   newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options); }
   newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> {
     return this.request("new-browser-tab", { url, ...options });
@@ -480,10 +609,34 @@ export class CmuxClient {
     await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("create-terminal", options);
   }
+  moveTerminal(
+    terminalId: string,
+    workspaceKey: string,
+    options: Omit<
+      CmuxRequestParams<"move-terminal">,
+      "terminal_id" | "workspace_key"
+    > = {},
+  ): Promise<MoveTerminalResult> {
+    return this.request("move-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      workspace_key: workspaceKey,
+    });
+  }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
   async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
     await this.requireProtocol(9, "new-pane");
     return this.request("new-pane", { pane, ...options });
+  }
+  async newPaneRight(
+    pane: Id,
+    options: NewPaneRightOptions = {},
+  ): Promise<SurfaceResult> {
+    if (options.width !== undefined && options.width !== null) {
+      validateViewportPaneWidth(options.width);
+    }
+    await this.requireCapability("viewport-splits-v1", "viewport panes");
+    return this.request("new-pane-right", { pane, ...options });
   }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
@@ -491,9 +644,39 @@ export class CmuxClient {
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
   }
-  async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+  async setSplitRatio(
+    split: Id,
+    ratio: number,
+    options: ResizeTransactionOptions = {},
+  ): Promise<EmptyResult> {
     await this.requireProtocol(8, "set-split-ratio");
-    return this.request("set-split-ratio", { split, ratio });
+    return this.request("set-split-ratio", { split, ratio, ...options });
+  }
+  async setViewportPaneWidth(
+    pane: Id,
+    width: number,
+    options: ResizeTransactionOptions = {},
+  ): Promise<EmptyResult> {
+    validateViewportPaneWidth(width);
+    await this.requireCapability(
+      "viewport-column-resize-v1",
+      "viewport pane resizing",
+    );
+    return this.request("set-viewport-pane-width", { pane, width, ...options });
+  }
+  async undoLayout(
+    pane: Id,
+    confirmationRevision?: number,
+  ): Promise<LayoutUndoResult> {
+    await this.requireCapability("layout-undo-v1", "layout undo");
+    if (confirmationRevision === undefined) {
+      return this.request("undo-layout", { pane });
+    }
+    return this.request("undo-layout", {
+      pane,
+      revision: confirmationRevision,
+      confirm_close: true,
+    });
   }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
     return this.request("pane-neighbor", { pane, dir });
@@ -713,7 +896,13 @@ export class CmuxClient {
     });
     if (!response.ok) {
       stream.close();
-      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+      throw new CmuxCommandError(
+        response.error || "unknown error",
+        response.id,
+        response,
+        response.error_code,
+        response.error_delivery,
+      );
     }
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
@@ -734,19 +923,18 @@ export class CmuxClient {
         return { ...event, data, replay: data } as DecodedAttachEvent;
       }
       case "frame": {
-        this.validateAttachEncodedData(event.data, "frame");
-        return event as DecodedAttachEvent;
+        return {
+          ...event,
+          ...this.decodeBrowserFrame(event, "frame"),
+        } as DecodedAttachEvent;
       }
       case "browser-state": {
         const frame = event.frame;
         if (frame !== undefined && frame !== null) {
-          if (typeof frame !== "object" || Array.isArray(frame)) {
-            throw new CmuxProtocolError("browser-state frame is not an object");
-          }
-          this.validateAttachEncodedData(
-            (frame as { data?: unknown }).data,
-            "browser-state frame",
-          );
+          return {
+            ...event,
+            frame: this.decodeBrowserFrame(frame, "browser-state frame"),
+          } as DecodedAttachEvent;
         }
         return event as DecodedAttachEvent;
       }
@@ -756,6 +944,61 @@ export class CmuxClient {
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {
     return decodeBase64(this.validateAttachEncodedData(value, eventName));
+  }
+
+  private decodeBrowserFrame(value: unknown, eventName: string): DecodedBrowserFrame {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new CmuxProtocolError(`${eventName} is not an object`);
+    }
+    const frame = value as Record<string, unknown>;
+    const seq = this.validateFrameSequence(frame.seq, eventName);
+    const width = this.validateFrameCssDimension(frame.width, eventName, "width");
+    const height = this.validateFrameCssDimension(frame.height, eventName, "height");
+    const imageWidth = frame.image_width === undefined
+      ? width
+      : this.validateFrameDimension(frame.image_width, eventName, "image_width");
+    const imageHeight = frame.image_height === undefined
+      ? height
+      : this.validateFrameDimension(frame.image_height, eventName, "image_height");
+    const data = this.validateAttachEncodedData(frame.data, eventName);
+    return {
+      ...frame,
+      seq,
+      width,
+      height,
+      image_width: imageWidth,
+      image_height: imageHeight,
+      data,
+    } as DecodedBrowserFrame;
+  }
+
+  private validateFrameSequence(value: unknown, eventName: string): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new CmuxProtocolError(`${eventName} seq is not a nonnegative integer`);
+    }
+    return value;
+  }
+
+  private validateFrameCssDimension(
+    value: unknown,
+    eventName: string,
+    field: string,
+  ): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new CmuxProtocolError(`${eventName} ${field} is not a nonnegative integer`);
+    }
+    return value;
+  }
+
+  private validateFrameDimension(
+    value: unknown,
+    eventName: string,
+    field: string,
+  ): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw new CmuxProtocolError(`${eventName} ${field} is not a positive integer`);
+    }
+    return value;
   }
 
   private validateAttachEncodedData(value: unknown, eventName: string): string {

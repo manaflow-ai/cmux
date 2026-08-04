@@ -15,6 +15,7 @@ import {
   IrohTrustBrokerRuntime,
   type IrohTrustBrokerShape,
 } from "./trustBroker";
+import { parseIrohDiscoveryRequest } from "./discoveryPagination";
 
 const MAX_BODY_BYTES = 64 * 1_024;
 const FIREWALL_TIMEOUT_MS = 2_500;
@@ -98,6 +99,10 @@ export async function handleIrohRoute(
   if (operation === "challenge" || operation === "register") {
     bodyResult = await readBoundedJson(request);
     if (!bodyResult.ok) return bodyResult.response;
+  } else if (operation === "discover") {
+    const discovery = discoveryRequest(request);
+    if (!discovery.ok) return discovery.response;
+    bodyResult = { ok: true, value: discovery.value };
   }
 
   const firewall = dependencies.firewall ?? (
@@ -117,7 +122,7 @@ export async function handleIrohRoute(
       () => abortController.abort(new Error("firewall_timeout")),
       firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
     );
-    let result: IrohFirewallCheckResult;
+    let result: IrohFirewallCheckResult | undefined;
     try {
       result = await (firewall.admission ?? firewallAdmission).run(
         `${firewall.id}:${rateLimitKey}`,
@@ -132,23 +137,32 @@ export async function handleIrohRoute(
         operation,
         failure: "request_failed_or_timed_out",
       });
-      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+      // Discovery is an authenticated, read-only lookup. Its database and
+      // account boundaries remain enforced by the broker, so an optional
+      // platform rate-limit outage must not take existing devices offline.
+      // Mutations still fail closed because they create or rotate trusted
+      // state.
+      if (operation !== "discover") {
+        return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+      }
     } finally {
       clearTimeout(timeout);
     }
-    const { error, rateLimited } = result;
-    if (rateLimited || error === "blocked") {
-      return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
-    }
-    if (error) {
-      console.error("iroh trust broker firewall unavailable", { operation, failure: error });
-      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+    if (result) {
+      const { error, rateLimited } = result;
+      if (rateLimited || error === "blocked") {
+        return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
+      }
+      if (error === "not-found") {
+        // The configured rule no longer exists (Vercel returns 404). That means
+        // the operator deleted the limit, so treat it as "no limit" and fail open
+        // rather than 503-ing every request.
+        console.warn("iroh rate-limit rule not found; failing open", { operation });
+      }
     }
   }
 
-  bodyResult ??= operation === "discover"
-    ? { ok: true as const, value: undefined }
-    : await readBoundedJson(request);
+  bodyResult ??= await readBoundedJson(request);
   if (!bodyResult.ok) return bodyResult.response;
 
   try {
@@ -221,11 +235,47 @@ function invoke(
   switch (operation) {
     case "challenge": return broker.issueChallenge(userId, body);
     case "register": return broker.register(userId, body);
-    case "discover": return broker.discover(userId);
+    case "discover": return broker.discover(userId, undefined, body);
     case "endpoint_attestation": return broker.issueEndpointAttestation(userId, body);
     case "revoke": return broker.revoke(userId, body);
     case "pair_grant": return broker.issuePairGrant(userId, body);
     case "relay_token": return broker.issueRelayToken(userId, body);
+  }
+}
+
+function discoveryRequest(request: Request):
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly response: Response } {
+  const url = new URL(request.url);
+  const allowed = new Set(["page_size", "cursor"]);
+  if (
+    [...url.searchParams.keys()].some((key) => !allowed.has(key)) ||
+    url.searchParams.getAll("page_size").length > 1 ||
+    url.searchParams.getAll("cursor").length > 1
+  ) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: "invalid_discovery_page_size" }, 400),
+    };
+  }
+  const pageSize = url.searchParams.get("page_size");
+  const cursor = url.searchParams.get("cursor");
+  if (pageSize === null && cursor === null) {
+    return { ok: true, value: undefined };
+  }
+  const value = {
+    ...(pageSize === null ? {} : { pageSize }),
+    ...(cursor === null ? {} : { cursor }),
+  };
+  try {
+    parseIrohDiscoveryRequest(value);
+    return { ok: true, value };
+  } catch (error) {
+    const code = error && typeof error === "object" &&
+        (error as { _tag?: unknown })._tag === "IrohInvalidInputError"
+      ? (error as { code: string }).code
+      : "invalid_discovery_page_size";
+    return { ok: false, response: jsonResponse({ error: code }, 400) };
   }
 }
 

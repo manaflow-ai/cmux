@@ -414,7 +414,7 @@ public final class AuthCoordinator {
         guard flow.generation == sessionGeneration else {
             throw CancellationError()
         }
-        await applySignedInUser(user)
+        await applySignedInUser(user, publication: .signIn)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -580,12 +580,43 @@ public final class AuthCoordinator {
 
     // MARK: - State helpers
 
-    func applySignedInUser(_ user: CMUXAuthUser) async {
-        // Publishing a session advances the epoch exactly like clearing one:
-        // any other flow that captured the pre-publish generation (a stale
-        // revalidation of the previous session still parked in its fetch)
-        // must not clear or overwrite this newer session when it resumes.
-        sessionGeneration &+= 1
+    /// Why a signed-in user is being published, deciding whether the session
+    /// generation advances.
+    enum SessionPublication {
+        /// A COMPLETED credential exchange. The token session was replaced, so
+        /// the generation ALWAYS advances — even for the same account:
+        /// operations pinned to the previous generation (the forget flow's
+        /// frozen credential pair, the activation runtime's pinned source)
+        /// must fail closed rather than keep acting with the replaced
+        /// session's authority.
+        case signIn
+        /// A revalidation of the ALREADY-published session (foreground return,
+        /// startup cache validation). No new exchange happened, so the same
+        /// account keeps its generation: long-lived pins would otherwise be
+        /// starved on every foreground even though the very same session
+        /// remains signed in. An account CHANGE (or publishing over a
+        /// signed-out state) is still a transition and advances.
+        case revalidation
+    }
+
+    func applySignedInUser(
+        _ user: CMUXAuthUser,
+        publication: SessionPublication
+    ) async {
+        // Publishing a session TRANSITION advances the epoch exactly like
+        // clearing one: any other flow that captured the pre-publish generation
+        // (a stale revalidation of the previous session still parked in its
+        // fetch) must not clear or overwrite this newer session when it
+        // resumes. Which publications count as transitions is the caller's
+        // declaration — see ``SessionPublication``.
+        switch publication {
+        case .signIn:
+            sessionGeneration &+= 1
+        case .revalidation:
+            if !isAuthenticated || currentUser?.id != user.id {
+                sessionGeneration &+= 1
+            }
+        }
         let generation = sessionGeneration
         currentUser = user
         isAuthenticated = true

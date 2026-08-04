@@ -206,6 +206,7 @@ if [[ "$TARGET" == "simulator" ]]; then
     exit 1
   fi
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
   launch_args=(launch)
   if [[ "$DETACH" -ne 1 ]]; then
     launch_args+=(--console-pty)

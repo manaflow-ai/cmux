@@ -116,13 +116,21 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
+    var nextDiagnosticSessionID = 0
+    var failureRecoveryTask: Task<Void, Never>?
+    var retryInspectionTask: Task<Void, Never>?
+    var retryInspectionRevision: UInt64 = 0
+    var failureRecoveryFailureCount = 0
+    var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    var failureRecoverySchedule = CmxIrohRetrySchedule()
+    /// Single-flight owner for nudge-triggered refreshes: one task in flight,
+    /// later signals coalesce into one replay through the pending bit.
+    var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalRefreshPending = false
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
-        diagnosticLog = DiagnosticLog(
-            buildStamp: Self.diagnosticBuildStamp,
-            role: .macHost
-        )
+        diagnosticLog = Self.hostDiagnosticLog
         appInstances = CmxIrohAppInstanceRepository(store: installState)
         brokerBackpressureGate = CmxIrohBrokerBackpressureGate(store: installState)
         #if DEBUG
@@ -194,7 +202,16 @@ final class MobileHostIrohRuntime {
         lanPublisher = CmxIrohLANHostPublisher()
     }
 
-    private static var diagnosticBuildStamp: String {
+    /// The host diagnostic ring, deliberately `nonisolated` so read paths like
+    /// the `iroh_diag` socket verb can snapshot it without a main-actor hop:
+    /// the ring must stay exportable even when the main thread is wedged,
+    /// which is exactly when connection diagnostics matter most.
+    nonisolated static let hostDiagnosticLog = DiagnosticLog(
+        buildStamp: MobileHostIrohRuntime.diagnosticBuildStamp,
+        role: .macHost
+    )
+
+    private nonisolated static var diagnosticBuildStamp: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let name = info["CFBundleName"] as? String ?? "cmux"
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
@@ -208,6 +225,7 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -237,6 +255,10 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool,
         revision: UInt64
     ) async {
+        // Each transition re-derives failure recovery from its own outcome:
+        // success resets the backoff ladder, failure re-arms it, and a
+        // deactivating transition ends the need for it.
+        cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
             await quarantineForSignOut()
         } else if restartActiveRuntime
@@ -272,6 +294,7 @@ final class MobileHostIrohRuntime {
         ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
+            failureRecoveryFailureCount = 0
         } catch is CancellationError {
             return
         } catch {
@@ -283,6 +306,7 @@ final class MobileHostIrohRuntime {
             mobileHostIrohLog.error(
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
+            scheduleFailureRecovery()
         }
     }
 
@@ -290,5 +314,59 @@ final class MobileHostIrohRuntime {
         for error: any Error
     ) -> DiagnosticFailureKind {
         DiagnosticFailureKind.classify(error)
+    }
+
+    /// A server-directed presence nudge said broker-side state for this
+    /// device changed (its binding was revoked or replaced). One owned task
+    /// runs the refresh; a burst of nudge frames while it is in flight
+    /// coalesces into a single follow-up round instead of fanning out one
+    /// main-actor waiter per frame. When the refresh discovers the binding is
+    /// gone (a replacement returns a different binding id, which the runtime
+    /// rejects and fails closed on), rebuild through the shared reconcile
+    /// path so a fresh activation re-registers under the new server state.
+    /// An absent runtime goes through the standard retry evaluation.
+    func refreshRegistrationFromServerSignal() {
+        if serverSignalRefreshTask != nil {
+            serverSignalRefreshPending = true
+            return
+        }
+        guard let signalRuntime = runtime else {
+            retryIfNeeded()
+            return
+        }
+        serverSignalRefreshTask = Task { @MainActor [weak self] in
+            await signalRuntime.requestRegistrationRefresh()
+            guard let self else { return }
+            self.serverSignalRefreshTask = nil
+            let replayPending = self.serverSignalRefreshPending
+            self.serverSignalRefreshPending = false
+            guard self.runtime === signalRuntime,
+                  self.desiredActive,
+                  !self.signOutIntentActive,
+                  self.transitionTask == nil else { return }
+            if await signalRuntime.snapshot().state == .failed {
+                guard self.runtime === signalRuntime,
+                      self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.transitionTask == nil else { return }
+                self.scheduleReconcile(
+                    eraseAccountState: false,
+                    restartActiveRuntime: true
+                )
+                return
+            }
+            if replayPending {
+                self.refreshRegistrationFromServerSignal()
+            }
+        }
+    }
+
+    func makeDiagnosticSessionID() -> Int {
+        if nextDiagnosticSessionID == Int.max {
+            nextDiagnosticSessionID = 1
+        } else {
+            nextDiagnosticSessionID += 1
+        }
+        return nextDiagnosticSessionID
     }
 }

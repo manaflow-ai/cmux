@@ -37,6 +37,11 @@ fmt.Println(screen.Text)
 `NewClient` uses `CMUX_TUI_SOCKET` when set, then legacy `CMUX_MUX_SOCKET`, then
 the default session socket path.
 
+`ClearHistoryWithFallback` accepts a `TerminalKeyInput` and requires the server
+capability `clear-history-key-v1`. It rejects fallback `UTF8` fields above the
+4 KiB protocol limit before sending. `CommandError.Delivery` reports
+`known-not-delivered` or `ambiguous` when the server classifies a failure.
+
 ## E2E
 
 ```bash

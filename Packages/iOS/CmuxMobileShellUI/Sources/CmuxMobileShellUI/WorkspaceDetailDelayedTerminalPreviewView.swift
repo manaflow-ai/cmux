@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -21,6 +22,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         workspaces: initialWorkspaces
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserStreamStore = BrowserStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
 
@@ -31,6 +33,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserStreamStore)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear

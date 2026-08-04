@@ -560,6 +560,7 @@ export const vaultCliAuthRequests = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     deviceCodeHash: text("device_code_hash").notNull(),
     userCode: text("user_code").notNull(),
+    client: text("client").notNull().default("cmux-vault"),
     status: text("status").notNull(),
     userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -569,6 +570,10 @@ export const vaultCliAuthRequests = pgTable(
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
+    check(
+      "vault_cli_auth_requests_client_check",
+      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+    ),
   ],
 );
 
@@ -747,14 +752,22 @@ export const irohEndpointBindings = pgTable(
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
-      .on(table.appInstanceId)
+    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // or key rotation overwrites that slot in place instead of stacking a new row.
+    // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
+    // mints a fresh slot and orphans the old row (it stays active, wasting a
+    // sanity-cap slot and lingering in discovery until it is revoked or expires).
+    // The DB cannot enforce this; the client owns it. iOS derives deviceUuid from
+    // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
+    uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
+      .on(table.userId, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
       .where(sql`${table.revokedAt} is null`),
-    index("iroh_endpoint_bindings_user_device_active_idx")
-      .on(table.userId, table.deviceUuid)
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),

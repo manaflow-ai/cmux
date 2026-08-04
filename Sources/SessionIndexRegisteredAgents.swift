@@ -470,82 +470,69 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) -> [SessionEntry] {
-        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
-        guard !roots.isEmpty else { return [] }
+        guard limit > 0, let configuredRoot = registration.sessionDirectory else { return [] }
 
         let fm = FileManager.default
-        var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var seenSessionIDs = Set<String>()
+        var entriesInReverseAppendOrder: [AntigravityHistoryMetadata] = []
+        let target = max(0, offset) + max(0, limit)
+        let root = (configuredRoot as NSString).expandingTildeInPath
+        let historyURL = URL(fileURLWithPath: root, isDirectory: true)
+            .appendingPathComponent("history.jsonl", isDirectory: false)
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return []
+        }
+        let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
+            ?? Date.distantPast
 
-        for root in roots {
-            if Task.isCancelled { break }
-            let historyURL = URL(fileURLWithPath: root, isDirectory: true)
-                .appendingPathComponent("history.jsonl", isDirectory: false)
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else {
-                continue
-            }
-            let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
-                ?? Date.distantPast
-
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
-                if Task.isCancelled { return true }
-                guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
-                    return false
-                }
-                let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
-                if let cwdFilter, cwd != cwdFilter { return false }
-
-                let title = antigravityHistoryTitle(in: object) ?? ""
-                guard antigravityHistoryMatchesNeedle(
-                    needle: needle,
-                    sessionId: sessionId,
-                    title: title,
-                    cwd: cwd
-                ) else {
-                    return false
-                }
-
-                let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
-                let metadata = AntigravityHistoryMetadata(
-                    sessionId: sessionId,
-                    title: title,
-                    cwd: cwd,
-                    modified: modified,
-                    fileURL: historyURL
-                )
-                if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
-                        latestBySessionID[sessionId] = metadata
-                    }
-                } else {
-                    latestBySessionID[sessionId] = metadata
-                }
+        let pageLimit = needle.isEmpty && cwdFilter == nil && offset == 0 && limit == perAgentLimit
+            ? 1
+            : antigravityHistoryExplicitPageLimit
+        SessionIndexJSONLReader().fromTailPages(url: historyURL, maxBytesPerPage: antigravityHistoryByteCap, maximumPageCount: pageLimit) { object in
+            if Task.isCancelled { return true }
+            guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
                 return false
             }
-        }
+            let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+            if let cwdFilter, cwd != cwdFilter { return false }
 
-        let entries = latestBySessionID.values
-            .sorted {
-                if $0.modified == $1.modified {
-                    return $0.sessionId < $1.sessionId
-                }
-                return $0.modified > $1.modified
+            let title = antigravityHistoryTitle(in: object) ?? ""
+            guard antigravityHistoryMatchesNeedle(
+                needle: needle,
+                sessionId: sessionId,
+                title: title,
+                cwd: cwd
+            ) else {
+                return false
             }
-            .map { metadata in
-                SessionEntry(
-                    id: "\(registration.id):\(metadata.sessionId)",
-                    agent: .registered(RegisteredSessionAgent(registration: registration)),
-                    sessionId: metadata.sessionId,
-                    title: metadata.title,
-                    cwd: metadata.cwd,
-                    gitBranch: nil,
-                    pullRequest: nil,
-                    modified: metadata.modified,
-                    fileURL: metadata.fileURL,
-                    specifics: .registered(registration)
-                )
-            }
+            guard seenSessionIDs.insert(sessionId).inserted else { return false }
+
+            let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+            entriesInReverseAppendOrder.append(AntigravityHistoryMetadata(
+                sessionId: sessionId,
+                title: title,
+                cwd: cwd,
+                modified: modified,
+                fileURL: historyURL
+            ))
+            return entriesInReverseAppendOrder.count >= target
+        }
+        let entries = entriesInReverseAppendOrder.map { metadata in
+            SessionEntry(
+                id: "\(registration.id):\(metadata.sessionId)",
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                sessionId: metadata.sessionId,
+                title: metadata.title,
+                cwd: metadata.cwd,
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: metadata.modified,
+                fileURL: metadata.fileURL,
+                specifics: .registered(registration)
+            )
+        }
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 

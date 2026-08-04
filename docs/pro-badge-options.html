@@ -189,9 +189,8 @@
     <div class="row">
       <span class="flag"><span class="dot on"></span> <code>pro-upgrade-ui-enabled-release</code> — badge + all Pro entrypoints · ON</span>
       <span class="flag"><span class="dot on"></span> <code>mobile-connect-button-enabled-release</code> — titlebar iPhone button · ON</span>
-      <span class="flag"><span class="dot off"></span> <code>pro-checkout-enabled-release</code> — pricing CTA → checkout · OFF</span>
     </div>
-    <p style="margin-top:12px">Each is registered in code (owner + review date + safe default), gated live from the PostHog dashboard, and enforced by <code>scripts/lint-feature-flags.py</code> in CI against the posthog.com feature-flag-mistakes rules.</p>
+    <p style="margin-top:12px">Each is registered in code (owner + review date + safe default), gated live from the PostHog dashboard, and enforced by <code>scripts/lint-feature-flags.py</code> in CI against the posthog.com feature-flag-mistakes rules. Pricing checkout is launched and no longer feature-gated.</p>
   </div>
 
   <h2>In-app pricing screen (native)</h2>

@@ -4,7 +4,10 @@ import CmuxMobileSupport
 import UIKit
 
 extension WorkspaceListTableCoordinator {
-    func contextMenuActions(for workspace: MobileWorkspacePreview) -> [UIAction] {
+    func contextMenuActions(
+        for workspace: MobileWorkspacePreview,
+        sourceView: UIView
+    ) -> [UIAction] {
         let capabilities = workspace.actionCapabilities
         var actions: [UIAction] = []
         if capabilities.supportsWorkspaceActions, let setPinned = configuration.setPinned {
@@ -19,7 +22,18 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspacePinButton-\(workspace.id.rawValue)"
             actions.append(action)
         }
-        if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
+        if capabilities.supportsWorkspaceActions,
+           capabilities.supportsWorkspaceMetadata,
+           let customizeRequest = configuration.customizeRequest {
+            let action = UIAction(
+                title: L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),
+                image: UIImage(systemName: "slider.horizontal.3")
+            ) { _ in
+                customizeRequest(workspace.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)"
+            actions.append(action)
+        } else if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"),
                 image: UIImage(systemName: "pencil")
@@ -39,13 +53,18 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)"
             actions.append(action)
         }
-        if capabilities.supportsCloseActions, let closeWorkspace = configuration.closeWorkspace {
+        if capabilities.supportsCloseActions, configuration.closeWorkspace != nil {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.delete", defaultValue: "Delete"),
                 image: UIImage(systemName: "trash"),
                 attributes: .destructive
-            ) { _ in
-                closeWorkspace(workspace.id)
+            ) { [weak self, weak sourceView] _ in
+                guard let self, let sourceView else { return }
+                requestWorkspaceCloseConfirmation(
+                    for: workspace,
+                    sourceView: sourceView,
+                    waitsForContextMenuDismissal: true
+                )
             }
             action.accessibilityIdentifier = "MobileWorkspaceDeleteMenuButton-\(workspace.id.rawValue)"
             actions.append(action)

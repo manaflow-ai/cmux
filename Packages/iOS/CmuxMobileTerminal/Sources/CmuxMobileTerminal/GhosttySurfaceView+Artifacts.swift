@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxAgentChat
 import GhosttyKit
 import UIKit
@@ -222,7 +223,7 @@ extension GhosttySurfaceView {
     }
 
     func handleBell() {
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        MobileHapticFeedback().notification(.warning)
         NotificationCenter.default.post(
             name: .ghosttySurfaceDidRingBell,
             object: self
