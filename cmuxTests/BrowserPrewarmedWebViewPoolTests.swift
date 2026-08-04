@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -237,7 +238,11 @@ private final class CodeWebViewWarmerHarness {
     private(set) var loadedRequests: [URLRequest] = []
     let warmer: CodeWebViewWarmer
 
-    init(capacity: Int = 1) {
+    init(
+        capacity: Int = 1,
+        targetWindow: NSWindow? = nil,
+        presentationFrame: NSRect? = nil
+    ) {
         var recordWebView: (@MainActor (CmuxWebView) -> Void)!
         var recordRequest: (@MainActor (URLRequest) -> Void)!
         let dataStore = dataStore
@@ -252,15 +257,71 @@ private final class CodeWebViewWarmerHarness {
             },
             startLoad: { _, request in
                 recordRequest(request)
-            }
+            },
+            targetWindowProvider: { targetWindow },
+            presentationFrameProvider: { _ in presentationFrame },
+            observeKeyWindows: false
         )
         recordWebView = { [weak self] in self?.madeWebViews.append($0) }
         recordRequest = { [weak self] in self?.loadedRequests.append($0) }
     }
 }
 
+private final class CodeWebViewWarmerResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
 @MainActor
 struct CodeWebViewWarmerTests {
+    @Test func focusedSurfaceFrameUsesTheFocusedBrowserPaneInsteadOfTheWholeWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        let workspaceHost = NSView(frame: NSRect(x: 80, y: 40, width: 820, height: 600))
+        let browserSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 100, y: 20, width: 620, height: 500)
+        )
+        let responder = CodeWebViewWarmerResponderView(frame: browserSlot.bounds)
+        window.contentView?.addSubview(workspaceHost)
+        workspaceHost.addSubview(browserSlot)
+        browserSlot.addSubview(responder)
+
+        #expect(window.makeFirstResponder(responder))
+        #expect(
+            CodeWebViewWarmer.focusedSurfaceFrame(in: window)
+                == NSRect(x: 180, y: 60, width: 620, height: 500)
+        )
+    }
+
+    @Test func workspaceSurfaceFrameUnitesVisiblePaneFrames() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        let left = WindowBrowserSlotView(frame: NSRect(x: 180, y: 50, width: 360, height: 590))
+        let right = WindowBrowserSlotView(frame: NSRect(x: 540, y: 50, width: 360, height: 590))
+        window.contentView?.addSubview(left)
+        window.contentView?.addSubview(right)
+
+        #expect(
+            CodeWebViewWarmer.workspaceSurfaceFrame(in: window)
+                == NSRect(x: 180, y: 50, width: 720, height: 590)
+        )
+    }
+
     @Test func prewarmFillsTheConfiguredBurstCapacitySerially() {
         let harness = CodeWebViewWarmerHarness(capacity: 4)
         harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
@@ -270,7 +331,7 @@ struct CodeWebViewWarmerTests {
         #expect(harness.loadedRequests.count == 1)
 
         for index in 0..<4 {
-            harness.warmer.webView(harness.madeWebViews[index], didFinish: nil)
+            harness.madeWebViews[index].onCodeSurfaceReady?()
         }
         #expect(harness.warmer.entryCount == 4)
         #expect(harness.madeWebViews.count == 4)
@@ -279,7 +340,7 @@ struct CodeWebViewWarmerTests {
         harness.warmer.discard(reason: "test-teardown")
     }
 
-    @Test func prewarmKeepsOneCompleteInactiveFrameUntilClaimed() {
+    @Test func prewarmKeepsOneConnectedActualClientUntilClaimed() {
         let harness = CodeWebViewWarmerHarness()
         harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
 
@@ -288,8 +349,14 @@ struct CodeWebViewWarmerTests {
         #expect(harness.madeWebViews.count == 1)
         #expect(harness.loadedRequests.map(\.url) == [CodeStaticURLSchemeHandler.launcherURL])
         #expect(harness.madeWebViews[0].window != nil)
+        #expect(harness.madeWebViews[0].accessibilityHidden() == true)
+        #expect(harness.madeWebViews[0].isCodePrewarmAccessibilitySuppressed)
+        #expect(harness.madeWebViews[0].accessibilityChildren()?.isEmpty == true)
 
         harness.warmer.webView(harness.madeWebViews[0], didFinish: nil)
+        #expect(harness.warmer.readyCount == 0)
+
+        harness.madeWebViews[0].onCodeSurfaceReady?()
         #expect(harness.warmer.readyCount == 1)
 
         let claimed = harness.warmer.claim(
@@ -300,15 +367,18 @@ struct CodeWebViewWarmerTests {
         #expect(claimed?.window == nil)
         #expect(claimed?.superview == nil)
         #expect(claimed?.navigationDelegate == nil)
+        #expect(claimed?.accessibilityHidden() == false)
+        #expect(claimed?.isCodePrewarmAccessibilitySuppressed == false)
         #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
+        #expect(claimed?.codeSurfaceMessageHandler != nil)
         #expect(harness.warmer.entryCount == 0)
     }
 
     @Test func claimPrefersTheNewestCompletedFrame() {
         let harness = CodeWebViewWarmerHarness(capacity: 2)
         harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
-        harness.warmer.webView(harness.madeWebViews[0], didFinish: nil)
-        harness.warmer.webView(harness.madeWebViews[1], didFinish: nil)
+        harness.madeWebViews[0].onCodeSurfaceReady?()
+        harness.madeWebViews[1].onCodeSurfaceReady?()
 
         let claimed = harness.warmer.claim(
             profileID: profileID,
@@ -318,6 +388,88 @@ struct CodeWebViewWarmerTests {
         #expect(claimed === harness.madeWebViews[1])
         #expect(harness.warmer.entryCount == 1)
         harness.warmer.discard(reason: "test-teardown")
+    }
+
+    @Test func sameWindowClaimKeepsTheRenderedViewAttachedUntilPortalAdoption() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        let presentationFrame = NSRect(x: 180, y: 0, width: 720, height: 590)
+        let harness = CodeWebViewWarmerHarness(
+            targetWindow: window,
+            presentationFrame: presentationFrame
+        )
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+        let webView = harness.madeWebViews[0]
+        let hiddenHost = webView.superview
+        #expect(webView.window === window)
+        #expect(webView.accessibilityHidden() == true)
+        #expect(webView.isCodePrewarmAccessibilitySuppressed)
+        #expect(webView.accessibilityChildren()?.isEmpty == true)
+        #expect(hiddenHost?.accessibilityHidden() == true)
+        #expect(hiddenHost?.frame.maxX ?? 0 < 0)
+        webView.onCodeSurfaceReady?()
+
+        let claimed = harness.warmer.claim(
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+        let prewarmHost = claimed?.codePrewarmHostView
+        #expect(claimed === webView)
+        #expect(claimed?.window === window)
+        #expect(claimed?.superview === prewarmHost)
+        #expect(claimed?.browserPortalRequiresRenderingStateReattach == false)
+        #expect(claimed?.accessibilityHidden() == false)
+        #expect(claimed?.isCodePrewarmAccessibilitySuppressed == false)
+        #expect(prewarmHost?.accessibilityHidden() == false)
+        #expect(prewarmHost?.frame == presentationFrame)
+        #expect(window.contentView?.subviews.last === prewarmHost)
+
+        let destination = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(destination)
+        if let claimed {
+            destination.addSubview(claimed)
+        }
+        #expect(claimed?.superview === destination)
+        #expect(claimed?.codePrewarmHostView == nil)
+        #expect(prewarmHost?.superview == nil)
+    }
+
+    @Test func workspaceClaimHintPresentsFromRememberedWindowDuringFocusTransition() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        let workspaceFrame = NSRect(x: 180, y: 50, width: 720, height: 590)
+        window.contentView?.addSubview(WindowBrowserSlotView(frame: workspaceFrame))
+        let harness = CodeWebViewWarmerHarness(targetWindow: nil, presentationFrame: nil)
+        harness.warmer.prepareNextWorkspaceClaim(in: window)
+        harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
+        let webView = harness.madeWebViews[0]
+        #expect(webView.window === window)
+        webView.onCodeSurfaceReady?()
+
+        let claimed = harness.warmer.claim(
+            profileID: profileID,
+            websiteDataStore: harness.dataStore
+        )
+
+        #expect(claimed === webView)
+        #expect(claimed?.codePrewarmHostView?.frame == workspaceFrame)
+        #expect(claimed?.isCodePrewarmAccessibilitySuppressed == false)
     }
 
     @Test func claimBeforeLoadFinishesKeepsTheLoadingFrame() {

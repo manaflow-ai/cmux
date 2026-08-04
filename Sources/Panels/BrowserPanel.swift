@@ -3751,7 +3751,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webView.onBrowserPortalPresentationSettled = { [weak self, weak webView] in
             guard let self, let webView, self.webView === webView else { return }
-            self.activateCodeSurfaceForVisiblePanel(in: webView)
+            self.noteCodeSurfaceVisible(in: webView)
         }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
@@ -3822,22 +3822,21 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func setupCodeSurfaceMessageHandler(for webView: WKWebView) {
-        guard purpose == .code else { return }
-        let handler = CodeSurfaceMessageHandler(panel: self)
-        codeSurfaceMessageHandler = handler
-        let userContentController = webView.configuration.userContentController
-        userContentController.removeScriptMessageHandler(
-            forName: CodeSurfaceMessageHandler.name,
-            contentWorld: .page
-        )
-        userContentController.addScriptMessageHandler(
-            handler,
-            contentWorld: .page,
-            name: CodeSurfaceMessageHandler.name
+        guard purpose == .code, let webView = webView as? CmuxWebView else { return }
+        if let handler = webView.codeSurfaceMessageHandler {
+            handler.adopt(panel: self, webView: webView)
+            codeSurfaceMessageHandler = handler
+            return
+        }
+        codeSurfaceMessageHandler = CodeSurfaceMessageHandler.install(
+            on: webView,
+            surfaceID: id,
+            workingDirectory: AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory,
+            panel: self
         )
     }
 
-    private func activateCodeSurfaceForVisiblePanel(in webView: WKWebView) {
+    private func noteCodeSurfaceVisible(in webView: WKWebView) {
         guard purpose == .code,
               self.webView === webView,
               CodeStaticURLSchemeHandler.isTrustedURL(webView.url) else {
@@ -3852,7 +3851,6 @@ final class BrowserPanel: Panel, ObservableObject {
             codePrewarmedClaimedAt = nil
         }
 #endif
-        webView.evaluateJavaScript(CodeStaticBootstrap.activationJavaScript, completionHandler: nil)
     }
 
     func renderCodeSidecarLaunchError() {
@@ -4476,7 +4474,8 @@ final class BrowserPanel: Panel, ObservableObject {
             DispatchQueue.main.async {
                 CodeWebViewWarmer.shared.prewarm(
                     profileID: resolvedProfileID,
-                    websiteDataStore: websiteDataStore
+                    websiteDataStore: websiteDataStore,
+                    workingDirectory: AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory
                 )
             }
         }
@@ -4518,8 +4517,8 @@ final class BrowserPanel: Panel, ObservableObject {
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
-                // The pool only vends finished loads; seed the committed flag so
-                // blank-shell healing never reloads the adopted page on reveal.
+                // The Code pool only vends connected, rendered clients; seed
+                // the committed flag so recovery never reloads one on reveal.
                 hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
@@ -5237,6 +5236,11 @@ final class BrowserPanel: Panel, ObservableObject {
             forName: CodeSurfaceMessageHandler.name,
             contentWorld: .page
         )
+        if let codeWebView = webView as? CmuxWebView {
+            codeWebView.codeSurfaceMessageHandler = nil
+            codeWebView.onCodeSurfaceReady = nil
+            codeWebView.onCodeSurfaceFailed = nil
+        }
         codeSurfaceMessageHandler = nil
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
@@ -5742,9 +5746,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         codeSurfaceMessageHandler?.closeAll()
-        if purpose == .code {
-            CodeSidecarService.shared.release(surfaceID: id)
-        }
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
@@ -5766,6 +5767,9 @@ final class BrowserPanel: Panel, ObservableObject {
         closeBackgroundPreloadHost(reason: "close")
         closeAllPopupControllers()
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.discardCodePrewarmHost()
+        }
         designModeController.webViewWillBeRemoved(webView)
         designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
@@ -6566,6 +6570,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
+            if let cmuxWebView = webView as? CmuxWebView {
+                cmuxWebView.discardCodePrewarmHost()
+            }
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }

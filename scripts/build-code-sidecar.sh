@@ -165,18 +165,16 @@ cp "${SOURCE_DIR}/cmux-code.css" "${client_dir}/cmux-code.css"
   --format iife \
   --minify
 
-/usr/bin/perl -0pi -e 's{href="/favicon\.ico"}{href="/apple-touch-icon.png"}; s{<title>(?:T3 )?Code \(Alpha\)</title>}{<title>Code</title>}; s{<script type="module" crossorigin src="([^"]+)"></script>}{<script src="/cmux-code-bridge.js"></script>\n    <script type="application/x-cmux-code-module" data-cmux-code-main="$1"></script>}; s{<link rel="modulepreload" crossorigin href="([^"]+)">}{<link data-cmux-code-modulepreload href="$1">}g; s{<link rel="stylesheet" crossorigin href="([^"]+)">}{<link data-cmux-code-stylesheet href="$1">}g; s{</head>}{  <link rel="stylesheet" href="/cmux-code.css" />\n</head>}' "${client_dir}/index.html"
-/usr/bin/perl -0pi -e 's{<body>.*?</body>}{<body>\n    <main id="boot-shell" class="code-instant">\n      <header class="code-instant__topbar">\n        <button class="code-instant__new-thread" type="button">\n          <span data-cmux-string="newThread">New thread</span>\n        </button>\n      </header>\n      <section class="code-instant__stage">\n        <div class="code-instant__empty-state">\n          <p data-cmux-string="emptyState">Send a message to start the conversation.</p>\n        </div>\n      </section>\n      <form class="code-instant__composer">\n        <textarea id="cmux-code-instant-draft" rows="2" autofocus data-cmux-placeholder="prompt" placeholder="Describe a task or ask a question"></textarea>\n        <div class="code-instant__composer-footer">\n          <button class="code-instant__control" type="button" data-cmux-string="fullAccess">Full access</button>\n          <button class="code-instant__control" type="button" data-cmux-string="build">Build</button>\n          <button class="code-instant__send" type="submit" aria-label="Send" data-cmux-aria-label="send">↑</button>\n        </div>\n      </form>\n    </main>\n    <div id="root"></div>\n  </body>}s' "${client_dir}/index.html"
+/usr/bin/perl -0pi -e 's{href="/favicon\.ico"}{href="/apple-touch-icon.png"}; s{<title>(?:T3 )?Code \(Alpha\)</title>}{<title>Code</title>}; s{<script type="module" crossorigin src="([^"]+)"></script>}{<script src="/cmux-code-bridge.js"></script>\n    <script type="module" crossorigin src="$1"></script>}; s{</head>}{  <link rel="stylesheet" href="/cmux-code.css" />\n</head>}' "${client_dir}/index.html"
+/usr/bin/perl -0pi -e 's{\n      #boot-shell \{.*?\n      \}\n\n      #boot-shell-card \{.*?\n      \}\n\n      #boot-shell-logo \{.*?\n      \}\n}{}s; s{<body>.*?</body>}{<body>\n    <div id="root"></div>\n  </body>}s' "${client_dir}/index.html"
 if ! grep -Fq '<script src="/cmux-code-bridge.js"></script>' "${client_dir}/index.html"; then
   echo "error: failed to install the Code WebView bridge" >&2
   exit 1
 fi
-if ! grep -Fq 'class="code-instant__composer"' "${client_dir}/index.html" \
-    || ! grep -Fq '<div id="root"></div>' "${client_dir}/index.html" \
-    || ! grep -Fq 'type="application/x-cmux-code-module"' "${client_dir}/index.html" \
-    || grep -Fq '<script type="module"' "${client_dir}/index.html" \
-    || grep -Fq '<img id="boot-shell-logo"' "${client_dir}/index.html"; then
-  echo "error: failed to install the static Code app shell" >&2
+if ! grep -Fq '<div id="root"></div>' "${client_dir}/index.html" \
+    || ! grep -Fq '<script type="module" crossorigin src="/assets/' "${client_dir}/index.html" \
+    || grep -Eq 'boot-shell|code-instant|cmux-code-instant-draft|application/x-cmux-code-module' "${client_dir}/index.html"; then
+  echo "error: failed to install the real static Code client" >&2
   exit 1
 fi
 sidebar_default_open='className:`h-dvh! min-h-0!`,defaultOpen:!0,style:'

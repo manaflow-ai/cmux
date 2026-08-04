@@ -1559,6 +1559,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+        if !isRunningUnderXCTest {
+            // Install the window observer before the first main window becomes
+            // key, so prewarmed clients are hosted in that window from frame one.
+            _ = CodeWebViewWarmer.shared
+        }
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         if !isRunningUnderXCTest {
             DispatchQueue.main.async {
@@ -7492,9 +7497,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newCodeWorkspace"
     ) -> Bool {
-        performNewWorkspaceCreationAction(
+        let targetManager = preferredTabManager
+            ?? event.flatMap { preferredMainWindowContextForShortcutRouting(event: $0)?.tabManager }
+            ?? tabManager
+        let targetWindow = targetManager
+            .flatMap { windowId(for: $0) }
+            .flatMap { mainWindow(for: $0) }
+            ?? (event?.window as? CmuxMainWindow)
+            ?? (shortcutRoutingActiveWindow as? CmuxMainWindow)
+            ?? CodeWebViewWarmer.preferredTargetWindow()
+        if let targetWindow {
+            CodeWebViewWarmer.shared.prepareNextWorkspaceClaim(in: targetWindow)
+        }
+        return performNewWorkspaceCreationAction(
             initialSurface: .code,
-            preferredTabManager: preferredTabManager,
+            preferredTabManager: targetManager,
             event: event,
             debugSource: debugSource
         )

@@ -2,33 +2,9 @@ import Foundation
 import WebKit
 
 struct CodeStaticBootstrap {
-    static let activationJavaScript = """
-    (() => {
-      const activate = window.__cmuxActivateCodeSurface;
-      if (typeof activate !== "function") return false;
-      window.__cmuxCodeAutoActivate = true;
-      activate();
-      return true;
-    })();
-    """
-
     @MainActor
     static func currentUserScript() -> WKUserScript? {
-        let strings = [
-            "build": String(localized: "code.instant.build", defaultValue: "Build"),
-            "emptyState": String(
-                localized: "code.instant.emptyState",
-                defaultValue: "Send a message to start the conversation."
-            ),
-            "fullAccess": String(localized: "code.instant.fullAccess", defaultValue: "Full access"),
-            "newThread": String(localized: "code.instant.newThread", defaultValue: "New thread"),
-            "prompt": String(
-                localized: "code.instant.prompt",
-                defaultValue: "Describe a task or ask a question"
-            ),
-            "send": String(localized: "code.instant.send", defaultValue: "Send"),
-        ]
-        guard let source = scriptSource(theme: .current(), strings: strings) else { return nil }
+        guard let source = scriptSource(theme: .current()) else { return nil }
         return WKUserScript(
             source: source,
             injectionTime: .atDocumentStart,
@@ -36,16 +12,10 @@ struct CodeStaticBootstrap {
         )
     }
 
-    static func scriptSource(
-        theme: CodeWebThemeSnapshot,
-        strings: [String: String]
-    ) -> String? {
+    static func scriptSource(theme: CodeWebThemeSnapshot) -> String? {
         let payload: [String: Any] = [
-            "strings": strings,
-            "theme": [
-                "isDark": theme.isDark,
-                "variables": theme.variables,
-            ],
+            "isDark": theme.isDark,
+            "variables": theme.variables,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else {
@@ -54,11 +24,9 @@ struct CodeStaticBootstrap {
         return """
         (() => {
           if (window.location.protocol !== "\(CodeStaticURLSchemeHandler.scheme):") return;
-          const bootstrap = \(json);
-          window.__cmuxCodeStaticBootstrap = bootstrap;
+          const theme = \(json);
           const root = document.documentElement;
           if (!root) return;
-          const theme = bootstrap.theme;
           root.dataset.cmuxGhosttyTheme = "true";
           root.classList.toggle("dark", theme.isDark);
           root.style.colorScheme = theme.isDark ? "dark" : "light";
@@ -367,13 +335,26 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
     static let name = "cmuxCode"
     private static let maximumResponseBytes = 64 * 1024 * 1024
 
-    weak var panel: BrowserPanel?
+    private weak var panel: BrowserPanel?
+    private weak var webView: CmuxWebView?
+    private let surfaceID: UUID
+    private let workingDirectory: String?
     private var sockets: [String: CodeWebSocketConnection] = [:]
     private var openingSocketIDs = Set<String>()
     private var cancelledSocketIDs = Set<String>()
+    private var isClosed = false
+    private var didSignalReady = false
     private let fetchSession: URLSession
 
-    init(panel: BrowserPanel) {
+    init(
+        surfaceID: UUID,
+        workingDirectory: String?,
+        webView: CmuxWebView,
+        panel: BrowserPanel? = nil
+    ) {
+        self.surfaceID = surfaceID
+        self.workingDirectory = workingDirectory
+        self.webView = webView
         self.panel = panel
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -382,11 +363,41 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
         fetchSession = URLSession(configuration: configuration)
     }
 
+    static func install(
+        on webView: CmuxWebView,
+        surfaceID: UUID,
+        workingDirectory: String?,
+        panel: BrowserPanel? = nil
+    ) -> CodeSurfaceMessageHandler {
+        let handler = CodeSurfaceMessageHandler(
+            surfaceID: surfaceID,
+            workingDirectory: workingDirectory,
+            webView: webView,
+            panel: panel
+        )
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: name, contentWorld: .page)
+        userContentController.addScriptMessageHandler(
+            handler,
+            contentWorld: .page,
+            name: name
+        )
+        webView.codeSurfaceMessageHandler = handler
+        return handler
+    }
+
+    func adopt(panel: BrowserPanel, webView: CmuxWebView) {
+        guard !isClosed, self.webView === webView else { return }
+        self.panel = panel
+    }
+
     deinit {
         fetchSession.invalidateAndCancel()
     }
 
     func closeAll() {
+        guard !isClosed else { return }
+        isClosed = true
         cancelledSocketIDs.formUnion(openingSocketIDs)
         openingSocketIDs.removeAll()
         let openSockets = sockets.values
@@ -394,6 +405,7 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
         for socket in openSockets {
             socket.close(code: 1001, reason: "Surface closed")
         }
+        CodeSidecarService.shared.release(surfaceID: surfaceID)
     }
 
     func userContentController(
@@ -403,50 +415,50 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
     ) {
         guard message.frameInfo.isMainFrame,
               CodeStaticURLSchemeHandler.isTrustedURL(message.frameInfo.request.url),
+              message.webView === webView,
               let body = message.body as? [String: Any],
               JSONSerialization.isValidJSONObject(body),
               let type = body["type"] as? String,
-              let panel,
-              panel.purpose == .code else {
+              !isClosed else {
             replyHandler(nil, "Code bridge request rejected")
             return
         }
 
         switch type {
         case "mount":
-            mount(panel: panel, replyHandler: replyHandler)
+            mount(replyHandler: replyHandler)
         case "fetch":
-            fetch(body: body, panel: panel, replyHandler: replyHandler)
+            fetch(body: body, replyHandler: replyHandler)
         case "websocketOpen":
-            openSocket(body: body, panel: panel, replyHandler: replyHandler)
+            openSocket(body: body, replyHandler: replyHandler)
         case "websocketSend":
             sendSocket(body: body, replyHandler: replyHandler)
         case "websocketClose":
             closeSocket(body: body, replyHandler: replyHandler)
+        case "ready":
+            signalReady(replyHandler: replyHandler)
         default:
             replyHandler(nil, "Unknown Code bridge request")
         }
     }
 
-    private func mount(
-        panel: BrowserPanel,
-        replyHandler: @escaping (Any?, String?) -> Void
-    ) {
-        Task { [weak panel] in
-            guard let panel else {
+    private func mount(replyHandler: @escaping (Any?, String?) -> Void) {
+        Task { [weak self] in
+            guard let self, !self.isClosed else {
                 replyHandler(nil, "Code surface closed")
                 return
             }
             do {
                 _ = try await CodeSidecarService.shared.mount(
-                    surfaceID: panel.id,
-                    workingDirectory: Self.workingDirectory(for: panel)
+                    surfaceID: self.surfaceID,
+                    workingDirectory: self.workingDirectory
                 )
                 replyHandler(["ok": true], nil)
             } catch is CancellationError {
                 replyHandler(nil, "Code surface closed")
             } catch {
-                panel.renderCodeSidecarLaunchError()
+                self.panel?.renderCodeSidecarLaunchError()
+                self.webView?.onCodeSurfaceFailed?()
                 replyHandler(nil, "Code service unavailable")
             }
         }
@@ -454,11 +466,10 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
 
     private func fetch(
         body: [String: Any],
-        panel: BrowserPanel,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        Task { [weak self, weak panel] in
-            guard let self, let panel else {
+        Task { [weak self] in
+            guard let self, !self.isClosed else {
                 replyHandler(nil, "Code surface closed")
                 return
             }
@@ -468,8 +479,8 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
                 }
                 let bridgedRequest = try CodeBridgeFetchRequest(body: requestObject)
                 let connection = try await CodeSidecarService.shared.mount(
-                    surfaceID: panel.id,
-                    workingDirectory: Self.workingDirectory(for: panel)
+                    surfaceID: self.surfaceID,
+                    workingDirectory: self.workingDirectory
                 )
                 let request = try bridgedRequest.urlRequest(connection: connection)
                 let (data, response) = try await self.fetchSession.data(for: request)
@@ -504,7 +515,6 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
 
     private func openSocket(
         body: [String: Any],
-        panel: BrowserPanel,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         guard let socketID = body["id"] as? String,
@@ -527,15 +537,15 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
         cancelledSocketIDs.remove(socketID)
         openingSocketIDs.insert(socketID)
 
-        Task { [weak self, weak panel] in
-            guard let self, let panel else {
+        Task { [weak self] in
+            guard let self, !self.isClosed else {
                 replyHandler(nil, "Code surface closed")
                 return
             }
             do {
                 let connection = try await CodeSidecarService.shared.mount(
-                    surfaceID: panel.id,
-                    workingDirectory: Self.workingDirectory(for: panel)
+                    surfaceID: self.surfaceID,
+                    workingDirectory: self.workingDirectory
                 )
                 self.openingSocketIDs.remove(socketID)
                 guard self.cancelledSocketIDs.remove(socketID) == nil else {
@@ -613,6 +623,18 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
         replyHandler(["ok": true], nil)
     }
 
+    private func signalReady(replyHandler: @escaping (Any?, String?) -> Void) {
+        guard !sockets.isEmpty else {
+            replyHandler(nil, "Code connection is not ready")
+            return
+        }
+        if !didSignalReady {
+            didSignalReady = true
+            webView?.onCodeSurfaceReady?()
+        }
+        replyHandler(["ok": true], nil)
+    }
+
     fileprivate func socketOpened(id: String, protocol selectedProtocol: String?) {
         emitSocketEvent([
             "id": id,
@@ -657,18 +679,14 @@ final class CodeSurfaceMessageHandler: NSObject, WKScriptMessageHandlerWithReply
     }
 
     private func emitSocketEvent(_ event: [String: Any]) {
-        guard let panel,
-              CodeStaticURLSchemeHandler.isTrustedURL(panel.webView.url),
+        guard let webView,
+              CodeStaticURLSchemeHandler.isTrustedURL(webView.url),
               let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
-        panel.webView.evaluateJavaScript(
+        webView.evaluateJavaScript(
             "window.cmuxCode?.__receiveSocketEvent(\(json));",
             completionHandler: nil
         )
-    }
-
-    private static func workingDirectory(for panel: BrowserPanel) -> String? {
-        AppDelegate.shared?.workspaceFor(tabId: panel.workspaceId)?.currentDirectory
     }
 
     private static func webSocketRequest(

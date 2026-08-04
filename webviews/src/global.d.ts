@@ -25,15 +25,6 @@ declare global {
   interface Window {
     cmuxCode?: CmuxCodeBridge;
     desktopBridge?: ReturnType<typeof createDesktopBridge>;
-    __cmuxActivateCodeSurface?: () => CmuxCodeBridge;
-    __cmuxCodeAutoActivate?: boolean;
-    __cmuxCodeStaticBootstrap?: {
-      strings: Record<string, string>;
-      theme: {
-        isDark: boolean;
-        variables: Record<string, string>;
-      };
-    };
     __cmuxPerformDiffViewerNavigationAction?: (action: string) => boolean;
     __cmuxDiffViewer?: {
       codeView?: unknown;

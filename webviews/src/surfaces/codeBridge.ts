@@ -4,9 +4,6 @@ const NATIVE_BEARER_SENTINEL = "cmux-native";
 const CLIENT_SETTINGS_KEY = "cmux:code-client-settings";
 const CONNECTION_CATALOG_KEY = "cmux:code-connection-catalog";
 const NATIVE_SOCKET_OPEN_EVENT = "cmux-code-native-socket-open";
-const LIVE_LAYOUT_SETTLE_DELAY_MS = 100;
-const LIVE_LAYOUT_NO_SOCKET_FALLBACK_DELAY_MS = 5_000;
-const LIVE_LAYOUT_ERROR_FALLBACK_DELAY_MS = 30_000;
 
 interface NativeCodeMessageHandler {
   postMessage(message: unknown): Promise<unknown>;
@@ -41,10 +38,6 @@ export interface CmuxCodeBridge {
   __receiveSocketEvent(event: NativeSocketEvent): void;
 }
 
-interface CodeStaticBootstrap {
-  strings?: Record<string, string>;
-}
-
 function nativeHandler(): NativeCodeMessageHandler {
   const handler = window.webkit?.messageHandlers?.cmuxCode;
   if (!handler) {
@@ -55,10 +48,12 @@ function nativeHandler(): NativeCodeMessageHandler {
 
 let mountPromise: Promise<void> | null = null;
 let installedBridge: CmuxCodeBridge | null = null;
-let runtimeAssetsActivated = false;
 let originalGlobalFetch: typeof globalThis.fetch | null = null;
 let originalGlobalWebSocket: typeof globalThis.WebSocket | null = null;
 let nativeSocketHasOpened = false;
+let nativeReadyReportPending = false;
+let nativeReadyReported = false;
+let stopReadinessWatch: (() => void) | null = null;
 
 export function ensureCodeMounted(): Promise<void> {
   mountPromise ??= nativeHandler()
@@ -74,46 +69,24 @@ export function ensureCodeMounted(): Promise<void> {
 export function __resetCodeBridgeForTests(): void {
   mountPromise = null;
   installedBridge = null;
-  runtimeAssetsActivated = false;
   socketRegistry.clear();
   if (originalGlobalFetch) globalThis.fetch = originalGlobalFetch;
   if (originalGlobalWebSocket) globalThis.WebSocket = originalGlobalWebSocket;
   originalGlobalFetch = null;
   originalGlobalWebSocket = null;
   nativeSocketHasOpened = false;
+  nativeReadyReportPending = false;
+  nativeReadyReported = false;
+  stopReadinessWatch?.();
+  stopReadinessWatch = null;
 }
 
-function setNativeTextAreaValue(textarea: HTMLTextAreaElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(
-    window.HTMLTextAreaElement.prototype,
-    "value",
-  );
-  descriptor?.set?.call(textarea, value);
-  textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-}
-
-function setAppComposerValue(composer: HTMLElement, value: string): void {
-  if (composer instanceof window.HTMLTextAreaElement) {
-    setNativeTextAreaValue(composer, value);
-    return;
-  }
-  composer.focus();
-  const inserted = window.document.execCommand?.("insertText", false, value) ?? false;
-  if (inserted) return;
-  composer.textContent = value;
-  composer.dispatchEvent(
-    new window.InputEvent("input", {
-      bubbles: true,
-      data: value,
-      inputType: "insertText",
-    }),
-  );
-}
-
-function hasRenderedAppComposer(root: HTMLElement | null): boolean {
+function hasRenderedActualClient(root: HTMLElement | null): boolean {
   return Boolean(
     root?.querySelector('[data-slot="sidebar-wrapper"]') &&
-      root.querySelector('textarea:not([disabled]), [contenteditable="true"][role="textbox"]'),
+      root.querySelector(
+        'textarea:not([disabled]), [contenteditable="true"][role="textbox"], [data-slot="empty"]',
+      ),
   );
 }
 
@@ -123,152 +96,49 @@ export function markNativeCodeSocketOpened(): void {
   window.dispatchEvent(new window.Event(NATIVE_SOCKET_OPEN_EVENT));
 }
 
-export function dismissBootShellWhenAppRenders(
-  forceTransientAlert = false,
-  requireNativeSocket = false,
-): boolean {
-  const shell = window.document.getElementById("boot-shell");
+export function reportActualCodeSurfaceReady(): boolean {
+  if (nativeReadyReported || nativeReadyReportPending || !nativeSocketHasOpened) return false;
   const root = window.document.getElementById("root");
-  const appLayout = root?.querySelector('[data-slot="sidebar-wrapper"]');
-  const appComposer = root?.querySelector<HTMLElement>(
-    'textarea:not([disabled]), [contenteditable="true"][role="textbox"]',
-  );
-  if (!shell || !appLayout || !appComposer) return false;
-  if (requireNativeSocket && !nativeSocketHasOpened) return false;
-  if (!forceTransientAlert && root?.querySelector('[role="alert"] button:disabled')) return false;
-
-  const instantComposer = shell.querySelector<HTMLTextAreaElement>("#cmux-code-instant-draft");
-  const shouldRestoreFocus = window.document.activeElement === instantComposer;
-  const pendingSubmit = shell.dataset.cmuxPendingSubmit === "true";
-  if (instantComposer?.value) {
-    setAppComposerValue(appComposer, instantComposer.value);
-  }
-  shell.remove();
-  if (shouldRestoreFocus) appComposer.focus();
-  if (pendingSubmit) {
-    window.requestAnimationFrame(() => {
-      appComposer.dispatchEvent(
-        new window.KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          code: "Enter",
-          key: "Enter",
-        }),
-      );
+  if (!hasRenderedActualClient(root)) return false;
+  nativeReadyReportPending = true;
+  void nativeHandler()
+    .postMessage({ type: "ready" })
+    .then(() => {
+      nativeReadyReportPending = false;
+      nativeReadyReported = true;
+      stopReadinessWatch?.();
+      stopReadinessWatch = null;
+      window.performance?.mark?.("cmux-code-actual-ready");
+    })
+    .catch(() => {
+      nativeReadyReportPending = false;
     });
-  }
   return true;
 }
 
-export function prepareInstantCodeSurface(): boolean {
-  const shell = window.document.getElementById("boot-shell");
-  if (!shell || shell.dataset.cmuxPrepared === "true") return false;
-
-  const bootstrap = window.__cmuxCodeStaticBootstrap as CodeStaticBootstrap | undefined;
-  for (const element of shell.querySelectorAll<HTMLElement>("[data-cmux-string]")) {
-    const key = element.dataset.cmuxString;
-    if (key && bootstrap?.strings?.[key]) element.textContent = bootstrap.strings[key];
-  }
-  for (const element of shell.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-    "[data-cmux-placeholder]",
-  )) {
-    const key = element.dataset.cmuxPlaceholder;
-    if (key && bootstrap?.strings?.[key]) element.placeholder = bootstrap.strings[key];
-  }
-  for (const element of shell.querySelectorAll<HTMLElement>("[data-cmux-aria-label]")) {
-    const key = element.dataset.cmuxAriaLabel;
-    if (key && bootstrap?.strings?.[key]) {
-      element.setAttribute("aria-label", bootstrap.strings[key]);
-    }
-  }
-
-  shell.querySelector("form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    shell.dataset.cmuxPendingSubmit = "true";
-  });
-  shell.dataset.cmuxPrepared = "true";
-  window.performance?.mark?.("cmux-code-static-ready");
-  return true;
-}
-
-function watchForRenderedApp(): void {
+export function watchForActualCodeSurfaceReadiness(): void {
+  if (stopReadinessWatch || nativeReadyReported) return;
   const root = window.document.getElementById("root");
   if (!root) {
-    window.document.addEventListener("DOMContentLoaded", watchForRenderedApp, { once: true });
+    window.document.addEventListener("DOMContentLoaded", watchForActualCodeSurfaceReadiness, {
+      once: true,
+    });
     return;
   }
-  let settleTimer: number | undefined;
-  let noSocketFallbackTimer: number | undefined;
-  let errorFallbackTimer: number | undefined;
-  const observer = new window.MutationObserver(scheduleSettledCheck);
+  const observer = new window.MutationObserver(reportActualCodeSurfaceReady);
   const cleanup = () => {
-    if (settleTimer !== undefined) window.clearTimeout(settleTimer);
-    if (noSocketFallbackTimer !== undefined) window.clearTimeout(noSocketFallbackTimer);
-    if (errorFallbackTimer !== undefined) window.clearTimeout(errorFallbackTimer);
-    window.removeEventListener(NATIVE_SOCKET_OPEN_EVENT, scheduleSettledCheck);
+    window.removeEventListener(NATIVE_SOCKET_OPEN_EVENT, reportActualCodeSurfaceReady);
     observer.disconnect();
   };
-  const attemptDismissal = (forceTransientAlert: boolean, requireNativeSocket: boolean) => {
-    if (!dismissBootShellWhenAppRenders(forceTransientAlert, requireNativeSocket)) return false;
-    cleanup();
-    return true;
-  };
-  function scheduleSettledCheck(): void {
-    if (noSocketFallbackTimer === undefined && hasRenderedAppComposer(root)) {
-      noSocketFallbackTimer = window.setTimeout(() => {
-        noSocketFallbackTimer = undefined;
-        attemptDismissal(false, false);
-      }, LIVE_LAYOUT_NO_SOCKET_FALLBACK_DELAY_MS);
-      errorFallbackTimer = window.setTimeout(() => {
-        errorFallbackTimer = undefined;
-        attemptDismissal(true, false);
-      }, LIVE_LAYOUT_ERROR_FALLBACK_DELAY_MS);
-    }
-    if (settleTimer !== undefined) window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(() => {
-      settleTimer = undefined;
-      attemptDismissal(false, true);
-    }, LIVE_LAYOUT_SETTLE_DELAY_MS);
-  }
+  stopReadinessWatch = cleanup;
   observer.observe(root, {
     attributeFilter: ["disabled"],
     attributes: true,
     childList: true,
     subtree: true,
   });
-  window.addEventListener(NATIVE_SOCKET_OPEN_EVENT, scheduleSettledCheck);
-  scheduleSettledCheck();
-}
-
-export function loadCodeRuntimeAssets(): boolean {
-  if (runtimeAssetsActivated) return false;
-  const moduleMarker = window.document.querySelector<HTMLScriptElement>(
-    'script[type="application/x-cmux-code-module"][data-cmux-code-main]',
-  );
-  const moduleSource = moduleMarker?.dataset.cmuxCodeMain;
-  if (!moduleSource) return false;
-  runtimeAssetsActivated = true;
-
-  for (const stylesheet of window.document.querySelectorAll<HTMLLinkElement>(
-    "link[data-cmux-code-stylesheet]",
-  )) {
-    stylesheet.rel = "stylesheet";
-    stylesheet.crossOrigin = "anonymous";
-  }
-  for (const preload of window.document.querySelectorAll<HTMLLinkElement>(
-    "link[data-cmux-code-modulepreload]",
-  )) {
-    preload.rel = "modulepreload";
-    preload.crossOrigin = "anonymous";
-  }
-
-  const module = window.document.createElement("script");
-  module.type = "module";
-  module.crossOrigin = "anonymous";
-  module.src = moduleSource;
-  module.dataset.cmuxCodeRuntime = "true";
-  moduleMarker.replaceWith(module);
-  return true;
+  window.addEventListener(NATIVE_SOCKET_OPEN_EVENT, reportActualCodeSurfaceReady);
+  reportActualCodeSurfaceReady();
 }
 
 function isNativeHTTPURL(value: string): boolean {
@@ -644,33 +514,11 @@ export function installCodeBridge(): CmuxCodeBridge {
   originalGlobalWebSocket ??= globalThis.WebSocket;
   globalThis.fetch = installNativeFetch(globalThis.fetch);
   globalThis.WebSocket = installNativeWebSocket(globalThis.WebSocket);
-  watchForRenderedApp();
+  watchForActualCodeSurfaceReadiness();
   void ensureCodeMounted().catch(() => undefined);
   return bridge;
 }
 
-export function activateCodeSurface(): CmuxCodeBridge {
-  window.performance?.mark?.("cmux-code-activated");
-  const bridge = installCodeBridge();
-  loadCodeRuntimeAssets();
-  return bridge;
-}
-
-export function finishCodeDocumentBootstrap(): void {
-  prepareInstantCodeSurface();
-  if (window.__cmuxCodeAutoActivate === true) activateCodeSurface();
-}
-
 if (typeof window !== "undefined") {
-  window.__cmuxActivateCodeSurface = activateCodeSurface;
-  if (window.document.readyState === "loading") {
-    // The bridge script precedes the inert runtime marker in the generated
-    // document. Wait for parsing to finish so a cold visible web view can
-    // find and activate that marker on its first pass.
-    window.document.addEventListener("DOMContentLoaded", finishCodeDocumentBootstrap, {
-      once: true,
-    });
-  } else {
-    finishCodeDocumentBootstrap();
-  }
+  installCodeBridge();
 }

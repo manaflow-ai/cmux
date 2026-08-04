@@ -3873,22 +3873,17 @@ final class CodeWorkspaceCreationTests: XCTestCase {
         XCTAssertTrue(script.contains("cmux:ghostty-theme-change"))
     }
 
-    func testCodeStaticBootstrapInjectsLocalizedFirstFrameAndGhosttyTheme() throws {
+    func testCodeStaticBootstrapInjectsGhosttyThemeWithoutRenderingUI() throws {
         var terminalTheme = TerminalTheme.monokai
         terminalTheme.background = "#121416"
         terminalTheme.foreground = "#f4f5f6"
         let theme = CodeWebThemeSnapshot(terminalTheme: terminalTheme, backgroundOpacity: 0.7)
 
-        let script = try XCTUnwrap(
-            CodeStaticBootstrap.scriptSource(
-                theme: theme,
-                strings: ["headline": "Build immediately"]
-            )
-        )
+        let script = try XCTUnwrap(CodeStaticBootstrap.scriptSource(theme: theme))
 
         XCTAssertTrue(script.contains("cmux-code:"))
-        XCTAssertTrue(script.contains("__cmuxCodeStaticBootstrap"))
-        XCTAssertTrue(script.contains("Build immediately"))
+        XCTAssertFalse(script.contains("innerHTML"))
+        XCTAssertFalse(script.contains("textContent"))
         XCTAssertTrue(script.contains("#121416"))
         XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
     }
