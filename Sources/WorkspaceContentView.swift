@@ -48,6 +48,7 @@ private struct WorkspacePanelContentHostView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -68,6 +69,7 @@ private struct WorkspacePanelContentHostView: View {
             isFocused: isFocused,
             isSelectedInPane: isSelectedInPane,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
             portalPriority: portalPriority,
             isSplit: isSplit,
             appearance: appearance,
@@ -225,7 +227,7 @@ struct WorkspaceContentView: View {
                 // Find the focused panel in this pane and drop the files into it.
                 guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
                       let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
                 return panel.hostedView.handleDroppedURLs(urls)
             }
         }()
@@ -262,21 +264,27 @@ struct WorkspaceContentView: View {
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
                 if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
-                    // Multi-pane tmux window: render its pane layout as splits
-                    // inside this single tab. Single-pane windows keep the
-                    // standard PanelContentView path below.
+                    // Every tmux window renders through one stable container,
+                    // including its initial one-pane layout.
                     RemoteTmuxWindowMirrorSplitView(
                         mirror: windowMirror,
                         appearance: appearance,
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onOuterFocus: {
-                            workspace.bonsplitController.focusPane(paneId)
-                        }
+                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        unreadSurfaceIDs: Set(
+                            windowMirror.surfaceIDsInLayoutOrder.lazy
+                                .filter {
+                                    notificationStore.hasVisibleNotificationIndicator(
+                                        forTabId: workspace.id,
+                                        surfaceId: $0
+                                    )
+                                }
+                        )
                     )
                     .onTapGesture {
-                        workspace.bonsplitController.focusPane(paneId)
+                        workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
                 } else {
                     WorkspacePanelContentHostView(
@@ -286,6 +294,9 @@ struct WorkspaceContentView: View {
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: isWorkspaceInputActive
+                            && isWorkspaceVisible
+                            && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
@@ -296,7 +307,11 @@ struct WorkspaceContentView: View {
                             // indicator and where keyboard input/flash-focus actually lands.
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
-                            workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                            workspace.focusPanel(
+                                panel.id,
+                                trigger: .terminalFirstResponder,
+                                focusTransactionId: workspace.activeFocusTransactionId
+                            )
                         },
                         onRequestPanelFocus: {
                             guard isWorkspaceInputActive else { return }
@@ -673,7 +688,7 @@ struct WorkspaceContentView: View {
             workspace.applyGhosttyChrome(from: next, reason: chromeReason)
         }
         if shouldRefreshWindowBackground {
-            if let terminalPanel = workspace.focusedTerminalPanel {
+            if let terminalPanel = workspace.focusedTerminalInputTarget()?.panel {
                 terminalPanel.applyWindowBackgroundIfActive()
                 logTheme(
                     "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
@@ -753,7 +768,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

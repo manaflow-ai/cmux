@@ -12,6 +12,12 @@ struct TerminalViewportInputs {
     let chromeVisible: Bool
     let toolbarFrame: CGRect?
     let toolbarPresentationFrame: CGRect?
+    /// True while the shared-grid negotiation is unsettled: a keyboard
+    /// transition is in flight, a capacity report is debouncing, or the
+    /// newest report's echo has not confirmed. The render pin treats the
+    /// current effective grid as provisional then (see
+    /// `TerminalLetterboxGeometry.renderPinnedBottomEdge`).
+    let viewportNegotiationUnsettled: Bool
 }
 #endif
 

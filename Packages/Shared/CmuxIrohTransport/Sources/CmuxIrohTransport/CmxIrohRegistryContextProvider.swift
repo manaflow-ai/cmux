@@ -19,7 +19,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         _ expectedMacDeviceID: String
     ) async -> [CmxIrohCustomPrivatePathBootstrap]
 
-    let supervisor: CmxIrohEndpointSupervisor
+    let localEndpointIdentity: @Sendable () async throws -> CmxIrohPeerIdentity
     let broker: any CmxIrohRegistryServing
     var localBindingExpectation: CmxIrohLocalBindingExpectation
     var managedRelayURLs: Set<String>
@@ -34,6 +34,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     var pairGrantRetryDeadline: (code: String?, date: Date)?
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
     private var verifiedDiscoverySnapshot: VerifiedDiscoverySnapshot?
+    private var authoritativeDiscovery: CmxIrohDiscoveryResponse?
 
     /// Creates a public-route provider from the generation-less seam.
     public init(
@@ -50,7 +51,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.supervisor = supervisor
+        localEndpointIdentity = {
+            let endpoint = try await supervisor.activeEndpoint()
+            return await endpoint.identity()
+        }
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -65,6 +69,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
             VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
         }
+        authoritativeDiscovery = verifiedDiscovery
     }
 
     /// Creates a provider with generation-aware private-network validation.
@@ -82,7 +87,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.supervisor = supervisor
+        localEndpointIdentity = {
+            let endpoint = try await supervisor.activeEndpoint()
+            return await endpoint.identity()
+        }
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -96,6 +104,39 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
             VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
         }
+        authoritativeDiscovery = verifiedDiscovery
+    }
+
+    /// Creates a provider owned by the unified connectivity endpoint engine.
+    public init(
+        localEndpointIdentity: @escaping @Sendable () async throws -> CmxIrohPeerIdentity,
+        broker: any CmxIrohRegistryServing,
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
+        managedRelayURLs: Set<String>,
+        allowedRouteRelayURLs: Set<String>? = nil,
+        networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
+        offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
+        lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
+        verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.localEndpointIdentity = localEndpointIdentity
+        self.broker = broker
+        self.localBindingExpectation = localBindingExpectation
+        self.managedRelayURLs = managedRelayURLs
+        self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
+        self.networkPathSnapshot = networkPathSnapshot
+        self.offlinePolicy = offlinePolicy
+        self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
+        self.verifier = verifier
+        self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
+        authoritativeDiscovery = verifiedDiscovery
     }
 
     public func context(
@@ -108,8 +149,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.unsupportedRoute
         }
         lanAuthorities.removeValue(forKey: targetIdentity)
-        let endpoint = try await supervisor.activeEndpoint()
-        let localIdentity = await endpoint.identity()
+        let localIdentity = try await localEndpointIdentity()
         guard localBindingExpectation.platform == .ios,
               localBindingExpectation.endpointID == localIdentity else {
             throw CmxIrohRegistryContextError.localBindingUnavailable
@@ -120,7 +160,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             discovery = verified
         } else {
             do {
-                discovery = try await broker.discover()
+                discovery = try await refreshAuthoritativeDiscovery()
             } catch {
                 guard Self.isConnectivity(error),
                       let cached = try await cachedPolicy(
@@ -235,6 +275,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             grantCache.removeAll(keepingCapacity: false)
             lanAuthorities.removeAll(keepingCapacity: false)
             verifiedDiscoverySnapshot = nil
+            authoritativeDiscovery = nil
         }
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -245,6 +286,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 response: verifiedDiscovery,
                 verifiedAt: now()
             )
+            authoritativeDiscovery = verifiedDiscovery
         }
     }
 
@@ -258,6 +300,16 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             return nil
         }
         return snapshot.response
+    }
+
+    private func refreshAuthoritativeDiscovery() async throws
+        -> CmxIrohDiscoveryResponse
+    {
+        let discovery = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: authoritativeDiscovery)
+        authoritativeDiscovery = discovery
+        return discovery
     }
 
     private func context(
@@ -495,8 +547,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             $0.platform == .mac && $0.pairingEnabled
         }
         let counts = Dictionary(grouping: pairableMacs, by: \.endpointID).mapValues(\.count)
-        for target in pairableMacs.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
-        where counts[target.endpointID] == 1 {
+        for target in pairableMacs where counts[target.endpointID] == 1 {
             replacement[target.endpointID] = CmxIrohRegistryLANAuthority(
                 target: target,
                 bindings: discovery.bindings,
@@ -517,12 +568,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             bindings: bindings ?? [policy.targetBinding],
             rendezvous: policy.lanRendezvous
         )
-        if lanAuthorities.count > CmxIrohDiscoveryResponse.maximumBindingCount {
-            let keep = Set(lanAuthorities.keys.sorted {
-                $0.endpointID < $1.endpointID
-            }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
-            lanAuthorities = lanAuthorities.filter { keep.contains($0.key) }
-        }
     }
 
     public func validatePrivateFallback(
@@ -675,6 +720,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     }
 
     private static func isConnectivity(_ error: any Error) -> Bool {
-        CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(error)
+        (error as? CmxIrohTrustBrokerClientError) == .connectivity
     }
 }
