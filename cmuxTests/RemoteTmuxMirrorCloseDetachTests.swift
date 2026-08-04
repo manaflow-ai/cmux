@@ -257,9 +257,7 @@ import Testing
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
         let controller = appDelegate.remoteTmuxController
         defer {
-            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
-                controller.detach(host: host, sessionName: "dev")
-            }
+            controller.detach(host: host, sessionName: "dev")
         }
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))

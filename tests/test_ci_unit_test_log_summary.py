@@ -155,6 +155,13 @@ class UnitTestLogSummaryTests(unittest.TestCase):
         )
         self.assertEqual(fields["EXPECTED_FAILURES_ONLY"], 1)
 
+    def test_zero_failure_summary_is_not_expected_failure_only(self) -> None:
+        fields, _ = self.summarize(
+            "Executed 3 tests, with 0 failures (0 unexpected)"
+        )
+
+        self.assertEqual(fields["EXPECTED_FAILURES_ONLY"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -991,7 +991,9 @@ jobs:
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && [ "$PACKAGE_RESOLUTION_FAILED" -eq 1 ]; then
+          if [ "$EXIT_CODE" -ne 0 ] && \
+            [ "$PACKAGE_RESOLUTION_FAILED" -eq 1 ] && \
+            [ "$HOST_DEATHS" -eq 0 ]; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm

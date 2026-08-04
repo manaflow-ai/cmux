@@ -17,7 +17,11 @@ HOST_RESTART = "Restarting after unexpected exit, crash, or test timeout"
 EXECUTED_SUMMARY = re.compile(
     r"\b(?:Executed|Test run with)\s+(\d+)\s+tests?\b"
 )
-EXPECTED_FAILURE_SUMMARY = re.compile(r"Executed.*tests?.*with.*failures?")
+EXPECTED_FAILURE_SUMMARY = re.compile(
+    r"\bExecuted\s+\d+\s+tests?.*?\bwith\s+"
+    r"(?P<failures>\d+)\s+failures?\s+"
+    r"\((?P<unexpected>\d+)\s+unexpected\)"
+)
 TEST_EVENT = re.compile(
     r"\bTest (?P<swift_started>[A-Za-z0-9_]+\(\)) started\b"
     r"|(?:✔|✘) Test (?P<swift_completed>[A-Za-z0-9_]+\(\))"
@@ -45,9 +49,12 @@ class UnitTestLogSummary:
 
         for match in EXECUTED_SUMMARY.finditer(line):
             self.tests_seen = max(self.tests_seen, int(match.group(1)))
-        if EXPECTED_FAILURE_SUMMARY.search(line):
+        if match := EXPECTED_FAILURE_SUMMARY.search(line):
             # Only the last XCTest failure summary decides; accept singular and plural counts.
-            self.expected_failures_only = "(0 unexpected)" in line
+            self.expected_failures_only = (
+                int(match.group("failures")) > 0
+                and int(match.group("unexpected")) == 0
+            )
 
         for match in TEST_EVENT.finditer(line):
             started = match.group("swift_started") or match.group("xctest_started")

@@ -39,8 +39,28 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 REPORT_DIR = "~/Library/Logs/DiagnosticReports"
+
+
+def timestamp_in_utc(value: str) -> datetime:
+    """Parse a crash timestamp, treating an offset-free value as local time."""
+    timestamp = value.strip()
+    # Crash headers separate the numeric UTC offset with a space, while
+    # datetime.fromisoformat expects it immediately after the time when a
+    # fractional second is present.
+    if (
+        len(timestamp) >= 6
+        and timestamp[-6] == " "
+        and timestamp[-5] in "+-"
+        and timestamp[-4:].isdigit()
+    ):
+        timestamp = timestamp[:-6] + timestamp[-5:]
+    parsed = datetime.fromisoformat(timestamp)
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed.astimezone(timezone.utc)
 
 
 def header_of(path: str) -> dict:
@@ -66,14 +86,17 @@ def names_a_cmux_process(header: dict) -> bool:
 
 
 def crashes_since(since: str, directory: str = REPORT_DIR) -> list[str]:
+    threshold = timestamp_in_utc(since)
     hits = []
     for path in glob.iglob(os.path.join(os.path.expanduser(directory), "*.ips")):
         header = header_of(path)
         if not names_a_cmux_process(header):
             continue
-        # Header timestamps look like "2026-07-23 17:44:22.00 -0700"; compare the
-        # second-resolution prefix, which sorts correctly as text in local time.
-        if str(header.get("timestamp", ""))[:19] >= since:
+        try:
+            report_time = timestamp_in_utc(str(header.get("timestamp", "")))
+        except ValueError:
+            continue
+        if report_time >= threshold:
             hits.append(os.path.basename(path))
     return sorted(hits)
 
@@ -173,6 +196,24 @@ def self_test() -> int:
             failures += 1
         else:
             print("  ok   a non-cmux crash is ignored")
+
+        # Repeated wall-clock times during the fall-back hour must compare by
+        # their offsets, not by their visually ordered local-time prefixes.
+        with tempfile.TemporaryDirectory() as dst_directory:
+            dst_fixtures = {
+                "cmux-before-fall-back.ips": "2019-11-03 01:55:00.00 -0700",
+                "cmux-after-fall-back.ips": "2019-11-03 01:05:00.00 -0800",
+            }
+            for name, stamp in dst_fixtures.items():
+                with io.open(os.path.join(dst_directory, name), "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps({"app_name": "cmux DEV", "timestamp": stamp}) + "\n")
+                    handle.write("{}")
+            got = crashes_since("2019-11-03 01:00:00 -0800", dst_directory)
+            if got == ["cmux-after-fall-back.ips"]:
+                print("  ok   fall-back timestamps compare by absolute time")
+            else:
+                print(f"  FAIL fall-back ordering returned {got}")
+                failures += 1
 
         # The snapshot path: what existed before a run must not be blamed on it, and what
         # appears during it must be kept somewhere the pruner cannot reach.
