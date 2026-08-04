@@ -1994,7 +1994,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testDaemonBootstrapUploadUsesAbsoluteHomePathForRemoteDestination() throws {
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForRemoteDestination() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-upload-\(UUID().uuidString)",
@@ -2026,8 +2026,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         // An XCTestExpectation, not a semaphore: these tests are @MainActor, and
         // configureRemoteConnection enqueues its session transition as a main-actor Task.
-        // Blocking the main actor here would stop that Task from ever being scheduled,
-        // so the work being waited on could never happen. wait(for:) pumps the run loop.
+        // Awaiting async fulfillment yields the actor so that transition can run.
         let uploadInvoked = expectation(description: "daemon upload invoked")
         uploadInvoked.assertForOverFulfill = false
         let lock = NSLock()
@@ -2096,7 +2095,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        wait(for: [uploadInvoked], timeout: 2.0)
+        await fulfillment(of: [uploadInvoked], timeout: 2.0)
         lock.lock()
         let capturedCommand = uploadCommand
         let capturedDestination = uploadDestination
@@ -2119,7 +2118,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() throws {
+    func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() async throws {
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
         setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
@@ -2137,8 +2136,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
         }
 
-        // Expectation rather than a semaphore, for the reason above: blocking the main
-        // actor would starve the session transition this test is waiting on.
+        // Expectation rather than a semaphore, for the reason above: async fulfillment
+        // yields the main actor to the session transition this test is waiting on.
         let uploadInvoked = expectation(description: "daemon upload invoked")
         uploadInvoked.assertForOverFulfill = false
         let fakeDaemonData = Data("fake daemon".utf8)
@@ -2232,7 +2231,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        wait(for: [uploadInvoked], timeout: 2.0)
+        await fulfillment(of: [uploadInvoked], timeout: 2.0)
         lock.lock()
         let capturedCommand = uploadCommand
         let capturedPayload = uploadPayload
