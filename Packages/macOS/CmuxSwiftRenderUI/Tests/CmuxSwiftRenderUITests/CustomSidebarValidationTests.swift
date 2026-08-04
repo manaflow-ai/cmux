@@ -294,30 +294,25 @@ struct CustomSidebarValidationTests {
         #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
     }
 
-    @Test("deep validation walks rendered output iteratively")
-    func validatesDeepOutputWithoutCallerStackRecursion() throws {
-        let directory = try temporaryDirectory()
-        let fileURL = directory.appendingPathComponent("deep.swift")
-        // Each nested container consumes one view-evaluation and one
-        // ViewBuilder-item frame, so this stays just below the interpreter's
-        // 400-frame safety budget while remaining deep enough to exercise the
-        // post-evaluation walkers.
-        let depth = 150
-        let source = String(repeating: "VStack { ", count: depth)
-            + "Text(\"Deep\")"
-            + String(repeating: " }", count: depth)
-            + ".padding(workspaces[0].branch == \"never\" ? 0 : 0)"
-        try source.write(to: fileURL, atomically: true, encoding: .utf8)
+    @Test("deep validation helpers walk rendered output iteratively")
+    func validatesDeepOutputWithoutCallerStackRecursion() {
+        // This exceeds the nesting known to overflow recursive interpreter
+        // walks on a caller-sized stack. Construct it iteratively so this test
+        // isolates the two post-evaluation validation traversals.
+        let depth = 600
+        var visibleTree = RenderNode(kind: .text, text: "Deep")
+        var matchingTree = RenderNode(kind: .text, text: "Deep")
+        var emptyTree = RenderNode(kind: .group)
+        for _ in 0..<depth {
+            visibleTree = RenderNode(kind: .vstack, children: [visibleTree])
+            matchingTree = RenderNode(kind: .vstack, children: [matchingTree])
+            emptyTree = RenderNode(kind: .vstack, children: [emptyTree])
+        }
 
-        let entry = validator.validate(fileURL: fileURL)
-
-        #expect(entry.errorMessage == nil)
-        #expect(
-            entry.warningMessages
-                == [
-                    "Sidebar output did not change when its referenced optional workspace data was removed.",
-                ]
-        )
+        #expect(visibleTree.containsVisibleContent)
+        #expect(!emptyTree.containsVisibleContent)
+        #expect(visibleTree.hasSameValidationOutput(as: matchingTree))
+        #expect(!visibleTree.hasSameValidationOutput(as: emptyTree))
     }
 
     @Test("warning catalog includes Japanese translations")
