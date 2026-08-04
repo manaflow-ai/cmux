@@ -326,6 +326,16 @@ class TerminalController {
     private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
     private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
+    /// The content-world WebKit APIs expose `Result<Any, Error>`, but bridge a
+    /// JavaScript `undefined` result as an `Optional<Any>.none` boxed inside that
+    /// `Any`. Flatten the box back to nil so the browser eval undefined sentinel
+    /// remains distinguishable from an ordinary Swift value.
+    private nonisolated static func v2UnboxJavaScriptValue(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else { return value }
+        return mirror.children.first?.value
+    }
+
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
@@ -6147,11 +6157,10 @@ class TerminalController {
 
     /// True when a page-world JS failure looks like a CSP block of eval/function
     /// construction (script-src without 'unsafe-eval'). That is the only failure
-    /// the isolated-world retry is meant to recover from; gating on it keeps the
-    /// retry from re-running a script that already failed for an ordinary reason
-    /// (a thrown exception, a timeout), which would duplicate any side effect the
-    /// script performed before throwing and could return a value from the wrong
-    /// JS context.
+    /// the CSP recovery path is meant to handle; gating on it keeps the retry from
+    /// re-running a script that already failed for an ordinary reason (a thrown
+    /// exception, a timeout), which would duplicate any side effect the script
+    /// performed before throwing.
     private nonisolated func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
         v2BrowserControl.failureLooksLikeCSPEvalBlock(message)
     }
@@ -6182,7 +6191,16 @@ class TerminalController {
                     webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
                         switch result {
                         case .success(let value):
-                            finish(value, nil)
+                            finish(Self.v2UnboxJavaScriptValue(value), nil)
+                        case .failure(let error):
+                            finish(nil, browserControl.describeJavaScriptError(error))
+                        }
+                    }
+                } else if #available(macOS 11.0, *) {
+                    webView.evaluateJavaScript(script, in: nil, in: contentWorld) { result in
+                        switch result {
+                        case .success(let value):
+                            finish(Self.v2UnboxJavaScriptValue(value), nil)
                         case .failure(let error):
                             finish(nil, browserControl.describeJavaScriptError(error))
                         }
@@ -6428,8 +6446,7 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0,
         useEval: Bool = true,
-        requiresPageWorld: Bool = false,
-        onIsolatedWorldFallback: (() -> Void)? = nil
+        requiresPageWorld: Bool = false
     ) -> V2JavaScriptResult {
         guard v2EnsureBrowserDocumentLoaded(
             webView,
@@ -6512,41 +6529,64 @@ class TerminalController {
             rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, world: .page)
         }
 
-        // Retry in the isolated world only when page CSP blocked eval/function construction
-        // (script-src without 'unsafe-eval'). That block applies to callAsyncJavaScript and page
-        // eval() but not to isolated content worlds, which share the DOM, so DOM-only automation
-        // scripts and DOM-reading user evals (document.title) still work there.
+        var usedDirectPageEvaluation = false
+
+        // Page CSP without 'unsafe-eval' can block both callAsyncJavaScript's implicit function
+        // construction and the explicit eval() used to preserve completion values. For eval-wrapped
+        // requests, retry the original source through evaluateJavaScript in the page world. WebKit
+        // injects that source directly, so CSP does not reject it and page-defined globals remain
+        // visible. Nested blocks let user declarations shadow the selected-frame helper bindings
+        // while preserving the source block's JavaScript completion value.
         //
         // Gating on the CSP signature matters: a script can fail in the page world for ordinary
         // reasons (a thrown exception, a timeout) after performing a side effect, and an
-        // unconditional retry would run it a second time and duplicate that side effect, or return
-        // a value from the isolated world that differs from the page world with no visible signal.
+        // unconditional retry would run it a second time and duplicate that side effect.
         //
-        // The isolated world cannot see page-world JS globals (window.reactRoot set by the page's
-        // own scripts). Page-global telemetry and dialog commands therefore set requiresPageWorld
-        // and surface the page-world failure instead of silently reading a different window. For a
-        // user-supplied browser.eval, onIsolatedWorldFallback annotates the result's content world.
-        if !requiresPageWorld,
-           case .failure(let pageMessage) = rawResult,
-           v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
-           #available(macOS 11.0, *) {
-            let isolatedResult = v2RunJavaScript(
-                webView,
-                script: asyncFunctionBody,
-                timeout: timeout,
-                preferAsync: true,
-                world: .isolated
-            )
-            switch isolatedResult {
-            case .success:
-                rawResult = isolatedResult
-                onIsolatedWorldFallback?()
-            case .failure(let isolatedMessage):
-                if isolatedMessage != pageMessage {
-                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
+        // Non-eval automation keeps the existing isolated-world recovery because those scripts are
+        // app-authored DOM operations. Page-global telemetry and dialog commands opt out through
+        // requiresPageWorld because an isolated world cannot see page-authored JavaScript globals.
+        if case .failure(let pageMessage) = rawResult,
+           v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage) {
+            if useEval {
+                let directEvaluationScript = """
+                {
+                  \(framePrelude)
+                  {
+                    const document = __cmuxDoc;
+                    {
+                      \(script)
+                    }
+                  }
                 }
-            case .timedOut:
-                rawResult = .timedOut
+                """
+                let directResult = v2RunJavaScript(
+                    webView,
+                    script: directEvaluationScript,
+                    timeout: timeout,
+                    world: .page
+                )
+                if case .success = directResult {
+                    usedDirectPageEvaluation = true
+                }
+                rawResult = directResult
+            } else if !requiresPageWorld, #available(macOS 11.0, *) {
+                let isolatedResult = v2RunJavaScript(
+                    webView,
+                    script: asyncFunctionBody,
+                    timeout: timeout,
+                    preferAsync: true,
+                    world: .isolated
+                )
+                switch isolatedResult {
+                case .success:
+                    rawResult = isolatedResult
+                case .failure(let isolatedMessage):
+                    if isolatedMessage != pageMessage {
+                        rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
+                    }
+                case .timedOut:
+                    rawResult = .timedOut
+                }
             }
         }
 
@@ -6561,6 +6601,9 @@ class TerminalController {
         case .failure(let message):
             return .failure(message)
         case .success(let value):
+            if usedDirectPageEvaluation {
+                return .success(value ?? v2BrowserUndefinedSentinel)
+            }
             guard let dict = value as? [String: Any],
                   let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
                 return .success(value)
@@ -7338,32 +7381,23 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
-            var usedIsolatedWorld = false
             switch v2RunBrowserJavaScript(
                 ctx.webView,
                 browserPanel: ctx.browserPanel,
                 surfaceId: ctx.surfaceId,
                 script: script,
-                timeout: 10.0,
-                onIsolatedWorldFallback: { usedIsolatedWorld = true }
+                timeout: 10.0
             ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                var payload: [String: Any] = [
+                let payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
                     "surface_id": ctx.surfaceId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
                     "value": v2NormalizeJSValue(value)
                 ]
-                if usedIsolatedWorld {
-                    // Page-world eval was blocked (typically CSP without 'unsafe-eval'); this value
-                    // came from the isolated content world. It shares the DOM but cannot read
-                    // page-world JS globals, so flag it instead of returning silently.
-                    payload["content_world"] = "isolated"
-                    payload["content_world_note"] = "Page-world eval was blocked (likely CSP without 'unsafe-eval'); value came from the isolated content world, which shares the DOM but cannot see page-world JS globals."
-                }
                 return .ok(payload)
             }
         }
