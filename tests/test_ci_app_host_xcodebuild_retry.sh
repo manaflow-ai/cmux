@@ -89,6 +89,12 @@ if [ "$assertion_retry_status" -eq 0 ]; then
   regression_failures=$((regression_failures + 1))
 fi
 
+if ! grep -Fq "Detected 1 XCTest or Swift Testing failure markers." "$TMP_DIR/assertion-retry-output.log"; then
+  cat "$TMP_DIR/assertion-retry-output.log"
+  echo "FAIL: assertion diagnostics must report a sanitized marker count"
+  regression_failures=$((regression_failures + 1))
+fi
+
 assertion_retry_invocations="$(wc -l < "$TMP_DIR/assertion-retry-invocations.log" | tr -d ' ')"
 if [ "$assertion_retry_invocations" -ne 1 ]; then
   cat "$TMP_DIR/assertion-retry-output.log"

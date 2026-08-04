@@ -90,7 +90,8 @@ while [ "$attempt" -le "$max_attempts" ]; do
   # before considering either an infrastructure retry or a successful exit.
   if log_contains_test_assertion_failure "$log_path"; then
     echo "FAIL: app-host test assertion failure detected in attempt $attempt; refusing to continue" >&2
-    LC_ALL=C grep -E "$test_assertion_failure_pattern" "$log_path" | tail -20 >&2 || true
+    marker_count="$(LC_ALL=C grep -Ec "$test_assertion_failure_pattern" "$log_path")"
+    echo "Detected ${marker_count} XCTest or Swift Testing failure markers." >&2
     exit 1
   fi
 
