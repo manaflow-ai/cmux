@@ -146,6 +146,38 @@ extension ExternalTreeNode {
         ))
     }
 
+    /// Plans an exact share for the focused branch at the nearest enclosing
+    /// split on `axis`.
+    func focusedBranchShareDividerPlan(
+        targetPaneId: String,
+        axis: PaneAxis,
+        share: CGFloat
+    ) -> SplitResizePlan {
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: { $0.orientation == axis.splitOrientation }) else {
+            return .noMatchingSplit
+        }
+        guard let splitId = candidate.splitId else {
+            return .invalidSplitIdentifier
+        }
+
+        let clampedShare = min(max(share, 0.1), 0.9)
+        let dividerPosition = candidate.paneInFirstChild ? clampedShare : 1 - clampedShare
+        let initialShare = candidate.paneInFirstChild
+            ? candidate.dividerPosition
+            : 1 - candidate.dividerPosition
+        return .adjustment(SplitDividerAdjustment(
+            splitId: splitId,
+            position: dividerPosition,
+            requestedFocusedBranchShare: share,
+            focusedBranchShare: clampedShare,
+            initialFocusedBranchShare: initialShare,
+            focusedBranchIsFirst: candidate.paneInFirstChild
+        ))
+    }
+
     func dividerPosition(forSplitId splitId: UUID) -> CGFloat? {
         switch self {
         case .pane:

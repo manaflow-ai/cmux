@@ -126,6 +126,18 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case growPaneUp
     /// Grows the focused pane toward its bottom edge.
     case growPaneDown
+    /// Sets the focused pane's width share to one quarter.
+    case setPaneWidth25Percent
+    /// Sets the focused pane's width share to one half.
+    case setPaneWidth50Percent
+    /// Sets the focused pane's width share to three quarters.
+    case setPaneWidth75Percent
+    /// Sets the focused pane's height share to one quarter.
+    case setPaneHeight25Percent
+    /// Sets the focused pane's height share to one half.
+    case setPaneHeight50Percent
+    /// Sets the focused pane's height share to three quarters.
+    case setPaneHeight75Percent
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"

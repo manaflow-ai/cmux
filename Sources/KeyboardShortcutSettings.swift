@@ -144,6 +144,8 @@ enum KeyboardShortcutSettings {
         case resetWorkspaceTerminalFontSize
         case equalizeSplits
         case growPaneLeft, growPaneRight, growPaneUp, growPaneDown
+        case setPaneWidth25Percent, setPaneWidth50Percent, setPaneWidth75Percent
+        case setPaneHeight25Percent, setPaneHeight50Percent, setPaneHeight75Percent
         case splitBrowserRight
         case splitBrowserDown
 
@@ -309,6 +311,18 @@ enum KeyboardShortcutSettings {
             case .growPaneRight: return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
             case .growPaneUp: return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
             case .growPaneDown: return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
+            case .setPaneWidth25Percent:
+                return String(localized: "shortcut.setPaneWidth25Percent.label", defaultValue: "Set Pane Width to 25%")
+            case .setPaneWidth50Percent:
+                return String(localized: "shortcut.setPaneWidth50Percent.label", defaultValue: "Set Pane Width to 50%")
+            case .setPaneWidth75Percent:
+                return String(localized: "shortcut.setPaneWidth75Percent.label", defaultValue: "Set Pane Width to 75%")
+            case .setPaneHeight25Percent:
+                return String(localized: "shortcut.setPaneHeight25Percent.label", defaultValue: "Set Pane Height to 25%")
+            case .setPaneHeight50Percent:
+                return String(localized: "shortcut.setPaneHeight50Percent.label", defaultValue: "Set Pane Height to 50%")
+            case .setPaneHeight75Percent:
+                return String(localized: "shortcut.setPaneHeight75Percent.label", defaultValue: "Set Pane Height to 75%")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
@@ -515,6 +529,18 @@ enum KeyboardShortcutSettings {
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
             case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
                 return .unbound
+            case .setPaneWidth25Percent:
+                return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
+            case .setPaneWidth50Percent:
+                return StoredShortcut(key: "2", command: true, shift: false, option: true, control: false)
+            case .setPaneWidth75Percent:
+                return StoredShortcut(key: "3", command: true, shift: false, option: true, control: false)
+            case .setPaneHeight25Percent:
+                return StoredShortcut(key: "1", command: true, shift: true, option: true, control: false)
+            case .setPaneHeight50Percent:
+                return StoredShortcut(key: "2", command: true, shift: true, option: true, control: false)
+            case .setPaneHeight75Percent:
+                return StoredShortcut(key: "3", command: true, shift: true, option: true, control: false)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:

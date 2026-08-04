@@ -314,6 +314,76 @@ struct SplitGeometryTests {
         #expect(adjustment?.requestedFocusedBranchShare.map { $0 > 0.9 } == true)
     }
 
+    @Test func exactShareUsesFocusedBranchCoordinatesOnEitherSide() {
+        let splitId = UUID()
+        let tree = split(
+            splitId,
+            orientation: "horizontal",
+            first: pane("left", width: 300),
+            second: pane("right", x: 300, width: 300)
+        )
+
+        let leftPlan = tree.focusedBranchShareDividerPlan(
+            targetPaneId: "left",
+            axis: .width,
+            share: 0.75
+        )
+        let rightPlan = tree.focusedBranchShareDividerPlan(
+            targetPaneId: "right",
+            axis: .width,
+            share: 0.75
+        )
+
+        guard case .adjustment(let leftAdjustment) = leftPlan,
+              case .adjustment(let rightAdjustment) = rightPlan else {
+            Issue.record("Expected exact-share adjustments")
+            return
+        }
+        #expect(leftAdjustment.splitId == splitId)
+        #expect(leftAdjustment.position == 0.75)
+        #expect(leftAdjustment.focusedBranchShare == 0.75)
+        #expect(rightAdjustment.splitId == splitId)
+        #expect(rightAdjustment.position == 0.25)
+        #expect(rightAdjustment.focusedBranchShare == 0.75)
+    }
+
+    @Test func exactShareChoosesNearestSplitOnRequestedAxis() {
+        let rootId = UUID()
+        let innerId = UUID()
+        let tree = split(
+            rootId,
+            orientation: "horizontal",
+            first: pane("a", width: 300),
+            second: split(
+                innerId,
+                orientation: "vertical",
+                first: pane("b", x: 300, width: 300, height: 200),
+                second: pane("c", x: 300, y: 200, width: 300, height: 200)
+            )
+        )
+
+        let widthPlan = tree.focusedBranchShareDividerPlan(
+            targetPaneId: "c",
+            axis: .width,
+            share: 0.25
+        )
+        let heightPlan = tree.focusedBranchShareDividerPlan(
+            targetPaneId: "c",
+            axis: .height,
+            share: 0.25
+        )
+
+        guard case .adjustment(let widthAdjustment) = widthPlan,
+              case .adjustment(let heightAdjustment) = heightPlan else {
+            Issue.record("Expected width and height adjustments")
+            return
+        }
+        #expect(widthAdjustment.splitId == rootId)
+        #expect(widthAdjustment.position == 0.75)
+        #expect(heightAdjustment.splitId == innerId)
+        #expect(heightAdjustment.position == 0.75)
+    }
+
     // MARK: Direction values
 
     @Test func splitDirectionMapsOrientationAndInsertionSide() {

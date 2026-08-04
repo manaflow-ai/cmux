@@ -1,5 +1,5 @@
 public import Bonsplit
-import CoreGraphics
+public import CoreGraphics
 
 /// Applies pure split-geometry plans (see `ExternalTreeNode` extensions in
 /// `Geometry/`) to a live `BonsplitController`, preserving the legacy
@@ -74,6 +74,50 @@ public struct PaneLayoutService {
         case .invalidSplitIdentifier:
             return .rejected(reason: "The matching split has an invalid identifier.")
         }
+        return apply(adjustment, controller: controller)
+    }
+
+    /// Sets the focused branch to `share` of the nearest matching split.
+    ///
+    /// Reapplying the branch's current share succeeds without mutating the
+    /// controller, which keeps exact-share shortcuts idempotent.
+    ///
+    /// - Parameter node: The current external split-tree snapshot.
+    /// - Parameter targetPaneId: The identifier of the focused pane.
+    /// - Parameter axis: The split axis whose focused branch should change.
+    /// - Parameter share: The requested focused-branch share between zero and one.
+    /// - Parameter controller: The live controller that owns the split tree.
+    /// - Returns: The applied share, a clamped share, or a rejection reason.
+    public func setSplitShareResult(
+        in node: ExternalTreeNode,
+        targetPaneId: String,
+        axis: PaneAxis,
+        share: CGFloat,
+        controller: BonsplitController
+    ) -> PaneResizeResult {
+        guard share.isFinite, share > 0, share < 1 else {
+            return .rejected(reason: "Pane share must be a finite value between zero and one.")
+        }
+        let plan = node.focusedBranchShareDividerPlan(
+            targetPaneId: targetPaneId,
+            axis: axis,
+            share: share
+        )
+        switch plan {
+        case .adjustment(let adjustment):
+            return apply(adjustment, controller: controller, unchangedResultIsSuccess: true)
+        case .noMatchingSplit:
+            return .noMatchingSplit
+        case .invalidSplitIdentifier:
+            return .rejected(reason: "The matching split has an invalid identifier.")
+        }
+    }
+
+    private func apply(
+        _ adjustment: SplitDividerAdjustment,
+        controller: BonsplitController,
+        unchangedResultIsSuccess: Bool = false
+    ) -> PaneResizeResult {
         guard let requestedShare = adjustment.requestedFocusedBranchShare,
               let plannedShare = adjustment.focusedBranchShare,
               let initialShare = adjustment.initialFocusedBranchShare,
@@ -81,6 +125,9 @@ public struct PaneLayoutService {
             return .rejected(reason: "The resize plan did not include focused-branch geometry.")
         }
         let tolerance: CGFloat = 0.000_1
+        if abs(plannedShare - initialShare) <= tolerance, unchangedResultIsSuccess {
+            return .applied(actualShare: plannedShare)
+        }
         guard abs(plannedShare - initialShare) > tolerance else {
             return .rejected(reason: "The pane is already at its resize limit.")
         }

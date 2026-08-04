@@ -445,6 +445,68 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         )
     }
 
+    @Test func paneShareShortcutsSetFocusedPaneToThreeQuartersByAxis() throws {
+        try assertPaneShareShortcut(
+            action: .setPaneWidth75Percent,
+            key: "3",
+            keyCode: 20,
+            modifiers: [.command, .option],
+            orientation: .horizontal
+        )
+        try assertPaneShareShortcut(
+            action: .setPaneHeight75Percent,
+            key: "3",
+            keyCode: 20,
+            modifiers: [.command, .option, .shift],
+            orientation: .vertical
+        )
+    }
+
+    private func assertPaneShareShortcut(
+        action: KeyboardShortcutSettings.Action,
+        key: String,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        orientation: SplitOrientation
+    ) throws {
+        try withTemporaryShortcut(action: action) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let secondPanel = try #require(workspace.newTerminalSplit(
+                from: firstPanelId,
+                orientation: orientation
+            ))
+            workspace.focusPanel(secondPanel.id)
+            window.makeKeyAndOrderFront(nil)
+
+            let event = try #require(makeKeyDownEvent(
+                key: key,
+                modifiers: modifiers,
+                keyCode: keyCode,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            guard case .split(let split) = workspace.bonsplitController.treeSnapshot() else {
+                Issue.record("Expected a split")
+                return
+            }
+            #expect(abs(split.dividerPosition - 0.25) < 0.0001)
+            #expect(workspace.focusedPanelId == secondPanel.id)
+        }
+    }
+
     private func assertPaneResizeShortcut(
         action: KeyboardShortcutSettings.Action,
         key: String,

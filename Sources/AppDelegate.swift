@@ -14356,6 +14356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performEqualizeSplitsShortcut()
             return true
         }
+        if handlePaneShareShortcut(event: event) { return true }
         if handlePaneResizeShortcut(event: event) { return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
@@ -16114,7 +16115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
     }
 
-    private func preferredMatchingShortcutAction(
+    func preferredMatchingShortcutAction(
         event: NSEvent,
         actions: [KeyboardShortcutSettings.Action]
     ) -> KeyboardShortcutSettings.Action? {
@@ -16126,7 +16127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } ?? matchingActions.first
     }
 
-    private func explicitShortcutOverrideShouldPreemptImplicitDefault(
+    func explicitShortcutOverrideShouldPreemptImplicitDefault(
         event: NSEvent,
         matchedAction: KeyboardShortcutSettings.Action,
         actionFamily: [KeyboardShortcutSettings.Action]

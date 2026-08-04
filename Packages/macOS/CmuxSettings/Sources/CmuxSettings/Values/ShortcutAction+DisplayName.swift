@@ -124,6 +124,18 @@ extension ShortcutAction {
             return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
         case .growPaneDown:
             return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
+        case .setPaneWidth25Percent:
+            return String(localized: "shortcut.setPaneWidth25Percent.label", defaultValue: "Set Pane Width to 25%")
+        case .setPaneWidth50Percent:
+            return String(localized: "shortcut.setPaneWidth50Percent.label", defaultValue: "Set Pane Width to 50%")
+        case .setPaneWidth75Percent:
+            return String(localized: "shortcut.setPaneWidth75Percent.label", defaultValue: "Set Pane Width to 75%")
+        case .setPaneHeight25Percent:
+            return String(localized: "shortcut.setPaneHeight25Percent.label", defaultValue: "Set Pane Height to 25%")
+        case .setPaneHeight50Percent:
+            return String(localized: "shortcut.setPaneHeight50Percent.label", defaultValue: "Set Pane Height to 50%")
+        case .setPaneHeight75Percent:
+            return String(localized: "shortcut.setPaneHeight75Percent.label", defaultValue: "Set Pane Height to 75%")
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"

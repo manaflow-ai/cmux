@@ -79,6 +79,16 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
 - `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.equalizeSplits`
+- `shortcuts.bindings.growPaneLeft`
+- `shortcuts.bindings.growPaneRight`
+- `shortcuts.bindings.growPaneUp`
+- `shortcuts.bindings.growPaneDown`
+- `shortcuts.bindings.setPaneWidth25Percent`
+- `shortcuts.bindings.setPaneWidth50Percent`
+- `shortcuts.bindings.setPaneWidth75Percent`
+- `shortcuts.bindings.setPaneHeight25Percent`
+- `shortcuts.bindings.setPaneHeight50Percent`
+- `shortcuts.bindings.setPaneHeight75Percent`
 
 ## Canvas
 

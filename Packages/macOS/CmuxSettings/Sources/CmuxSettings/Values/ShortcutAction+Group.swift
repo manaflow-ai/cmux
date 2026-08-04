@@ -33,6 +33,8 @@ extension ShortcutAction {
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown,
+             .setPaneWidth25Percent, .setPaneWidth50Percent, .setPaneWidth75Percent,
+             .setPaneHeight25Percent, .setPaneHeight50Percent, .setPaneHeight75Percent,
              .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,

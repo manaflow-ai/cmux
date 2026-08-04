@@ -3979,16 +3979,48 @@ class TabManager: ObservableObject {
         guard !workspace.bonsplitController.isSplitZoomed else {
             return .rejected(reason: "Pane resizing is unavailable while a pane is zoomed.")
         }
-        guard let panelId = workspace.focusedPanelId else {
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
             return .rejected(reason: "No pane is focused.")
         }
 
         let roundedAmount = max(1, min(amountInPixels.rounded(), CGFloat(UInt16.max)))
         return paneLayout.resizeSplitResult(
             in: workspace.bonsplitController.treeSnapshot(),
-            targetPaneId: panelId.uuidString,
+            targetPaneId: paneId.id.uuidString,
             direction: direction,
             amountPixels: UInt16(roundedAmount),
+            controller: workspace.bonsplitController
+        )
+    }
+
+    /// Assigns an exact share of the nearest matching split to the focused pane.
+    func setSelectedPaneShare(
+        axis: PaneAxis,
+        share: CGFloat
+    ) -> PaneResizeResult {
+        guard share.isFinite, share > 0, share < 1 else {
+            return .rejected(reason: "Pane share must be a finite value between zero and one.")
+        }
+        guard let workspace = selectedWorkspace else {
+            return .rejected(reason: "No workspace is selected.")
+        }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else {
+            return .unsupportedLayout
+        }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane sizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        return paneLayout.setSplitShareResult(
+            in: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: paneId.id.uuidString,
+            axis: axis,
+            share: share,
             controller: workspace.bonsplitController
         )
     }
