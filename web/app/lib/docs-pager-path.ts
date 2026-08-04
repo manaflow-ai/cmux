@@ -19,3 +19,17 @@ export function docsPagerItemIndex(
   });
   return ancestorIndex;
 }
+
+/** Returns adjacent docs items only when the current path belongs to the docs nav. */
+export function docsPagerAdjacentItems<T extends { href: string }>(
+  items: readonly T[],
+  pathname: string,
+): { prev: T | null; next: T | null } {
+  const index = docsPagerItemIndex(items, pathname);
+  if (index < 0) return { prev: null, next: null };
+
+  return {
+    prev: index > 0 ? items[index - 1] : null,
+    next: index < items.length - 1 ? items[index + 1] : null,
+  };
+}

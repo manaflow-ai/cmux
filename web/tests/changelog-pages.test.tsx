@@ -11,7 +11,10 @@ import {
   parseChangelog,
 } from "../app/lib/changelog";
 import { changelogStore } from "../app/lib/changelog-store";
-import { docsPagerItemIndex } from "../app/lib/docs-pager-path";
+import {
+  docsPagerAdjacentItems,
+  docsPagerItemIndex,
+} from "../app/lib/docs-pager-path";
 import sitemap from "../app/sitemap";
 import middleware from "../proxy";
 import { locales } from "../i18n/routing";
@@ -123,6 +126,10 @@ Release intro.
     expect(
       docsPagerItemIndex(items, "/docs/changelog/archive/0.17.0"),
     ).toBe(2);
+    expect(docsPagerAdjacentItems(items, "/outside-docs")).toEqual({
+      prev: null,
+      next: null,
+    });
   });
 
   test("emits unique release summaries without Markdown URLs", () => {
