@@ -155,7 +155,58 @@ struct MarkdownPanelFileLinkResolverTests {
         ) == nil)
     }
 
-    private func makeResolver(fallbackDirectoryPath: String) -> CmuxPanes.MarkdownPanelFileLinkResolver {
+    @MainActor
+    @Test("Markdown panels use the owning workspace directory instead of the process working directory")
+    func markdownPanelUsesOwningWorkspaceDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-workspace-root-\(UUID().uuidString)", isDirectory: true)
+        let docs = root.appendingPathComponent("docs", isDirectory: true)
+        let sourceFile = docs.appendingPathComponent("index.md")
+        let targetFile = root.appendingPathComponent("raw/plan.md")
+
+        try fileManager.createDirectory(
+            at: targetFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
+        try "# Index".write(to: sourceFile, atomically: true, encoding: .utf8)
+        try "# Plan".write(to: targetFile, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        #expect(fileManager.currentDirectoryPath != root.path)
+
+        let workspace = Workspace(workingDirectory: root.path)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newMarkdownSurface(
+            inPane: pane,
+            filePath: sourceFile.path,
+            focus: false
+        ))
+        defer { panel.close() }
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: workspace.id,
+            filePath: panel.filePath
+        )
+
+        #expect(coordinator.resolvedMarkdownFilePath("raw/plan.md") == targetFile.path)
+
+        let standalonePanel = MarkdownPanel(
+            workspaceId: UUID(),
+            filePath: sourceFile.path
+        )
+        defer { standalonePanel.close() }
+        let standaloneCoordinator = standalonePanel.rendererSession.coordinator(
+            panelId: standalonePanel.id,
+            workspaceId: standalonePanel.workspaceId,
+            filePath: standalonePanel.filePath
+        )
+
+        #expect(standaloneCoordinator.resolvedMarkdownFilePath("raw/plan.md") == nil)
+    }
+
+    private func makeResolver(fallbackDirectoryPath: String?) -> CmuxPanes.MarkdownPanelFileLinkResolver {
         CmuxPanes.MarkdownPanelFileLinkResolver(
             fileManager: .default,
             fallbackDirectoryPath: fallbackDirectoryPath

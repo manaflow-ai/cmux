@@ -625,7 +625,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript("window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));", completionHandler: nil)
         }
 
-        private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
+        func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             return fileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)

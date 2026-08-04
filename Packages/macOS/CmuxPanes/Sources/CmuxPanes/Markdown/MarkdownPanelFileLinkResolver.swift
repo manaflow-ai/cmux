@@ -7,17 +7,22 @@ public import Foundation
 /// without relying on process-global state inside the resolver.
 public struct MarkdownPanelFileLinkResolver {
     private let fileManager: FileManager
-    private let fallbackDirectoryPath: String
+    private let fallbackDirectoryPath: String?
 
     /// Creates a resolver for one panel-owner context.
     ///
     /// - Parameters:
     ///   - fileManager: The file manager used to check candidate files.
-    ///   - fallbackDirectoryPath: The workspace or process-working-directory
-    ///     root checked after the directory containing the Markdown file.
-    public init(fileManager: FileManager, fallbackDirectoryPath: String) {
+    ///   - fallbackDirectoryPath: The owning workspace root checked after the
+    ///     directory containing the Markdown file. Pass `nil` to resolve only
+    ///     beside the containing file.
+    public init(fileManager: FileManager, fallbackDirectoryPath: String?) {
         self.fileManager = fileManager
-        self.fallbackDirectoryPath = fallbackDirectoryPath
+        let trimmedFallback = fallbackDirectoryPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.fallbackDirectoryPath = trimmedFallback?.isEmpty == false
+            ? trimmedFallback
+            : nil
     }
 
     /// Resolves an authored link when it identifies an existing Markdown file.
@@ -77,8 +82,12 @@ public struct MarkdownPanelFileLinkResolver {
         relativeToMarkdownFile markdownFilePath: String
     ) -> [String] {
         let markdownDir = (markdownFilePath as NSString).deletingLastPathComponent
+        let adjacentPath = (markdownDir as NSString).appendingPathComponent(relativePath)
+        guard let fallbackDirectoryPath else {
+            return [adjacentPath]
+        }
         return [
-            (markdownDir as NSString).appendingPathComponent(relativePath),
+            adjacentPath,
             (fallbackDirectoryPath as NSString).appendingPathComponent(relativePath)
         ]
     }
