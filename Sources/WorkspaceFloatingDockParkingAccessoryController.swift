@@ -72,7 +72,8 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
         panel.level = .floating
-        panel.collectionBehavior = [.fullScreenAuxiliary]
+        panel.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+        panel.isExcludedFromWindowsMenu = true
         panel.animationBehavior = .none
         panel.isOpaque = false
         panel.backgroundColor = .clear

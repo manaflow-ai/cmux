@@ -426,7 +426,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentationGeneration &+= 1
         isAnimatingPresentation = false
         panel.title = dock.title
-        let wasKeyWindow = panel.isKeyWindow
         let targetFrame: CGRect
         switch presentation {
         case .visible, .parked:
@@ -456,9 +455,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         } else {
             showsAccessory = false
         }
-        let restoresKeyImmediately = !animated
-            || panel.frame == targetFrame
-            || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         transitionParkedPanel(
             panel,
             to: targetFrame,
@@ -466,9 +462,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             animated: animated,
             duration: 0.22
         )
-        if wasKeyWindow, restoresKeyImmediately {
-            parentWindow?.makeKeyAndOrderFront(nil)
-        }
     }
 
     func stash(
@@ -484,7 +477,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentationGeneration &+= 1
         let generation = presentationGeneration
         let originalFrame = panel.frame
-        let wasKeyWindow = panel.isKeyWindow
         persistRestorableFrame(originalFrame)
         presentation = .parked(snapshot)
         presentationTargetFrame = snapshot.parkedFrame
@@ -499,7 +491,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             completeStash(
                 panel: panel,
                 stashedFrame: snapshot.parkedFrame,
-                wasKeyWindow: wasKeyWindow,
                 completion: completion
             )
             return
@@ -527,7 +518,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 self.completeStash(
                     panel: panel,
                     stashedFrame: snapshot.parkedFrame,
-                    wasKeyWindow: wasKeyWindow,
                     completion: completion
                 )
             } else {
@@ -549,7 +539,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private func completeStash(
         panel: NSWindow,
         stashedFrame: CGRect,
-        wasKeyWindow: Bool,
         completion: @escaping () -> Void
     ) {
         setPanelFrame(stashedFrame, display: true)
@@ -557,9 +546,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.ignoresMouseEvents = true
         isAnimatingPresentation = false
         dock.store.setVisibleInUI(true)
-        if wasKeyWindow {
-            parentWindow?.makeKeyAndOrderFront(nil)
-        }
         completion()
     }
 
@@ -1181,6 +1167,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         _ snapshot: WorkspaceFloatingDockParkingSnapshot,
         on panel: NSWindow
     ) {
+        if panel.isKeyWindow {
+            parentWindow?.makeKeyAndOrderFront(nil)
+        }
         panel.ignoresMouseEvents = true
         parkingPresentationController.show(
             representing: panel,
@@ -1353,7 +1342,8 @@ private final class WorkspaceFloatingDockParkingPresentationController {
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
         panel.level = .floating
-        panel.collectionBehavior = [.fullScreenAuxiliary]
+        panel.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+        panel.isExcludedFromWindowsMenu = true
         panel.animationBehavior = .none
         panel.isOpaque = false
         panel.backgroundColor = .clear
