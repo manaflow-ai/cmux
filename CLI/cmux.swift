@@ -22550,7 +22550,12 @@ struct CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the binary would otherwise shadow the real executable (#8743).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
