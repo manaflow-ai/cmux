@@ -2288,6 +2288,10 @@ mod unix {
         max_queued_bytes: usize,
     }
 
+    fn host_tap_channel() -> (SyncSender<Frame>, Receiver<Frame>) {
+        sync_channel(256)
+    }
+
     impl HostTap {
         fn new(
             sender: SyncSender<Frame>,
@@ -3798,7 +3802,7 @@ mod unix {
         write_frame(&mut stream, &hello_response)?;
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = sync_channel(256);
+        let (sender, receiver) = host_tap_channel();
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
@@ -5840,6 +5844,18 @@ mod unix {
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2; half_output_budget],)));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn host_tap_accepts_many_small_frames_within_its_byte_budget() {
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = host_tap_channel();
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
+
+            for value in 0..1_024 {
+                assert!(tap.try_send(Frame::new(MessageKind::Output, vec![value as u8])));
+            }
+            assert_eq!(receiver.try_iter().count(), 1_024);
         }
 
         #[test]
