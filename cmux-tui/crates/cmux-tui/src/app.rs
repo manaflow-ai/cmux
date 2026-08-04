@@ -216,7 +216,7 @@ enum AppEvent {
         impact: MutationImpact,
     },
     SurfaceAttachSettled {
-        outcome: SessionMutationOutcome,
+        outcome: SurfaceAttachOutcome,
     },
     RemoteTreeUpdated {
         refresh_sequence: u64,
@@ -1153,9 +1153,38 @@ fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
 }
 
 struct SurfaceAttachResult {
-    outcome: SessionMutationOutcome,
+    outcome: SurfaceAttachOutcome,
     surface: Option<SurfaceHandle>,
     requested_size: Option<(u16, u16)>,
+}
+
+enum SurfaceAttachOutcome {
+    Attached,
+    Retired { surface: SurfaceId },
+    Failed { surface: SurfaceId, operation: &'static str, error: String, reconnect_required: bool },
+}
+
+/// An attach request starts from an authoritative tree snapshot. If the
+/// server no longer recognizes that exact surface, its lifecycle advanced
+/// past the snapshot while the request was in flight. Retire both mirror
+/// layers and refresh topology instead of turning normal teardown into a
+/// retryable synchronization failure.
+fn retire_missing_surface_attach(
+    session: &Session,
+    retired_surfaces: &Mutex<HashSet<SurfaceId>>,
+    attach_claims: &Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>,
+    attach_failures: &Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>,
+    id: SurfaceId,
+) {
+    {
+        retired_surfaces.lock().unwrap().insert(id);
+        if let Some(claim) = attach_claims.lock().unwrap().get_mut(&id) {
+            claim.retired = true;
+        }
+    }
+    attach_failures.lock().unwrap().remove(&id);
+    session.forget_surface(id);
+    session.invalidate_remote_tree();
 }
 
 fn perform_surface_attach(
@@ -1174,20 +1203,27 @@ fn perform_surface_attach(
     };
     if retired_before_attach {
         return SurfaceAttachResult {
-            outcome: SessionMutationOutcome::Success { tree: None },
+            outcome: SurfaceAttachOutcome::Retired { surface: id },
             surface: None,
             requested_size: size,
         };
     }
     after_obsolete_check();
     let result = session.try_surface_sized(id, size);
-    let attach_claims = attach_claims.lock().unwrap();
-    let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
+    let retired = attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired);
     match result {
+        Ok(Some(_)) if retired => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
+                surface: None,
+                requested_size: size,
+            }
+        }
         Ok(Some(surface)) => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
+                outcome: SurfaceAttachOutcome::Attached,
                 surface: Some(surface),
                 requested_size: size,
             }
@@ -1195,7 +1231,7 @@ fn perform_surface_attach(
         Ok(None) if retired => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
                 requested_size: size,
             }
@@ -1205,7 +1241,7 @@ fn perform_surface_attach(
             let state = next_surface_sync_failure(failures.get(&id).copied(), false, false);
             failures.insert(id, state);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: SurfaceAttachOutcome::Failed {
                     surface: id,
                     operation: "attach",
                     error: format!("surface {id} is unavailable"),
@@ -1215,10 +1251,16 @@ fn perform_surface_attach(
                 requested_size: size,
             }
         }
-        Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
-            attach_failures.lock().unwrap().remove(&id);
+        Err(error) if is_remote_surface_unavailable(&error, id) => {
+            retire_missing_surface_attach(
+                session,
+                retired_surfaces,
+                attach_claims,
+                attach_failures,
+                id,
+            );
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
                 requested_size: size,
             }
@@ -1232,7 +1274,7 @@ fn perform_surface_attach(
                 next_surface_sync_failure(failures.get(&id).copied(), transport_failed, timed_out);
             failures.insert(id, state);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: SurfaceAttachOutcome::Failed {
                     surface: id,
                     operation: "attach",
                     error: message,
@@ -1301,7 +1343,7 @@ impl RemoteSurfaceAttachJob {
                     match surface.resize(cols, rows) {
                         Ok(_) => {
                             resize_failures.lock().unwrap().remove(&id);
-                            result.outcome = SessionMutationOutcome::Success { tree: None };
+                            result.outcome = SurfaceAttachOutcome::Attached;
                             result.requested_size = latest.requested_size;
                         }
                         Err(error) => {
@@ -1315,7 +1357,7 @@ impl RemoteSurfaceAttachJob {
                             let state = next_surface_sync_failure(previous, transient, false);
                             failures
                                 .insert(id, SurfaceResizeFailure { desired: (cols, rows), state });
-                            result.outcome = SessionMutationOutcome::SurfaceSyncFailed {
+                            result.outcome = SurfaceAttachOutcome::Failed {
                                 surface: id,
                                 operation: "resize",
                                 error: error.to_string(),
@@ -1339,7 +1381,7 @@ impl RemoteSurfaceAttachJob {
         failures.insert(self.id, state);
         drop(failures);
         let _ = self.events.send(AppEvent::SurfaceAttachSettled {
-            outcome: SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: SurfaceAttachOutcome::Failed {
                 surface: self.id,
                 operation: "attach",
                 error,
@@ -11314,10 +11356,15 @@ impl App {
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
             AppEvent::SurfaceAttachSettled { outcome } => {
                 match outcome {
-                    SessionMutationOutcome::Success { .. } => {
+                    SurfaceAttachOutcome::Attached => {
                         self.claim_active_terminal_geometry(false);
                     }
-                    SessionMutationOutcome::SurfaceSyncFailed {
+                    SurfaceAttachOutcome::Retired { surface } => {
+                        self.retire_surface_state(surface);
+                        self.remove_surface_from_cached_tree(surface);
+                        self.session.refresh_remote_tree_if_stale();
+                    }
+                    SurfaceAttachOutcome::Failed {
                         surface,
                         operation,
                         error,
@@ -11338,9 +11385,6 @@ impl App {
                                     .surface_sync_failed(surface, operation, &error),
                             );
                         }
-                    }
-                    _ => {
-                        debug_assert!(false, "surface attach worker returned a non-attach outcome");
                     }
                 }
                 if !self.session.has_pending_mutations()
@@ -27029,7 +27073,7 @@ mod tests {
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
-                    outcome: super::SessionMutationOutcome::Success { tree: None },
+                    outcome: super::SurfaceAttachOutcome::Retired { surface: 77 },
                 }
             ) {
                 break event;
@@ -27039,7 +27083,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { tree: None }
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 77 }
             }
         ));
         app.handle(settled).unwrap();
@@ -27060,11 +27104,13 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { tree: None },
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 77 },
             }
         ));
         app.handle(settled).unwrap();
         assert!(app.status_message.is_none());
+        assert!(!app.tab_locations.contains_key(&surface));
+        assert!(app.session.has_pending_mutations(), "retirement must refresh the stale tree");
         assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
         assert!(!app.session.can_attach_surface(surface));
     }
@@ -27096,7 +27142,7 @@ mod tests {
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
-                    outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    outcome: super::SurfaceAttachOutcome::Failed {
                         surface: 77,
                         operation: "attach",
                         ..
@@ -27110,7 +27156,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     error,
@@ -27150,7 +27196,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     ..
@@ -27186,7 +27232,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     ..
@@ -27268,7 +27314,7 @@ mod tests {
         let mux = Mux::new("surface-attach-failure-locale-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::SurfaceAttachSettled {
-            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: super::SurfaceAttachOutcome::Failed {
                 surface: 77,
                 operation: "attach",
                 error: "offline".to_string(),
@@ -27282,7 +27328,7 @@ mod tests {
         );
 
         app.handle(AppEvent::SurfaceAttachSettled {
-            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: super::SurfaceAttachOutcome::Failed {
                 surface: 77,
                 operation: "attach",
                 error: "timeout".to_string(),
@@ -28116,9 +28162,7 @@ mod tests {
         release_attach.send(()).unwrap();
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
     }
 
@@ -28143,9 +28187,7 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         assert!(app.session.surface_is_ready_for_input(surface));
         assert!(app.session.has_surface_size_report(surface));
@@ -28292,9 +28334,7 @@ mod tests {
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
         assert!(
@@ -28319,9 +28359,7 @@ mod tests {
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
         assert!(
