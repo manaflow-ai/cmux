@@ -1531,19 +1531,23 @@ struct NativeTitlebarControlsBridge: NSViewRepresentable {
     }
 }
 
-struct NativeHiddenTitlebarSidebarControlsBridge: NSViewRepresentable {
+struct NativeMinimalModeSidebarTitlebarControlsOverlayBridge: NSViewRepresentable {
     let unreadModel: SidebarUnreadModel
     let layoutModel: TitlebarControlsLayoutModel
+    let leadingInset: CGFloat
+    let topInset: CGFloat
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
 
-    func makeNSView(context: Context) -> HiddenTitlebarSidebarControlsView {
-        HiddenTitlebarSidebarControlsView(
+    func makeNSView(context: Context) -> MinimalModeSidebarTitlebarControlsOverlayView {
+        MinimalModeSidebarTitlebarControlsOverlayView(
             unreadModel: unreadModel,
             layoutModel: layoutModel,
+            leadingInset: leadingInset,
+            topInset: topInset,
             onToggleSidebar: onToggleSidebar,
             onToggleNotifications: onToggleNotifications,
             onNewTab: onNewTab,
@@ -1552,14 +1556,24 @@ struct NativeHiddenTitlebarSidebarControlsBridge: NSViewRepresentable {
         )
     }
 
-    func updateNSView(_ view: HiddenTitlebarSidebarControlsView, context: Context) {
+    func updateNSView(_ view: MinimalModeSidebarTitlebarControlsOverlayView, context: Context) {
         view.update(
+            leadingInset: leadingInset,
+            topInset: topInset,
             onToggleSidebar: onToggleSidebar,
             onToggleNotifications: onToggleNotifications,
             onNewTab: onNewTab,
             onFocusHistoryBack: onFocusHistoryBack,
             onFocusHistoryForward: onFocusHistoryForward
         )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: MinimalModeSidebarTitlebarControlsOverlayView,
+        context: Context
+    ) -> CGSize? {
+        nsView.intrinsicContentSize
     }
 }
 

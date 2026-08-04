@@ -10775,11 +10775,11 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func minimalModeSidebarTitlebarControlsOverlay() -> some View {
-        MinimalModeSidebarTitlebarControlsOverlay(
+        NativeMinimalModeSidebarTitlebarControlsOverlayBridge(
             unreadModel: sidebarUnread,
             layoutModel: titlebarControlsLayoutModel,
             leadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
-            topPadding: minimalModeSidebarTitlebarControlsTopPadding,
+            topInset: minimalModeSidebarTitlebarControlsTopPadding,
             onToggleSidebar: onToggleSidebar,
             onToggleNotifications: { anchorView in
                 AppDelegate.shared?.toggleNotificationsPopover(

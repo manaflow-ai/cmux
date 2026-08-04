@@ -70,7 +70,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 13 importing files remaining under `Sources`, including the
+  - [ ] Replace the 12 importing files remaining under `Sources`, including the
     application root and remaining sidebar auxiliaries. Workspace, terminal,
     browser, Vault, Feed, titlebar controls, notifications popover, the
     right-sidebar root, and the browser design-mode composer are native AppKit.

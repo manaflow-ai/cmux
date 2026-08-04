@@ -1,38 +1,115 @@
 import AppKit
 import CmuxNotifications
-import SwiftUI
 
-struct MinimalModeSidebarTitlebarControlsOverlay: View {
-    let unreadModel: SidebarUnreadModel
-    let layoutModel: TitlebarControlsLayoutModel
-    let leadingInset: CGFloat
-    let topPadding: CGFloat
-    let onToggleSidebar: () -> Void
-    let onToggleNotifications: (NSView?) -> Void
-    let onNewTab: () -> Void
-    let onFocusHistoryBack: () -> Void
-    let onFocusHistoryForward: () -> Void
+@MainActor
+final class MinimalModeSidebarTitlebarControlsOverlayView: NSView {
+    private let controlsView: HiddenTitlebarSidebarControlsView
+    private var leadingInset: CGFloat
+    private var topInset: CGFloat
 
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    override var isFlipped: Bool { true }
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    override var intrinsicContentSize: NSSize {
+        guard WorkspacePresentationModeSettings.isMinimal() else { return .zero }
+        let controlsSize = controlsView.intrinsicContentSize
+        return NSSize(
+            width: leadingInset + controlsSize.width,
+            height: topInset + controlsSize.height
+        )
     }
 
-    var body: some View {
-        if isMinimalMode {
-            NativeHiddenTitlebarSidebarControlsBridge(
-                unreadModel: unreadModel,
-                layoutModel: layoutModel,
-                onToggleSidebar: onToggleSidebar,
-                onToggleNotifications: onToggleNotifications,
-                onNewTab: onNewTab,
-                onFocusHistoryBack: onFocusHistoryBack,
-                onFocusHistoryForward: onFocusHistoryForward
-            )
-            .padding(.leading, leadingInset)
-            .padding(.top, topPadding)
+    init(
+        unreadModel: SidebarUnreadModel,
+        layoutModel: TitlebarControlsLayoutModel,
+        leadingInset: CGFloat,
+        topInset: CGFloat,
+        onToggleSidebar: @escaping () -> Void,
+        onToggleNotifications: @escaping (NSView?) -> Void,
+        onNewTab: @escaping () -> Void,
+        onFocusHistoryBack: @escaping () -> Void,
+        onFocusHistoryForward: @escaping () -> Void
+    ) {
+        self.leadingInset = leadingInset
+        self.topInset = topInset
+        controlsView = HiddenTitlebarSidebarControlsView(
+            unreadModel: unreadModel,
+            layoutModel: layoutModel,
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward
+        )
+        super.init(frame: .zero)
+
+        addSubview(controlsView)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(defaultsDidChange(_:)),
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+        refreshPresentationMode()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func update(
+        leadingInset: CGFloat,
+        topInset: CGFloat,
+        onToggleSidebar: @escaping () -> Void,
+        onToggleNotifications: @escaping (NSView?) -> Void,
+        onNewTab: @escaping () -> Void,
+        onFocusHistoryBack: @escaping () -> Void,
+        onFocusHistoryForward: @escaping () -> Void
+    ) {
+        let geometryChanged = self.leadingInset != leadingInset || self.topInset != topInset
+        self.leadingInset = leadingInset
+        self.topInset = topInset
+        controlsView.update(
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward
+        )
+        if geometryChanged {
+            invalidateIntrinsicContentSize()
+            needsLayout = true
         }
+        refreshPresentationMode()
+    }
+
+    override func layout() {
+        super.layout()
+        guard !controlsView.isHidden else {
+            controlsView.frame = .zero
+            return
+        }
+        controlsView.frame = NSRect(
+            origin: NSPoint(x: leadingInset, y: topInset),
+            size: controlsView.intrinsicContentSize
+        )
+    }
+
+    @objc private func defaultsDidChange(_ notification: Notification) {
+        refreshPresentationMode()
+    }
+
+    private func refreshPresentationMode() {
+        let shouldShow = WorkspacePresentationModeSettings.isMinimal()
+        guard controlsView.isHidden == shouldShow else { return }
+        controlsView.isHidden = !shouldShow
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 }
