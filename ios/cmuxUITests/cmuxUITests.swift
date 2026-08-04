@@ -68,7 +68,10 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_SCANNER_PREVIEW": "1",
         ]
         app.launch()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+        }
 
         func element(_ identifier: String) -> XCUIElement {
             app.descendants(matching: .any)[identifier]
@@ -92,24 +95,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.waitForExistence(timeout: 4))
         XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
 
-        let initialHeaderFrame = header.frame
-        let initialProgressFrame = progress.frame
-        let initialFooterFrame = footer.frame
+        var referenceHeaderFrame = header.frame
+        var referenceProgressFrame = progress.frame
+        var referenceFooterFrame = footer.frame
+
+        func recordChromeReferenceFrames() {
+            referenceHeaderFrame = header.frame
+            referenceProgressFrame = progress.frame
+            referenceFooterFrame = footer.frame
+        }
 
         func assertStableChrome(
             includeFooter: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
-            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minX, referenceHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, referenceHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, referenceHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, referenceHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, referenceProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, referenceProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
-                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
-                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.minY, referenceFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, referenceFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
         }
 
@@ -271,6 +280,11 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(qrFallbackButton.isHittable)
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Your Mac connects automatically"],
             visual: element("MobileOnboardingConnectionPreview"),
@@ -280,12 +294,10 @@ final class cmuxUITests: XCTestCase {
                 ],
                 element("MobileOnboardingConnectionMethodPicker"),
             ],
-            includeFooter: false
+            includeFooter: true
         )
         capture("onboarding-04-resumed-connect")
 
-        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
         qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
@@ -298,6 +310,52 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+
+        app.terminate()
+        XCUIDevice.shared.orientation = .landscapeRight
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(agentsScene, timeout: 8)
+        XCTAssertNotNil(waitForFrame(of: pageViewport, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
+        capture("onboarding-07-agents-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
+        capture("onboarding-08-notifications-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(connectScene)
+        let compactFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(compactFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(compactFallbackButton.isHittable)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ]
+        )
+        capture("onboarding-09-connect-compact-height")
     }
 
     @MainActor
