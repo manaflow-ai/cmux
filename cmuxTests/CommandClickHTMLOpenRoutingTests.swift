@@ -13,12 +13,11 @@ import struct CmuxSettings.AppCatalogSection
 @Suite(.serialized)
 struct CommandClickHTMLOpenRoutingTests {
     @Test
-    func hoverCacheIdentityIncludesSurfaceRenderGenerationAndDirectory() {
+    func hoverCacheIdentityIncludesSurfaceGenerationAndDirectory() {
         let surfaceID = UUID()
         let base = WordPathHoverCacheKey(
             surfaceID: surfaceID,
             surfaceGeneration: 1,
-            renderedFrameGeneration: 1,
             row: 2,
             column: 3,
             rows: 24,
@@ -31,7 +30,6 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(base != WordPathHoverCacheKey(
             surfaceID: surfaceID,
             surfaceGeneration: 2,
-            renderedFrameGeneration: 1,
             row: 2,
             column: 3,
             rows: 24,
@@ -43,19 +41,6 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(base != WordPathHoverCacheKey(
             surfaceID: surfaceID,
             surfaceGeneration: 1,
-            renderedFrameGeneration: 2,
-            row: 2,
-            column: 3,
-            rows: 24,
-            columns: 80,
-            boundsSize: CGSize(width: 800, height: 480),
-            cellSize: CGSize(width: 10, height: 20),
-            workingDirectory: "/tmp/one"
-        ))
-        #expect(base != WordPathHoverCacheKey(
-            surfaceID: surfaceID,
-            surfaceGeneration: 1,
-            renderedFrameGeneration: 1,
             row: 2,
             column: 3,
             rows: 24,

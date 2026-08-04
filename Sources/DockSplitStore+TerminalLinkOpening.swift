@@ -18,7 +18,6 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         }
         return terminalWorkingDirectoryResolver
             .liveForegroundProcessWorkingDirectory(for: terminal)
-            ?? terminalLinkHoverWorkingDirectory(for: sourcePanelId)
     }
 
     func terminalLinkHoverWorkingDirectory(for sourcePanelId: UUID) -> String? {

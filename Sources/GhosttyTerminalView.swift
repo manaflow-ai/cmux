@@ -3647,12 +3647,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let viewportOffsetLength: Int
     }
 
-    private struct WordPathVisibleLineSnapshot: Sendable {
+    private struct WordPathVisibleLineSnapshot: Equatable, Sendable {
         let line: String
         let column: Int
     }
 
-    private struct WordPathResolutionSnapshot: Sendable {
+    private struct WordPathResolutionSnapshot: Equatable, Sendable {
         let workingDirectory: String
         let point: WordPathVisibleLineSnapshot?
         let quicklookWord: String?
@@ -3662,10 +3662,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private struct WordPathHoverResolutionRequest: Sendable {
         let key: WordPathHoverCacheKey
         let snapshot: WordPathResolutionSnapshot
+        let renderedFrameGeneration: UInt64
+
+        func hasSameResolutionInput(as other: Self) -> Bool {
+            key == other.key && snapshot == other.snapshot
+        }
     }
 
     private struct WordPathHoverCacheEntry {
-        let key: WordPathHoverCacheKey
+        let request: WordPathHoverResolutionRequest
         let resolution: WordPathResolution?
     }
 
@@ -3716,8 +3721,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverRenderedFrameGeneration: UInt64 = 0
     private var wordPathHoverRefreshPoint: NSPoint?
     private var wordPathHoverResolutionTask: Task<Void, Never>?
-    private var wordPathHoverResolutionTaskKey: WordPathHoverCacheKey?
-    private var pendingWordPathHoverResolutionRequest: WordPathHoverResolutionRequest?
+    private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
+    private var wordPathHoverResolutionShouldRestartAfterCancellation = false
     private var wordPathHoverResolutionTaskGeneration: UInt64 = 0
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
@@ -6902,35 +6907,58 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cancelWordPathHoverResolution()
             return nil
         }
-        if let cachedWordPathHover, cachedWordPathHover.key == key {
+        if let cachedWordPathHover,
+           cachedWordPathHover.request.key == key,
+           cachedWordPathHover.request.renderedFrameGeneration
+               == wordPathHoverRenderedFrameGeneration {
             return cachedWordPathHover.resolution
         }
-        if wordPathHoverResolutionTaskKey == key,
+        if wordPathHoverResolutionTaskRequest?.key == key,
+           wordPathHoverResolutionTaskRequest?.renderedFrameGeneration
+               == wordPathHoverRenderedFrameGeneration,
            wordPathHoverResolutionTask?.isCancelled == false {
             return nil
         }
-        if pendingWordPathHoverResolutionRequest?.key == key {
+
+        guard let request = wordPathHoverResolutionRequest(at: point, key: key) else {
+            cancelWordPathHoverResolution()
+            cachedWordPathHover = nil
             return nil
+        }
+        if let cachedWordPathHover,
+           cachedWordPathHover.request.hasSameResolutionInput(as: request) {
+            self.cachedWordPathHover = WordPathHoverCacheEntry(
+                request: request,
+                resolution: cachedWordPathHover.resolution
+            )
+            return cachedWordPathHover.resolution
         }
 
         cachedWordPathHover = nil
-        guard let snapshot = wordPathResolutionSnapshot(
-            at: point,
-            usesHoverWorkingDirectory: true
-        ) else {
-            cancelWordPathHoverResolution()
-            cachedWordPathHover = WordPathHoverCacheEntry(key: key, resolution: nil)
-            return nil
-        }
-        enqueueWordPathHoverResolution(
-            WordPathHoverResolutionRequest(key: key, snapshot: snapshot)
-        )
+        enqueueWordPathHoverResolution(request)
         return nil
     }
 
+    private func wordPathHoverResolutionRequest(
+        at point: NSPoint?,
+        key: WordPathHoverCacheKey
+    ) -> WordPathHoverResolutionRequest? {
+        guard let snapshot = wordPathResolutionSnapshot(
+            at: point,
+            usesHoverWorkingDirectory: true
+        ) else { return nil }
+        return WordPathHoverResolutionRequest(
+            key: key,
+            snapshot: snapshot,
+            renderedFrameGeneration: wordPathHoverRenderedFrameGeneration
+        )
+    }
+
     private func enqueueWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
-        if wordPathHoverResolutionTaskKey == request.key,
+        if let currentRequest = wordPathHoverResolutionTaskRequest,
+           currentRequest.hasSameResolutionInput(as: request),
            wordPathHoverResolutionTask?.isCancelled == false {
+            wordPathHoverResolutionTaskRequest = request
             return
         }
         guard let task = wordPathHoverResolutionTask else {
@@ -6938,10 +6966,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        // Keep at most one filesystem probe running. A canceled probe can be
-        // blocked inside a mounted filesystem call, so retain it until it exits
-        // and replace only the single pending request with the newest snapshot.
-        pendingWordPathHoverResolutionRequest = request
+        // Keep at most one filesystem probe running. A canceled probe can stay
+        // blocked inside a mounted filesystem call, so wait for it to exit and
+        // recapture the newest terminal snapshot before starting its successor.
+        wordPathHoverResolutionShouldRestartAfterCancellation = true
         task.cancel()
     }
 
@@ -6949,7 +6977,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         precondition(wordPathHoverResolutionTask == nil)
         wordPathHoverResolutionTaskGeneration &+= 1
         let generation = wordPathHoverResolutionTaskGeneration
-        wordPathHoverResolutionTaskKey = request.key
+        wordPathHoverResolutionTaskRequest = request
+        wordPathHoverResolutionShouldRestartAfterCancellation = false
 
         let filesystemTask = Task.detached(priority: .utility) {
             Self.resolveWordPathSnapshot(request.snapshot)
@@ -6963,7 +6992,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let shouldApply = !Task.isCancelled
             self?.finishWordPathHoverResolution(
                 generation: generation,
-                key: request.key,
+                request: request,
                 resolution: resolution,
                 shouldApply: shouldApply
             )
@@ -6972,32 +7001,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func finishWordPathHoverResolution(
         generation: UInt64,
-        key: WordPathHoverCacheKey,
+        request: WordPathHoverResolutionRequest,
         resolution: WordPathResolution?,
         shouldApply: Bool
     ) {
         guard generation == wordPathHoverResolutionTaskGeneration else { return }
+        let shouldRestart = wordPathHoverResolutionShouldRestartAfterCancellation
         wordPathHoverResolutionTask = nil
-        wordPathHoverResolutionTaskKey = nil
+        wordPathHoverResolutionTaskRequest = nil
+        wordPathHoverResolutionShouldRestartAfterCancellation = false
 
-        if let pendingRequest = pendingWordPathHoverResolutionRequest {
-            pendingWordPathHoverResolutionRequest = nil
-            startWordPathHoverResolution(pendingRequest)
-            return
-        }
-
-        guard shouldApply,
-              wordPathHoverRenderedFrameObserver != nil,
+        guard wordPathHoverRenderedFrameObserver != nil,
               let point = wordPathHoverRefreshPoint,
-              wordPathHoverCacheKey(at: point) == key else {
+              let latestKey = wordPathHoverCacheKey(at: point),
+              let latestRequest = wordPathHoverResolutionRequest(
+                  at: point,
+                  key: latestKey
+              ) else {
             return
         }
-        cachedWordPathHover = WordPathHoverCacheEntry(key: key, resolution: resolution)
-        setWordPathHoverActive(resolution != nil)
+        if shouldApply, request.hasSameResolutionInput(as: latestRequest) {
+            cachedWordPathHover = WordPathHoverCacheEntry(
+                request: latestRequest,
+                resolution: resolution
+            )
+            setWordPathHoverActive(resolution != nil)
+        } else if shouldApply || shouldRestart {
+            startWordPathHoverResolution(latestRequest)
+        }
     }
 
     private func cancelWordPathHoverResolution() {
-        pendingWordPathHoverResolutionRequest = nil
+        wordPathHoverResolutionShouldRestartAfterCancellation = false
         wordPathHoverResolutionTask?.cancel()
     }
 
@@ -7042,7 +7077,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return WordPathHoverCacheKey(
             surfaceID: terminalSurface.id,
             surfaceGeneration: terminalSurface.runtimeSurfaceGeneration,
-            renderedFrameGeneration: wordPathHoverRenderedFrameGeneration,
             row: row,
             column: column,
             rows: rows,
@@ -7087,6 +7121,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathHoverRenderedFrameDemandRelease = nil
         wordPathHoverRenderedFrameRefreshTask?.cancel()
         wordPathHoverRenderedFrameRefreshTask = nil
+        cancelWordPathHoverResolution()
     }
 
     private func noteWordPathHoverRenderedFrame() {
@@ -7096,8 +7131,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func scheduleWordPathHoverRefreshAfterRenderedFrame() {
         // Frame notifications can arrive at display cadence. Keep their work to
-        // a generation bump and resolve the hovered path at most five times per
-        // second while still refreshing during sustained terminal output.
+        // a generation bump and revalidate the captured hover snapshot at most
+        // five times per second during sustained terminal output.
         guard wordPathHoverRenderedFrameRefreshTask == nil else { return }
         wordPathHoverRenderedFrameRefreshTask = Task { @MainActor [weak self] in
             do {
@@ -7114,7 +7149,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func refreshWordPathHoverAfterRenderedFrame() {
         guard wordPathHoverRenderedFrameObserver != nil,
               let point = wordPathHoverRefreshPoint else { return }
-        invalidateWordPathHoverResolution()
         let flags: NSEvent.ModifierFlags = [.command]
         updateWordPathHover(
             at: point,

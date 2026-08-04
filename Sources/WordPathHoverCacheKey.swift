@@ -8,7 +8,6 @@ import Foundation
 struct WordPathHoverCacheKey: Equatable, Sendable {
     let surfaceID: UUID
     let surfaceGeneration: UInt64
-    let renderedFrameGeneration: UInt64
     let row: Int
     let column: Int
     let rows: Int

@@ -301,6 +301,36 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(liveDirectoryQueries == 1)
     }
 
+    @Test("Dock link-open CWD fails closed when foreground inspection fails")
+    @MainActor
+    func dockLinkOpenCWDFailsClosedWithoutForegroundDirectory() throws {
+        var liveDirectoryQueries = 0
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in
+                    liveDirectoryQueries += 1
+                    return nil
+                }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+        terminal.surface.recordReportedWorkingDirectory(
+            FileManager.default.temporaryDirectory.path
+        )
+
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == nil)
+        #expect(liveDirectoryQueries == 1)
+    }
+
     @Test("Deferred HTML routing revalidates remote state")
     @MainActor
     func deferredHTMLRouteRejectsRemoteTerminal() throws {
