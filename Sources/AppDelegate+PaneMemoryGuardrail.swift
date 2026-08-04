@@ -107,11 +107,18 @@ extension AppDelegate {
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
             let ttyName = workspace.surfaceTTYNames[terminalPanel.id]?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cachedTitle = workspace.panelTitles[terminalPanel.id]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let paneTitle = if let cachedTitle, !cachedTitle.isEmpty {
+                cachedTitle
+            } else {
+                "Terminal"
+            }
             return PaneMemoryDescriptor(
                 workspaceId: workspace.id,
                 panelId: terminalPanel.id,
                 workspaceTitle: workspace.title,
-                paneTitle: terminalPanel.displayTitle,
+                paneTitle: paneTitle,
                 ttyName: ttyName?.isEmpty == false ? ttyName : nil,
                 foregroundPID: nil
             )
