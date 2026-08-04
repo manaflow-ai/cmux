@@ -40,7 +40,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     private func spawnDetachedArgumentFixture(sentinelArgument: String, pidFile: URL) throws -> pid_t {
         let command = """
-        /usr/bin/nohup /usr/bin/python3 -c 'import time; time.sleep(60)' "$1" '' resume \
+        /usr/bin/nohup /usr/bin/python3 -c 'import signal; signal.pause()' "$1" '' resume \
           </dev/null >/dev/null 2>&1 &
         printf '%s\\n' "$!" > "$2"
         """
