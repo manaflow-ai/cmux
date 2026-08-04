@@ -4,9 +4,9 @@ import Darwin
 import Foundation
 
 #if canImport(Sentry)
-// Sentry Cocoa 9.3.0 is pinned in Package.resolved. This SPI stores the
-// envelope durably without blocking short-lived CLI commands; verify it before
-// any Sentry SDK upgrade.
+// Sentry Cocoa 9.23.0 is pinned in Package.resolved. Its structured hybrid-SDK
+// envelope API stores telemetry durably without blocking short-lived CLI
+// commands; verify it before any Sentry SDK upgrade.
 @_spi(Private) import Sentry
 #endif
 
@@ -173,7 +173,7 @@ final class CLISocketSentryTelemetry {
         }
         let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
         let envelope = SentryEnvelope(id: scrubbedEvent.eventId, singleItem: envelopeItem)
-        PrivateSentrySDKOnly.store(envelope)
+        SentrySDK.internal.envelope.store(envelope)
         // `store` is the durable step. A zero-timeout flush only schedules the
         // SDK's cached-envelope sender without waiting for network completion.
         SentrySDK.flush(timeout: 0)
