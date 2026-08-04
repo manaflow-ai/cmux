@@ -117,4 +117,35 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult
 
+    /// `mobile.task.attachment.upload` — stage or finalize one task file chunk.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult
+
+    /// `mobile.task.models.list` — discover one provider's available models.
+    ///
+    /// This worker-lane witness is nonisolated and asynchronous because it may
+    /// read configuration files or run a bounded provider command.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+}
+
+public extension ControlMobileHostContext {
+    /// Default for test and partial contexts that do not expose model discovery.
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(
+            code: "method_not_found",
+            message: "Task model discovery is unavailable",
+            data: nil
+        )
+    }
 }

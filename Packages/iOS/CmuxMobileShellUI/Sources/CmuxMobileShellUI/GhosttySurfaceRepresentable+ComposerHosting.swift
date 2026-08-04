@@ -82,11 +82,20 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 // unchanged heights, so a no-op change is harmless.
                 self?.reportComposerHeight(animated: true)
             },
-            prepareForModalPresentation: { [weak self] in
-                // The photo picker suppresses the keyboard without reliably
-                // resigning the existing input proxy. Release the surface's
-                // actual responder first so the next terminal tap can focus it.
-                self?.surfaceView?.resignCurrentInput()
+            requestInputFocus: { [weak self] in
+                self?.surfaceView?.requestComposerInputFocus()
+            },
+            inputFocusChanged: { [weak self] focused in
+                self?.surfaceView?.composerInputFocusChanged(focused)
+            },
+            photoPickerWillPresent: { [weak self] in
+                self?.surfaceView?.photoPickerWillPresent()
+            },
+            photoPickerDidPresent: { [weak self] in
+                self?.surfaceView?.photoPickerDidPresent()
+            },
+            photoPickerDidDismiss: { [weak self] in
+                self?.surfaceView?.photoPickerDidDismiss()
             }
         )
         let controller = UIHostingController(rootView: view)

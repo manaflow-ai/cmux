@@ -35,6 +35,7 @@ import UIKit
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+    var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
@@ -48,12 +49,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
+    /// Fired by the Files accessory button when terminal artifacts are supported.
+    /// The source view lets the host anchor an inline popover to the tapped control.
+    var onOpenArtifactFiles: ((UIView) -> Void)?
     /// Invoked when the composer accessory button is tapped. The host toggles
     /// the iMessage-style composer above the terminal.
     var onToggleComposer: (() -> Void)?
     /// Fired by the pinned HIDE button: temporarily hides the toolbar + composer
     /// until the next terminal tap.
     var onHideChrome: (() -> Void)?
+    var artifactFilesEnabled = false {
+        didSet {
+            guard oldValue != artifactFilesEnabled, accessoryStackView != nil else { return }
+            populateAccessoryActions()
+            terminalAccessoryToolbar.setNeedsLayout()
+            terminalAccessoryToolbar.layoutIfNeeded()
+        }
+    }
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
@@ -115,6 +127,24 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     lazy var tokenizer: any UITextInputTokenizer = UITextInputStringTokenizer(textInput: self)
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.becomeFirstResponder()
+        if succeeded, !wasFirstResponder, isFirstResponder {
+            onFirstResponderChanged?(true)
+        }
+        return succeeded
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.resignFirstResponder()
+        if succeeded, wasFirstResponder, !isFirstResponder {
+            onFirstResponderChanged?(false)
+        }
+        return succeeded
+    }
 
     /// Conforming to ``UITextInput`` would otherwise make this an accessibility
     /// element, which would shadow the real terminal surface's accessibility
@@ -309,9 +339,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
         container.backgroundColor = .clear
-        // Placeholder height until the host positions the bar via
-        // `GhosttySurfaceView.bottomDockFrames()`; sized to the button-row strip so
-        // the pre-layout frame matches the reserved grid height.
+        // Placeholder height until the host activates its keyboard-guide constraints;
+        // sized to the button-row strip so the pre-layout frame matches the reserved
+        // grid height.
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
@@ -391,16 +421,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         )
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
-        // ``dockedBottomPadding``) that holds the button row. The docked container
-        // can be TALLER than this strip, because the host
-        // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP to the
-        // rendered terminal's bottom and its BOTTOM to the keyboard top, so a
-        // letterbox/resize that pushes the rendered terminal up grows the container
-        // upward. Bottom-pinning the controls keeps them glued to the keyboard top
-        // (the container's bottom edge) with the slack absorbed ABOVE them; a
-        // top-pin would let the controls ride UP off the keyboard whenever the
-        // terminal was letterboxed. `dockedBottomPadding` lifts the strip off the
-        // very bottom edge so the controls have breathing room.
+        // ``dockedBottomPadding``) that holds the button row. The host pins that
+        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom-pinning the controls keeps them glued to the system keyboard edge.
+        // `dockedBottomPadding` lifts the strip off the very bottom edge so the
+        // controls have breathing room.
         let buttonRow = UILayoutGuide()
         container.addLayoutGuide(buttonRow)
 
@@ -560,6 +585,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 // (it stays in the saved order, just unrendered, so flipping the
                 // remote re-shows it in place).
                 if action == .command && !isMacRemote { continue }
+                if action == .files && !artifactFilesEnabled { continue }
                 stack.addArrangedSubview(makeAccessoryButton(for: action))
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
@@ -851,7 +877,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         guard let button = sender as? AccessoryActionButton else { return }
         switch button.item {
         case let .builtin(action):
-            handleAccessoryAction(action)
+            handleAccessoryAction(action, sourceView: button)
         case let .custom(custom):
             handleCustomAction(custom)
         }
@@ -1069,7 +1095,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return config
     }
 
-    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+    private func handleAccessoryAction(
+        _ action: TerminalInputAccessoryAction,
+        sourceView: UIView? = nil
+    ) {
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1087,6 +1116,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
             handlePasteAction()
+            return
+        }
+
+        if action == .files {
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            onOpenArtifactFiles?(sourceView ?? self)
             return
         }
 
@@ -1388,7 +1424,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
     #endif
 }
-
 // MARK: - UITextInputTraits
 
 extension TerminalInputTextView {

@@ -52,9 +52,9 @@ struct SidebarAccountButtonPresentation: Equatable {
     static func resolve(
         isSignedIn: Bool,
         prefersProfileIcon: Bool,
-        isRestoringSession: Bool = false
+        hasProfilePicture: Bool = false
     ) -> SidebarAccountButtonPresentation {
-        if isSignedIn, !prefersProfileIcon, !isRestoringSession {
+        if isSignedIn, hasProfilePicture, !prefersProfileIcon {
             return SidebarAccountButtonPresentation(
                 visual: .profilePicture,
                 size: SidebarFooterButtonMetrics.profilePictureSize
@@ -260,12 +260,12 @@ struct SidebarAccountMenuButton: View {
 
     private func presentation(
         isSignedIn: Bool,
-        isRestoringSession: Bool
+        hasProfilePicture: Bool
     ) -> SidebarAccountButtonPresentation {
         let presentation = SidebarAccountButtonPresentation.resolve(
             isSignedIn: isSignedIn,
             prefersProfileIcon: prefersProfileIcon,
-            isRestoringSession: isRestoringSession
+            hasProfilePicture: hasProfilePicture
         )
 #if DEBUG
         if !presentation.showsProfilePicture {
@@ -284,7 +284,7 @@ struct SidebarAccountMenuButton: View {
         let buttonTitle = isSignedIn ? title : signInTitle
         let presentation = presentation(
             isSignedIn: isSignedIn,
-            isRestoringSession: accountFlow?.isRestoringSession == true
+            hasProfilePicture: identity?.avatarURL != nil
         )
         Button {
             if isSignedIn {
@@ -446,7 +446,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize

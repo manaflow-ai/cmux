@@ -55,6 +55,19 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.paste", params)
     }
 
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        record("task.attachment.upload", params)
+    }
+
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run {
+            record("task.models.list", params)
+        }
+    }
 }
 
 @MainActor
@@ -80,6 +93,29 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(context.lastMarker == "terminal.paste")
     }
 
+    @Test func v2SurfaceRoutesTaskAttachmentUploadThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request("mobile.task.attachment.upload")) != nil)
+        #expect(context.lastMarker == "task.attachment.upload")
+    }
+
+    @Test func workerSurfaceRoutesTaskModelsListThroughAsyncSeam() async {
+        let (coordinator, context) = makeCoordinator()
+        let params: [String: JSONValue] = ["provider": .string("opencode")]
+        #expect(
+            await coordinator.handleMobileHostAsync(
+                request("mobile.task.models.list", params),
+                context: context
+            ) != nil
+        )
+        #expect(context.lastMarker == "task.models.list")
+        #expect(context.lastParams == params)
+        #expect(
+            coordinator.handleMobileHost(
+                request("mobile.task.models.list", params)
+            ) == nil
+        )
+    }
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("mobile.host.status")) != nil)

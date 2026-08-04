@@ -244,6 +244,7 @@ extension TerminalSurface {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        cacheControllingTTYIdentity(for: runtimeSurface)
         installFontSizeActionObservation(
             on: runtimeSurface,
             callbackContext: callbackContext

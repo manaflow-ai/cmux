@@ -1,6 +1,6 @@
 # Rust sidebar monitor
 
-This external package exercises the published `cmux-client` 1.0.0 and
+This external package exercises the published `cmux-sdk` 1.0.0 and
 `cmux-sidebar` 1.0.0 APIs. It keeps a bounded render queue, reopens the typed
 attachment after a server gap, preserves unknown event kinds and raw payloads,
 forwards Crossterm input, resizes and reloads the view, renders with Ratatui,

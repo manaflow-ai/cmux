@@ -13,7 +13,7 @@ import {
   type BrowserSnapshot,
   type Transport,
   type Unsubscribe,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import {
   BrowserController,
   browserTabsFromSnapshots,
