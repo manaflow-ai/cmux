@@ -837,15 +837,13 @@ extension GlobalSearchShortcutBehaviorTests {
         )
         let index = try SearchIndex(
             databaseURL: directoryURL.appendingPathComponent("search.sqlite3"),
-            queryCancellation: SearchIndex.QueryCancellation(
-                progressInstructionInterval: 1,
-                shouldCancel: {
-                    cancellationState.withLock { state in
-                        state.progressChecks += 1
-                        return state.isEnabled
-                    }
+            queryProgressInstructionInterval: 1,
+            shouldCancelQuery: {
+                cancellationState.withLock { state in
+                    state.progressChecks += 1
+                    return state.isEnabled
                 }
-            )
+            }
         )
         let document = makeSearchDocument(
             id: "progress-cancellation-document",

@@ -105,25 +105,15 @@ enum SearchIndexError: LocalizedError {
 }
 
 actor SearchIndex {
-    struct QueryCancellation: Sendable {
-        let progressInstructionInterval: Int32
-        let shouldCancel: @Sendable () -> Bool
-
-        init(
-            progressInstructionInterval: Int32 = 1_000,
-            shouldCancel: @escaping @Sendable () -> Bool = { Task.isCancelled }
-        ) {
-            self.progressInstructionInterval = max(1, progressInstructionInterval)
-            self.shouldCancel = shouldCancel
-        }
-
-        static let currentTask = QueryCancellation()
-    }
-
+    private typealias QueryProgressState = (
+        shouldCancel: @Sendable () -> Bool,
+        didInterrupt: Bool
+    )
     private static let schemaVersion = 1
 
     private var database: OpaquePointer?
-    private let queryCancellation: QueryCancellation
+    private let queryProgressInstructionInterval: Int32
+    private let shouldCancelQuery: @Sendable () -> Bool
 
     nonisolated static func open(databaseURL: URL = .cmuxSearchDatabaseURL) async throws -> SearchIndex {
         // Actor initializers run on the caller executor, so open SQLite off the MainActor.
@@ -134,9 +124,11 @@ actor SearchIndex {
 
     init(
         databaseURL: URL = .cmuxSearchDatabaseURL,
-        queryCancellation: QueryCancellation = .currentTask
+        queryProgressInstructionInterval: Int32 = 1_000,
+        shouldCancelQuery: @escaping @Sendable () -> Bool = { Task.isCancelled }
     ) throws {
-        self.queryCancellation = queryCancellation
+        self.queryProgressInstructionInterval = max(1, queryProgressInstructionInterval)
+        self.shouldCancelQuery = shouldCancelQuery
         try Self.ensureParentDirectoryExists(for: databaseURL)
 
         var openedDatabase: OpaquePointer?
@@ -416,34 +408,40 @@ actor SearchIndex {
             throw SearchIndexError.executeFailed("database is closed")
         }
 
-        let context = SearchIndexProgressCancellationContext(
-            shouldCancel: queryCancellation.shouldCancel
+        var progressState: QueryProgressState = (
+            shouldCancel: shouldCancelQuery,
+            didInterrupt: false
         )
-        sqlite3_progress_handler(
-            database,
-            queryCancellation.progressInstructionInterval,
-            { rawContext in
-                guard let rawContext else { return 0 }
-                return Unmanaged<SearchIndexProgressCancellationContext>
-                    .fromOpaque(rawContext)
-                    .takeUnretainedValue()
-                    .checkForCancellation()
-            },
-            Unmanaged.passUnretained(context).toOpaque()
-        )
-        defer {
-            sqlite3_progress_handler(database, 0, nil, nil)
-        }
-
-        do {
-            let result = try body()
-            try Task.checkCancellation()
-            return result
-        } catch {
-            if context.didInterrupt {
-                throw CancellationError()
+        return try withUnsafeMutablePointer(to: &progressState) { progressStatePointer in
+            sqlite3_progress_handler(
+                database,
+                queryProgressInstructionInterval,
+                { rawContext in
+                    guard let rawContext else { return 0 }
+                    let statePointer = rawContext.assumingMemoryBound(
+                        to: QueryProgressState.self
+                    )
+                    let shouldCancel = statePointer.pointee.shouldCancel
+                    guard shouldCancel() else { return 0 }
+                    statePointer.pointee.didInterrupt = true
+                    return 1
+                },
+                UnsafeMutableRawPointer(progressStatePointer)
+            )
+            defer {
+                sqlite3_progress_handler(database, 0, nil, nil)
             }
-            throw error
+
+            do {
+                let result = try body()
+                try Task.checkCancellation()
+                return result
+            } catch {
+                if progressStatePointer.pointee.didInterrupt {
+                    throw CancellationError()
+                }
+                throw error
+            }
         }
     }
 
@@ -547,21 +545,6 @@ actor SearchIndex {
         OpaquePointer(bitPattern: -1),
         to: sqlite3_destructor_type.self
     )
-}
-
-private final class SearchIndexProgressCancellationContext {
-    private let shouldCancel: @Sendable () -> Bool
-    private(set) var didInterrupt = false
-
-    init(shouldCancel: @escaping @Sendable () -> Bool) {
-        self.shouldCancel = shouldCancel
-    }
-
-    func checkForCancellation() -> Int32 {
-        guard shouldCancel() else { return 0 }
-        didInterrupt = true
-        return 1
-    }
 }
 
 extension URL {
