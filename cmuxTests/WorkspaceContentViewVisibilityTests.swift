@@ -1,7 +1,9 @@
 import Testing
 import AppKit
+import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
+import Observation
 import SwiftUI
 import Bonsplit
 
@@ -25,19 +27,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -50,32 +39,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
-    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
-        let source = try Self.sourceText("Sources/ContentView.swift")
-        let legacyState = [
-            "sidebarResizerCursorReleaseWorkItem",
-            "commandPaletteRestoreTimeoutWorkItem",
-        ].filter(source.contains)
-        #expect(
-            legacyState.isEmpty,
-            """
-            ContentView must not keep the legacy DispatchWorkItem state properties that \
-            previously let queued closures retain prior work-item state:
-            \(legacyState.joined(separator: "\n"))
-            """
-        )
-        #expect(
-            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
-            """
-            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
-            mouse-down and drag-start callbacks can establish resize state before the cursor \
-            can be reset.
-            """
-        )
-    }
-
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
         let clock = SidebarTestManualClock()
@@ -92,6 +56,23 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases.isEmpty)
         let immediateRelease = await releaseIterator.next()
         #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .milliseconds(1))
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
         #expect(releases == [false])
         releases.removeAll()
 
@@ -225,7 +206,6 @@ final class WorkspaceContentViewVisibilityTests {
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
@@ -278,6 +258,251 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    @Test
+    @MainActor
+    func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewUnreadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let tabManager = TabManager()
+        let workspaceId = try #require(tabManager.selectedTabId)
+        let unaffectedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let unread = SidebarUnreadModel()
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: UUID(),
+            sidebarUnread: unread
+        )
+            .environmentObject(tabManager)
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let workspaceCell = try #require(
+            window.contentView.flatMap { root in
+                Self.descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .first { $0.currentModelForMeasurement?.workspaceId == workspaceId }
+            }
+        )
+        let unaffectedWorkspaceCell = try #require(
+            window.contentView.flatMap { root in
+                Self.descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .first {
+                        $0.currentModelForMeasurement?.workspaceId == unaffectedWorkspace.id
+                    }
+            }
+        )
+        var appliedUnreadCount: Int?
+        var unaffectedApplyCount = 0
+        workspaceCell.applyModelProbeForTesting = { model in
+            appliedUnreadCount = model.unreadCount
+        }
+        unaffectedWorkspaceCell.applyModelProbeForTesting = { _ in
+            unaffectedApplyCount += 1
+        }
+        counts.reset()
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [
+                workspaceId: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Pi finished"
+                ),
+            ],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceId, surfaceId: nil),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.contentViewBody == 0,
+            "Unread changes must update their leaf consumers without rebuilding ContentView."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "Unread changes must not rebuild terminal or browser content."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody == 0,
+            "Unread changes must not rebuild every row through VerticalTabsSidebar."
+        )
+        #expect(
+            appliedUnreadCount == 1,
+            "The affected visible AppKit row must still receive the unread badge."
+        )
+        #expect(
+            unaffectedApplyCount == 0,
+            "An unread change must not reconfigure an unaffected AppKit row."
+        )
+        #expect(
+            unaffectedWorkspaceCell.currentModelForMeasurement?.unreadCount == 0,
+            "An unread change must not copy its badge into a neighboring workspace row."
+        )
+    }
+
+    @Test
+    @MainActor
+    func testUnreadApplyPublishesOneAtomicSnapshot() {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let unread = SidebarUnreadModel()
+        var publicationCount = 0
+        withObservationTracking {
+            _ = unread.snapshot
+        } onChange: {
+            publicationCount += 1
+        }
+        let summaries = [
+            workspaceId: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: "Pi finished"
+            ),
+        ]
+        let surfaceKeys: Set<SidebarSurfaceUnreadKey> = [
+            SidebarSurfaceUnreadKey(workspaceId: workspaceId, surfaceId: surfaceId),
+        ]
+        let focusedIndicators = [workspaceId: surfaceId]
+        let manualUnreadWorkspaceIds: Set<UUID> = [workspaceId]
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: summaries,
+            unreadSurfaceKeys: surfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedIndicators,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        #expect(publicationCount == 1)
+
+        withObservationTracking {
+            _ = unread.snapshot
+        } onChange: {
+            publicationCount += 1
+        }
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: summaries,
+            unreadSurfaceKeys: surfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedIndicators,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        #expect(publicationCount == 1, "Applying an equivalent snapshot must stay silent.")
+    }
+
+    @Test
+    func minimalModeSidebarFooterKeepsOnlyUpgradeControl() {
+        let minimalControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .minimal)
+        }
+        let standardControls = SidebarFooterControl.allCases.filter {
+            SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .standard)
+        }
+
+        #expect(minimalControls == [.upgrade])
+        #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func sidebarAccountPictureAndIconPresentationsStayDistinct() {
+        let picture = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false,
+            hasProfilePicture: true
+        )
+        let toggledIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: true
+        )
+        let signedOutIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: false,
+            prefersProfileIcon: false
+        )
+        let missingPictureIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false,
+            hasProfilePicture: false
+        )
+
+        #expect(picture.visual == .profilePicture)
+        #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(
+            SidebarAccountButtonPresentation.defaultProfileIconSystemName
+                == "person.crop.circle"
+        )
+        #expect(
+            toggledIcon.visual == .profileIcon(
+                systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
+            )
+        )
+        #expect(toggledIcon.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
+        #expect(signedOutIcon == toggledIcon)
+        #expect(missingPictureIcon == toggledIcon)
+        #expect(
+            SidebarFooterButtonMetrics.profilePictureSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterButtonMetrics.profileIconSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterCircularIconStyle.standard.pointSize
+                == SidebarFooterButtonMetrics.accountAndHelpVisualSize
+        )
+        #expect(SidebarFooterCircularIconStyle.standard.weight == .regular)
+#if DEBUG
+        #expect(SidebarFooterProfileIconDebugSettings.defaultIcon == .cropCircle)
+        #expect(
+            SidebarFooterHelpIconDebugSettings.defaultWeight.fontWeight
+                == SidebarFooterCircularIconStyle.standard.weight
+        )
+#endif
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
@@ -285,6 +510,10 @@ final class WorkspaceContentViewVisibilityTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
     @Test
