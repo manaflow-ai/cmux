@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -64,7 +66,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
+  cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
         where: () => selectableResult(table),
@@ -102,6 +104,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Get Teams");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
+    expect(html).toContain("active personal Pro subscribers");
     expect(html).not.toContain("/api/billing/subscription");
   });
 

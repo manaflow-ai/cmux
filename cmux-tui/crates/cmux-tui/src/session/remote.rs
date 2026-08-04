@@ -820,7 +820,7 @@ impl RemoteSession {
         Self::connect_path(path, true)
     }
 
-    pub fn connect_for_surface_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
+    pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
         Self::connect_path(path, false)
     }
 

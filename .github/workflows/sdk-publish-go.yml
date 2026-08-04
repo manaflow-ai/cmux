@@ -71,6 +71,7 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
+          python3 cmux-tui/bindings/check-versions.py --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-go:
@@ -110,13 +111,17 @@ jobs:
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
 
-      - name: Python conformance fixtures
-        run: python3 cmux-tui/bindings/conformance/runner.py
-
-      - name: Go binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require go
+      - name: Go SDK conformance
+        run: |
+          report="$RUNNER_TEMP/cmux-sdk-conformance-go.txt"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --language go \
+            --require go \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
+            tee "$report"
+          grep -Eq '^PASS +go +live-creation-exit-restart-unix$' "$report"
 
   validate-go-module:
     needs: bindings-e2e-go
