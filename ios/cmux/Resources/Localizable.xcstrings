@@ -6886,6 +6886,278 @@
         }
       }
     },
+    "mobile.settings.workspaceDetailLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Detail Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース詳細ラボ"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.baseline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のレイアウト"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.baseline.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace actions stay in the title; terminals stay in the top-right stack menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース操作はタイトルに、ターミナルは右上のスタックメニューに表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.baselineSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baseline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベースライン"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected design updates every open workspace detail immediately. No app restart is needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したデザインは開いているすべてのワークスペース詳細にすぐ反映されます。アプリの再起動は不要です。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.inlineTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インラインタブ"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.inlineTabs.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An always-visible horizontal terminal strip sits below the toolbar for direct switching."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に表示される横並びのターミナルバーをツールバーの下に置き、直接切り替えます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.redesignsSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Five Redesigns"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5つの再設計"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.switcherSheet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switcher Sheet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スイッチャーシート"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.switcherSheet.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The title opens a large bottom sheet with terminals, creation tools, and workspace actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルから大きなボトムシートを開き、ターミナル、作成ツール、ワークスペース操作を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.terminalFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル重視"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.terminalFocus.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal name leads the header and opens a focused terminal list; tools move to an overflow menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル名をヘッダーの主役にして専用リストを開き、ツールはオーバーフローメニューへ移します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.titleStepper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title + Stepper"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル＋ステッパー"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.titleStepper.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The title opens the full switcher while previous and next buttons cycle terminals in one tap."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルから完全なスイッチャーを開き、前後ボタンでターミナルをワンタップ切り替えします。"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.titleSwitcher": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Switcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルスイッチャー"
+          }
+        }
+      }
+    },
+    "mobile.settings.workspaceDetailLab.titleSwitcher.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The complete feedback proposal: tap the title for terminals, with rename, read state, and close actions at the bottom."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバック案を完全に反映：タイトルをタップしてターミナルを表示し、名前変更、既読状態、閉じる操作を下部に配置します。"
+          }
+        }
+      }
+    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {
@@ -12339,6 +12611,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.workspace.detail.moreActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Workspace Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のワークスペース操作"
+          }
+        }
+      }
+    },
+    "mobile.workspace.detail.nextTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のターミナル"
+          }
+        }
+      }
+    },
+    "mobile.workspace.detail.previousTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のターミナル"
+          }
+        }
+      }
+    },
+    "mobile.workspace.detail.switcherSheet.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace & Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとターミナル"
           }
         }
       }

@@ -12,6 +12,7 @@ import SwiftUI
 struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-delayed-terminal")
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
+    private static let labsTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-labs-build")
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
 
@@ -46,6 +47,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             guard !didStartFixture else { return }
             didStartFixture = true
             store.selectedWorkspaceID = Self.workspaceID
+            if Self.showsWorkspaceDetailLabs {
+                store.selectedTerminalID = Self.labsTerminalID
+                return
+            }
             if Self.usesRefreshingTerminalMenu {
                 store.selectedTerminalID = Self.refreshingTerminalID(0)
                 for generation in 1...80 {
@@ -101,6 +106,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var showsThemeParitySequence: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
+    }
+
+    private static var showsWorkspaceDetailLabs: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LABS"] == "1"
     }
 
     private func runThemeParitySequence() async {
@@ -168,6 +177,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private static var initialWorkspaces: [MobileWorkspacePreview] {
+        if showsWorkspaceDetailLabs {
+            return [workspaceDetailLabsWorkspace]
+        }
         if usesRefreshingTerminalMenu {
             return [refreshingWorkspace(generation: 0)]
         }
@@ -178,6 +190,26 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                 terminals: []
             ),
         ]
+    }
+
+    private static var workspaceDetailLabsWorkspace: MobileWorkspacePreview {
+        var workspace = MobileWorkspacePreview(
+            id: workspaceID,
+            name: "Workspace Detail Lab",
+            hasUnread: true,
+            terminals: [
+                MobileTerminalPreview(id: labsTerminalID, name: "Build"),
+                MobileTerminalPreview(id: "terminal-labs-tests", name: "Tests"),
+                MobileTerminalPreview(id: "terminal-labs-server", name: "Dev Server"),
+            ]
+        )
+        workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: true,
+            supportsReadStateActions: true,
+            supportsCloseActions: true
+        )
+        return workspace
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

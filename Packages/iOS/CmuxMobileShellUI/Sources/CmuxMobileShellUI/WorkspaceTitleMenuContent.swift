@@ -2,22 +2,17 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenuContent: View {
-    let workspaceName: String
-    let hasUnread: Bool
-    let canCustomizeWorkspace: Bool
-    let canRenameWorkspace: Bool
-    let canToggleReadState: Bool
-    let canCloseWorkspace: Bool
-    let presentCustomization: () -> Void
-    let presentRename: () -> Void
-    let toggleReadState: () -> Void
-    let requestClose: () -> Void
+    let value: WorkspaceTitleMenuContentValue
+    let actions: WorkspaceTitleMenuActions
 
     var body: some View {
-        if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {
-            Section(workspaceName) {
-                if canCustomizeWorkspace {
-                    Button(action: presentCustomization) {
+        if value.canCustomizeWorkspace
+            || value.canRenameWorkspace
+            || value.canToggleReadState
+            || value.canCloseWorkspace {
+            Section(value.workspaceName) {
+                if value.canCustomizeWorkspace {
+                    Button(action: actions.presentCustomization) {
                         Label(
                             L10n.string(
                                 "mobile.workspace.customize.title",
@@ -27,8 +22,11 @@ struct WorkspaceTitleMenuContent: View {
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleCustomizeMenuItem")
-                } else if canRenameWorkspace {
-                    Button(action: presentRename) {
+                }
+
+                if value.canRenameWorkspace
+                    && (!value.canCustomizeWorkspace || value.showsRenameAlongsideCustomization) {
+                    Button(action: actions.presentRename) {
                         Label(
                             L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
                             systemImage: "pencil"
@@ -37,20 +35,20 @@ struct WorkspaceTitleMenuContent: View {
                     .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                 }
 
-                if canToggleReadState {
-                    Button(action: toggleReadState) {
+                if value.canToggleReadState {
+                    Button(action: actions.toggleReadState) {
                         Label(
-                            hasUnread
+                            value.hasUnread
                                 ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
                                 : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                            systemImage: hasUnread ? "envelope.open" : "envelope.badge"
+                            systemImage: value.hasUnread ? "envelope.open" : "envelope.badge"
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
                 }
 
-                if canCloseWorkspace {
-                    Button(role: .destructive, action: requestClose) {
+                if value.canCloseWorkspace {
+                    Button(role: .destructive, action: actions.requestClose) {
                         Label(
                             L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
                             systemImage: "xmark.square"

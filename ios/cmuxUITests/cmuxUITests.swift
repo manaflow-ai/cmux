@@ -2877,6 +2877,110 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailLabsRenderFiveLiveRedesigns() throws {
+        let variants = [
+            "title-switcher",
+            "terminal-focus",
+            "switcher-sheet",
+            "inline-tabs",
+            "title-stepper",
+        ]
+
+        for variant in variants {
+            let app = launchWorkspaceDetailDelayedTerminalPreviewApp(
+                environment: ["CMUX_UITEST_WORKSPACE_DETAIL_LABS": "1"],
+                launchArguments: [
+                    "-cmux.mobile.debug.workspaceDetailLabVariant.v1",
+                    variant,
+                ]
+            )
+            let title = workspaceTitleElement(in: app)
+            XCTAssertTrue(title.waitForExistence(timeout: 4), "\(variant): missing title control")
+
+            switch variant {
+            case "title-switcher":
+                XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
+                tap(title, in: app)
+                assertTerminalMenuItemExists("terminal-labs-tests", in: app)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+            case "terminal-focus":
+                XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceLabOverflowMenu"].waitForExistence(timeout: 4))
+                tap(title, in: app)
+                assertTerminalMenuItemExists("terminal-labs-tests", in: app)
+            case "switcher-sheet":
+                XCTAssertTrue(app.buttons["MobileWorkspaceLabQuickNewTerminalButton"].waitForExistence(timeout: 4))
+                tap(title, in: app)
+                XCTAssertTrue(
+                    app.descendants(matching: .any)["MobileWorkspaceSwitcherSheet"].waitForExistence(timeout: 4)
+                )
+                assertTerminalMenuItemExists("terminal-labs-tests", in: app)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+            case "inline-tabs":
+                XCTAssertTrue(
+                    app.descendants(matching: .any)["MobileInlineTerminalStrip"].waitForExistence(timeout: 4)
+                )
+                XCTAssertTrue(app.buttons["MobileInlineTerminalTab-terminal-labs-tests"].exists)
+                XCTAssertTrue(app.buttons["MobileTerminalDropdown"].exists)
+            case "title-stepper":
+                XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
+                XCTAssertTrue(
+                    app.descendants(matching: .any)["MobileWorkspaceTerminalStepper"].waitForExistence(timeout: 4)
+                )
+                XCTAssertTrue(app.buttons["MobileWorkspacePreviousTerminal"].exists)
+                XCTAssertTrue(app.buttons["MobileWorkspaceNextTerminal"].exists)
+            default:
+                XCTFail("Unhandled workspace detail Labs variant: \(variant)")
+            }
+
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "workspace-detail-lab-\(variant)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testWorkspaceDetailLabsSettingsSelectsAllFiveWithoutRestart() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        tap(app.buttons["MobileWorkspaceSettingsMenu"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4)
+        )
+        tap(app.buttons["MobileSettingsWorkspaceDetailLab"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceDetailLab"].waitForExistence(timeout: 4)
+        )
+
+        for variant in [
+            "title-switcher",
+            "terminal-focus",
+            "switcher-sheet",
+            "inline-tabs",
+            "title-stepper",
+        ] {
+            let row = app.descendants(matching: .any)[
+                "MobileWorkspaceDetailLabVariant-\(variant)"
+            ]
+            tap(row, in: app)
+            XCTAssertTrue(row.isSelected, "\(variant) must select without relaunching the app")
+        }
+
+        let baseline = app.descendants(matching: .any)["MobileWorkspaceDetailLabBaseline"]
+        tap(baseline, in: app)
+        XCTAssertTrue(baseline.isSelected)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
@@ -4501,7 +4605,10 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp(
+        environment: [String: String] = [:],
+        launchArguments: [String] = []
+    ) -> XCUIApplication {
         var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
@@ -4509,7 +4616,11 @@ final class cmuxUITests: XCTestCase {
         for (key, value) in environment {
             launchEnvironment[key] = value
         }
-        let app = launchApp(mockData: false, environment: launchEnvironment)
+        let app = launchApp(
+            mockData: false,
+            environment: launchEnvironment,
+            launchArguments: launchArguments
+        )
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         return app
     }

@@ -32,6 +32,7 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    private static let workspaceDetailLabVariantKey = "cmux.mobile.debug.workspaceDetailLabVariant.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -146,9 +147,27 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// Persisted workspace-detail redesign selected in CMUX Labs. `nil` keeps
+    /// the shipping layout available as a comparison baseline.
+    var workspaceDetailLabVariant: WorkspaceDetailLabVariant? {
+        didSet {
+            if let workspaceDetailLabVariant {
+                defaults.set(
+                    workspaceDetailLabVariant.rawValue,
+                    forKey: Self.workspaceDetailLabVariantKey
+                )
+            } else {
+                defaults.removeObject(forKey: Self.workspaceDetailLabVariantKey)
+            }
+        }
+    }
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+
+    /// Production builds always use the shipping workspace-detail layout.
+    var workspaceDetailLabVariant: WorkspaceDetailLabVariant? { nil }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -182,6 +201,9 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.workspaceDetailLabVariant = defaults.string(
+            forKey: Self.workspaceDetailLabVariantKey
+        ).flatMap(WorkspaceDetailLabVariant.init(rawValue:))
         #endif
     }
 

@@ -322,6 +322,19 @@ struct MobileSettingsView: View {
                     defaultValue: "CMUX Labs"
                 )) {
                     NavigationLink {
+                        WorkspaceDetailLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.workspaceDetailLab",
+                                defaultValue: "Workspace Detail Lab"
+                            ),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsWorkspaceDetailLab")
+
+                    NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
                         Label(

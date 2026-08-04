@@ -167,6 +167,8 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(settings.taskComposerShellIconVariant == .current)
         #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
+        #expect(settings.workspaceDetailLabVariant == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.workspaceDetailLabVariant.v1") == nil)
     }
 
     @Test func shellIconExperimentsAreScopedToDebugBuilds() throws {
@@ -202,6 +204,26 @@ import Testing
 
         defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1")
         #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .current)
+    }
+
+    @Test func workspaceDetailLabVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("workspaceDetailLabVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        for variant in WorkspaceDetailLabVariant.allCases {
+            settings.workspaceDetailLabVariant = variant
+            #expect(MobileDisplaySettings(defaults: defaults).workspaceDetailLabVariant == variant)
+        }
+
+        settings.workspaceDetailLabVariant = nil
+        #expect(defaults.object(forKey: "cmux.mobile.debug.workspaceDetailLabVariant.v1") == nil)
+
+        defaults.set(
+            "removed-variant",
+            forKey: "cmux.mobile.debug.workspaceDetailLabVariant.v1"
+        )
+        #expect(MobileDisplaySettings(defaults: defaults).workspaceDetailLabVariant == nil)
+        #expect(WorkspaceDetailLabVariant.allCases.count == 5)
     }
     #endif
 

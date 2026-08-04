@@ -45,7 +45,7 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
@@ -63,10 +63,14 @@ struct WorkspaceDetailView: View {
     /// Drives the shared workspace identity editor from the title menu.
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
-    @State private var contentWidth: CGFloat = 0
+    @State var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    /// Labs switcher-sheet lifecycle. Actions that open another presentation
+    /// wait for `onDismiss` instead of racing two sheets in one update.
+    @State var isWorkspaceSwitcherSheetPresented = false
+    @State var pendingWorkspaceSwitcherSheetAction: WorkspaceDetailSheetAction?
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -126,6 +130,9 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                workspaceDetailLabTopInset
+            }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
@@ -158,6 +165,12 @@ struct WorkspaceDetailView: View {
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(
+                isPresented: $isWorkspaceSwitcherSheetPresented,
+                onDismiss: completeWorkspaceSwitcherSheetAction
+            ) {
+                workspaceDetailSwitcherSheet
             }
             .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
                 WorkspaceChangesSheet(
@@ -202,7 +215,7 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
+            workspaceDetailTitleToolbarControl
         }
         if let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
@@ -226,11 +239,11 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+            workspaceDetailTrailingToolbarControl
         }
     }
 
-    private var workspaceTitleToolbarMenu: some View {
+    var workspaceTitleToolbarMenu: some View {
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -250,50 +263,34 @@ struct WorkspaceDetailView: View {
             value: value,
             menuContent: {
                 WorkspaceTitleMenuContent(
-                    workspaceName: value.workspaceName,
-                    hasUnread: value.hasUnread,
-                    canCustomizeWorkspace: value.canCustomizeWorkspace,
-                    canRenameWorkspace: value.canRenameWorkspace,
-                    canToggleReadState: value.canToggleReadState,
-                    canCloseWorkspace: value.canCloseWorkspace,
-                    presentCustomization: presentCustomizationFromMenu,
-                    presentRename: presentRenameFromMenu,
-                    toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu
+                    value: WorkspaceTitleMenuContentValue(
+                        workspaceName: value.workspaceName,
+                        hasUnread: value.hasUnread,
+                        canCustomizeWorkspace: value.canCustomizeWorkspace,
+                        canRenameWorkspace: value.canRenameWorkspace,
+                        canToggleReadState: value.canToggleReadState,
+                        canCloseWorkspace: value.canCloseWorkspace,
+                        showsRenameAlongsideCustomization: false
+                    ),
+                    actions: WorkspaceTitleMenuActions(
+                        presentCustomization: presentCustomizationFromMenu,
+                        presentRename: presentRenameFromMenu,
+                        toggleReadState: toggleWorkspaceReadStateFromMenu,
+                        requestClose: requestCloseWorkspaceFromMenu
+                    )
                 )
             },
             label: {
-                switch value.labelToken {
-                case .chat(
-                    let descriptor,
-                    let agentState,
-                    let isConnected,
-                    let titleOverride,
-                    let subtitle
-                ):
-                    ChatSessionHeaderView(
-                        descriptor: descriptor,
-                        agentState: agentState,
-                        isConnected: isConnected,
-                        titleOverride: titleOverride,
-                        subtitle: subtitle,
-                        style: .toolbarCompact
-                    )
-                case .browser(let title):
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
-                case .standard(let title, let subtitle):
-                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
-                }
+                WorkspaceTitleToolbarLabel(
+                    token: value.labelToken,
+                    terminalTheme: value.terminalTheme
+                )
             }
         )
         .equatable()
     }
 
-    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
+    var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
         if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
@@ -626,7 +623,7 @@ struct WorkspaceDetailView: View {
 
     #if canImport(UIKit)
     #if DEBUG
-    private func copyDebugLogsFromMenu() {
+    func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         Task { @MainActor in
@@ -640,12 +637,12 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
-    private func openTextSheetFromMenu() {
+    func openTextSheetFromMenu() {
         textSheetSurfaceID = selectedTerminal?.id.rawValue
         isTextSheetPresented = true
     }
 
-    private func openFeedbackComposerFromMenu() {
+    func openFeedbackComposerFromMenu() {
         feedbackText = ""
         feedbackErrorMessage = nil
         // A prior submission may still be in flight if the user dismissed the
@@ -792,7 +789,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createWorkspaceFromToolbar() {
+    func createWorkspaceFromToolbar() {
         guard canCreateWorkspace else { return }
         dismissTerminalKeyboardForChrome()
         createWorkspace()
@@ -800,7 +797,7 @@ struct WorkspaceDetailView: View {
 
     /// Arms the close-workspace confirmation. The actual close runs only after
     /// the user confirms, matching the workspace list's destructive-action UX.
-    private func requestCloseWorkspaceFromMenu() {
+    func requestCloseWorkspaceFromMenu() {
         dismissTerminalKeyboardForChrome()
         isConfirmingClose = true
     }
@@ -810,21 +807,21 @@ struct WorkspaceDetailView: View {
     }
 
     /// Toggle the current workspace's read state from the picker menu.
-    private func toggleWorkspaceReadStateFromMenu() {
+    func toggleWorkspaceReadStateFromMenu() {
         let id = workspace.id
         let markUnread = !workspace.hasUnread
         setWorkspaceUnread?(id, markUnread)
     }
 
     #if canImport(UIKit)
-    private func presentRenameFromMenu() {
+    func presentRenameFromMenu() {
         dismissTerminalKeyboardForChrome()
         // Seed the dialog field with the current name each time it opens.
         renameText = workspace.name
         isRenamePresented = true
     }
 
-    private func presentCustomizationFromMenu() {
+    func presentCustomizationFromMenu() {
         dismissTerminalKeyboardForChrome()
         isCustomizationPresented = true
     }
@@ -839,7 +836,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createTerminalFromToolbar() {
+    func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
@@ -849,7 +846,7 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
-    private func openBrowserFromToolbar() {
+    func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
@@ -858,7 +855,7 @@ struct WorkspaceDetailView: View {
         stopActiveBrowserStream()
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String) {
+    func selectBrowserStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         if let previous = activeBrowserStream, previous.id != panelID {
@@ -874,7 +871,7 @@ struct WorkspaceDetailView: View {
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }
     }
 
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+    func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
