@@ -322,6 +322,51 @@ struct CodeWebViewWarmerTests {
         )
     }
 
+    @Test func workspaceSurfaceFrameIncludesPortalHostedBrowserPanes() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+
+        guard let contentView = window.contentView else {
+            Issue.record("Expected a content view")
+            return
+        }
+        let leftAnchor = NSView(frame: NSRect(x: 180, y: 50, width: 360, height: 540))
+        let rightAnchor = NSView(frame: NSRect(x: 540, y: 50, width: 360, height: 540))
+        contentView.addSubview(leftAnchor)
+        contentView.addSubview(rightAnchor)
+
+        let leftWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let rightWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer {
+            BrowserWindowPortalRegistry.discard(webView: leftWebView)
+            BrowserWindowPortalRegistry.discard(webView: rightWebView)
+        }
+        BrowserWindowPortalRegistry.bind(
+            webView: leftWebView,
+            to: leftAnchor,
+            visibleInUI: true
+        )
+        BrowserWindowPortalRegistry.bind(
+            webView: rightWebView,
+            to: rightAnchor,
+            visibleInUI: true
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(leftAnchor)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(rightAnchor)
+
+        #expect(
+            CodeWebViewWarmer.workspaceSurfaceFrame(in: window)
+                == NSRect(x: 180, y: 50, width: 720, height: 540)
+        )
+    }
+
     @Test func prewarmFillsTheConfiguredBurstCapacitySerially() {
         let harness = CodeWebViewWarmerHarness(capacity: 4)
         harness.warmer.prewarm(profileID: profileID, websiteDataStore: harness.dataStore)
