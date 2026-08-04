@@ -646,6 +646,7 @@ import Testing
         let applied = try await pollUntil {
             factory.attemptedKinds().contains(.tailscale)
                 && store.connectionState == .disconnected
+                && store.activeRoute == nil
         }
         #expect(applied)
         #expect(store.activeRoute == nil)
