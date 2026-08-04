@@ -5,10 +5,7 @@ import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
-import {
-  englishFallbackContentLocales,
-  remoteTmuxDocsLocales,
-} from "@/i18n/locale-availability";
+import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -42,6 +39,7 @@ type Article = {
   href: string;
   titleKey: string;
   descKey: string;
+  brand?: string;
   locales?: readonly string[];
 };
 
@@ -55,9 +53,9 @@ const ARTICLES: readonly Article[] = [
   { href: "/agents/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
   {
     href: "/agents/pi",
-    titleKey: "pi.title",
-    descKey: "pi.metaDescription",
-    locales: englishFallbackContentLocales,
+    titleKey: "agents.title",
+    descKey: "agents.metaDescription",
+    brand: "Pi",
   },
   { href: "/agents/gemini-cli", titleKey: "geminiCli.title", descKey: "geminiCli.metaDescription" },
   { href: "/agents/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
@@ -91,7 +89,7 @@ export default function GuidesPage() {
                   event="guide_link_clicked"
                   className="text-base font-medium underline underline-offset-2"
                 >
-                  {t(a.titleKey)}
+                  {a.brand ? `${a.brand}: ${t(a.titleKey)}` : t(a.titleKey)}
                 </TrackedLink>
                 <p className="text-muted text-sm mt-1">{t(a.descKey)}</p>
               </li>
