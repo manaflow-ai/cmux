@@ -9,9 +9,7 @@ extension RenderNode {
         if children.contains(where: \.containsVisibleContent) {
             return true
         }
-        return modifiers.contains { modifier in
-            modifier.children.contains(where: \.containsVisibleContent)
-        }
+        return modifiers.contains(where: \.introducesVisibleContent)
     }
 
     private var isVisiblePrimitive: Bool {
@@ -32,11 +30,12 @@ extension RenderNode {
              .ellipse,
              .unevenRoundedRectangle,
              .progressView,
-             .gauge,
              .linearGradient,
              .radialGradient,
              .angularGradient:
             return true
+        case .gauge:
+            return value != nil
         case .vstack,
              .hstack,
              .zstack,
@@ -55,5 +54,15 @@ extension RenderNode {
              .spacer:
             return false
         }
+    }
+}
+
+private extension RenderModifier {
+    var introducesVisibleContent: Bool {
+        if children.contains(where: \.containsVisibleContent) {
+            return true
+        }
+        return (name == "background" || name == "overlay")
+            && dslColorTokenIsVisible(firstValue)
     }
 }

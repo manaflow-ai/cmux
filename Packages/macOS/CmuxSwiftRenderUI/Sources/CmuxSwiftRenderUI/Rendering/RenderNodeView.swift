@@ -165,7 +165,7 @@ struct RenderNodeView: View {
     }
 
     private func apply(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
-        let token = clean(modifier.firstValue)
+        let token = cleanRenderToken(modifier.firstValue)
         switch modifier.name {
         case "font":
             return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
@@ -199,14 +199,14 @@ struct RenderNodeView: View {
             return AnyView(view.padding())
         case "background":
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
                 return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
             }
             if let color = dslColor(token) { return AnyView(view.background(color)) }
             return view
         case "overlay":
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
                 return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
             }
             if let color = dslColor(token) { return AnyView(view.overlay(color)) }
@@ -218,7 +218,7 @@ struct RenderNodeView: View {
             return view
         case "safeAreaInset":
             if !modifier.children.isEmpty {
-                let edge = clean(modifier.value("edge"))
+                let edge = cleanRenderToken(modifier.value("edge"))
                 if edge == "top" {
                     return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier) })
                 }
@@ -240,7 +240,7 @@ struct RenderNodeView: View {
             return applyFrame(modifier, to: view)
         case "shadow":
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 4
-            let color = dslColor(clean(modifier.value("color"))) ?? Color.black.opacity(0.33)
+            let color = dslColor(cleanRenderToken(modifier.value("color"))) ?? Color.black.opacity(0.33)
             return AnyView(view.shadow(color: color, radius: CGFloat(radius),
                                        x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
@@ -294,7 +294,7 @@ struct RenderNodeView: View {
             // unresolved expression defaults to enabled, not disabled.
             return AnyView(view.disabled(token == "true"))
         case "redacted":
-            let reason = clean(modifier.value("reason")) ?? token
+            let reason = cleanRenderToken(modifier.value("reason")) ?? token
             return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
         case "unredacted":
             return AnyView(view.unredacted())
@@ -311,7 +311,7 @@ struct RenderNodeView: View {
         case "scrollContentBackground":
             return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
         case "aspectRatio":
-            let mode: ContentMode = clean(modifier.value("contentMode")) == "fill" ? .fill : .fit
+            let mode: ContentMode = cleanRenderToken(modifier.value("contentMode")) == "fill" ? .fill : .fit
             // Only apply an explicit ratio when positive; a zero/negative ratio
             // is invalid in SwiftUI, so fall back to mode-only.
             if let token, let ratio = Double(token), ratio > 0 { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
@@ -359,7 +359,7 @@ struct RenderNodeView: View {
                                               to: CGFloat(modDouble(trim, "to") ?? 1)))
         }
         if let stroke = node.modifiers.first(where: { $0.name == "stroke" || $0.name == "strokeBorder" }) {
-            let color = dslColor(clean(stroke.firstValue)) ?? .secondary
+            let color = dslColor(cleanRenderToken(stroke.firstValue)) ?? .secondary
             let width = modDouble(stroke, "lineWidth") ?? 1
             return AnyView(resolved.stroke(color, lineWidth: CGFloat(width)))
         }
@@ -383,7 +383,7 @@ struct RenderNodeView: View {
 
     /// A labeled `Double` argument of a modifier (e.g. `.shadow(radius: 4)`).
     private func modDouble(_ modifier: RenderModifier, _ label: String) -> Double? {
-        modifier.value(label).map { clean($0) ?? $0 }.flatMap { Double($0) }
+        modifier.value(label).map { cleanRenderToken($0) ?? $0 }.flatMap { Double($0) }
     }
 
     /// Degrees from an angle token like `.degrees(45)` or `.radians(1.5)`.
@@ -416,7 +416,7 @@ struct RenderNodeView: View {
             if raw == ".infinity" || raw == "infinity" { return .infinity }
             return Double(raw).map { CGFloat($0) }
         }
-        let alignment = frameAlignment(clean(modifier.value("alignment")))
+        let alignment = frameAlignment(cleanRenderToken(modifier.value("alignment")))
         return AnyView(
             view.frame(
                 minWidth: dim("minWidth"),
@@ -473,14 +473,4 @@ struct RenderNodeView: View {
         return dslFontWeight(String(rawWeight))
     }
 
-    /// Strips a leading `.` (member token) or surrounding quotes from a raw
-    /// modifier argument so color/font/alignment tokens resolve.
-    private func clean(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        if raw.hasPrefix(".") { return String(raw.dropFirst()) }
-        if raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") {
-            return String(raw.dropFirst().dropLast())
-        }
-        return raw
-    }
 }

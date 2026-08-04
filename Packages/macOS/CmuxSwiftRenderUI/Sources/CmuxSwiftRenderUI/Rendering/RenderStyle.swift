@@ -1,6 +1,16 @@
 import CmuxFoundation
 import SwiftUI
 
+/// Strips syntax decoration from a captured modifier token before resolving it.
+func cleanRenderToken(_ raw: String?) -> String? {
+    guard let raw else { return nil }
+    if raw.hasPrefix(".") { return String(raw.dropFirst()) }
+    if raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") {
+        return String(raw.dropFirst().dropLast())
+    }
+    return raw
+}
+
 /// Resolves a style token to a SwiftUI `Color`.
 ///
 /// Accepts `#RRGGBB`, `#RRGGBBAA`, a few named tokens, and `accent`. Returns
@@ -50,6 +60,20 @@ func dslColor(_ token: String?) -> Color? {
         return nil
     }
     return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+}
+
+/// Whether a captured color token resolves to a nontransparent rendered fill.
+func dslColorTokenIsVisible(_ rawToken: String?) -> Bool {
+    guard let token = cleanRenderToken(rawToken), dslColor(token) != nil else {
+        return false
+    }
+    if token.lowercased() == "clear" {
+        return false
+    }
+    if token.hasPrefix("#"), token.count == 9, token.suffix(2) == "00" {
+        return false
+    }
+    return true
 }
 
 /// Resolves a font token (or explicit size) to a magnification-aware font spec.

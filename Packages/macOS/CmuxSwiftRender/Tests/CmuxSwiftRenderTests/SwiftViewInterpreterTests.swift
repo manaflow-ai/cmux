@@ -39,6 +39,7 @@ import Testing
     @Test func diagnosticsAttributeMembersOnlyToTrackedBaseValues() {
         let workspace = SwiftValue.object([
             "branch": .string("workspace-branch"),
+            "dirty": .bool(true),
             "tabs": .array([
                 .object(["branch": .string("tab-branch")]),
             ]),
@@ -48,8 +49,9 @@ import Testing
             """
             VStack {
                 Text(workspace.branch)
+                Text(workspace["dirty"])
                 ForEach(workspace.tabs) { tab in
-                    Text(tab.branch)
+                    Text(tab["branch"])
                 }
             }
             """,
@@ -57,7 +59,7 @@ import Testing
             trackingMemberAccessesOn: [workspace]
         )
 
-        #expect(evaluation.accessedTrackedMemberNames == ["branch", "tabs"])
+        #expect(evaluation.accessedTrackedMemberNames == ["branch", "dirty", "tabs"])
     }
 
     @Test func parsesHSplitViewColumns() {

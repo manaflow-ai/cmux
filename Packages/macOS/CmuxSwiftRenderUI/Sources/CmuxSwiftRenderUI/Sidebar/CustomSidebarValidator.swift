@@ -83,6 +83,7 @@ public struct CustomSidebarValidator {
         }
 
         do {
+            var warningMessages: [String] = []
             switch kind {
             case .swift:
                 let source = try String(contentsOf: fileURL, encoding: .utf8)
@@ -108,12 +109,9 @@ public struct CustomSidebarValidator {
                         )
                     )
                 }
-                guard node.containsVisibleContent else {
-                    return invalidEntry(
-                        name: name,
-                        fileURL: fileURL,
-                        kind: kind,
-                        message: String(
+                if !node.containsVisibleContent {
+                    warningMessages.append(
+                        String(
                             localized: "sidebar.custom.validation.emptyRender",
                             defaultValue: "Sidebar rendered no visible content."
                         )
@@ -125,11 +123,8 @@ public struct CustomSidebarValidator {
                        with: Self.representativeOptionalWorkspaceFields
                    ),
                    interpreter.evaluate(program, state: comparisonContext) == node {
-                    return invalidEntry(
-                        name: name,
-                        fileURL: fileURL,
-                        kind: kind,
-                        message: String(
+                    warningMessages.append(
+                        String(
                             localized: "sidebar.custom.validation.noOptionalDataCoverage",
                             defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed."
                         )
@@ -143,7 +138,8 @@ public struct CustomSidebarValidator {
                 name: name,
                 fileURL: fileURL,
                 kind: kind,
-                errorMessage: nil
+                errorMessage: nil,
+                warningMessages: warningMessages
             )
         } catch {
             return CustomSidebarValidationEntry(

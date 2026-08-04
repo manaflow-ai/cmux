@@ -43,6 +43,7 @@ public struct ExpressionEvaluator: Sendable {
             case let (.array(values), .int(i)):
                 return (i >= 0 && i < values.count) ? values[i] : nil
             case let (.object(fields), .string(key)):
+                env.recordMemberAccess(key, on: base)
                 return fields[key]
             default:
                 return nil

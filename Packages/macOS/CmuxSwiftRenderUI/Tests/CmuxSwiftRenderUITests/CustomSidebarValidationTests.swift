@@ -108,8 +108,8 @@ struct CustomSidebarValidationTests {
         #expect(validationNode == runtimeNode)
     }
 
-    @Test("reports a supported root whose dynamic content collapses to empty")
-    func reportsEmptyRenderedContainer() throws {
+    @Test("warns when a supported root's sample render collapses to empty")
+    func warnsAboutEmptyRenderedContainer() throws {
         let directory = try temporaryDirectory()
         let fileURL = directory.appendingPathComponent("empty.swift")
         try """
@@ -124,18 +124,97 @@ struct CustomSidebarValidationTests {
 
         let entry = validator.validate(fileURL: fileURL)
 
-        #expect(entry.errorMessage == "Sidebar rendered no visible content.")
+        #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
     }
 
-    @Test("reports the status board when referenced optional data has no effect")
-    func reportsStatusBoardWithoutOptionalDataCoverage() {
+    @Test("warns about the status board when referenced optional data has no effect")
+    func warnsAboutStatusBoardWithoutOptionalDataCoverage() {
         let fileURL = examplesDirectory().appendingPathComponent("status-board.swift")
 
         let entry = validator.validate(fileURL: fileURL)
 
+        #expect(entry.errorMessage == nil)
         #expect(
-            entry.errorMessage
-                == "Sidebar output did not change when its referenced optional workspace data was removed."
+            entry.warningMessages
+                == [
+                    "Sidebar output did not change when its referenced optional workspace data was removed.",
+                ]
+        )
+    }
+
+    @Test("sample-dependent optional branches remain non-blocking")
+    func acceptsOptionalBranchThatIsFalseForRepresentativeData() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("dirty.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                if workspace.dirty {
+                    Image(systemName: "circle.fill")
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.isValid)
+        #expect(entry.warningMessages.contains("Sidebar rendered no visible content."))
+        #expect(
+            entry.warningMessages.contains(
+                "Sidebar output did not change when its referenced optional workspace data was removed."
+            )
+        )
+    }
+
+    @Test("value-form color backgrounds and overlays count as visible")
+    func acceptsVisibleValueFormDecoration() throws {
+        let directory = try temporaryDirectory()
+        for modifier in ["background", "overlay"] {
+            let fileURL = directory.appendingPathComponent("\(modifier).swift")
+            try """
+            VStack {}
+                .frame(width: 20, height: 20)
+                .\(modifier)("#FFFFFF")
+            """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let entry = validator.validate(fileURL: fileURL)
+
+            #expect(entry.errorMessage == nil)
+            #expect(entry.warningMessages.isEmpty)
+        }
+    }
+
+    @Test("warns when Gauge has no renderable value")
+    func warnsAboutGaugeWithoutValue() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("gauge.swift")
+        try """
+        Gauge(value: workspaceCount / 0)
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
+    }
+
+    @Test("validation report counts warning messages")
+    func countsWarnings() throws {
+        let directory = try temporaryDirectory()
+        try """
+        VStack {}
+        """.write(to: directory.appendingPathComponent("empty.swift"), atomically: true, encoding: .utf8)
+
+        let report = validator.validate(directory: directory)
+
+        #expect(report.validCount == 1)
+        #expect(report.errorCount == 0)
+        #expect(report.warningCount == 1)
+        #expect(
+            report.entries.first?.warningMessages
+                == ["Sidebar rendered no visible content."]
         )
     }
 
@@ -156,6 +235,7 @@ struct CustomSidebarValidationTests {
         let entry = validator.validate(fileURL: fileURL)
 
         #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages.isEmpty)
     }
 
     @MainActor

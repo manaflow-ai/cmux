@@ -49322,6 +49322,23 @@
         }
       }
     },
+    "cli.sidebar.report.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WARNING %@ [%@] %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告 %@ [%@] %@: %@"
+          }
+        }
+      }
+    },
     "cli.sidebar.unknownError": {
       "extractionState": "manual",
       "localizations": {

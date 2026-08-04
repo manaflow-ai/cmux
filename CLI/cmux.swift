@@ -18021,12 +18021,25 @@ struct CMUXCLI {
             let kind = (sidebar["kind"] as? String) ?? ""
             let ok = boolValue(sidebar["ok"])
             if ok {
-                print(String(
-                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
-                    name,
-                    kind,
-                    path
-                ))
+                let warnings = sidebar["warnings"] as? [String] ?? []
+                if warnings.isEmpty {
+                    print(String(
+                        format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
+                        name,
+                        kind,
+                        path
+                    ))
+                } else {
+                    for warning in warnings {
+                        print(String(
+                            format: String(localized: "cli.sidebar.report.warning", defaultValue: "WARNING %@ [%@] %@: %@"),
+                            name,
+                            kind,
+                            path,
+                            warning
+                        ))
+                    }
+                }
             } else {
                 let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error")
                 print(String(
