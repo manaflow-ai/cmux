@@ -249,7 +249,11 @@ import Testing
         #expect(DiagnosticEventPresentation().failureKind(of: success) == nil)
     }
 
-    @Test func presentsJapaneseReportCopy() {
+    @Test(.enabled(
+        if: DiagnosticLocalization.hasCompiledLocalization(for: Locale(identifier: "ja")),
+        "Command-line SwiftPM copies string catalogs without compiling locale resources"
+    ))
+    func presentsJapaneseReportCopy() {
         let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "ja"))
         let event = DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0)
 

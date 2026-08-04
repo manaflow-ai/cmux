@@ -230,7 +230,11 @@ import os
         #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
     }
 
-    @Test func exportUsesJapaneseCatalogCopy() async {
+    @Test(.enabled(
+        if: DiagnosticLocalization.hasCompiledLocalization(for: Locale(identifier: "ja")),
+        "Command-line SwiftPM copies string catalogs without compiling locale resources"
+    ))
+    func exportUsesJapaneseCatalogCopy() async {
         let report = DiagnosticReport(
             role: .macHost,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001),
