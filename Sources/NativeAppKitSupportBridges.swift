@@ -17,6 +17,113 @@ import CmuxSwiftRenderUI
 import ExtensionFoundation
 import SwiftUI
 
+// MARK: - Transitional SwiftUI font adapter
+
+// CmuxFoundation is UI-framework-neutral. Keep this adapter beside the
+// remaining executable bridges until the last declarative call site is native.
+private struct CmuxGlobalFontMagnificationPercentKey: EnvironmentKey {
+    static var defaultValue: Int { GlobalFontMagnification.storedPercent }
+}
+
+extension EnvironmentValues {
+    var cmuxGlobalFontMagnificationPercent: Int {
+        get { self[CmuxGlobalFontMagnificationPercentKey.self] }
+        set {
+            self[CmuxGlobalFontMagnificationPercentKey.self] =
+                GlobalFontMagnification.clamp(newValue)
+        }
+    }
+}
+
+private struct CmuxFontMagnificationEnvironmentModifier: ViewModifier {
+    @AppStorage(GlobalFontMagnification.percentKey)
+    private var percent = GlobalFontMagnification.defaultPercent
+
+    func body(content: Content) -> some View {
+        content.environment(\.cmuxGlobalFontMagnificationPercent, percent)
+    }
+}
+
+private struct CmuxFontModifier: ViewModifier {
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var percent
+    let baseSize: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+    var monospacedDigit = false
+
+    func body(content: Content) -> some View {
+        var font = Font.system(
+            size: GlobalFontMagnification.scaledSize(baseSize, percent: percent),
+            weight: weight,
+            design: design
+        )
+        if monospacedDigit {
+            font = font.monospacedDigit()
+        }
+        return content.font(font)
+    }
+}
+
+private struct CmuxTextStyleMetrics {
+    let style: Font.TextStyle
+
+    var baseSize: CGFloat {
+        switch style {
+        case .largeTitle: return 26
+        case .title: return 22
+        case .title2: return 17
+        case .title3: return 15
+        case .headline: return 13
+        case .subheadline: return 11
+        case .body: return 13
+        case .callout: return 12
+        case .footnote: return 10
+        case .caption: return 10
+        case .caption2: return 9
+        @unknown default: return 13
+        }
+    }
+
+    var baseWeight: Font.Weight {
+        style == .headline ? .semibold : .regular
+    }
+}
+
+extension View {
+    func cmuxFontMagnificationEnvironment() -> some View {
+        modifier(CmuxFontMagnificationEnvironmentModifier())
+    }
+
+    func cmuxFont(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default,
+        monospacedDigit: Bool = false
+    ) -> some View {
+        modifier(CmuxFontModifier(
+            baseSize: size,
+            weight: weight,
+            design: design,
+            monospacedDigit: monospacedDigit
+        ))
+    }
+
+    func cmuxFont(
+        _ style: Font.TextStyle,
+        weight: Font.Weight? = nil,
+        design: Font.Design = .default,
+        monospacedDigit: Bool = false
+    ) -> some View {
+        let metrics = CmuxTextStyleMetrics(style: style)
+        return cmuxFont(
+            size: metrics.baseSize,
+            weight: weight ?? metrics.baseWeight,
+            design: design,
+            monospacedDigit: monospacedDigit
+        )
+    }
+}
+
 extension View {
     @ViewBuilder
     func safeHelp(_ text: String) -> some View {

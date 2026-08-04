@@ -2,8 +2,8 @@
 
 Shared low-level primitives for cmux with no internal package dependencies. This is the
 bottom of the package dependency graph: encoding/text helpers, value types, and other
-cross-cutting utilities that several domains need, with nothing in here depending on AppKit,
-SwiftUI, or another cmux package.
+cross-cutting utilities that several domains need, with nothing in here depending on a
+declarative UI framework or another cmux package.
 
 It exists as the leaf every other package and the app target can depend on without creating
 a cycle. Keep it dependency-free.

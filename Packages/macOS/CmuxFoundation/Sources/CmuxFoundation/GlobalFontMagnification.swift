@@ -4,9 +4,8 @@ public import Foundation
 /// App-wide magnification for cmux-owned chrome and terminal configuration.
 ///
 /// Stored as an integer percent (100 = default, 150 = 1.5x, 200 = 2x).
-/// SwiftUI call sites should use ``View/cmuxFont(size:weight:design:monospacedDigit:)``
-/// or ``View/cmuxFont(_:weight:design:)``. AppKit call sites should use the
-/// `GlobalFontMagnification` font helpers and reapply them from
+/// AppKit call sites should use the `GlobalFontMagnification` font helpers and
+/// reapply them from
 /// ``didChangeNotification`` via ``GlobalFontMagnificationChangeObserver``.
 public struct GlobalFontMagnification {
     private let userDefaults: UserDefaults

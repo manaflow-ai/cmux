@@ -61,7 +61,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] `CmuxUpdaterUI` (0)
   - [x] `CmuxCanvasUI` (0)
   - [x] `CmuxAppKitSupportUI` (0)
-  - [ ] `CmuxFoundation` presentation types (6)
+  - [x] `CmuxFoundation` (0; its temporary font adapter now lives only beside
+    the remaining executable bridges)
   - [x] `CmuxExtensionKit` (0)
   - [x] `CmuxCommandPalette` (0)
 - [ ] macOS executable
