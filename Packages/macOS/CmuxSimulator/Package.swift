@@ -8,7 +8,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .library(name: "CmuxSimulator", targets: ["CmuxSimulator"]),
+        .library(name: "CmuxSimulator", type: .static, targets: ["CmuxSimulator"]),
         .library(name: "CmuxSimulatorUI", targets: ["CmuxSimulatorUI"]),
         .library(name: "CmuxSimulatorWorker", targets: ["CmuxSimulatorWorker"]),
     ],
