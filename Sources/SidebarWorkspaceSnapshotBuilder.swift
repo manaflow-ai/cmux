@@ -70,7 +70,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let compactBranchDirectoryCandidates: [String]
         let branchDirectoryLines: [VerticalBranchDirectoryLine]
         let branchLinesContainBranch: Bool
-        var repositoryLink: RepositoryLinkDisplay? = nil
+        let repositoryLink: RepositoryLinkDisplay?
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
