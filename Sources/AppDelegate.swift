@@ -2035,6 +2035,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the will-terminate gauntlet bounded without cutting rollback short.
     }
 
+    private var treatsCurrentBuildAsDevForQuitConfirmation: Bool {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_QUIT_CONFIRMATION"] == "1" {
+            return false
+        }
+#endif
+        return BuildFlavor.current == .dev
+    }
+
     private func presentQuitConfirmationAlert(
         ownsTerminateRequest: Bool,
         completion: @escaping QuitConfirmationAlertPresenter.Completion
@@ -2110,7 +2119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !quitConfirmationStore.shouldShowConfirmation(
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: hasDirtyWorkspaces,
-            isDevBuild: buildFlavor == .dev
+            isDevBuild: treatsCurrentBuildAsDevForQuitConfirmation
         ) {
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
@@ -13137,7 +13146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            isDevBuild: BuildFlavor.current == .dev
+            isDevBuild: treatsCurrentBuildAsDevForQuitConfirmation
         ) {
             NSApp.terminate(nil)
             return true
