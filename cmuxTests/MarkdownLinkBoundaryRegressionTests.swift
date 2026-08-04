@@ -128,6 +128,58 @@ final class MarkdownLinkBoundaryRegressionTests {
         }
     }
 
+    @Test
+    func markdownFileContextChangeInvalidatesResolvedLinkCache() async throws {
+        try await withLoadedMarkdownShellAndRoutes { webView, bridge, _ in
+            let relativePath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
+            _ = try await renderLinkBoundarySnapshot(
+                "[Runner design](\(relativePath))",
+                in: webView
+            )
+            let initialRequest = await bridge.nextBody(action: "resolveMarkdownFile")
+            let initialRequestId = try #require(initialRequest["requestId"] as? String)
+            let responseData = try JSONSerialization.data(withJSONObject: [
+                "requestId": initialRequestId,
+                "exists": true,
+                "path": "/old-workspace/\(relativePath)"
+            ])
+            let responseLiteral = try #require(String(data: responseData, encoding: .utf8))
+            _ = try await webView.evaluateJavaScript(
+                """
+                window.__cmuxMarkdownFileResolved(\(responseLiteral));
+                true;
+                """
+            )
+            bridge.reset()
+
+            let refreshResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var anchor = document.querySelector('a');
+                  var existedBefore = anchor && anchor.hasAttribute('data-cmux-file-exists');
+                  if (typeof window.__cmuxMarkdownFileContextDidChange !== 'function') {
+                    return { didRefresh: false, existedBefore: existedBefore };
+                  }
+                  window.__cmuxMarkdownFileContextDidChange();
+                  return {
+                    didRefresh: true,
+                    existedBefore: existedBefore,
+                    existsAfter: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let refreshSnapshot = try #require(refreshResult as? [String: Any])
+            try #require(refreshSnapshot["didRefresh"] as? Bool == true)
+            #expect(refreshSnapshot["existedBefore"] as? Bool == true)
+            #expect(refreshSnapshot["existsAfter"] as? Bool == false)
+
+            let refreshedRequest = await bridge.nextBody(action: "resolveMarkdownFile")
+            #expect(refreshedRequest["path"] as? String == relativePath)
+            #expect(refreshedRequest["requestId"] as? String != initialRequestId)
+        }
+    }
+
     private func withLoadedMarkdownShell<T>(
         _ body: (WKWebView) async throws -> T
     ) async throws -> T {

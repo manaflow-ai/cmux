@@ -206,6 +206,67 @@ struct MarkdownPanelFileLinkResolverTests {
         #expect(standaloneCoordinator.resolvedMarkdownFilePath("raw/plan.md") == nil)
     }
 
+    @MainActor
+    @Test("Moved Markdown panels resolve links against the destination workspace")
+    func movedMarkdownPanelUsesDestinationWorkspaceDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-moved-workspace-\(UUID().uuidString)", isDirectory: true)
+        let sourceRoot = root.appendingPathComponent("source", isDirectory: true)
+        let destinationRoot = root.appendingPathComponent("destination", isDirectory: true)
+        let docs = root.appendingPathComponent("docs", isDirectory: true)
+        let sourceFile = docs.appendingPathComponent("index.md")
+        let sourceTarget = sourceRoot.appendingPathComponent("raw/plan.md")
+        let destinationTarget = destinationRoot.appendingPathComponent("raw/plan.md")
+
+        for target in [sourceTarget, destinationTarget] {
+            try fileManager.createDirectory(
+                at: target.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        try fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
+        try "# Index".write(to: sourceFile, atomically: true, encoding: .utf8)
+        try "# Source".write(to: sourceTarget, atomically: true, encoding: .utf8)
+        try "# Destination".write(to: destinationTarget, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sourceWorkspace = Workspace(workingDirectory: sourceRoot.path)
+        let destinationWorkspace = Workspace(workingDirectory: destinationRoot.path)
+        let sourcePane = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPane = try #require(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(sourceWorkspace.newMarkdownSurface(
+            inPane: sourcePane,
+            filePath: sourceFile.path,
+            focus: false
+        ))
+        defer { panel.close() }
+
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            filePath: panel.filePath
+        )
+        #expect(coordinator.resolvedMarkdownFilePath("raw/plan.md") == sourceTarget.path)
+
+        let transfer = try #require(sourceWorkspace.detachSurface(panelId: panel.id))
+        let attachedPanelId = try #require(destinationWorkspace.attachDetachedSurface(
+            transfer,
+            inPane: destinationPane,
+            focus: false
+        ))
+        #expect(attachedPanelId == panel.id)
+        #expect(panel.workspaceId == destinationWorkspace.id)
+
+        let movedCoordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            filePath: panel.filePath
+        )
+        #expect(movedCoordinator === coordinator)
+        #expect(movedCoordinator.resolvedMarkdownFilePath("raw/plan.md") == destinationTarget.path)
+    }
+
     private func makeResolver(fallbackDirectoryPath: String?) -> CmuxPanes.MarkdownPanelFileLinkResolver {
         CmuxPanes.MarkdownPanelFileLinkResolver(
             fileManager: .default,
