@@ -41,7 +41,7 @@ import type {
   TerminalWaitResult,
   ViewerResizeResult,
   Workspace,
-} from "cmux";
+} from "cmux-sdk";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends

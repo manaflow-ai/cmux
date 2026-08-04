@@ -426,6 +426,7 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
         ensureLoaded()
@@ -447,6 +448,7 @@ final class DockSplitStore: BonsplitDelegate {
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
@@ -481,6 +483,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -502,6 +505,7 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
 
@@ -750,6 +754,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
         switch kind {
@@ -766,7 +771,10 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard browserAvailabilityProvider() else {
-                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
+                if allowsExternalBrowserFallback,
+                   let externalURL = url ?? initialRequest?.url {
+                    _ = NSWorkspace.shared.open(externalURL)
+                }
                 return nil
             }
             return makeBrowserPanel(
