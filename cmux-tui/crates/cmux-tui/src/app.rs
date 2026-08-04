@@ -20904,8 +20904,8 @@ mod tests {
         let (mux, _) = test_mux("status-message-copy-menu-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_visible = false;
-        app.status_message =
-            Some("attach failed with details beyond the visible label".to_string());
+        let message = "attach failed with details beyond the visible label";
+        app.status_message = Some(message.to_string());
         app.sync_layout((80, 25));
 
         let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
@@ -20931,6 +20931,17 @@ mod tests {
             .map(|action| action.label())
             .collect::<Vec<_>>();
         assert!(labels.contains(&"Copy message"), "status menu actions: {labels:?}");
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.status_message.as_deref(), Some(message));
+        assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("Copied"));
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
