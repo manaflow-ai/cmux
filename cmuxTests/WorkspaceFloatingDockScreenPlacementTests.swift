@@ -131,7 +131,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
     }
 
     @Test
-    func parkedWindowUsesTheRightEdgeWithoutSpillingOntoAnAdjacentDisplay() {
+    func parkedWindowKeepsItsNativeSizeAtAnInternalRightEdge() {
         let ownerScreen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let rightNeighbor = CGRect(x: 1_440, y: 0, width: 1_920, height: 1_080)
         let snapshot = WorkspaceFloatingDockParkingSnapshot(
@@ -143,12 +143,11 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         let parkedVisibleFrame = ownerScreen.intersection(snapshot.parkedFrame)
         #expect(parkedVisibleFrame.width == 48)
         #expect(parkedVisibleFrame.maxX == ownerScreen.maxX)
-        #expect(snapshot.parkedFrame.width == 48)
-        #expect(rightNeighbor.intersection(snapshot.parkedFrame).isEmpty)
+        #expect(snapshot.parkedFrame.size == snapshot.restoreFrame.size)
         let revealedVisibleFrame = ownerScreen.intersection(snapshot.revealedFrame)
         #expect(revealedVisibleFrame.width == 144)
         #expect(revealedVisibleFrame.maxX == ownerScreen.maxX)
-        #expect(snapshot.revealedFrame.width == 144)
+        #expect(snapshot.revealedFrame.size == snapshot.restoreFrame.size)
         #expect(snapshot.containsRevealedPoint(CGPoint(
             x: revealedVisibleFrame.minX - 10,
             y: snapshot.revealedFrame.midY
@@ -180,8 +179,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         let migratedVisibleFrame = leftScreen.intersection(migrated.parkedFrame)
         #expect(migratedVisibleFrame.width == 48)
         #expect(migratedVisibleFrame.maxX == leftScreen.maxX)
-        #expect(migrated.parkedFrame.width == 48)
-        #expect(rightScreen.intersection(migrated.parkedFrame).isEmpty)
+        #expect(migrated.parkedFrame.size == migrated.restoreFrame.size)
     }
 
     @Test
@@ -198,13 +196,9 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         )
 
         #expect(snapshots.allSatisfy {
-            upperRightNeighbor.intersection($0.parkedFrame).isEmpty
-        })
-        #expect(snapshots.allSatisfy {
             ownerScreen.intersection($0.parkedFrame).maxX == ownerScreen.maxX
         })
-        #expect(snapshots[0].parkedFrame.width == 620)
-        #expect(snapshots[1].parkedFrame.width == 48)
+        #expect(snapshots.allSatisfy { $0.parkedFrame.size == $0.restoreFrame.size })
     }
 }
 
@@ -369,7 +363,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 
     @Test
     @MainActor
-    func internalRightBoundaryCompactsTheRealPanelWithoutChangingItsRestoreFrame() throws {
+    func internalRightBoundaryNeverResizesTheRealPanel() throws {
         _ = NSApplication.shared
         let visibleFrame = try #require(NSScreen.main?.visibleFrame)
         let rightNeighbor = CGRect(
@@ -385,7 +379,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             height: 380
         )
         let noteURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-floating-parking-compact-\(UUID().uuidString).md")
+            .appendingPathComponent("cmux-floating-parking-size-invariant-\(UUID().uuidString).md")
         try "".write(to: noteURL, atomically: true, encoding: .utf8)
         let parent = NSWindow(
             contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
@@ -396,7 +390,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         let dock = WorkspaceFloatingDock(
             id: UUID(),
             workspaceId: UUID(),
-            title: "Compact",
+            title: "Full Size",
             frame: CGRect(x: 40, y: 40, width: 520, height: 380),
             noteFilePath: noteURL.path,
             baseDirectoryProvider: { nil },
@@ -423,8 +417,9 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         dock.setStashed(true)
         controller.showStashed(snapshot: snapshot, animated: false)
 
-        #expect(snapshot.parkedFrame.width == 48)
+        #expect(snapshot.parkedFrame.size == restoreFrame.size)
         #expect(controller.window?.frame == snapshot.parkedFrame)
+        #expect(controller.window?.frame.size == restoreFrame.size)
         #expect(dock.screenFrame == restoreFrame)
     }
 }
