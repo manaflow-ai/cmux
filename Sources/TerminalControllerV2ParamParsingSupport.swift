@@ -94,6 +94,14 @@ extension TerminalController {
         return v2MainSync { v2ResolveIdentifier(s, forParamKey: key) }
     }
 
+    /// The routing-lane twin of ``v2UUID(_:_:)``: identical, except the Window
+    /// Dock's window-as-`workspace_id` alias is accepted. Only the routing walk
+    /// may take that alias, so it is never granted by param name alone.
+    nonisolated func v2RoutingUUID(_ params: [String: Any], _ key: String) -> UUID? {
+        guard let s = v2String(params, key) else { return nil }
+        return v2MainSync { v2ResolveIdentifier(s, forParamKey: key, routing: true) }
+    }
+
     func v2UUIDAny(_ raw: Any?) -> UUID? {
         guard let s = raw as? String else { return nil }
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)

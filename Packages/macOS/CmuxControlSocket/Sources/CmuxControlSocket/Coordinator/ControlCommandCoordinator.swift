@@ -263,6 +263,14 @@ public final class ControlCommandCoordinator {
         return resolveIdentifier(raw, forParamKey: key)
     }
 
+    /// The routing-lane twin of ``uuid(_:_:)``: identical, except the Window
+    /// Dock's window-as-`workspace_id` alias is accepted. Only the routing walk
+    /// may take that alias, so it is never granted by param name alone.
+    func routingUUID(_ params: [String: JSONValue], _ key: String) -> UUID? {
+        guard let raw = string(params, key) else { return nil }
+        return resolveIdentifier(raw, forParamKey: key, routing: true)
+    }
+
     /// Resolves either wire representation of an identifier — a raw UUID string
     /// or a `kind:N` ref — for a named param key, rejecting kinds that key does
     /// not accept. The single entrypoint both the typed params and the legacy
@@ -271,28 +279,45 @@ public final class ControlCommandCoordinator {
     /// - Parameters:
     ///   - raw: The trimmed, non-empty param value.
     ///   - key: The param key the value arrived under.
+    ///   - routing: Whether this resolution feeds the routing walk, which is the
+    ///     only caller allowed the window-as-`workspace_id` alias.
     /// - Returns: The identifier, or `nil` if unknown or of the wrong kind.
-    public func resolveIdentifier(_ raw: String, forParamKey key: String) -> UUID? {
-        guard let parsed = UUID(uuidString: raw) else {
-            return resolveRef(raw, forParamKey: key)
+    public func resolveIdentifier(
+        _ raw: String,
+        forParamKey key: String,
+        routing: Bool = false
+    ) -> UUID? {
+        guard let expected = acceptedKinds(forParamKey: key, routing: routing) else {
+            // No declared expectation (`id`, notification/todo ids): unrestricted.
+            return UUID(uuidString: raw) ?? handles.uuid(forRef: raw)
         }
-        guard let expected = Self.expectedHandleKinds[key] else { return parsed }
-        // The mint history is a sound kind oracle here rather than an accident
-        // of what the caller happens to have been handed: dispatch re-mints refs
-        // for live topology first (the conformer's `v2RefreshKnownRefs` walks
-        // every main window, workspace, workspace group, pane and surface), so
-        // anything routing can reach has a kind by the time params are parsed.
-        // The residual is dock-hosted surfaces, which are first-minted by the
-        // individual command bodies.
-        let minted = handles.mintedKinds(for: parsed)
-        // Never minted → kind unknown, so it still passes through. That is gap 1
-        // of the issue: the CLI injects the caller's own CMUX_WORKSPACE_ID /
+        guard let parsed = UUID(uuidString: raw) else {
+            return handles.uuid(forRef: raw, kinds: expected)
+        }
+        let known = identityKinds(for: parsed)
+        // Empty means no source can name a kind for this identity, which is gap
+        // 1 of the issue: the CLI injects the caller's own CMUX_WORKSPACE_ID /
         // CMUX_SURFACE_ID into most commands, so failing closed here would also
         // fail ordinary commands issued from a since-closed workspace. Telling
         // those apart needs the wire-format change the issue defers to a
         // product call.
-        guard minted.isEmpty || !minted.isDisjoint(with: expected) else { return nil }
+        guard known.isEmpty || !known.isDisjoint(with: expected) else { return nil }
         return parsed
+    }
+
+    /// The kinds an identity is known to have, preferring the app's live
+    /// topology over the handle registry's mint history.
+    ///
+    /// Mint history alone is not a sound oracle: dock-hosted objects may not be
+    /// minted yet, and ``ControlHandleRegistry/removeRef(kind:uuid:)`` erases
+    /// what the registry knew. The conformer answers from live topology when it
+    /// can; the registry is the fallback for contexts with no app attached
+    /// (tests, and any conformer that does not implement the seam).
+    func identityKinds(for uuid: UUID) -> Set<ControlHandleKind> {
+        if let authoritative = context?.controlIdentityKinds(for: uuid) {
+            return authoritative
+        }
+        return handles.mintedKinds(for: uuid)
     }
 
     /// Resolves a `kind:N` ref for a named param key, restricted to the handle
@@ -309,20 +334,38 @@ public final class ControlCommandCoordinator {
         return handles.uuid(forRef: ref, kinds: kinds)
     }
 
+    /// The kinds a param key accepts, widened only for the routing lane.
+    ///
+    /// - Parameters:
+    ///   - key: The param key.
+    ///   - routing: Whether the resolution feeds the routing walk.
+    /// - Returns: The accepted kinds, or `nil` when the key declares none.
+    func acceptedKinds(forParamKey key: String, routing: Bool) -> [ControlHandleKind]? {
+        if routing, let widened = Self.routingHandleKinds[key] { return widened }
+        return Self.expectedHandleKinds[key]
+    }
+
+    /// The extra kinds the routing walk alone accepts.
+    ///
+    /// The Window Dock legitimately routes by passing a *window* identity as
+    /// `workspace_id`, because a Dock owner id IS its owning window's id. That
+    /// is a property of the routing walk, not of the parameter: a command that
+    /// uses `workspace_id` as an actual workspace target must still reject a
+    /// window, so the alias is granted per call site rather than by name.
+    static let routingHandleKinds: [String: [ControlHandleKind]] = [
+        "workspace_id": [.workspace, .window],
+    ]
+
     /// The handle kinds each routing/target param key accepts.
     ///
-    /// Only two aliases are widened, and only where the protocol really uses
-    /// them: `tab:N` for surfaces (handled inside the registry), and a *window*
-    /// identity passed as the routing `workspace_id`, which the Window Dock does
-    /// legitimately because a Dock owner id IS its owning window's id. The
-    /// ordering/reference workspace keys take part in no such aliasing, so they
-    /// stay `.workspace` only.
+    /// `tab:N` for surfaces is the one alias handled inside the registry. The
+    /// window-as-`workspace_id` alias is NOT here: see ``routingHandleKinds``.
     ///
     /// `from_tab_id`/`to_tab_id` are workspaces despite the name: they are
     /// matched against a window's workspace list, not against surfaces.
     static let expectedHandleKinds: [String: [ControlHandleKind]] = [
         "window_id": [.window],
-        "workspace_id": [.workspace, .window],
+        "workspace_id": [.workspace],
         "reference_workspace_id": [.workspace],
         "group_reference_workspace_id": [.workspace],
         "before_workspace_id": [.workspace],
@@ -359,13 +402,13 @@ public final class ControlCommandCoordinator {
     func routingSelectors(_ params: [String: JSONValue]) -> ControlRoutingSelectors {
         ControlRoutingSelectors(
             hasWindowIDParam: hasNonNull(params, "window_id"),
-            windowID: uuid(params, "window_id"),
-            groupID: uuid(params, "group_id"),
-            workspaceID: uuid(params, "workspace_id"),
-            surfaceID: uuid(params, "surface_id")
-                ?? uuid(params, "terminal_id")
-                ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            windowID: routingUUID(params, "window_id"),
+            groupID: routingUUID(params, "group_id"),
+            workspaceID: routingUUID(params, "workspace_id"),
+            surfaceID: routingUUID(params, "surface_id")
+                ?? routingUUID(params, "terminal_id")
+                ?? routingUUID(params, "tab_id"),
+            paneID: routingUUID(params, "pane_id")
         )
     }
 }

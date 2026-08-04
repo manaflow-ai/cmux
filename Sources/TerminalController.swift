@@ -3625,8 +3625,12 @@ class TerminalController {
     /// Resolves either wire representation of an identifier (raw UUID or
     /// `kind:N` ref) that arrived under a specific param key, restricted to the
     /// handle kinds that key accepts.
-    func v2ResolveIdentifier(_ raw: String, forParamKey key: String) -> UUID? {
-        controlCommandCoordinator.resolveIdentifier(raw, forParamKey: key)
+    func v2ResolveIdentifier(
+        _ raw: String,
+        forParamKey key: String,
+        routing: Bool = false
+    ) -> UUID? {
+        controlCommandCoordinator.resolveIdentifier(raw, forParamKey: key, routing: routing)
     }
 
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
@@ -3696,15 +3700,15 @@ class TerminalController {
         // would otherwise win even when the group belongs to a different
         // window). Then use workspace/surface/pane lookup and the active window.
         if v2HasNonNullParam(params, "window_id") {
-            guard let windowId = v2UUID(params, "window_id") else { return nil }
+            guard let windowId = v2RoutingUUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
-        if let groupId = v2UUID(params, "group_id") {
+        if let groupId = v2RoutingUUID(params, "group_id") {
             if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
                 return tm
             }
         }
-        if let wsId = v2UUID(params, "workspace_id") {
+        if let wsId = v2RoutingUUID(params, "workspace_id") {
             if wsId == AppDelegate.windowDockAliasWorkspaceId {
                 return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
             }
@@ -3717,17 +3721,51 @@ class TerminalController {
                 return tm
             }
         }
-        if let surfaceId = v2UUID(params, "surface_id")
-            ?? v2UUID(params, "terminal_id")
-            ?? v2UUID(params, "tab_id") {
+        if let surfaceId = v2RoutingUUID(params, "surface_id")
+            ?? v2RoutingUUID(params, "terminal_id")
+            ?? v2RoutingUUID(params, "tab_id") {
             if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
-        if let paneId = v2UUID(params, "pane_id") {
+        if let paneId = v2RoutingUUID(params, "pane_id") {
             if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
         }
         return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+    }
+
+    /// Classifies a raw identifier against live topology, so a raw UUID that
+    /// names a surface is rejected when it arrives under `group_id` instead of
+    /// routing the command somewhere else
+    /// (https://github.com/manaflow-ai/cmux/issues/9424).
+    ///
+    /// Authoritative where the handle registry's mint history is not: it sees
+    /// dock-hosted and remote-tmux objects that have never been minted, and is
+    /// unaffected by `removeRef`. An empty result means the identity names
+    /// nothing live; `nil` means this controller cannot classify at all.
+    func controlIdentityKinds(for uuid: UUID) -> Set<ControlHandleKind>? {
+        guard let app = AppDelegate.shared else { return nil }
+        var kinds: Set<ControlHandleKind> = []
+        if app.tabManagerFor(windowId: uuid) != nil {
+            kinds.insert(.window)
+        }
+        // A window-Dock owner id IS its owning window's id.
+        if app.tabManagerForWindowDockOwner(uuid) != nil {
+            kinds.insert(.window)
+        }
+        if uuid == AppDelegate.windowDockAliasWorkspaceId || app.tabManagerFor(tabId: uuid) != nil {
+            kinds.insert(.workspace)
+        }
+        if v2LocateTabManager(forGroupId: uuid) != nil {
+            kinds.insert(.workspaceGroup)
+        }
+        if controlTabManager(paneID: uuid) != nil {
+            kinds.insert(.pane)
+        }
+        if controlTabManager(surfaceID: uuid) != nil {
+            kinds.insert(.surface)
+        }
+        return kinds
     }
 
     @MainActor

@@ -31,7 +31,8 @@ public protocol ControlCommandContext:
     ControlProjectContext,
     ControlDebugContext,
     ControlSidebarContext,
-    ControlBrowserPanelContext
+    ControlBrowserPanelContext,
+    ControlIdentityKindContext
 {
     // MARK: Worker-lane resolution hop
 

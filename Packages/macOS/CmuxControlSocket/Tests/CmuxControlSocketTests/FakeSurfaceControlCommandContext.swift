@@ -18,6 +18,14 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
     var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
     var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
+    /// Live-topology kinds per identity; `nil` opts out of authoritative
+    /// classification so the coordinator falls back to the handle registry.
+    var identityKinds: [UUID: Set<ControlHandleKind>]?
+
+    func controlIdentityKinds(for uuid: UUID) -> Set<ControlHandleKind>? {
+        guard let identityKinds else { return nil }
+        return identityKinds[uuid] ?? []
+    }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {

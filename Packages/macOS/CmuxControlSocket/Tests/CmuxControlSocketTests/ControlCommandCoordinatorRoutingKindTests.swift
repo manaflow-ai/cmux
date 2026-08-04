@@ -147,20 +147,76 @@ struct ControlCommandCoordinatorRoutingKindTests {
         }
     }
 
-    /// The Window Dock alias belongs to the routing `workspace_id` only. The
-    /// ordering/reference workspace keys take part in no aliasing, so a window
-    /// identity is wrong-kind there.
-    @Test func onlyRoutingWorkspaceIDTakesTheWindowAlias() {
+    /// The Window Dock alias belongs to the routing walk, not to the parameter
+    /// name: a command using `workspace_id` as an actual workspace target must
+    /// still reject a window identity.
+    @Test func theWindowAliasIsScopedToTheRoutingLane() {
         let (coordinator, handles) = coordinatorWithOneRefPerKind()
 
-        #expect(coordinator.resolveIdentifier("window:1", forParamKey: "workspace_id") == handles.window)
+        #expect(
+            coordinator.routingSelectors(["workspace_id": .string("window:1")]).workspaceID
+                == handles.window
+        )
+        #expect(coordinator.resolveIdentifier("window:1", forParamKey: "workspace_id") == nil)
+        #expect(
+            coordinator.resolveIdentifier("window:1", forParamKey: "workspace_id", routing: true)
+                == handles.window
+        )
+        // A real workspace is accepted on both lanes.
+        #expect(coordinator.resolveIdentifier("workspace:1", forParamKey: "workspace_id") == handles.workspace)
+
+        // The ordering/reference workspace keys take part in no aliasing at all.
         for key in [
             "reference_workspace_id", "group_reference_workspace_id",
             "before_workspace_id", "after_workspace_id",
         ] {
-            #expect(coordinator.resolveIdentifier("window:1", forParamKey: key) == nil)
+            #expect(coordinator.resolveIdentifier("window:1", forParamKey: key, routing: true) == nil)
             #expect(coordinator.resolveIdentifier("workspace:1", forParamKey: key) == handles.workspace)
         }
+    }
+
+    /// Live topology outranks mint history, so an identity the registry never
+    /// minted (a dock-hosted surface) or has since forgotten is still rejected
+    /// under a wrong-kind key.
+    @Test func authoritativeKindsOutrankMintHistory() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        coordinator.context = context
+        let dockSurface = UUID()
+        context.identityKinds = [dockSurface: [.surface]]
+
+        // Never minted, so mint history alone would have let this through.
+        #expect(coordinator.handles.mintedKinds(for: dockSurface).isEmpty)
+        #expect(coordinator.routingSelectors(["group_id": .string(dockSurface.uuidString)]).groupID == nil)
+        #expect(coordinator.routingSelectors(["pane_id": .string(dockSurface.uuidString)]).paneID == nil)
+        #expect(
+            coordinator.routingSelectors(["surface_id": .string(dockSurface.uuidString)]).surfaceID
+                == dockSurface
+        )
+
+        // Forgetting the ref does not resurrect the wrong-kind acceptance.
+        let surface = UUID()
+        context.identityKinds?[surface] = [.surface]
+        coordinator.ensureRef(kind: .surface, uuid: surface)
+        coordinator.removeRef(kind: .surface, uuid: surface)
+        #expect(coordinator.routingSelectors(["group_id": .string(surface.uuidString)]).groupID == nil)
+    }
+
+    /// An identity live topology reports as multi-kind (a Window Dock owner id
+    /// IS its owning window's id) satisfies either expectation.
+    @Test func multiKindIdentitiesSatisfyEitherExpectation() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        coordinator.context = context
+        let dockOwner = UUID()
+        context.identityKinds = [dockOwner: [.window, .workspace]]
+
+        #expect(coordinator.routingSelectors(["window_id": .string(dockOwner.uuidString)]).windowID == dockOwner)
+        #expect(
+            coordinator.routingSelectors(["workspace_id": .string(dockOwner.uuidString)]).workspaceID
+                == dockOwner
+        )
+        #expect(coordinator.routingSelectors(["group_id": .string(dockOwner.uuidString)]).groupID == nil)
     }
 
     @Test func registryRejectsRefsOutsideTheRequestedKinds() {
