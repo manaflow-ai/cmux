@@ -43,11 +43,50 @@ import Testing
         )
     }
 
+    /// Acknowledges incidental setup commands until the next pane-rect fetch,
+    /// then delivers the reply to that exact FIFO entry. Any correlated command
+    /// at the head is a fixture error: stop instead of misrouting the reply and
+    /// letting later assertions crash on topology that never published.
+    @discardableResult
+    private func replyToNextPaneRects(
+        _ connection: RemoteTmuxControlConnection,
+        expectedWindowID: Int? = nil,
+        isError: Bool = false,
+        lines: (Int) -> [String]
+    ) -> Int? {
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            switch kind {
+            case .other:
+                reply(connection, lines: [])
+            case let .paneRects(windowID, _):
+                if let expectedWindowID, expectedWindowID != windowID {
+                    Issue.record(
+                        "expected paneRects for window @\(expectedWindowID), got @\(windowID)"
+                    )
+                    return nil
+                }
+                reply(connection, lines: lines(windowID), isError: isError)
+                return windowID
+            default:
+                Issue.record(
+                    "expected leading .other or .paneRects, got \(kind); FIFO: \(connection.pendingCommandKindsForTesting)"
+                )
+                return nil
+            }
+        }
+        Issue.record("expected a paneRects fetch, but the command FIFO was empty")
+        return nil
+    }
+
     /// Publishes window @1 as a single 80×24 pane %0 (list-windows reply +
     /// its rects reply), leaving the FIFO empty.
-    private func publishSinglePaneWindow(_ connection: RemoteTmuxControlConnection) {
+    private func publishSinglePaneWindow(_ connection: RemoteTmuxControlConnection) -> Bool {
         reply(connection, lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] main"])
-        reply(connection, lines: ["%0 0 0 80 24 1 off :0 \"ejc3-mac\""])
+        return replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 0 80 24 1 off :0 \"ejc3-mac\""] }
+        ) != nil
     }
 
     private func paneRect(in node: RemoteTmuxLayoutNode, id: Int) -> (x: Int, y: Int, w: Int, h: Int)? {
@@ -72,7 +111,7 @@ import Testing
     @Test func layoutChangeNotifiesOnlyOnItsRectsReply() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -89,10 +128,14 @@ import Testing
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 1)
 
-        reply(connection, lines: [
-            "%0 0 0 60 40 1 off :0 \"left pane\"",
-            "%2 61 0 59 40 0 off :1 \"right\"",
-        ])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 1 off :0 \"left pane\"",
+                "%2 61 0 59 40 0 off :1 \"right\"",
+            ] }
+        ) != nil else { return }
         #expect(notifies == 1)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
         #expect(connection.paneHeaderLabels[0] == "0 \"left pane\"")
@@ -103,7 +146,7 @@ import Testing
     @Test func windowRenameWhileLayoutIsPendingPublishesTheNewName() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         connection.handleMessageForTesting(.layoutChange(
             windowId: 2,
@@ -112,7 +155,11 @@ import Testing
             zoomed: false
         ))
         connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "renamed"))
-        reply(connection, lines: ["%5 0 0 90 30 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 2,
+            lines: { _ in ["%5 0 0 90 30 1 off :zsh"] }
+        ) != nil else { return }
 
         #expect(connection.windowsByID[2]?.name == "renamed")
     }
@@ -125,23 +172,24 @@ import Testing
             "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
             "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
         ])
-        let kinds = connection.pendingCommandKindsForTesting
-        guard case let .paneRects(firstWindow, _) = kinds.first else {
-            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
-            return
-        }
-        let firstPane = firstWindow == 1 ? 0 : 5
+        guard let firstWindow = replyToNextPaneRects(connection, lines: { windowID in
+            let paneID = windowID == 1 ? 0 : 5
+            let size = windowID == 1 ? "80 24" : "90 30"
+            return ["%\(paneID) 0 0 \(size) 1 off :zsh"]
+        }) else { return }
         let secondWindow = firstWindow == 1 ? 2 : 1
         let secondPane = secondWindow == 1 ? 0 : 5
-        let firstSize = firstWindow == 1 ? "80 24" : "90 30"
         let secondSize = secondWindow == 1 ? "80 24" : "90 30"
 
-        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
         connection.handleMessageForTesting(.windowRenamed(
             windowId: firstWindow,
             name: "renamed while staged"
         ))
-        reply(connection, lines: ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: secondWindow,
+            lines: { _ in ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"] }
+        ) != nil else { return }
 
         #expect(connection.windowsByID[firstWindow]?.name == "renamed while staged")
     }
@@ -154,18 +202,17 @@ import Testing
             "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
             "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
         ])
-        let kinds = connection.pendingCommandKindsForTesting
-        guard case let .paneRects(firstWindow, _) = kinds.first else {
-            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
-            return
-        }
+        guard let firstWindow = replyToNextPaneRects(connection, lines: { windowID in
+            let paneID = windowID == 1 ? 0 : 5
+            let size = windowID == 1 ? "80 24" : "90 30"
+            return ["%\(paneID) 0 0 \(size) 1 off :zsh"]
+        }) else { return }
         let firstPane = firstWindow == 1 ? 0 : 5
         let secondWindow = firstWindow == 1 ? 2 : 1
         let secondPane = secondWindow == 1 ? 0 : 5
         let firstSize = firstWindow == 1 ? "80 24" : "90 30"
         let secondSize = secondWindow == 1 ? "80 24" : "90 30"
 
-        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
         connection.handleMessageForTesting(.windowRenamed(
             windowId: firstWindow,
             name: "renamed before restage"
@@ -177,8 +224,16 @@ import Testing
             zoomed: false
         ))
 
-        reply(connection, lines: ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"])
-        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: secondWindow,
+            lines: { _ in ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"] }
+        ) != nil else { return }
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: firstWindow,
+            lines: { _ in ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"] }
+        ) != nil else { return }
 
         #expect(connection.windowsByID[firstWindow]?.name == "renamed before restage")
     }
@@ -186,7 +241,7 @@ import Testing
     @Test func rectsErrorRetriesOnceThenKeepsLastVerifiedTree() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -197,10 +252,20 @@ import Testing
             layout: "abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2}",
             visibleLayout: nil, zoomed: false
         ))
-        reply(connection, lines: ["can't find window: @1"], isError: true)
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            isError: true,
+            lines: { _ in ["can't find window: @1"] }
+        ) != nil else { return }
         // One retry lands on the FIFO…
         #expect(paneRectsFIFOCount(connection) == 1)
-        reply(connection, lines: ["can't find window: @1"], isError: true)
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            isError: true,
+            lines: { _ in ["can't find window: @1"] }
+        ) != nil else { return }
         // …then the pending layout is dropped: observers keep the verified
         // 80×24 tree, never the raw 120×40 string geometry, and no fetch
         // loops. The drop still notifies once — it RESOLVES the pending
@@ -225,23 +290,29 @@ import Testing
             "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
         ])
         notifies = 0 // the list-windows order/name notify is not under test
-        let kinds = connection.pendingCommandKindsForTesting
-        #expect(kinds.count == 2)
-        guard case let .paneRects(firstWindow, _) = kinds[0] else {
-            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
-            return
-        }
-        let firstPane = firstWindow == 1 ? 0 : 5
-        let secondPane = firstWindow == 1 ? 5 : 0
+        #expect(paneRectsFIFOCount(connection) == 2)
+        guard let firstWindow = replyToNextPaneRects(connection, lines: { windowID in
+            let paneID = windowID == 1 ? 0 : 5
+            let size = windowID == 1 ? "80 24" : "90 30"
+            return ["%\(paneID) 0 0 \(size) 1 off :zsh"]
+        }) else { return }
+        let secondWindow = firstWindow == 1 ? 2 : 1
 
-        reply(connection, lines: ["%\(firstPane) 0 0 80 24 1 off :zsh"])
         // The FIRST reply publishes nothing: the initial topology flushes
         // atomically, so tab creation order can never follow reply arrival
         // order (which window answers first is a race between round trips).
         #expect(connection.windowsByID.isEmpty)
         #expect(notifies == 0)
 
-        reply(connection, lines: ["%\(secondPane) 0 0 90 30 1 off :vim"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: secondWindow,
+            lines: { windowID in
+                let paneID = windowID == 1 ? 0 : 5
+                let size = windowID == 1 ? "80 24" : "90 30"
+                return ["%\(paneID) 0 0 \(size) 1 off :vim"]
+            }
+        ) != nil else { return }
         // The LAST reply flushes both windows in one publish + one notify.
         #expect(connection.windowsByID[1] != nil)
         #expect(connection.windowsByID[2] != nil)
@@ -251,7 +322,7 @@ import Testing
     @Test func staleGenerationReplyPublishesInterimStateThenReconciles() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -275,12 +346,26 @@ import Testing
         // of the current tree: it publishes as interim verified state (its
         // rects are the freshest list-panes snapshot observers can have) and
         // the owed fetch for the newer generation goes out.
-        reply(connection, lines: ["%0 0 0 60 40 1 off :stale", "%2 61 0 59 40 0 off :stale"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 1 off :stale",
+                "%2 61 0 59 40 0 off :stale",
+            ] }
+        ) != nil else { return }
         #expect(notifies == 1)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
         #expect(paneRectsFIFOCount(connection) == 1)
 
-        reply(connection, lines: ["%0 0 0 80 40 1 off :wide", "%2 81 0 39 40 0 off :narrow"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 80 40 1 off :wide",
+                "%2 81 0 39 40 0 off :narrow",
+            ] }
+        ) != nil else { return }
         #expect(notifies == 2)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (81, 0, 39, 40))
         #expect(connection.hasPendingLayout(windowId: 1) == false)
@@ -308,7 +393,14 @@ import Testing
         defer { connection.removeObserver(token) }
 
         reply(connection, lines: ["@1 abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} [] main"])
-        reply(connection, lines: ["%0 0 0 60 40 0 off :left", "%2 61 0 59 40 1 off :right"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 0 off :left",
+                "%2 61 0 59 40 1 off :right",
+            ] }
+        ) != nil else { return }
         // The fetch's #{pane_active} seeds the initial active pane…
         #expect(connection.activePaneByWindow[1] == 2)
         #expect(observed! == (1, 2))
@@ -323,7 +415,14 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         reply(connection, lines: ["@1 abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} [] main"])
-        reply(connection, lines: ["%0 0 1 60 39 1 top :0 \"left\"", "%2 61 1 59 39 0 top :1 \"right\""])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 1 60 39 1 top :0 \"left\"",
+                "%2 61 1 59 39 0 top :1 \"right\"",
+            ] }
+        ) != nil else { return }
 
         let published = connection.windowsByID[1]!.layout
         let mirror = RemoteTmuxWindowMirror(
@@ -353,7 +452,7 @@ import Testing
     @Test func partialRectsReplyRetriesThenKeepsLastVerifiedTree() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -367,14 +466,25 @@ import Testing
         // The reply covers only ONE of the tree's two panes: publishing it
         // would smuggle pane %2's raw layout-string geometry into the
         // verified tree (patchingLeafRects leaves unknown leaves untouched).
-        reply(connection, lines: ["%0 0 0 60 40 1 off :left"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 0 60 40 1 off :left"] }
+        ) != nil else { return }
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 1)
         // A zero-sized rect is a mid-resize artifact, equally unverified.
         // Exhausting the retry drops the pending layout; the drop notifies
         // once (it resolves the pending layout for divider-hold reconciles)
         // while observers keep the verified tree.
-        reply(connection, lines: ["%0 0 0 60 40 1 off :left", "%2 61 0 0 40 0 off :right"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 1 off :left",
+                "%2 61 0 0 40 0 off :right",
+            ] }
+        ) != nil else { return }
         #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 0)
@@ -393,11 +503,11 @@ import Testing
             "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
         ])
         notifies = 0
-        let kinds = connection.pendingCommandKindsForTesting
-        guard case let .paneRects(erroringWindow, _) = kinds.first else {
-            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
-            return
-        }
+        guard let erroringWindow = replyToNextPaneRects(
+            connection,
+            isError: true,
+            lines: { _ in ["can't find window"] }
+        ) else { return }
         let healthyWindow = erroringWindow == 1 ? 2 : 1
         let healthyPane = healthyWindow == 1 ? 0 : 5
         let healthySize = healthyWindow == 1 ? "80 24" : "90 30"
@@ -406,10 +516,18 @@ import Testing
         // (appends), healthy publishes into staging, the retry errors out and
         // resolves the batch — which must flush the healthy window rather
         // than wait forever on the dead one.
-        reply(connection, lines: ["can't find window"], isError: true)
-        reply(connection, lines: ["%\(healthyPane) 0 0 \(healthySize) 1 off :sh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: healthyWindow,
+            lines: { _ in ["%\(healthyPane) 0 0 \(healthySize) 1 off :sh"] }
+        ) != nil else { return }
         #expect(connection.windowsByID.isEmpty)
-        reply(connection, lines: ["can't find window"], isError: true)
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: erroringWindow,
+            isError: true,
+            lines: { _ in ["can't find window"] }
+        ) != nil else { return }
         #expect(connection.windowsByID[healthyWindow] != nil)
         #expect(connection.windowsByID[erroringWindow] == nil)
         // Two notifies: the dead window's drop resolves its pending layout
@@ -424,7 +542,11 @@ import Testing
         // #[reverse]; the dot carries that signal here, so style tokens are
         // dropped and only the text is faithful.
         reply(connection, lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"])
-        reply(connection, lines: ["%0 0 1 80 23 1 top :#[reverse]0#[default] \"ejc3-mac\""])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 1 80 23 1 top :#[reverse]0#[default] \"ejc3-mac\""] }
+        ) != nil else { return }
         #expect(connection.paneHeaderLabels[0] == "0 \"ejc3-mac\"")
         #expect(connection.windowTitleRowPlacements[1] == .top)
     }
@@ -432,7 +554,7 @@ import Testing
     @Test func headerSubscriptionKeepsLabelsLiveBetweenLayoutEvents() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -458,7 +580,14 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         reply(connection, lines: ["@1 abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2} [] main"])
-        reply(connection, lines: ["%0 0 0 60 40 1 0 left", "%2 61 0 59 40 0 1 right"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 1 0 left",
+                "%2 61 0 59 40 0 1 right",
+            ] }
+        ) != nil else { return }
         #expect(connection.activePaneByWindow[1] == 0)
 
         var observed: (windowId: Int, paneId: Int)?
@@ -473,7 +602,14 @@ import Testing
             layout: "abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2}",
             visibleLayout: nil, zoomed: false
         ))
-        reply(connection, lines: ["%0 0 0 60 40 0 off :left", "%2 61 0 59 40 1 off :right"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 0 off :left",
+                "%2 61 0 59 40 1 off :right",
+            ] }
+        ) != nil else { return }
         #expect(connection.activePaneByWindow[1] == 2)
         #expect(observed! == (1, 2))
     }
@@ -486,7 +622,14 @@ import Testing
         reply(connection, lines: [
             "@1 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main"
         ])
-        reply(connection, lines: ["%4 0 0 60 40 1 off :4 \"left\"", "%5 61 0 59 40 0 off :5 \"right\""])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%4 0 0 60 40 1 off :4 \"left\"",
+                "%5 61 0 59 40 0 off :5 \"right\"",
+            ] }
+        ) != nil else { return }
 
         connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
         connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
@@ -498,7 +641,11 @@ import Testing
         connection.handleMessageForTesting(.layoutChange(
             windowId: 1, layout: "f92f,80x24,0,0,4", visibleLayout: nil, zoomed: false
         ))
-        reply(connection, lines: ["%4 0 0 80 24 1 off :4 \"left\""])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%4 0 0 80 24 1 off :4 \"left\""] }
+        ) != nil else { return }
 
         #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
         #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
@@ -517,7 +664,7 @@ import Testing
     @Test func staleGenerationReplyCoveringCurrentTreeStillPublishes() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -536,14 +683,22 @@ import Testing
         #expect(paneRectsFIFOCount(connection) == 1)
 
         // The now-stale reply covers the current tree's only pane: publish.
-        reply(connection, lines: ["%0 0 0 90 24 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 0 90 24 1 off :zsh"] }
+        ) != nil else { return }
         #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.width == 100)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 90, 24))
         #expect(paneRectsFIFOCount(connection) == 1)
 
         // The owed follow-up lands with exact rects: quarantine drains.
-        reply(connection, lines: ["%0 0 0 100 24 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 0 100 24 1 off :zsh"] }
+        ) != nil else { return }
         #expect(notifies == 2)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 100, 24))
         #expect(connection.hasPendingLayout(windowId: 1) == false)
@@ -558,7 +713,7 @@ import Testing
     @Test func staleReplyMissingCurrentPanesKeepsLastVerifiedTreeAndRefetches() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
-        publishSinglePaneWindow(connection)
+        guard publishSinglePaneWindow(connection) else { return }
 
         var notifies = 0
         let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
@@ -577,15 +732,23 @@ import Testing
 
         // The stale single-pane reply cannot cover the split tree: no
         // publish, last verified tree kept, one refetch owed.
-        reply(connection, lines: ["%0 0 0 90 24 1 off :zsh"])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in ["%0 0 0 90 24 1 off :zsh"] }
+        ) != nil else { return }
         #expect(notifies == 0)
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 1)
 
-        reply(connection, lines: [
-            "%0 0 0 60 40 1 off :zsh",
-            "%2 61 0 59 40 0 off :zsh",
-        ])
+        guard replyToNextPaneRects(
+            connection,
+            expectedWindowID: 1,
+            lines: { _ in [
+                "%0 0 0 60 40 1 off :zsh",
+                "%2 61 0 59 40 0 off :zsh",
+            ] }
+        ) != nil else { return }
         #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.width == 120)
         #expect(connection.hasPendingLayout(windowId: 1) == false)
