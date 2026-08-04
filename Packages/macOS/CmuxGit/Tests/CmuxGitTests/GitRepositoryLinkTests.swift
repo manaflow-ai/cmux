@@ -19,6 +19,35 @@ import Testing
     }
 
     @Test(arguments: [
+        ("git@192.168.1.20:username/repo.git", "http://192.168.1.20/username/repo"),
+        ("ssh://git@10.0.0.1:22/group/repo.git", "http://10.0.0.1/group/repo"),
+        ("git://172.16.0.1:9418/group/repo.git", "http://172.16.0.1/group/repo"),
+        ("git@172.31.255.254:group/repo.git", "http://172.31.255.254/group/repo"),
+    ])
+    func normalizesPrivateIPv4NonHTTPRemotesToHTTP(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.url.absoluteString == url)
+        #expect(link?.url.port == nil)
+    }
+
+    @Test(arguments: [
+        ("git@172.15.255.255:group/repo.git", "https://172.15.255.255/group/repo"),
+        ("ssh://git@172.32.0.1:22/group/repo.git", "https://172.32.0.1/group/repo"),
+        ("git://8.8.8.8:9418/group/repo.git", "https://8.8.8.8/group/repo"),
+        ("git@127.0.0.1:group/repo.git", "https://127.0.0.1/group/repo"),
+        ("ssh://git@169.254.1.1:22/group/repo.git", "https://169.254.1.1/group/repo"),
+        ("git@forge.internal:group/repo.git", "https://forge.internal/group/repo"),
+        ("git://[fd00::1]:9418/group/repo.git", "https://[fd00::1]/group/repo"),
+    ])
+    func keepsNonPrivateIPv4NonHTTPRemotesOnHTTPS(remoteURL: String, url: String) {
+        let output = "origin\t\(remoteURL) (fetch)\n"
+        let link = GitMetadataService.repositoryLink(fromGitRemoteVOutput: output)
+        #expect(link?.url.absoluteString == url)
+        #expect(link?.url.port == nil)
+    }
+
+    @Test(arguments: [
         "/local/repo.git",
         "../repo",
         "file:///tmp/repo.git",
