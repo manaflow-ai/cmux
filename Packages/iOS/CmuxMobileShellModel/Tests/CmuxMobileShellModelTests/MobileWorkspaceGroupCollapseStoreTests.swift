@@ -127,4 +127,22 @@ import Testing
         #expect(store.isCollapsed(macBGroup.collapseStateID) == true)
         #expect(store.isCollapsed("shared") == nil)
     }
+
+    @Test func uniqueLegacyRawIDMigratesToItsAuthoritativeOwner() throws {
+        let defaults = makeDefaults()
+        defaults.set(
+            try JSONEncoder().encode(["shared": true]),
+            forKey: MobileWorkspaceGroupCollapseStore.defaultsKey
+        )
+        var ownedGroup = group("mac-a\u{1F}shared", collapsed: false)
+        ownedGroup.remoteGroupID = "shared"
+        ownedGroup.macDeviceID = "mac-a"
+        var store = MobileWorkspaceGroupCollapseStore(defaults: defaults)
+
+        let resolved = store.apply(to: [ownedGroup])
+
+        #expect(resolved.first?.isCollapsed == true)
+        #expect(store.isCollapsed(ownedGroup.collapseStateID) == true)
+        #expect(store.isCollapsed("shared") == nil)
+    }
 }

@@ -302,4 +302,44 @@ import Testing
         #expect(groups.first?.anchorWorkspaceID == workspaces.first?.id)
         #expect(groups.first?.anchorWorkspaceID.rawValue == "mac-fg\u{1F}remote-w1")
     }
+
+    @Test func precomputedMacOrderDrivesWorkspaceAndGroupDerivations() {
+        var macAWorkspace = ws("a1", mac: "mac-a")
+        macAWorkspace.groupID = "group-a"
+        var macBWorkspace = ws("b1", mac: "mac-b")
+        macBWorkspace.groupID = "group-b"
+        let states = [
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                displayName: "Alpha",
+                workspaces: [macAWorkspace],
+                groups: [group("group-a", anchor: "a1")],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                displayName: "Beta",
+                workspaces: [macBWorkspace],
+                groups: [group("group-b", anchor: "b1")],
+                status: .connected
+            ),
+        ]
+        let aggregation = MobileWorkspaceAggregation()
+        let macIDsInDisplayOrder = ["mac-b", "mac-a"]
+
+        let workspaces = aggregation.derivedWorkspaces(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            machineColorIndex: machineColorIndex(statesByMac: states),
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
+        let groups = aggregation.derivedGroups(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-a",
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
+
+        #expect(workspaces.map(\.rpcWorkspaceID.rawValue) == ["b1", "a1"])
+        #expect(groups.map(\.rpcGroupID.rawValue) == ["group-b", "group-a"])
+    }
 }

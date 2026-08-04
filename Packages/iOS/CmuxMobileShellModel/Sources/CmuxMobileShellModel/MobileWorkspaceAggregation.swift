@@ -93,11 +93,16 @@ public struct MobileWorkspaceAggregation: Sendable {
     public func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?,
-        machineColorIndex: [String: Int]
+        machineColorIndex: [String: Int],
+        macIDsInDisplayOrder: [String]? = nil
     ) -> [MobileWorkspacePreview] {
         let shouldScopeRowIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
+        let orderedMacIDs = macIDsInDisplayOrder ?? orderedMacIDs(
+            statesByMac: statesByMac,
+            foregroundMacDeviceID: foregroundMacDeviceID
+        )
         var result: [MobileWorkspacePreview] = []
-        for macID in orderedMacIDs(statesByMac: statesByMac, foregroundMacDeviceID: foregroundMacDeviceID) {
+        for macID in orderedMacIDs {
             guard let state = statesByMac[macID] else { continue }
             for workspace in state.workspaces {
                 let ownerID = workspace.macDeviceID ?? state.macDeviceID
@@ -139,14 +144,16 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// ``MobileWorkspaceGroupPreview/rpcGroupID`` for mutations.
     public func derivedGroups(
         statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
+        foregroundMacDeviceID: String?,
+        macIDsInDisplayOrder: [String]? = nil
     ) -> [MobileWorkspaceGroupPreview] {
         let shouldScopeIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
-        var result: [MobileWorkspaceGroupPreview] = []
-        for macID in orderedMacIDs(
+        let orderedMacIDs = macIDsInDisplayOrder ?? orderedMacIDs(
             statesByMac: statesByMac,
             foregroundMacDeviceID: foregroundMacDeviceID
-        ) {
+        )
+        var result: [MobileWorkspaceGroupPreview] = []
+        for macID in orderedMacIDs {
             guard let state = statesByMac[macID] else { continue }
             let remoteWorkspaceIDByLocalID = Dictionary(
                 uniqueKeysWithValues: state.workspaces.map { workspace in

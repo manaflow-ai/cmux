@@ -6453,8 +6453,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let statesByAggregateKey = Dictionary(
             uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
         )
+        let macIDsInDisplayOrder = workspaceAggregation.orderedMacIDs(
+            statesByMac: statesByAggregateKey,
+            foregroundMacDeviceID: foregroundKey
+        )
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: statesByAggregateKey, foregroundMacDeviceID: foregroundKey, machineColorIndex: stableMacColorSlots)
+            statesByMac: statesByAggregateKey,
+            foregroundMacDeviceID: foregroundKey,
+            machineColorIndex: stableMacColorSlots,
+            macIDsInDisplayOrder: macIDsInDisplayOrder
+        )
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -6497,7 +6505,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if selectedWorkspaceID != nil { syncSelectedTerminalForWorkspace() }
         let derivedGroups = workspaceAggregation.derivedGroups(
             statesByMac: statesByAggregateKey,
-            foregroundMacDeviceID: foregroundKey
+            foregroundMacDeviceID: foregroundKey,
+            macIDsInDisplayOrder: macIDsInDisplayOrder
         )
         workspaceGroups = groupCollapseStore.apply(to: derivedGroups)
     }

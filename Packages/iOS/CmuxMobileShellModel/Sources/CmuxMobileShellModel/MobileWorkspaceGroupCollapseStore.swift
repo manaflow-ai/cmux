@@ -67,6 +67,17 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
     /// - Returns: The same groups with `isCollapsed` reflecting this device.
     public mutating func apply(to groups: [MobileWorkspaceGroupPreview]) -> [MobileWorkspaceGroupPreview] {
         let liveIDs = Set(groups.map(\.collapseStateID))
+        let groupsByRemoteID = Dictionary(grouping: groups, by: { $0.rpcGroupID.rawValue })
+        let legacyMigrationTargetByRemoteID: [String: String] = groupsByRemoteID.compactMapValues { matchingGroups in
+            guard matchingGroups.count == 1,
+                  let group = matchingGroups.first,
+                  let macDeviceID = group.macDeviceID,
+                  !macDeviceID.isEmpty,
+                  group.collapseStateID != group.rpcGroupID.rawValue else {
+                return nil
+            }
+            return group.collapseStateID
+        }
         var changed = false
 
         let resolved = groups.map { group -> MobileWorkspaceGroupPreview in
@@ -74,11 +85,11 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
             let key = group.collapseStateID
             if let local = map[key] {
                 group.isCollapsed = local
-            } else if key != group.rpcGroupID.rawValue,
+            } else if legacyMigrationTargetByRemoteID[group.rpcGroupID.rawValue] == key,
                       let legacyLocal = map[group.rpcGroupID.rawValue] {
                 // Before groups carried Mac ownership, collapse preferences were
-                // keyed only by the raw group id. Migrate that decision the first
-                // time the owning Mac is known.
+                // keyed only by the raw group id. Migrate only when one live,
+                // authoritatively owned group can claim that legacy decision.
                 map[key] = legacyLocal
                 group.isCollapsed = legacyLocal
                 changed = true
