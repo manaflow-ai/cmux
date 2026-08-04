@@ -348,6 +348,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
     private func closeWindow(_ window: NSWindow, appDelegate: AppDelegate) {
         GlobalSearchCoordinator.shared.dismissPalette()
+        _ = waitUntilGlobalSearchCloses()
 #if DEBUG
         appDelegate.debugResetShortcutRoutingStateForTesting()
         let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
@@ -410,9 +411,21 @@ extension GlobalSearchShortcutBehaviorTests {
         let appDelegate = try #require(AppDelegate.shared)
         let window = try makeMainWindow(appDelegate: appDelegate)
         defer { closeWindow(window, appDelegate: appDelegate) }
-        _ = try #require(
-            GlobalSearchCoordinator.shared.browseOpenPanels().first,
-            "The real main-window fixture must provide a selected browse result"
+        let windowID = try #require(appDelegate.mainWindowId(from: window))
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: windowID))
+        let targetWorkspace = tabManager.addWorkspace(
+            title: "Return target \(UUID().uuidString)",
+            select: false,
+            eagerLoadTerminal: true,
+            autoWelcomeIfNeeded: false
+        )
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let browseResults = GlobalSearchCoordinator.shared.browseOpenPanels()
+        let targetIndex = try #require(
+            browseResults.firstIndex(where: {
+                $0.workspaceID == targetWorkspace.id && $0.panelID == targetPanelID
+            }),
+            "The real main-window fixture must expose the inactive target in browse results"
         )
 
         appDelegate.toggleGlobalSearchPalette()
@@ -428,6 +441,16 @@ extension GlobalSearchShortcutBehaviorTests {
             waitForSearchPopoverWindow(excluding: window),
             "The retained Search popover must reopen with a selected browse result"
         )
+        for _ in 0..<targetIndex {
+            NSApp.sendEvent(
+                try makeKeyDownEvent(
+                    key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                    modifiers: [],
+                    keyCode: 125,
+                    windowNumber: reopenedPopoverWindow.windowNumber
+                )
+            )
+        }
         NSApp.sendEvent(
             try makeKeyDownEvent(
                 key: "\r",
@@ -441,6 +464,11 @@ extension GlobalSearchShortcutBehaviorTests {
             waitUntilGlobalSearchCloses(),
             "Return must activate the selected result after the retained popover reopens"
         )
+        #expect(
+            tabManager.selectedWorkspace?.id == targetWorkspace.id,
+            "Return must select the chosen result's workspace, not merely close Search"
+        )
+        #expect(targetWorkspace.focusedPanelId == targetPanelID)
 #else
         Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
 #endif
@@ -1011,6 +1039,7 @@ extension GlobalSearchShortcutBehaviorTests {
     @MainActor
     private func closeWindow(_ window: NSWindow, appDelegate: AppDelegate) {
         GlobalSearchCoordinator.shared.dismissPalette()
+        _ = waitUntilGlobalSearchCloses()
 #if DEBUG
         appDelegate.debugResetShortcutRoutingStateForTesting()
         let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
