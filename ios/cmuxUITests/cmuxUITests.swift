@@ -7360,6 +7360,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
+    private var eventStreamIDsByConnection: [ObjectIdentifier: Set<String>] = [:]
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
@@ -7478,6 +7479,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+            self.eventStreamIDsByConnection.removeAll()
         }
     }
 
@@ -7624,8 +7626,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         connections.append(connection)
+        eventStreamIDsByConnection[ObjectIdentifier(connection)] = []
         connection.start(queue: queue)
         receiveRequest(on: connection)
+    }
+
+    private func close(_ connection: NWConnection) {
+        connection.cancel()
+        connections.removeAll { $0 === connection }
+        eventStreamIDsByConnection.removeValue(forKey: ObjectIdentifier(connection))
     }
 
     private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
@@ -7654,7 +7663,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             }
 
             if isComplete || error != nil {
-                connection.cancel()
+                self.close(connection)
                 return
             }
 
@@ -7664,27 +7673,28 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
-            let responseFrame = try makeResponseFrame(for: payload)
+            let responseFrame = try makeResponseFrame(for: payload, on: connection)
             connection.send(
                 content: responseFrame,
                 contentContext: .defaultMessage,
                 isComplete: false,
                 completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
+                    guard let self, let connection else {
+                        return
+                    }
+                    guard error == nil else {
+                        self.close(connection)
                         return
                     }
                     self.receiveRequest(on: connection, buffer: remainingBuffer)
                 }
             )
         } catch {
-            connection.cancel()
+            close(connection)
         }
     }
 
-    private func makeResponseFrame(for payload: Data) throws -> Data {
+    private func makeResponseFrame(for payload: Data, on connection: NWConnection) throws -> Data {
         guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let method = request["method"] as? String else {
             throw serverError("Invalid request.")
@@ -7716,7 +7726,36 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
-            result = ["stream_id": params["stream_id"] as? String ?? "events"]
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            var streamIDs = eventStreamIDsByConnection[connectionID, default: []]
+            let alreadySubscribed = streamIDs.contains(streamID)
+            streamIDs.insert(streamID)
+            eventStreamIDsByConnection[connectionID] = streamIDs
+            result = [
+                "stream_id": streamID,
+                "topics": params["topics"] as? [String] ?? [],
+                "already_subscribed": alreadySubscribed,
+                "event_transport": "control_v1",
+            ]
+        case "mobile.events.probe":
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            result = [
+                "stream_id": streamID,
+                "subscribed": eventStreamIDsByConnection[connectionID]?.contains(streamID) == true,
+                "event_transport": "control_v1",
+            ]
+        case "mobile.events.unsubscribe":
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            var streamIDs = eventStreamIDsByConnection[connectionID, default: []]
+            let removed = streamIDs.remove(streamID) != nil
+            eventStreamIDsByConnection[connectionID] = streamIDs
+            result = [
+                "stream_id": streamID,
+                "removed": removed,
+            ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
         case "mobile.terminal.viewport", "terminal.viewport":
