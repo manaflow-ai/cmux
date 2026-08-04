@@ -3602,5 +3602,36 @@
       "requirements": "Debian lub Ubuntu · x64",
       "installBody": "Pobierz pakiet Debiana i zainstaluj go za pomocą menedżera pakietów. Wybierz przenośny ZIP, aby zainstalować aplikację dla jednego użytkownika i korzystać z aktualizacji w aplikacji."
     }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Witamy w cmux Pro 🎉",
+      "fallbackName": "przyjacielu",
+      "greeting": "Cześć {name},",
+      "thanks": "Dziękujemy za dołączenie do cmux Pro! Nadal dopracowujemy pełne doświadczenie Pro, a dostęp do chmury pojawi się już wkrótce.",
+      "cloudStatus": "Gdy uruchomimy dostęp do chmury, dodamy do Twojego konta kredyty na wykorzystanie odpowiadające liczbie miesięcy subskrypcji.",
+      "currentBenefit": "W międzyczasie korzyścią Pro jest wcześniejszy dostęp do cmux na iOS. Zarejestruj się przez poniższy link, a po rejestracji Apple wyśle Ci zaproszenie do TestFlight.",
+      "testflightLink": "Zarejestruj się w TestFlight: {url}",
+      "testflightLinkLabel": "Zarejestruj się w TestFlight",
+      "signoff": "Cieszymy się, że jesteś z nami!\nZespół cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro jest aktywny",
+    "title": "Witamy w cmux Pro",
+    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "done": "Przejdź do panelu",
+    "steps": {
+      "iosApp": {
+        "title": "Aplikacja cmux na iOS",
+        "body": "Korzystaj z cmux na telefonie.",
+        "action": "Dołącz do bety iOS"
+      },
+      "billing": {
+        "title": "Zarządzaj planem",
+        "body": "Sprawdź plan, faktury i opcje anulowania.",
+        "action": "Zarządzaj planem"
+      }
+    }
   }
 }

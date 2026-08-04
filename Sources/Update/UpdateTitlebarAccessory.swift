@@ -1807,18 +1807,33 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
+        let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
+            guard let appDelegate = AppDelegate.shared,
+                  let window = containerView?.window else {
+                return nil
+            }
+            return appDelegate.prepareSenderRelativeMainWindowAction(in: window)
+        }
         let toggleSidebar = { [weak containerView] in
             _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: containerView?.window)
         }
         let toggleNotifications: () -> Void = { [weak containerView] in
+            guard prepareOriginatingAction() != nil else { return }
             _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: containerView)
         }
-        let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
-        let focusHistoryBack = { [weak containerView] in
-            _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateBack()
+        let newTab = {
+            guard let appDelegate = AppDelegate.shared,
+                  let context = prepareOriginatingAction() else { return }
+            _ = appDelegate.performNewWorkspaceAction(
+                tabManager: context.tabManager,
+                debugSource: "titlebar.accessoryNewWorkspace"
+            )
         }
-        let focusHistoryForward = { [weak containerView] in
-            _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
+        let focusHistoryBack = {
+            _ = prepareOriginatingAction()?.tabManager.navigateBack()
+        }
+        let focusHistoryForward = {
+            _ = prepareOriginatingAction()?.tabManager.navigateForward()
         }
         let rootView = TitlebarControlsView(
             notificationStore: notificationStore,

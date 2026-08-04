@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -56,7 +58,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
+  cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({

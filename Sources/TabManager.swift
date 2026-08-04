@@ -5908,6 +5908,8 @@ extension TabManager {
         hashOptionalString(snapshot.checkpointId, into: &hasher)
         hashOptionalString(snapshot.source, into: &hasher)
         hashStringMap(snapshot.environment, into: &hasher)
+        hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
+        hashOptionalString(snapshot.permissionMode, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {

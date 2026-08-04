@@ -191,11 +191,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
-    /// When true, the surface is created in libghostty MANUAL I/O mode: no
-    /// process is spawned, output is injected via `processRemoteOutput(_:)`,
-    /// and typed input is delivered to `manualInputHandler`.
-    let manualIO: Bool
-    let manualInputHandler: (@Sendable (Data) -> Void)?
+    /// Identifies who owns the process, PTY, and terminal protocol.
+    public let ioMode: TerminalSurfaceIOMode
+    /// Ordered input from the manual transport (literal bytes or named keys).
+    let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+    /// Resolves physical keys that the manual transport should encode itself.
+    let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
@@ -491,8 +492,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
@@ -523,8 +525,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
-        self.manualIO = manualIO
+        self.ioMode = ioMode
         self.manualInputHandler = manualInputHandler
+        self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
@@ -561,7 +564,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             // MANUAL-I/O remote-tmux display surfaces have no command but must
             // start eagerly so they can receive injected output while their
             // workspace is still in the background.
-            || manualIO
+            || ioMode.usesManualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use

@@ -149,6 +149,8 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // The deployed handoff route fails closed when this limiter is absent.
+    CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -165,6 +167,7 @@ export const env = createEnv({
     // change without a code edit.
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
+    CMUX_PRO_FROM_EMAIL: z.string().email().optional(),
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -181,7 +184,7 @@ export const env = createEnv({
     ASC_PRIVATE_KEY: z.string().min(1).optional(),
     ASC_PRIVATE_KEY_PATH: z.string().min(1).optional(),
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
-    CMUX_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
+    CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
@@ -244,6 +247,13 @@ export const env = createEnv({
     // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
     // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
     CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Account-scoped route invalidations. The payload is revision-only; apps
+    // reconcile through /api/connectivity/v2/sync. Optional so previews and
+    // local tests can run without a presence worker.
+    CMUX_PRESENCE_BASE_URL: z.string().url().optional(),
+    // Server-to-worker authentication for revision publication. Native clients
+    // hold only their Stack access token and can never mint invalidations.
+    CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -282,12 +292,16 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
+    ),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
+    CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
@@ -298,7 +312,7 @@ export const env = createEnv({
     ASC_PRIVATE_KEY: trimEnv(process.env.ASC_PRIVATE_KEY),
     ASC_PRIVATE_KEY_PATH: trimEnv(process.env.ASC_PRIVATE_KEY_PATH),
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
-    CMUX_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_GROUP_ID),
+    CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
@@ -326,6 +340,10 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
     CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
     CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
+    CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
+    CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
+      process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+    ),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
     ),

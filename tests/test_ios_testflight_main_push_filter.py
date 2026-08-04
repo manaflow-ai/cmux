@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import shlex
 import shutil
@@ -9,6 +10,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
 NOTES_GENERATOR = ROOT / "ios" / "scripts" / "generate-testflight-notes.sh"
+DISTRIBUTION_HELPER = ROOT / "ios" / "scripts" / "resolve_testflight_distribution.py"
 BUN = shutil.which("bun")
 IOS_PATHS = (
     "ios/**",
@@ -29,34 +31,6 @@ IOS_SCHEDULES = (
     "7,27,47 * * * *",
     "37 5,17 * * *",
 )
-RESOLVED_DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
-MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
-
-
-def variant_choice(demo: str, internal: str) -> str:
-    return (
-        f"${{{{ {RESOLVED_DEMO_VARIANT_GUARD} "
-        f"&& '{demo}' || '{internal}' }}}}"
-    )
-
-
-def summary_choice(external: str, demo: str, internal: str) -> str:
-    return (
-        "${{ "
-        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
-        f"|| {RESOLVED_DEMO_VARIANT_GUARD} && '{demo}' "
-        f"|| '{internal}' }}"
-    )
-
-
-def override_choice(external: str, normal: str) -> str:
-    return (
-        "${{ "
-        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
-        f"|| '{normal}' }}"
-    )
-
-
 def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
@@ -163,15 +137,21 @@ def javascript_string_array(text: str, name: str) -> tuple[str, ...]:
     return tuple(values)
 
 
-def github_expression_containing(text: str, needle: str) -> str:
-    matches = [
-        line.strip()
-        for line in text.splitlines()
-        if needle in line and "${{" in line
-    ]
-    assert len(matches) == 1, f"expected one expression containing {needle}"
-    expression = matches[0]
-    return expression.split("${{", 1)[1].rsplit("}}", 1)[0].strip()
+def resolved_metadata_artifact(
+    variant: str,
+    marketing_version_override: str,
+) -> str:
+    spec = importlib.util.spec_from_file_location(
+        "resolve_testflight_distribution",
+        DISTRIBUTION_HELPER,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.resolve_distribution(
+        variant,
+        marketing_version_override,
+    ).metadata_artifact
 
 
 def run_decision_scenario(
@@ -198,13 +178,23 @@ def run_decision_scenario(
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
     artifact_api_failure: bool = False,
+    expected_failure: Optional[str] = None,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
-    artifact_expression = github_expression_containing(
-        workflow_text(),
-        "ios-testflight-build-metadata-override",
-    )
+    effective_variant = input_variant
+    if event_name == "schedule":
+        if schedule == IOS_SCHEDULES[0]:
+            effective_variant = "internal"
+        elif schedule == IOS_SCHEDULES[1]:
+            effective_variant = "demo"
+    try:
+        produced_artifact_name = resolved_metadata_artifact(
+            effective_variant,
+            marketing_version_override,
+        )
+    except ValueError:
+        produced_artifact_name = ""
     history_sources = sum(
         bool(source)
         for source in (prior_sha, prior_uploads, prior_upload_pages)
@@ -467,7 +457,7 @@ async function runDecision() {{
 }}
 await runDecision();
 const needs = {{ decide: {{ outputs }} }};
-const producedArtifactName = {artifact_expression};
+const producedArtifactName = {json.dumps(produced_artifact_name)};
 process.stdout.write(JSON.stringify({{
   outputs,
   compareCalls,
@@ -488,6 +478,10 @@ process.stdout.write(JSON.stringify({{
         capture_output=True,
         text=True,
     )
+    if expected_failure is not None:
+        assert result.returncode != 0
+        assert expected_failure in result.stderr
+        return {"error": expected_failure}
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -689,6 +683,21 @@ def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
         "last_uploaded_sha": "internal-base-sha",
         "variant": "internal",
     }
+
+
+def test_decision_rejects_unknown_schedule_and_dispatch_variant() -> None:
+    expected = "unsupported TestFlight event, schedule, or variant"
+    assert run_decision_scenario(
+        event_name="schedule",
+        schedule="1 2 3 4 5",
+        input_variant="",
+        expected_failure=expected,
+    ) == {"error": expected}
+    assert run_decision_scenario(
+        event_name="workflow_dispatch",
+        input_variant="unknown",
+        expected_failure=expected,
+    ) == {"error": expected}
 
 
 def test_demo_history_skips_newer_internal_artifact() -> None:
@@ -1057,43 +1066,26 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     upload = mapping_block(text, "upload", indent=2)
     assignment = mapping_block(text, "assign-internal-group", indent=2)
 
-    bundle_choice = variant_choice("dev.cmux.app.demo", "dev.cmux.app.internal")
-    display_name_choice = variant_choice("cmux DEMO", "cmux INTERNAL")
-    group_choice = (
-        "${{ "
-        f"{RESOLVED_DEMO_VARIANT_GUARD} "
-        "&& 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' "
-        "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
-    )
+    internal = resolved_metadata_artifact("internal", "")
+    demo = resolved_metadata_artifact("demo", "")
+    external = resolved_metadata_artifact("internal", "1.2.3")
+    assert internal == "ios-testflight-build-metadata"
+    assert demo == "ios-testflight-build-metadata-demo"
+    assert external == "ios-testflight-build-metadata-override"
 
-    assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
-    assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
+    assert "python3 ./ios/scripts/resolve_testflight_distribution.py" in upload
+    assert "INPUT_VARIANT: ${{ needs.decide.outputs.variant }}" in upload
     assert (
-        "CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "
-        f'{override_choice("1", "0")}'
+        "INPUT_MARKETING_VERSION_OVERRIDE: "
+        "${{ github.event.inputs.marketing_version_override }}"
         in upload
     )
-    assert (
-        "UPLOAD_BUNDLE_ID: "
-        f"{summary_choice('dev.cmux.app.beta', 'dev.cmux.app.demo', 'dev.cmux.app.internal')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_DISPLAY_NAME: "
-        f"{summary_choice('cmux BETA', 'cmux DEMO', 'cmux INTERNAL')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_AUDIENCE: "
-        f"{override_choice('external TestFlight testers', 'internal TestFlight group')}"
-        in upload
-    )
-    assert (
-        "UPLOAD_REVIEW_NOTE: "
-        f"{override_choice('Beta App Review may be required', 'no beta review needed')}"
-        in upload
-    )
-    assert f"if: {RESOLVED_DEMO_VARIANT_GUARD}" in upload
+    assert "IOS_BETA_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload
+    assert "UPLOAD_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload
+    assert "UPLOAD_DISPLAY_NAME: ${{ steps.distribution.outputs.display_name }}" in upload
+    assert "UPLOAD_AUDIENCE: ${{ steps.distribution.outputs.audience }}" in upload
+    assert "UPLOAD_REVIEW_NOTE: ${{ steps.distribution.outputs.review_note }}" in upload
+    assert "name: ${{ steps.distribution.outputs.metadata_artifact }}" in upload
     assert (
         'echo "- lane: \\`beta\\` '
         '(bundle id \\`${UPLOAD_BUNDLE_ID}\\`, ${UPLOAD_AUDIENCE})"'
@@ -1104,13 +1096,12 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
         'on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"'
         in upload
     )
-    assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
-    assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
+    assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assignment
     assert assignment.count("needs: [decide, upload]") == 1
     assert (
         "if: github.ref == 'refs/heads/main' "
         "&& needs.upload.result == 'success' "
-        "&& github.event.inputs.marketing_version_override == ''"
+        "&& needs.upload.outputs.assign_internal_group == '1'"
         in assignment
     )
 
@@ -1125,6 +1116,7 @@ if __name__ == "__main__":
     test_unchanged_scheduled_head_skips_without_comparing()
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_schedule_decision_routes_internal_cron_to_internal_history()
+    test_decision_rejects_unknown_schedule_and_dispatch_variant()
     test_demo_history_skips_newer_internal_artifact()
     test_history_lookup_ignores_long_idle_workflow_run_history()
     test_history_lookup_paginates_artifacts_and_selects_newest()

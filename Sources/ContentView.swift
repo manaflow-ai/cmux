@@ -887,8 +887,7 @@ struct ContentView: View {
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
-    @State private var workspaceHandoffGeneration: UInt64 = 0
-    @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var workspaceHandoffFallbackScheduler = MainActorDeferredActionScheduler()
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
@@ -2947,8 +2946,7 @@ struct ContentView: View {
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
-                workspaceHandoffFallbackTask?.cancel()
-                workspaceHandoffFallbackTask = nil
+                workspaceHandoffFallbackScheduler.cancel()
             }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -3486,15 +3484,12 @@ struct ContentView: View {
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
-            workspaceHandoffFallbackTask?.cancel()
-            workspaceHandoffFallbackTask = nil
+            workspaceHandoffFallbackScheduler.cancel()
             return
         }
 
-        workspaceHandoffGeneration &+= 1
-        let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
-        workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffFallbackScheduler.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -3525,16 +3520,8 @@ struct ContentView: View {
             return
         }
 
-        workspaceHandoffFallbackTask = Task { [generation] in
-            do {
-                try await Task.sleep(nanoseconds: 150_000_000)
-            } catch {
-                return
-            }
-            await MainActor.run {
-                guard workspaceHandoffGeneration == generation else { return }
-                completeWorkspaceHandoff(reason: "timeout")
-            }
+        workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(150)) {
+            completeWorkspaceHandoff(reason: "timeout")
         }
     }
 
@@ -3554,8 +3541,7 @@ struct ContentView: View {
     }
 
     private func completeWorkspaceHandoff(reason: String) {
-        workspaceHandoffFallbackTask?.cancel()
-        workspaceHandoffFallbackTask = nil
+        workspaceHandoffFallbackScheduler.cancel()
         let retiring = retiringWorkspaceId
 
         // Disable before clearing retiringWorkspaceId: unmount teardown does not
