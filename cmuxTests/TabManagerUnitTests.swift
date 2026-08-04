@@ -4098,10 +4098,11 @@ final class SidebarCreationContextTests: XCTestCase {
         XCTAssertEqual(launch.arguments.first, "/usr/bin/ssh")
         XCTAssertEqual(Array(launch.arguments[1...2]), ["-o", "RemoteCommand=none"])
         XCTAssertTrue(launch.arguments.contains("-tt"))
-        XCTAssertEqual(
-            Array(launch.arguments.suffix(3)),
-            ["--", "builder@example.test", "'cmux-tui' attach --session 'agent'\\''s work'"]
-        )
+        XCTAssertEqual(Array(launch.arguments.suffix(3).prefix(2)), ["--", "builder@example.test"])
+        let remoteCommand = try XCTUnwrap(launch.arguments.last)
+        XCTAssertTrue(remoteCommand.contains("command -v 'cmux-tui'"))
+        XCTAssertTrue(remoteCommand.contains("\"$HOME/.local/bin/cmux-tui\""))
+        XCTAssertTrue(remoteCommand.hasSuffix("attach --session 'agent'\\''s work'"))
         XCTAssertEqual(launch.sessionName, "agent's work")
         XCTAssertNil(
             SidebarRemoteCmuxTUIAttachCommand(

@@ -163,12 +163,24 @@ struct SidebarRemoteCmuxTUIAttachCommand: Equatable, Sendable {
         for option in WorkspaceRemoteConfiguration.trimmedSSHOptions(configuration.sshOptions) {
             arguments += ["-o", option]
         }
-        let remoteCommand = [
-            Self.shellQuote(remoteBinary),
-            "attach",
-            "--session",
-            Self.shellQuote(sessionName),
-        ].joined(separator: " ")
+        let remoteCommand: String
+        if remoteBinary == Self.defaultRemoteBinary {
+            // Non-interactive SSH shells often omit ~/.local/bin from PATH,
+            // which is cmux-tui's standard remote install location. Prefer an
+            // explicit PATH match, then fall back to that durable location.
+            remoteCommand = [
+                "binary=\"$(command -v 'cmux-tui' 2>/dev/null || printf '%s' \"$HOME/.local/bin/cmux-tui\")\";",
+                "exec \"$binary\" attach --session \(Self.shellQuote(sessionName))",
+            ].joined(separator: " ")
+        } else {
+            remoteCommand = [
+                "exec",
+                Self.shellQuote(remoteBinary),
+                "attach",
+                "--session",
+                Self.shellQuote(sessionName),
+            ].joined(separator: " ")
+        }
         arguments += ["--", destination, remoteCommand]
 
         self.arguments = arguments
