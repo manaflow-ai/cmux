@@ -30,6 +30,7 @@
     "test": "bash scripts/run-tests.sh",
     "test:social-images": "bash scripts/test-social-image-delivery.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
+    "react-doctor:ci": "node scripts/check-react-doctor-errors.mjs",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint"
   },
