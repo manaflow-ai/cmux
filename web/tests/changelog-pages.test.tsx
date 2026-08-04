@@ -7,9 +7,10 @@ import {
   changelogVersionDescription,
   changelogVersionPath,
   localizedChangelogPath,
+  ChangelogStore,
   parseChangelog,
-  readChangelog,
 } from "../app/lib/changelog";
+import { changelogStore } from "../app/lib/changelog-store";
 import sitemap from "../app/sitemap";
 import middleware from "../proxy";
 import { locales } from "../i18n/routing";
@@ -67,8 +68,40 @@ Release intro.
     expect(html).toContain("cmux example");
   });
 
+  test("refreshes and isolates injected changelog stores", () => {
+    let fingerprint = "first";
+    let reads = 0;
+    let markdown = "## [1.0.0] - 2026-08-03\n\n### Added\n- First";
+    const store = new ChangelogStore({
+      fingerprint: () => fingerprint,
+      read: () => {
+        reads += 1;
+        return markdown;
+      },
+    });
+
+    expect(store.findVersion("1.0.0")?.version).toBe("1.0.0");
+    expect(store.versions()[0]?.version).toBe("1.0.0");
+    expect(reads).toBe(1);
+
+    markdown = "## [2.0.0] - 2026-08-04\n\n### Changed\n- Second";
+    expect(store.versions()[0]?.version).toBe("1.0.0");
+    fingerprint = "second";
+    expect(store.versions()[0]?.version).toBe("2.0.0");
+    expect(reads).toBe(2);
+
+    const isolatedStore = new ChangelogStore({
+      fingerprint: () => "isolated",
+      read: () => "## [9.0.0] - 2026-08-05",
+    });
+    expect(isolatedStore.versions()[0]?.version).toBe("9.0.0");
+    expect(store.versions()[0]?.version).toBe("2.0.0");
+  });
+
   test("pre-renders a route for every version in the source changelog", () => {
-    const versions = readChangelog().map((release) => release.version);
+    const versions = changelogStore
+      .versions()
+      .map((release) => release.version);
 
     expect(generateStaticParams()).toEqual(
       versions.map((version) => ({ version })),
@@ -78,7 +111,7 @@ Release intro.
   });
 
   test("emits unique release summaries without Markdown URLs", () => {
-    const release = readChangelog()[0];
+    const release = changelogStore.versions()[0];
     const description = changelogVersionDescription(release);
 
     expect(description.startsWith(`cmux ${release.version}:`)).toBe(true);
@@ -88,7 +121,7 @@ Release intro.
   });
 
   test("publishes every version and locale through the sitemap", () => {
-    const releases = readChangelog();
+    const releases = changelogStore.versions();
     const entries = sitemap();
     const latest = releases[0];
     const indexEntry = entries.find(

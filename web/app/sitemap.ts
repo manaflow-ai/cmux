@@ -15,13 +15,13 @@ import { genericCodingAgents } from "../i18n/coding-agents";
 import {
   changelogPath,
   changelogVersionPath,
-  readChangelog,
 } from "./lib/changelog";
+import { changelogStore } from "./lib/changelog-store";
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://cmux.com";
-  const changelog = readChangelog();
+  const changelog = changelogStore.versions();
   const latestChangelogDate = changelog[0]?.date ?? "2026-03-18";
 
   const paths: Array<{

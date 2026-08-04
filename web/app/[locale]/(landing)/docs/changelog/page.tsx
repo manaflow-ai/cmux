@@ -7,8 +7,8 @@ import {
 } from "@/i18n/seo";
 import {
   localizedChangelogPath,
-  readChangelog,
 } from "@/app/lib/changelog";
+import { changelogStore } from "@/app/lib/changelog-store";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { DocsSchema } from "../docs-schema";
 import { changelogMedia } from "./changelog-media";
@@ -45,7 +45,7 @@ export default async function ChangelogPage({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.changelog" });
-  const versions = readChangelog();
+  const versions = changelogStore.versions();
   const sectionLabels = {
     added: t("sections.added"),
     changed: t("sections.changed"),

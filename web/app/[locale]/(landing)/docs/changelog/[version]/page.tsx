@@ -18,12 +18,10 @@ import {
   changelogPath,
   changelogVersionDescription,
   changelogVersionPath,
-  findChangelogVersion,
-  findChangelogVersionContext,
   localizedChangelogPath,
-  readChangelog,
   type ChangelogVersion,
 } from "@/app/lib/changelog";
+import { changelogStore } from "@/app/lib/changelog-store";
 import { changelogMedia, type VersionMedia } from "../changelog-media";
 import { ChangelogRelease } from "../changelog-release";
 
@@ -32,7 +30,9 @@ type PageParams = { locale: string; version: string };
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return readChangelog().map((release) => ({ version: release.version }));
+  return changelogStore
+    .versions()
+    .map((release) => ({ version: release.version }));
 }
 
 export async function generateMetadata({
@@ -41,7 +41,7 @@ export async function generateMetadata({
   params: Promise<PageParams>;
 }): Promise<Metadata> {
   const { locale, version } = await params;
-  const release = findChangelogVersion(version);
+  const release = changelogStore.findVersion(version);
   if (!release) notFound();
 
   const t = await getTranslations({ locale, namespace: "docs.changelog" });
@@ -80,7 +80,7 @@ export default async function ChangelogVersionPage({
   params: Promise<PageParams>;
 }) {
   const { locale, version } = await params;
-  const context = findChangelogVersionContext(version);
+  const context = changelogStore.findVersionContext(version);
   if (!context) notFound();
 
   const { release, index: releaseIndex, versions } = context;
