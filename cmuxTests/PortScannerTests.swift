@@ -62,6 +62,31 @@ struct PortScannerProcessCaptureTests {
         #expect(await runner.recordedInvocations().isEmpty)
     }
 
+    @Test("Hot scan paths use the cached visibility state")
+    func scanHelpersDoNotReloadSidebarSettings() async {
+        let providerReads = OSAllocatedUnfairLock(initialState: 0)
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: {
+                providerReads.withLock { $0 += 1 }
+                return true
+            }
+        )
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(providerReads.withLock { $0 } == 1)
+    }
+
     @Test("Hide all sidebar details suppresses scan subprocesses")
     func hideAllSidebarDetailsSkipsScanSubprocesses() async {
         let suiteName = "PortScannerProcessCaptureTests.\(UUID().uuidString)"
@@ -194,6 +219,31 @@ struct PortScannerProcessCaptureTests {
 
         #expect(scan.values == [123: [4200]])
         #expect(scan.completeness == .complete)
+    }
+
+    @Test("A live PID with no listening sockets is complete negative evidence")
+    func livePIDWithoutLsofRowsIsComplete() async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+        let identity = AgentPIDProcessIdentity(
+            pid: 123,
+            startSeconds: 1,
+            startMicroseconds: 0
+        )
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { $0 == identity.pid ? identity : nil },
+            processPresenceProvider: { $0 == identity.pid ? .present : .absent },
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123")
+
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness(for: [123]) == .complete)
     }
 
     @Test("lsof diagnostics preserve valid ports but make the scan incomplete")

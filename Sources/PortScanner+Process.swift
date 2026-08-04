@@ -307,7 +307,7 @@ extension PortScanner {
     }
 
     func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             return ([:], .incomplete)
         }
         let result = await commandRunner.run(
@@ -332,7 +332,7 @@ extension PortScanner {
     }
 
     func runAllProcesses() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             return ([:], .incomplete)
         }
         let result = await commandRunner.run(
@@ -361,7 +361,7 @@ extension PortScanner {
     }
 
     func runLsof(pidsCsv: String) async -> PortLsofScanResult {
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             return PortLsofScanResult(
                 values: [:],
                 globallyComplete: false,
@@ -436,6 +436,10 @@ extension PortScanner {
             processIdentityProvider(pid_t($0)) == nil
                 && processPresenceProvider(pid_t($0)) != .absent
         })
+        // With `-b`, lsof emits filesystem-stat warnings for ordinary macOS
+        // mounts even though this socket-only `-iTCP` result is usable. `-w`
+        // suppresses those warnings, not errors; execution failures, timeouts,
+        // malformed field output, and inaccessible live PIDs remain incomplete.
         let globallyComplete = result.executionError == nil
             && !result.timedOut
             && (result.exitStatus == 0 || result.exitStatus == 1)

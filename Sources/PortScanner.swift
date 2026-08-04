@@ -2,6 +2,7 @@ import CmuxCore
 import CmuxFoundation
 import Darwin
 import Foundation
+import os
 
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
 ///
@@ -64,7 +65,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
     private var agentScanTimer: DispatchSourceTimer?
-    private var lastPortScanningEnabled: Bool
+    private let portScanningEnabledState: OSAllocatedUnfairLock<Bool>
 
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
@@ -91,7 +92,9 @@ final class PortScanner: @unchecked Sendable {
         self.processPresenceProvider = processPresenceProvider
         self.ttySessionIdentityProvider = ttySessionIdentityProvider
         self.portScanningEnabledProvider = portScanningEnabledProvider
-        self.lastPortScanningEnabled = portScanningEnabledProvider()
+        self.portScanningEnabledState = OSAllocatedUnfairLock(
+            initialState: portScanningEnabledProvider()
+        )
     }
 
     @MainActor
@@ -141,7 +144,7 @@ final class PortScanner: @unchecked Sendable {
 
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
-            guard portScanningEnabledProvider() else { return }
+            guard isPortScanningEnabled() else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -192,8 +195,12 @@ final class PortScanner: @unchecked Sendable {
     func portScanningSettingsDidChange() {
         let enabled = portScanningEnabledProvider()
         queue.async { [self] in
-            guard enabled != lastPortScanningEnabled else { return }
-            lastPortScanningEnabled = enabled
+            let changed = portScanningEnabledState.withLock { current in
+                guard current != enabled else { return false }
+                current = enabled
+                return true
+            }
+            guard changed else { return }
 
             guard enabled else {
                 suspendPortScanningLocked()
@@ -211,6 +218,10 @@ final class PortScanner: @unchecked Sendable {
                 runTrackedAgentScan()
             }
         }
+    }
+
+    func isPortScanningEnabled() -> Bool {
+        portScanningEnabledState.withLock { $0 }
     }
 
     private func suspendPortScanningLocked() {
@@ -251,7 +262,7 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - Coalesce + Burst
 
     private func startCoalesce() {
-        guard portScanningEnabledProvider() else { return }
+        guard isPortScanningEnabled() else { return }
         coalesceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.2)
@@ -266,7 +277,7 @@ final class PortScanner: @unchecked Sendable {
         coalesceTimer?.cancel()
         coalesceTimer = nil
 
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             pendingKicks.removeAll()
             return
         }
@@ -279,7 +290,7 @@ final class PortScanner: @unchecked Sendable {
     private func runBurst(index: Int, generation: UInt64, burstStart: DispatchTime? = nil) {
         // Already on `queue`.
         guard burstActive, generation == burstGeneration else { return }
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             pendingKicks.removeAll()
             burstActive = false
             burstGeneration &+= 1
@@ -310,7 +321,7 @@ final class PortScanner: @unchecked Sendable {
         // Already on `queue`. Snapshot which panels to scan and their TTYs.
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
-        guard portScanningEnabledProvider() else {
+        guard isPortScanningEnabled() else {
             pendingKicks.removeAll()
             return
         }
@@ -566,7 +577,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func updateAgentScanTimerLocked() {
-        guard portScanningEnabledProvider(),
+        guard isPortScanningEnabled(),
               !trackedAgentScanningPaused,
               !trackedAgentWorkspaces.isEmpty else {
             agentScanTimer?.cancel()
@@ -588,7 +599,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runTrackedAgentScan() {
-        guard portScanningEnabledProvider(), !trackedAgentScanningPaused else {
+        guard isPortScanningEnabled(), !trackedAgentScanningPaused else {
             updateAgentScanTimerLocked()
             return
         }
@@ -617,7 +628,7 @@ final class PortScanner: @unchecked Sendable {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64]
     ) {
-        guard portScanningEnabledProvider(), !workspaceIds.isEmpty else { return }
+        guard isPortScanningEnabled(), !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
             rootInput: AgentPortScanRootInput(rootsByWorkspace: agentRootsByWorkspace),
