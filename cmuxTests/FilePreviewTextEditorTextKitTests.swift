@@ -79,21 +79,21 @@ struct FilePreviewTextEditorTextKitTests {
         let textContainer = try #require(textView.textContainer)
         textView.layoutManager?.ensureLayout(for: textContainer)
         #expect((textView.layoutManager?.numberOfGlyphs ?? 0) > 0)
-        #expect(editorView.visibleLabels().map(\.lineNumber) == [1, 2, 3])
+        #expect(editorView.visibleLabels().map { $0.lineNumber } == [1, 2, 3])
 
         let longContent = (1...80)
             .map { "line \($0): " + String(repeating: "content ", count: 8) }
             .joined(separator: "\n")
         textView.string = longContent
         textView.layoutManager?.ensureLayout(for: textContainer)
-        let editedLabels = editorView.visibleLabels().map(\.lineNumber)
+        let editedLabels = editorView.visibleLabels().map { $0.lineNumber }
         #expect(editedLabels.starts(with: [1, 2, 3]))
 
         let line40Range = (longContent as NSString).range(of: "line 40:")
         #expect(line40Range.location != NSNotFound)
         textView.scrollRangeToVisible(line40Range)
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        let scrolledLabels = editorView.visibleLabels().map(\.lineNumber)
+        let scrolledLabels = editorView.visibleLabels().map { $0.lineNumber }
         #expect((scrolledLabels.first ?? 0) > 1)
         #expect(scrolledLabels.contains(40))
         #expect(scrolledLabels == scrolledLabels.sorted())
@@ -104,7 +104,7 @@ struct FilePreviewTextEditorTextKitTests {
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         textView.layoutManager?.ensureLayout(for: textContainer)
-        let wrappedLabels = editorView.visibleLabels().map(\.lineNumber)
+        let wrappedLabels = editorView.visibleLabels().map { $0.lineNumber }
         #expect(wrappedLabels.first == 1)
         #expect(Set(wrappedLabels).count == wrappedLabels.count)
 
@@ -113,7 +113,7 @@ struct FilePreviewTextEditorTextKitTests {
         let zoomedFontSize = try #require(textView.font?.pointSize)
         #expect(zoomedFontSize > previousFontSize)
         textView.layoutManager?.ensureLayout(for: textContainer)
-        let zoomedLabels = editorView.visibleLabels().map(\.lineNumber)
+        let zoomedLabels = editorView.visibleLabels().map { $0.lineNumber }
         #expect(zoomedLabels.first == 1)
         #expect(Set(zoomedLabels).count == zoomedLabels.count)
     }

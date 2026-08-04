@@ -6,11 +6,6 @@ import AppKit
 /// ruler visibility can make this TextKit 1 document view disappear on macOS 26
 /// and has also crashed the app-hosted unit-test process during ruler teardown.
 final class FilePreviewTextEditorView: NSView {
-    struct Label {
-        let lineNumber: Int
-        let lineFragmentRect: NSRect
-    }
-
     private static let horizontalPadding: CGFloat = 8
     private static let minimumGutterWidth: CGFloat = 38
 
@@ -151,7 +146,7 @@ final class FilePreviewTextEditorView: NSView {
         refresh()
     }
 
-    func visibleLabels() -> [Label] {
+    func visibleLabels() -> [(lineNumber: Int, lineFragmentRect: NSRect)] {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return [] }
 
@@ -166,7 +161,7 @@ final class FilePreviewTextEditorView: NSView {
             in: textContainer
         )
 
-        var labels: [Label] = []
+        var labels: [(lineNumber: Int, lineFragmentRect: NSRect)] = []
         if visibleGlyphRange.length > 0 {
             layoutManager.enumerateLineFragments(
                 forGlyphRange: visibleGlyphRange
@@ -188,7 +183,7 @@ final class FilePreviewTextEditorView: NSView {
                     // line number.
                     return
                 }
-                labels.append(Label(
+                labels.append((
                     lineNumber: lineNumber,
                     lineFragmentRect: lineRect
                 ))
@@ -207,7 +202,7 @@ final class FilePreviewTextEditorView: NSView {
     private func trailingEmptyLineLabel(
         layoutManager: NSLayoutManager,
         textContainer: NSTextContainer
-    ) -> Label? {
+    ) -> (lineNumber: Int, lineFragmentRect: NSRect)? {
         let textLength = textView.textStorage?.length ?? 0
         guard lineNumberIndex.lineStart(forLineNumber: lineNumberIndex.lineCount)
             == textLength else { return nil }
@@ -226,7 +221,7 @@ final class FilePreviewTextEditorView: NSView {
             lineRect = layoutManager.extraLineFragmentRect
         }
 
-        return Label(
+        return (
             lineNumber: lineNumberIndex.lineCount,
             lineFragmentRect: lineRect
         )
@@ -260,7 +255,7 @@ final class FilePreviewTextEditorView: NSView {
     }
 
     private func draw(
-        label: Label,
+        label: (lineNumber: Int, lineFragmentRect: NSRect),
         dirtyRect: NSRect,
         font: NSFont,
         attributes: [NSAttributedString.Key: Any]

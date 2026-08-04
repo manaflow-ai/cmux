@@ -3281,12 +3281,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
     func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
         _ = NSApplication.shared
+        let scrollView = NSScrollView()
         let textView = SavingTextView.makeFilePreviewTextView()
-        let editorView = FilePreviewTextEditorView(textView: textView)
-        let scrollView = editorView.scrollView
+        scrollView.documentView = textView
 
         FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
-            to: editorView,
+            to: scrollView,
             backgroundColor: .clear,
             foregroundColor: .white,
             drawsBackground: false
@@ -3304,13 +3304,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
     func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
         _ = NSApplication.shared
+        let scrollView = NSScrollView()
         let textView = SavingTextView.makeFilePreviewTextView()
-        let editorView = FilePreviewTextEditorView(textView: textView)
-        let scrollView = editorView.scrollView
         let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+        scrollView.documentView = textView
 
         FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
-            to: editorView,
+            to: scrollView,
             backgroundColor: backgroundColor,
             foregroundColor: .white,
             drawsBackground: true

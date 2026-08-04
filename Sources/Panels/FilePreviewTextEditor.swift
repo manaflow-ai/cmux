@@ -93,21 +93,35 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         foregroundColor: NSColor,
         drawsBackground: Bool
     ) {
+        applyTheme(
+            to: editorView.scrollView,
+            backgroundColor: backgroundColor,
+            foregroundColor: foregroundColor,
+            drawsBackground: drawsBackground
+        )
+        editorView.updateAppearance(
+            backgroundColor: drawsBackground ? backgroundColor : .clear,
+            foregroundColor: foregroundColor
+        )
+    }
+
+    static func applyTheme(
+        to scrollView: NSScrollView,
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        drawsBackground: Bool
+    ) {
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
-        let scrollView = editorView.scrollView
-        let textView = editorView.textView
         scrollView.drawsBackground = drawsBackground
         scrollView.backgroundColor = resolvedBackgroundColor
         scrollView.contentView.drawsBackground = drawsBackground
         scrollView.contentView.backgroundColor = resolvedBackgroundColor
-        textView.drawsBackground = drawsBackground
-        textView.backgroundColor = resolvedBackgroundColor
-        textView.textColor = foregroundColor
-        textView.insertionPointColor = foregroundColor
-        editorView.updateAppearance(
-            backgroundColor: resolvedBackgroundColor,
-            foregroundColor: foregroundColor
-        )
+        if let textView = scrollView.documentView as? NSTextView {
+            textView.drawsBackground = drawsBackground
+            textView.backgroundColor = resolvedBackgroundColor
+            textView.textColor = foregroundColor
+            textView.insertionPointColor = foregroundColor
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
