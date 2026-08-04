@@ -160,7 +160,26 @@ import Testing
             }
         )
 
-        #expect(scope.activeFilter(base: .all).machines == ["mac-new", "mac-old"])
+        // A tagged selection emits pairing-formed entries per device alias so
+        // sibling builds' rows are excluded while legacy nil-tag rows match.
+        #expect(scope.activeFilter(base: .all).machines == [
+            "mac-new\u{1F}nightly", "mac-old\u{1F}nightly",
+        ])
+        let filter = scope.activeFilter(base: .all)
+        func row(_ device: String, _ tag: String?) -> MobileWorkspacePreview {
+            var preview = MobileWorkspacePreview(
+                id: .init(rawValue: "ws"),
+                macDeviceID: device,
+                name: "ws",
+                hasUnread: false,
+                terminals: []
+            )
+            preview.macInstanceTag = tag
+            return preview
+        }
+        #expect(filter.matches(row("mac-old", "nightly")))
+        #expect(!filter.matches(row("mac-new", nil)))
+        #expect(!filter.matches(row("mac-new", "default")))
     }
 
     @Test func pairingAwareSwitchDecisionDistinguishesSiblingBuilds() {

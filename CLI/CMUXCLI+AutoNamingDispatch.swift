@@ -123,15 +123,7 @@ extension CMUXCLI {
         guard let executable else { return nil }
         return runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "-p",
-                "--model", policy.claudeModel(from: env),
-                "--tools", "",
-                "--disable-slash-commands",
-                "--no-session-persistence",
-                "--strict-mcp-config",
-                "--mcp-config", "{}"
-            ],
+            arguments: policy.claudeSummarizerArguments(from: env),
             prompt: prompt,
             environment: policy.summarizerEnvironment(from: env),
             timeout: timeout

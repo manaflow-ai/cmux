@@ -2,11 +2,17 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import SwiftUI
 import cmuxFeature
 #if DEBUG
 import CmuxIrohReleaseGateSupport
 #endif
+
+nonisolated private let cmuxAppConnectivityLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "connectivity"
+)
 
 @main
 struct cmuxApp: App {
@@ -32,7 +38,21 @@ struct cmuxApp: App {
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        iroh.configure(auth: auth.coordinator)
+        let connectivityInvalidationServiceURL = PresenceClient
+            .resolvedServiceBaseURL(
+                isDevelopmentAuthChannel: auth.authEnvironment == .development
+            )
+        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
+            .flatMap { URL(string: $0) }
+        if connectivityInvalidationBaseURL == nil {
+            cmuxAppConnectivityLog.error(
+                "Connectivity invalidation disabled: presence service URL unavailable"
+            )
+        }
+        iroh.configure(
+            auth: auth.coordinator,
+            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -145,10 +165,12 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            connectionMethodStore: Self.root.connectionMethodStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
+            personalIrohForget: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )

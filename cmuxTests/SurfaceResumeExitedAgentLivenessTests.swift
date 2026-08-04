@@ -264,7 +264,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let restoredPanelID = try #require(restored.focusedPanelId)
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
-        #expect(restoredPanel.surface.debugInitialCommand() != nil)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("Cached running process is revalidated before surface resume")
