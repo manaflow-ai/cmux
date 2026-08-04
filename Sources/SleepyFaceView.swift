@@ -23,6 +23,9 @@ struct SleepyFaceView: View {
     @State private var lastMascotPokeAt = 0.0
     @State private var petReactAt: [Int: Double] = [:]
     @State private var moonReactAt: Double?
+    /// Set when "Lock Mac" could not engage any lock mechanism, so the scene can
+    /// say so rather than leaving the button looking inert.
+    @State private var lockFailed = false
 
     var body: some View {
         let config = store.snapshot()
@@ -137,7 +140,12 @@ struct SleepyFaceView: View {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
                     // the overlay. The screensaver stays up behind it as the backdrop.
                     let power = power
-                    Task { await power.lockMacNow() }
+                    Task {
+                        // Surface a failed lock: this button silently did nothing on
+                        // systems missing the CGSession tool, which reads as "the
+                        // lock is broken" with no explanation.
+                        lockFailed = !(await power.lockMacNow())
+                    }
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
@@ -176,6 +184,15 @@ struct SleepyFaceView: View {
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
                 .disabled(powerUIState.isBusy)
+            }
+            if lockFailed {
+                Text(String(
+                    localized: "sleepyMode.lockFailed",
+                    defaultValue: "Couldn't lock the Mac \u{2014} use the Apple menu \u{203A} Lock Screen"
+                ))
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color(red: 0.95, green: 0.62, blue: 0.30))
+                .padding(.top, 18)
             }
             Spacer().frame(height: 50)
             Text(hintText)

@@ -1,6 +1,9 @@
 import Darwin
 import Foundation
+import OSLog
 import Security
+
+private let sleepyCommandLogger = Logger(subsystem: "com.cmuxterm.app", category: "SleepyMode.command")
 
 /// Real command runner. Blocking work happens on background queues and is
 /// surfaced through async APIs, so awaiting callers (including MainActor UI)
@@ -25,19 +28,66 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: AuthExecFn.self)
     }()
 
+    private typealias LockScreenFn = @convention(c) () -> Void
+
+    /// `SACLockScreenImmediate` from the private `login.framework`. Resolved
+    /// lazily and cached; `nil` on a system that does not export it, which the
+    /// caller reports rather than pretending the lock happened.
+    private static let lockScreenImmediate: LockScreenFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/A/login", RTLD_LAZY),
+              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
+        return unsafeBitCast(symbol, to: LockScreenFn.self)
+    }()
+
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
 
-    func run(_ tool: String, _ args: [String]) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    /// Launches `tool` without waiting for it to exit, reporting whether the
+    /// launch itself succeeded. The previous `try?` discarded that error, which
+    /// turned a system tool Apple had removed into a button that silently did
+    /// nothing; a launch failure is now both logged and returned.
+    @discardableResult
+    func run(_ tool: String, _ args: [String]) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: tool)
                 process.arguments = args
                 process.standardOutput = FileHandle.nullDevice
                 process.standardError = FileHandle.nullDevice
-                try? process.run()
-                continuation.resume()
+                do {
+                    try process.run()
+                    continuation.resume(returning: true)
+                } catch {
+                    sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
+    func canRun(_ tool: String) async -> Bool {
+        FileManager.default.isExecutableFile(atPath: tool)
+    }
+
+    /// Locks the screen through `login.framework`'s `SACLockScreenImmediate`,
+    /// resolved at runtime with the same `dlsym` approach this type already uses
+    /// for `AuthorizationExecuteWithPrivileges`.
+    ///
+    /// This is a fallback for systems where the supported `CGSession -suspend`
+    /// tool no longer ships (Apple removed `User.menu` from `Menu Extras`), so
+    /// the caller should prefer that tool whenever it is still present.
+    @discardableResult
+    func lockScreen() async -> Bool {
+        guard let lock = Self.lockScreenImmediate else {
+            sleepyCommandLogger.error("No screen-lock mechanism available: SACLockScreenImmediate could not be resolved")
+            return false
+        }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // Locking is UI-adjacent; keep it on the main queue.
+            DispatchQueue.main.async {
+                lock()
+                continuation.resume(returning: true)
             }
         }
     }
