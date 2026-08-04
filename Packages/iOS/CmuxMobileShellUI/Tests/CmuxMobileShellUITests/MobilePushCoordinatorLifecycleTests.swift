@@ -1,6 +1,7 @@
 import CmuxAuthRuntime
 import Foundation
 import Testing
+import UserNotifications
 
 @testable import CmuxMobileShellUI
 
@@ -271,7 +272,7 @@ private actor LifecycleSyncGate {
         )
         #expect(
             coordinator.readiness(macStatus: nil)
-                == .blocked(.authorizationDenied)
+                == .blocked(.systemPermissionDenied)
         )
     }
 
