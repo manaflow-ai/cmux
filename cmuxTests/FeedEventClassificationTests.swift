@@ -1,3 +1,4 @@
+import Darwin
 import Testing
 
 // `FeedEventClassifier` lives in `CLI/FeedEventClassifier.swift`, which is
@@ -18,21 +19,19 @@ import Testing
 /// https://github.com/manaflow-ai/cmux/issues/4985
 @Suite("Feed event classification")
 struct FeedEventClassificationTests {
-    private func classify(_ source: String, _ event: String, tool: String = "")
-        -> (
-            name: String,
-            actionable: Bool,
-            notifiesNativeApprovalPrompt: Bool,
-            clearsNativeApprovalPrompt: Bool
-        )
+    private func classify(
+        _ source: String,
+        _ event: String,
+        tool: String = ""
+    )
+        -> (name: String, actionable: Bool)
     {
-        let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (
-            result.hookEventName,
-            result.isActionable,
-            result.notifiesNativeApprovalPrompt,
-            result.clearsNativeApprovalPrompt
+        let result = FeedEventClassifier.classify(
+            source: source,
+            event: event,
+            toolName: tool
         )
+        return (result.0, result.1)
     }
 
     // MARK: Hermes Agent (the reported bug)
@@ -121,74 +120,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
-    /// so Feed must keep both pre-tool events and permission requests as
-    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
-    @Test func codexPreToolUseIsTelemetry() {
+    /// Codex pre-tool telemetry stays non-blocking, but a dedicated
+    /// `PermissionRequest` must never be swallowed. Once Codex says it is
+    /// waiting for permission, Feed owns surfacing that wait consistently.
+    @Test func codexDedicatedPermissionRequestIsActionable() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
-    }
-
-    /// Codex blocks in its OWN approval reviewer when `PermissionRequest`
-    /// fires, so the feed event must stay non-actionable telemetry — but the
-    /// bridge must still raise the "Agent Needs Permission"-gated
-    /// notification, or a blocked codex seat is silent indefinitely.
-    /// https://github.com/manaflow-ai/cmux/issues/9592
-    @Test func codexPermissionRequestRaisesPermissionPromptNotification() {
-        for event in ["PermissionRequest", "permission_request"] {
-            let classification = classify("codex", event, tool: "shell")
-            #expect(classification.notifiesNativeApprovalPrompt == true)
-            // The blocking contract is unchanged: telemetry wire event, no
-            // cmux Feed approval card competing with Codex's own reviewer.
-            #expect(classification.name == "PreToolUse")
-            #expect(classification.actionable == false)
-        }
-    }
-
-    /// The permission-prompt notification is exclusive to agents that block
-    /// in their own approval UI. Blocking-capable agents (claude, gemini,
-    /// kiro) notify through the app's actionable-approval path, ordinary
-    /// telemetry never notifies, and unknown sources stay silent by default.
-    @Test func permissionPromptNotificationStaysScopedToNativeApprovalAgents() {
-        #expect(classify("claude", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
-        #expect(classify("gemini", "PreToolUse", tool: "Bash").notifiesNativeApprovalPrompt == false)
-        #expect(classify("kiro", "preToolUse", tool: "fs_write").notifiesNativeApprovalPrompt == false)
-        #expect(classify("codex", "PreToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
-        #expect(classify("codex", "PostToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
-        #expect(classify("hermes-agent", "pre_approval_request").notifiesNativeApprovalPrompt == false)
-        #expect(classify("totally-new-agent", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
-    }
-
-    /// A COMPLETED codex tool proves any pending native approval prompt
-    /// resolved — execution strictly follows approval (by the user or by
-    /// Codex's own auto-review) — so PostToolUse clears the pane's stale
-    /// permission notification, mirroring the pane-wide clears Claude's
-    /// lifecycle hooks and Hermes' approval-response hook already perform.
-    @Test func codexToolCompletionClearsNativeApprovalPrompt() {
-        #expect(classify("codex", "PostToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
-        #expect(classify("codex", "post_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
-    }
-
-    /// Pre-tool events must NOT clear: codex fires them when it INTENDS to
-    /// run a tool, with no ordering guarantee against the PermissionRequest
-    /// hook, so a start-time clear could erase the just-raised prompt while
-    /// the agent is still blocked — reintroducing #9592's silence. The clear
-    /// also stays scoped: the prompt event itself notifies rather than
-    /// clears, and agents that never raise native approval prompts must not
-    /// have their tool telemetry touch the notification queue.
-    @Test func nativeApprovalPromptClearStaysScopedToCodexToolCompletion() {
-        #expect(classify("codex", "PreToolUse", tool: "shell").clearsNativeApprovalPrompt == false)
-        #expect(classify("codex", "pre_tool_use", tool: "shell").clearsNativeApprovalPrompt == false)
-        #expect(classify("codex", "beforeShellExecution", tool: "shell").clearsNativeApprovalPrompt == false)
-        #expect(classify("codex", "PermissionRequest", tool: "shell").clearsNativeApprovalPrompt == false)
-        #expect(classify("codex", "Stop", tool: "").clearsNativeApprovalPrompt == false)
-        #expect(classify("claude", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
-        #expect(classify("claude", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
-        #expect(classify("gemini", "PreToolUse", tool: "Read").clearsNativeApprovalPrompt == false)
-        #expect(classify("totally-new-agent", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PermissionRequest")
+        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
@@ -225,11 +165,150 @@ struct FeedEventClassificationTests {
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)
     }
 
-    /// Antigravity and Cursor tool-start hooks are telemetry, not approval
-    /// requests. Neither integration has a safe blocking bridge contract.
-    @Test func incompatibleToolLifecycleHooksStayTelemetry() {
+    /// Antigravity has not migrated its native tool lifecycle yet, so its raw
+    /// pre-tool signal stays telemetry. Cursor invokes both shell and
+    /// structured tool-start hooks before its native permission evaluation,
+    /// so both stay telemetry regardless of the sandbox execution policy.
+    @Test func cursorShellStartStaysTelemetryUntilNativeApprovalDecision() {
         #expect(classify("antigravity", "PreToolUse", tool: "Bash").actionable == false)
-        #expect(classify("cursor", "beforeShellExecution", tool: "Bash").actionable == false)
+        let shellStart = classify("cursor", "beforeShellExecution", tool: "Bash")
+        #expect(shellStart.name == "PreToolUse")
+        #expect(shellStart.actionable == false)
+        let toolStart = classify("cursor", "preToolUse", tool: "Shell")
+        #expect(toolStart.name == "PreToolUse")
+        #expect(toolStart.actionable == false)
+    }
+
+    @Test func cursorNativeApprovalLogDistinguishesPromptFromAutoApproval() {
+        let requested = CursorNativeApprovalLogClassifier.classify(
+            line: """
+            {"msg":"Shell permissions: requesting shell approval","toolCallId":"call-1"}
+            """,
+            expectedToolCallId: "call-1"
+        )
+        #expect(requested == .approvalRequested(toolCallId: "call-1"))
+
+        let autoApproved = CursorNativeApprovalLogClassifier.classify(
+            line: """
+            {"msg":"Shell permissions: auto-approved shell command","toolCallId":"call-2"}
+            """,
+            expectedToolCallId: "call-2"
+        )
+        #expect(autoApproved == .autoApproved(toolCallId: "call-2"))
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"Shell permissions: requesting shell approval","toolCallId":"other-call"}
+                """,
+                expectedToolCallId: "call-1"
+            ) == nil
+        )
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"running command","command":"printf 'Shell permissions: requesting shell approval'","toolCallId":"call-3"}
+                """
+            ) == nil
+        )
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"Shell permissions: requesting shell approval","command":"printf '\\\"toolCallId\\\":\\\"forged-call\\\"'","toolCallId":"real-call"}
+                """,
+                expectedToolCallId: "real-call"
+            ) == .approvalRequested(toolCallId: "real-call")
+        )
+    }
+
+    /// Every built-in integration must have an explicit approval contract.
+    /// A familiar dedicated permission event from any built-in source is
+    /// therefore actionable; only genuinely unknown third-party sources use
+    /// the neutral telemetry fallback.
+    @Test func everyBuiltInAgentHasMandatoryPermissionSemantics() {
+        for integration in BuiltInAgentIntegration.allCases {
+            let source = integration.feedSourceName
+            let permission = classify(
+                source,
+                "PermissionRequest",
+                tool: "Bash"
+            )
+            #expect(
+                permission.name == "PermissionRequest",
+                "Missing permission mapping for \(source)"
+            )
+            #expect(
+                permission.actionable,
+                "Permission wait was swallowed for \(source)"
+            )
+        }
+    }
+
+    @Test func preToolOnlyAgentsInferSideEffectingApproval() {
+        let integrations = BuiltInAgentIntegration.allCases.filter {
+            $0.approvalDetectionMechanism
+                == .sideEffectingToolStartInference
+        }
+        #expect(
+            !integrations.isEmpty,
+            "The approval inference contract must cover at least one agent."
+        )
+        for integration in integrations {
+            let source = integration.feedSourceName
+            let sideEffecting = classify(
+                source,
+                "PreToolUse",
+                tool: "Bash"
+            )
+            #expect(sideEffecting.name == "PermissionRequest")
+            #expect(sideEffecting.actionable)
+            #expect(
+                classify(
+                    source,
+                    "PreToolUse",
+                    tool: "Read"
+                ).actionable == false
+            )
+        }
+    }
+
+    @Test func ampAndCursorRequireNativePostPolicyApprovalEvidence() {
+        #expect(
+            BuiltInAgentIntegration.amp.approvalDetectionMechanism
+                == .nativePostPolicyObserver
+        )
+        #expect(
+            BuiltInAgentIntegration.cursor.approvalDetectionMechanism
+                == .nativePostPolicyObserver
+        )
+        #expect(classify("amp", "PreToolUse", tool: "Bash").actionable == false)
+        #expect(
+            classify("cursor", "PreToolUse", tool: "Bash").actionable
+                == false
+        )
+    }
+
+    /// `CMUXCLI.agentDefs` maps `genericHookIntegrations` directly, while the
+    /// app lifecycle consumes `allowedStatusKeys`. Verify those shared catalog
+    /// values cover every built-in exactly once.
+    @Test func sharedIntegrationContractProvidesCompleteCatalogs() {
+        let allIntegrations = Set(BuiltInAgentIntegration.allCases)
+        let genericIntegrations = Set(
+            BuiltInAgentIntegration.genericHookIntegrations
+        )
+        #expect(
+            genericIntegrations
+                == allIntegrations.subtracting([.claude])
+        )
+        let statusKeys = BuiltInAgentIntegration.allCases.map(\.statusKey)
+        #expect(
+            Set(statusKeys)
+                == AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+        )
+        #expect(
+            statusKeys.count
+                == AgentHibernationLifecycleStatusKeys.allowedStatusKeys.count,
+            "Every built-in integration must have a unique lifecycle key."
+        )
     }
 
     // MARK: Kiro (camelCase events, no dedicated approval event)
@@ -267,96 +346,115 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+}
 
-    // MARK: Attention command construction (the wire the feed hook sends)
-
-    private static let workspaceUUID = "11111111-2222-3333-4444-555555555555"
-    private static let surfaceUUID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
-
-    private func attentionCommand(
-        _ source: String,
-        _ event: String,
-        tool: String,
-        displayName: String = "Codex",
-        workspaceId: String? = workspaceUUID,
-        surfaceId: String? = surfaceUUID
-    ) -> String? {
-        FeedEventClassifier.nativeApprovalPromptAttentionCommand(
-            classification: FeedEventClassifier.classify(source: source, event: event, toolName: tool),
-            displayName: displayName,
-            toolName: tool,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId
+@Suite("Shared agent turn settlement")
+struct AgentTurnSettlementTests {
+    @Test func prematureAmpEndWithBackgroundWorkStaysRunning() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 1,
+                processLiveness: .live
+            )
         )
+
+        #expect(decision == .keepRunning)
     }
 
-    /// The exact `notify_target_async` line for a codex PermissionRequest:
-    /// UUID-addressed, tool-name-only body (never the tool input), and the
-    /// `c=needs-permission;p=0` meta that gates the alert under the "Agent
-    /// Needs Permission" setting. A malformed payload or dropped meta here
-    /// is what silently regresses https://github.com/manaflow-ai/cmux/issues/9592.
-    @Test func codexPermissionRequestBuildsGatedNotifyCommand() {
-        #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "shell")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0"
+    @Test func settledAmpTurnWithNoBackgroundWorkCompletes() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live
+            )
         )
+
+        #expect(decision == .settle)
     }
 
-    /// Without a tool name the body falls back to the shared "Approval
-    /// needed" string rather than an empty interpolation.
-    @Test func codexPermissionRequestWithoutToolNameFallsBackToApprovalNeeded() {
-        #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|Approval needed|c=needs-permission;p=0"
+    @Test func ampTurnEndStillRequiresExplicitSettlementAfterWorkDrains() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live
+            )
         )
+
+        #expect(decision == .keepRunning)
     }
 
-    /// Tool names are payload-controlled input: pipes are the payload
-    /// delimiter and newlines would split the single socket command line,
-    /// so both must be neutralized.
-    @Test func attentionCommandSanitizesPipeAndNewlineInToolName() {
-        #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "a|b")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0"
+    @Test func codexStopWithStructuredActiveSubagentStaysRunning() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .codex,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 1,
+                processLiveness: .live
+            )
         )
-        #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "a\nb")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a b needs approval|c=needs-permission;p=0"
-        )
+
+        #expect(decision == .keepRunning)
     }
 
-    /// Codex tool completion resolves the prompt: the exact pane-scoped
-    /// `clear_notifications` line.
-    @Test func codexToolCompletionBuildsPaneScopedClearCommand() {
-        #expect(
-            attentionCommand("codex", "PostToolUse", tool: "shell")
-                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
+    @Test func exitedProcessTerminatesWithoutFalseCompletion() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .cursor,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .exited
+            )
         )
+
+        #expect(decision == .terminateWithoutCompletion)
     }
 
-    /// Lowercase UUIDs from the pane environment are normalized, not
-    /// rejected.
-    @Test func attentionCommandNormalizesLowercaseUUIDs() {
-        let command = attentionCommand(
-            "codex",
-            "PermissionRequest",
-            tool: "shell",
-            workspaceId: Self.workspaceUUID.lowercased(),
-            surfaceId: Self.surfaceUUID.lowercased()
+    @Test func reusedPIDGenerationIsNotTreatedAsLive() {
+        let liveness = AgentTurnProcessLiveness.observe(
+            pid: Int(getpid()),
+            expectedStartSeconds: Int64.min,
+            expectedStartMicroseconds: Int64.min
         )
-        #expect(command?.contains("notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) ") == true)
+
+        #expect(liveness == .exited)
     }
 
-    /// The command is advisory: missing or non-UUID identities yield nil
-    /// instead of a malformed socket command, and events without attention
-    /// semantics never produce a command at all.
-    @Test func attentionCommandRequiresUUIDTargetsAndAttentionSemantics() {
-        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: nil) == nil)
-        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: nil) == nil)
-        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: "surface:1") == nil)
-        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: "workspace:1") == nil)
-        #expect(attentionCommand("codex", "PreToolUse", tool: "shell") == nil)
-        #expect(attentionCommand("claude", "PermissionRequest", tool: "Bash") == nil)
-        #expect(attentionCommand("totally-new-agent", "PermissionRequest", tool: "Bash") == nil)
+    @Test func supersededEndCannotClearOrTerminateNewerTurn() {
+        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+            incomingTurnId: "turn-old",
+            activeTurnIds: ["turn-new"],
+            latestTurnId: "turn-new",
+            terminalTurnIds: []
+        )
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .exited,
+                turnFreshness: freshness
+            )
+        )
+
+        #expect(freshness == .superseded)
+        #expect(decision == .keepRunning)
+    }
+
+    @Test func anonymousActiveDepthDoesNotMakeParentStopStale() {
+        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+            incomingTurnId: "parent-turn",
+            activeTurnIds: [],
+            activeTurnDepth: 1,
+            latestTurnId: "completed-child-turn",
+            terminalTurnIds: ["completed-child-turn"]
+        )
+
+        #expect(freshness == .unknown)
     }
 }

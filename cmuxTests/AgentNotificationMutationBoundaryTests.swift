@@ -175,6 +175,21 @@ extension AgentNotificationRegressionTests {
         #expect(binding.ttyDevice > 0)
 
         let sessionKey = "omp.dock-session"
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerId),
+            key: sessionKey,
+            pid: getpid(),
+            processGeneration: processGeneration,
+            panelID: fixture.panelId
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(dockOwnerId),
             key: "omp",
@@ -187,16 +202,11 @@ extension AgentNotificationRegressionTests {
             panelID: fixture.panelId,
             pid: nil
         )
-        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
-            target: .workspace(dockOwnerId),
-            key: sessionKey,
-            pid: getpid(),
-            panelID: fixture.panelId
-        )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -243,6 +253,7 @@ extension AgentNotificationRegressionTests {
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -551,6 +562,14 @@ extension AgentNotificationRegressionTests {
             bus.discardPendingNotifications()
         }
 
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(fixture.source.id),
             key: "claude_code",
@@ -561,12 +580,13 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: 43_210
+            pid: getpid()
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
 
@@ -576,7 +596,7 @@ extension AgentNotificationRegressionTests {
 
         #expect(fixture.source.statusEntries["claude_code"] == nil)
         #expect(fixture.destination.statusEntries["claude_code"]?.value == "Running")
-        #expect(fixture.destination.agentPIDs["claude_code"] == 43_210)
+        #expect(fixture.destination.agentPIDs["claude_code"] == getpid())
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )

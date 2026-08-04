@@ -1,4 +1,5 @@
 import Combine
+import Darwin
 import Foundation
 import Observation
 import Testing
@@ -74,6 +75,55 @@ struct WorkspaceSidebarObservationTests {
         #expect(
             workspaceWillChangeCount == 0,
             "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+        )
+    }
+
+    @Test
+    func reconciledFeedAttentionMakesPreRegisteredStatusVisible() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.statusEntries["cursor"] = SidebarStatusEntry(
+            key: "cursor",
+            value: FeedCoordinator.needsInputStatusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF"
+        )
+        #expect(
+            !workspace.sidebarStatusEntriesInDisplayOrder().contains {
+                $0.key == "cursor"
+            }
+        )
+
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let token = try #require(
+            workspace.beginAgentFeedAttention(
+                key: "cursor",
+                panelId: panelId,
+                processGeneration: generation
+            )
+        )
+
+        #expect(workspace.agentPIDs.isEmpty)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains {
+                $0.key == "cursor"
+            },
+            "Exact-generation attention evidence must surface Needs Input even when its detached PID registration has not arrived yet."
+        )
+
+        #expect(
+            workspace.endAgentFeedAttention(
+                key: "cursor",
+                panelId: panelId,
+                token: token
+            )
+        )
+        #expect(
+            !workspace.sidebarStatusEntriesInDisplayOrder().contains {
+                $0.key == "cursor"
+            }
         )
     }
 
@@ -321,6 +371,172 @@ struct WorkspaceSidebarObservationTests {
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
 
         #expect(workspace.sidebarAgentRuntimeObservation.changeGeneration == before)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func agentProcessExitClearsRunningLifecycleWithoutWaitingForPIDPoll() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        let pid = process.processIdentifier
+        workspace.recordAgentPID(
+            key: "codex.process-exit",
+            pid: pid,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        let changes = workspace.sidebarAgentRuntimeObservation.changes()
+
+        process.terminate()
+
+        let cleared = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in changes {
+                    let isCleared = await MainActor.run {
+                        let lifecycle = workspace.agentLifecycleStatesByPanelId[panelId]?["codex"]
+                        return workspace.agentPIDs["codex.process-exit"] == nil
+                            && lifecycle == nil
+                    }
+                    if isCleared {
+                        return true
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task<Never, Never>.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+
+        #expect(
+            cleared,
+            "A generation-bound process exit watcher must clear a killed agent immediately instead of leaving Running until the 30-second sweep."
+        )
+        #expect(workspace.statusEntries["codex"] == nil)
+    }
+
+    @Test func processExitTombstoneRejectsDelayedLifecycleHook() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.delayed-hook",
+            pid: process.processIdentifier,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        process.terminate()
+        process.waitUntilExit()
+        #expect(workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
+
+        // Simulate a queued Stop that was delivered after the process death.
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil,
+            "A delayed hook from a dead PID generation must not resurrect lifecycle state."
+        )
+    }
+
+    @Test func controlSidebarRejectsAcceptedPIDGenerationThatExitedBeforeDelivery() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        let acceptedIdentity = try #require(
+            AgentPIDProcessIdentity(pid: process.processIdentifier)
+        )
+        process.waitUntilExit()
+        let deadPID = process.processIdentifier
+        let probeResult = kill(deadPID, 0)
+        let probeErrno = errno
+        try #require(probeResult != 0)
+        try #require(probeErrno == ESRCH)
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+
+        #expect(
+            !owner.recordAgentPID(
+                key: "codex.dead-before-delivery",
+                pid: deadPID,
+                panelId: panelId,
+                acceptedProcessIdentity: acceptedIdentity
+            ).accepted
+        )
+        owner.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+
+        #expect(workspace.agentPIDs["codex.dead-before-delivery"] == nil)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil
+        )
+    }
+
+    @Test func deadPIDCannotPublishControlSocketStatus() throws {
+        let previousManager =
+            TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        process.waitUntilExit()
+        let deadPID = process.processIdentifier
+        let probeResult = kill(deadPID, 0)
+        let probeErrno = errno
+        try #require(probeResult != 0)
+        try #require(probeErrno == ESRCH)
+
+        let response = TerminalController.shared.handleSocketLine(
+            "set_status codex Running --icon=bolt.fill --pid=\(deadPID) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        #expect(response == "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(workspace.statusEntries["codex"] == nil)
+        #expect(workspace.agentPIDs["codex"] == nil)
     }
 
     @Test func clearAgentLifecycleWithNilPanelClearsKeySetOnSpecificPanel() throws {

@@ -93,6 +93,12 @@ def main() -> int:
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
+if [[ "$*" == hooks\\ amp\\ __native-attention\\ identify\\ --pid\\ * ]]; then
+  requested_pid="${*##* --pid }"
+  requested_pid="${requested_pid%% *}"
+  printf '{"pid":%s,"pid_start_seconds":1234,"pid_start_microseconds":5678}\n' "$requested_pid"
+  exit 0
+fi
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
 {
@@ -106,6 +112,9 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
 
         check_env = env.copy()
         check_env.pop("CMUX_AMP_HOOKS_DISABLED", None)
+        for key in tuple(check_env):
+            if key.startswith("CMUX_AGENT_LAUNCH_"):
+                check_env.pop(key)
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
         check_env["CMUX_WORKSPACE_ID"] = (
@@ -183,13 +192,35 @@ export function spawn(command, args, options) {
     },
   };
 }
+
+export function spawnSync(command, args, options) {
+  const call = { command, args: Array.from(args || []), options, stdin: "" };
+  globalThis.__cmuxAmpSpawnCalls.push(call);
+  const pidIndex = call.args.indexOf("--pid");
+  if (pidIndex < 0 || !call.args[pidIndex + 1]) {
+    throw new Error("missing --pid in identify call");
+  }
+  const requestedPid = Number(call.args[pidIndex + 1]);
+  if (!Number.isSafeInteger(requestedPid) || requestedPid <= 0) {
+    throw new Error(`invalid --pid in identify call: ${call.args[pidIndex + 1]}`);
+  }
+  return {
+    status: 0,
+    stdout: JSON.stringify({
+      pid: requestedPid,
+      pid_start_seconds: 1234,
+      pid_start_microseconds: 5678,
+    }),
+    stderr: "",
+  };
+}
 """,
             encoding="utf-8",
         )
         instrumented_path = extension_path.parent / "cmux-session-instrumented.ts"
         instrumented_text = extension_text.replace(
-            'import { spawn } from "node:child_process";',
-            'import { spawn } from "./cmux-test-spawn.mjs";',
+            'import { spawn, spawnSync } from "node:child_process";',
+            'import { spawn, spawnSync } from "./cmux-test-spawn.mjs";',
             1,
         )
         if instrumented_text == extension_text:
@@ -218,14 +249,23 @@ const attentionCalls = (action) => globalThis.__cmuxAmpSpawnCalls.filter(
     call.args.slice(0, 4).join(" ")
       === `hooks amp __native-attention ${action}`
 );
-const makeThread = (id, initialState = "running") => {
+if (attentionCalls("identify").length !== 1) {
+  throw new Error("Amp did not capture its exact process generation once");
+}
+const makeThread = (id, initialState = "running", deferInitialGet = false) => {
   let currentState = initialState;
   const observers = new Set();
+  let resolveInitialGet = null;
+  const initialGet = deferInitialGet
+    ? new Promise((resolve) => {
+        resolveInitialGet = resolve;
+      })
+    : null;
   return {
     id,
     state: {
       async get() {
-        return currentState;
+        return initialGet ?? currentState;
       },
       subscribe(observer) {
         observers.add(observer);
@@ -239,6 +279,13 @@ const makeThread = (id, initialState = "running") => {
     setState(nextState) {
       currentState = nextState;
       for (const observer of observers) observer(nextState);
+    },
+    resolveInitialGet(value) {
+      if (!resolveInitialGet) {
+        throw new Error("thread has no deferred native-state snapshot");
+      }
+      resolveInitialGet(value);
+      resolveInitialGet = null;
     }
   };
 };
@@ -267,11 +314,18 @@ if (attentionCalls("end").length !== 1) {
 }
 const beginAttention = attentionCalls("begin")[0].args;
 const endAttention = attentionCalls("end")[0].args;
+const identifyAttention = attentionCalls("identify")[0].args;
 const option = (args, name) => args[args.indexOf(name) + 1];
 if (
-  option(beginAttention, "--scope-id") !== option(endAttention, "--scope-id")
+  option(identifyAttention, "--pid") !== option(beginAttention, "--pid")
+  || option(beginAttention, "--pid") !== option(endAttention, "--pid")
+  || option(beginAttention, "--scope-id") !== option(endAttention, "--scope-id")
   || option(beginAttention, "--observation-id")
     !== option(endAttention, "--observation-id")
+  || option(beginAttention, "--pid-start-seconds")
+    !== option(endAttention, "--pid-start-seconds")
+  || option(beginAttention, "--pid-start-microseconds")
+    !== option(endAttention, "--pid-start-microseconds")
 ) {
   throw new Error(
     `Amp approval conclusion did not match its begin: begin=${
@@ -280,7 +334,6 @@ if (
   );
 }
 await handlers.get("tool.call")({
-  thread,
   toolUseID: "tool-main",
   tool: "Task",
   input: { prompt: "keep working in the background" }
@@ -329,7 +382,6 @@ if (stopCalls().length !== completionCount + 1) {
   throw new Error("another thread's tool result settled the pending turn");
 }
 await handlers.get("tool.result")({
-  thread,
   toolUseID: "tool-main",
   tool: "Task",
   status: "done",
@@ -356,6 +408,39 @@ if (
 ) {
   throw new Error(
     `Amp did not publish explicit settlement after background work drained: ${JSON.stringify(settled)}`
+  );
+}
+const racedThread = makeThread(
+  "T-amp-native-state-race",
+  "running",
+  true
+);
+const racedCtx = { thread: racedThread };
+const racedStart = handlers.get("agent.start")({
+  thread: racedThread,
+  message: "race native snapshot",
+  id: "msg-race"
+}, racedCtx);
+racedThread.setState("idle");
+racedThread.resolveInitialGet("running");
+await racedStart;
+const racedCompletionCount = stopCalls().length;
+await handlers.get("agent.end")({
+  thread: racedThread,
+  message: "race native snapshot",
+  id: "msg-race",
+  status: "done",
+  messages: []
+}, racedCtx);
+if (stopCalls().length !== racedCompletionCount + 2) {
+  throw new Error(
+    "a stale native get() snapshot overwrote the newer idle subscription"
+  );
+}
+const raceSettled = JSON.parse(stopCalls().at(-1).stdin);
+if (raceSettled.cmux_turn_boundary !== "settled") {
+  throw new Error(
+    `Amp native-state race did not settle: ${JSON.stringify(raceSettled)}`
   );
 }
 """
@@ -413,7 +498,14 @@ if (
         if "amp_api_key=secret-should-not-propagate" in env_log:
             print(f"FAIL: plugin propagated AMP_API_KEY into hook subprocess, got {env_log!r}")
             return 1
-        argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
+        argv_line = next(
+            (
+                line
+                for line in env_log.splitlines()
+                if line.startswith("argv=") and line != "argv="
+            ),
+            "",
+        )
         try:
             argv_value = argv_line[len("argv="):] if argv_line.startswith("argv=") else argv_line
             decoded_argv = [

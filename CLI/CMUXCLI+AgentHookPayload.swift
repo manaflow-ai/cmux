@@ -55,7 +55,12 @@ extension CMUXCLI {
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
-        let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
+        // Cursor calls its per-turn identifier `generation_id`; it is not the
+        // kernel process generation used by lifecycle reconciliation.
+        let turnId = firstString(
+            in: object,
+            keys: ["turn_id", "turnId", "generation_id", "generationId"]
+        )
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
         let compactObject = compactClaudeHookObject(object)
@@ -74,7 +79,7 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "generation_id", "generationId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
@@ -173,7 +178,7 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "generation_id", "generationId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240

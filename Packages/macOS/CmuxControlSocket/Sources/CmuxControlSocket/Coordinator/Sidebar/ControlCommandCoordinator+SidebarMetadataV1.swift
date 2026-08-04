@@ -325,10 +325,12 @@ extension ControlCommandCoordinator {
     /// (parse + bus enqueue; zero main hops).
     nonisolated func sidebarSetAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
+        let strings =
+            context?.controlSidebarAgentStrings() ?? .englishFallback
+        let usage = strings.setAgentPIDUsage
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
-            return "ERROR: Usage: \(usage)"
+            return strings.usageError(usage: usage)
         }
         let key = parsed.positional[0]
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
@@ -339,30 +341,47 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let generationResolution = sidebarParseAgentProcessGeneration(
+            options: parsed.options,
+            usage: usage,
+            strings: strings
+        )
+        if let error = generationResolution.error {
+            return error
+        }
+        if let generation = generationResolution.generation,
+           generation.pid != pid {
+            return strings.processGenerationPIDMismatch
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
+            processGeneration: generationResolution.generation,
             panelID: panelResolution.panelId
         )
         return "OK"
     }
 
     /// `set_agent_lifecycle` — record a restorable agent session's lifecycle.
-    /// The vault-registry allowlist check
-    /// (`controlSidebarIsAllowedAgentLifecycleKey`) owns this command's single
-    /// main hop app-side: it snapshots the tab/panel directory candidates on
-    /// main and runs the registry disk IO on the calling thread.
+    /// The allowlist and local-generation requirement checks collectively own
+    /// at most one app-side main hop: custom keys resolve their vault registry,
+    /// while built-ins resolve whether their owner is in a remote PID namespace.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let strings =
+            context?.controlSidebarAgentStrings() ?? .englishFallback
+        let usage = strings.setAgentLifecycleUsage
         guard parsed.positional.count >= 2 else {
-            return "ERROR: Usage: \(usage)"
+            return strings.usageError(usage: usage)
         }
         let key = parsed.positional[0]
         let rawLifecycle = parsed.positional[1]
         guard let lifecycleRawValue = context?.controlSidebarParseAgentLifecycle(rawLifecycle) else {
-            return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
+            return strings.invalidLifecycle(
+                parsed.positional[1],
+                usage: usage
+            )
         }
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
@@ -370,6 +389,14 @@ extension ControlCommandCoordinator {
         }
         let panelResolution = sidebarParseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
+            return error
+        }
+        let generationResolution = sidebarParseAgentProcessGeneration(
+            options: parsed.options,
+            usage: usage,
+            strings: strings
+        )
+        if let error = generationResolution.error {
             return error
         }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
@@ -377,12 +404,21 @@ extension ControlCommandCoordinator {
             target: target,
             panelID: panelResolution.panelId
         ) ?? false else {
-            return "ERROR: Unsupported agent lifecycle key '\(key)'"
+            return strings.unsupportedLifecycleKey(key)
+        }
+        if generationResolution.generation == nil,
+           context?.controlSidebarRequiresAgentProcessGeneration(
+               key,
+               target: target,
+               panelID: panelResolution.panelId
+           ) == true {
+            return strings.processGenerationRequired(key: key)
         }
         context?.controlSidebarScheduleAgentLifecycle(
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
+            processGeneration: generationResolution.generation,
             panelID: panelResolution.panelId
         )
         return "OK"

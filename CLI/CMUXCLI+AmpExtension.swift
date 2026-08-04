@@ -12,7 +12,7 @@ extension CMUXCLI {
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 // @i-know-the-amp-plugin-api-is-wip-and-very-experimental-right-now
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
@@ -109,7 +109,7 @@ function eventName(subcommand: string): string {
 
 function sendHook(
   subcommand: string,
-  sessionId: string,
+  sessionId: string | null,
   cwd: string,
   extra: Record<string, unknown> = {}
 ): void {
@@ -138,7 +138,20 @@ function sendHook(
   } catch (_) {}
 }
 
-type AmpThreadContext = { thread?: { id?: string } };
+type AmpNativeThreadState = "idle" | "running" | "awaiting-approval" | "error";
+type AmpThreadStateSubscription = { unsubscribe(): void };
+type AmpThreadStateObservable = {
+  get(): Promise<AmpNativeThreadState>;
+  subscribe(
+    onNext: (state: AmpNativeThreadState) => void
+  ): AmpThreadStateSubscription;
+};
+type AmpThreadContext = {
+  thread?: {
+    id?: string;
+    state?: AmpThreadStateObservable;
+  };
+};
 
 function threadIdFrom(event: { thread?: { id?: string } } | undefined, ctx?: AmpThreadContext): string | null {
   return firstString(event?.thread?.id, ctx?.thread?.id);
@@ -271,6 +284,63 @@ function runCmux(args: string[]): void {
   } catch (_) {}
 }
 
+type NativeAttentionProcessGeneration = {
+  startSeconds: string;
+  startMicroseconds: string;
+};
+
+function captureNativeAttentionProcessGeneration(): NativeAttentionProcessGeneration | null {
+  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return null;
+  if (!process.env.CMUX_SURFACE_ID) return null;
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  try {
+    const child = spawnSync(
+      cmux,
+      [
+        "hooks",
+        "amp",
+        "__native-attention",
+        "identify",
+        "--pid",
+        String(process.pid),
+      ],
+      {
+        env: statusEnvironment(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 2000,
+      },
+    );
+    if (child.status !== 0 || typeof child.stdout !== "string") return null;
+    const identity = JSON.parse(child.stdout) as {
+      pid?: unknown;
+      pid_start_seconds?: unknown;
+      pid_start_microseconds?: unknown;
+    };
+    if (
+      identity.pid !== process.pid
+      || typeof identity.pid_start_seconds !== "number"
+      || typeof identity.pid_start_microseconds !== "number"
+      || !Number.isSafeInteger(identity.pid_start_seconds)
+      || !Number.isSafeInteger(identity.pid_start_microseconds)
+      || Number(identity.pid_start_seconds) < 0
+      || Number(identity.pid_start_microseconds) < 0
+      || Number(identity.pid_start_microseconds) >= 1_000_000
+    ) {
+      return null;
+    }
+    return {
+      startSeconds: String(identity.pid_start_seconds),
+      startMicroseconds: String(identity.pid_start_microseconds),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+const nativeAttentionProcessGeneration =
+  captureNativeAttentionProcessGeneration();
+
 function setStatus(label: string, icon: string, color: string): void {
   runCmux([
     "set-status",
@@ -365,16 +435,231 @@ export default function (amp: PluginAPI) {
   // `helpers` is part of the Neo Plugin API; gracefully degrade if absent.
   const helpers = (amp as unknown as { helpers?: unknown }).helpers;
 
-  // Count of tool calls in flight. While > 0 we display the most recent
-  // tool's status; when it returns to 0 we flip back to "thinking".
-  let inFlightTools = 0;
+  type PendingTurnEnd = {
+    event: AgentEndEvent;
+    sessionId: string | null;
+    cwd: string;
+  };
+  type AmpTurnState = {
+    turnId: string;
+    activeToolUseIds: Set<string>;
+    pendingEnd: PendingTurnEnd | null;
+    nativeStateObservable: AmpThreadStateObservable | null;
+    nativeStateSubscription: AmpThreadStateSubscription | null;
+    nativeThreadState: AmpNativeThreadState | null;
+    attentionScopeId: string;
+    attentionObservationId: string;
+    isAttentionVisible: boolean;
+  };
 
-  // True between agent.start and agent.end. Used so that a tool.result that
-  // arrives after agent.end (cancellation/error races) cannot overwrite the
-  // final status badge with "thinking". cmux runs one Amp session per terminal
-  // pane, so a single flag is sufficient — concurrent threads would need a
-  // per-thread map.
-  let turnActive = false;
+  // Amp plugin processes are long-lived and may serve multiple threads
+  // concurrently. Tool liveness and provisional completion therefore belong
+  // to a thread/turn, never to one process-global counter.
+  const turnStates = new Map<string, AmpTurnState>();
+  let turnSequence = 0;
+
+  const makeTurnState = (
+    event: { id?: unknown },
+    threadId: string,
+    forcedTurnId: string | null = null,
+  ): AmpTurnState => {
+    const sequence = ++turnSequence;
+    return {
+      turnId:
+        forcedTurnId
+        || firstString(event.id)
+        || `${process.pid}:${threadId}:${Date.now()}:${sequence}`,
+      activeToolUseIds: new Set(),
+      pendingEnd: null,
+      nativeStateObservable: null,
+      nativeStateSubscription: null,
+      nativeThreadState: null,
+      attentionScopeId: `amp-scope-${process.pid}-${sequence}`,
+      attentionObservationId:
+        `amp-approval-${process.pid}-${sequence}`,
+      isAttentionVisible: false,
+    };
+  };
+
+  const beginNativeAttention = (state: AmpTurnState): void => {
+    if (state.isAttentionVisible) return;
+    if (!nativeAttentionProcessGeneration) return;
+    const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
+    const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
+    if (!workspaceId || !surfaceId) return;
+    state.isAttentionVisible = true;
+    runCmux([
+      "hooks",
+      "amp",
+      "__native-attention",
+      "begin",
+      "--pid",
+      String(process.pid),
+      "--pid-start-seconds",
+      nativeAttentionProcessGeneration.startSeconds,
+      "--pid-start-microseconds",
+      nativeAttentionProcessGeneration.startMicroseconds,
+      "--scope-id",
+      state.attentionScopeId,
+      "--observation-id",
+      state.attentionObservationId,
+      "--workspace-id",
+      workspaceId,
+      "--surface-id",
+      surfaceId,
+    ]);
+  };
+
+  const endNativeAttention = (state: AmpTurnState): void => {
+    if (!state.isAttentionVisible) return;
+    if (!nativeAttentionProcessGeneration) return;
+    state.isAttentionVisible = false;
+    runCmux([
+      "hooks",
+      "amp",
+      "__native-attention",
+      "end",
+      "--pid",
+      String(process.pid),
+      "--pid-start-seconds",
+      nativeAttentionProcessGeneration.startSeconds,
+      "--pid-start-microseconds",
+      nativeAttentionProcessGeneration.startMicroseconds,
+      "--scope-id",
+      state.attentionScopeId,
+      "--observation-id",
+      state.attentionObservationId,
+    ]);
+  };
+
+  const discardTurnState = (
+    threadId: string,
+    state: AmpTurnState | undefined,
+  ): void => {
+    if (!state) return;
+    state.nativeStateSubscription?.unsubscribe();
+    state.nativeStateSubscription = null;
+    endNativeAttention(state);
+    if (turnStates.get(threadId) === state) {
+      turnStates.delete(threadId);
+    }
+  };
+
+  const hasOtherActiveTurn = (): boolean => turnStates.size > 0;
+
+  const publishSettledTurn = (
+    threadId: string,
+    state: AmpTurnState,
+    pendingEnd: PendingTurnEnd,
+  ): void => {
+    discardTurnState(threadId, state);
+    if (!hasOtherActiveTurn()) {
+      switch (pendingEnd.event.status) {
+        case "done":
+          setStatus("done", "checkmark.circle", COLOR.done);
+          wsLog("turn complete", "success");
+          break;
+        case "error":
+          setStatus("error", "xmark.circle", COLOR.error);
+          wsLog("turn errored", "error");
+          break;
+        case "cancelled":
+          setStatus("interrupted", "pause.circle", COLOR.interrupted);
+          wsLog("turn interrupted", "warning");
+          break;
+        default:
+          setStatus(
+            String(pendingEnd.event.status ?? "done"),
+            "questionmark.circle",
+            COLOR.interrupted,
+          );
+          wsLog(
+            `turn ended with unexpected status: ${pendingEnd.event.status}`,
+            "warning",
+          );
+          break;
+      }
+    }
+    sendHook("stop", pendingEnd.sessionId, pendingEnd.cwd, {
+      turn_id: state.turnId,
+      cmux_turn_boundary: "settled",
+      cmux_active_background_work_count: 0,
+    });
+  };
+
+  const tryPublishSettledTurn = (
+    threadId: string,
+    state: AmpTurnState,
+  ): void => {
+    const pendingEnd = state.pendingEnd;
+    if (!pendingEnd || state.activeToolUseIds.size > 0) return;
+    if (
+      state.nativeStateObservable
+      && state.nativeThreadState !== "idle"
+      && state.nativeThreadState !== "error"
+    ) {
+      return;
+    }
+    state.pendingEnd = null;
+    publishSettledTurn(threadId, state, pendingEnd);
+  };
+
+  const observeNativeThreadState = async (
+    threadId: string,
+    state: AmpTurnState,
+    ctx: AmpThreadContext,
+  ): Promise<void> => {
+    const observable = ctx.thread?.state;
+    if (
+      !observable
+      || typeof observable.get !== "function"
+      || typeof observable.subscribe !== "function"
+    ) {
+      // Older Amp runtimes do not expose PluginThread.state. Their fallback
+      // boundary is the structured active-tool set becoming empty.
+      tryPublishSettledTurn(threadId, state);
+      return;
+    }
+
+    const applyNativeState = (nativeState: AmpNativeThreadState): void => {
+      if (turnStates.get(threadId) !== state) return;
+      state.nativeThreadState = nativeState;
+      if (nativeState === "awaiting-approval") {
+        beginNativeAttention(state);
+      } else {
+        endNativeAttention(state);
+      }
+      if (nativeState === "error") {
+        // Amp can terminate an errored/cancelled turn without emitting a final
+        // tool.result. Its terminal native state closes those tool lifetimes.
+        state.activeToolUseIds.clear();
+      }
+      tryPublishSettledTurn(threadId, state);
+    };
+
+    state.nativeStateObservable = observable;
+    state.nativeStateSubscription?.unsubscribe();
+    let didReceiveSubscriptionState = false;
+    state.nativeStateSubscription = observable.subscribe((nativeState) => {
+      didReceiveSubscriptionState = true;
+      applyNativeState(nativeState);
+    });
+    try {
+      const initialState = await observable.get();
+      if (
+        !didReceiveSubscriptionState
+        && state.nativeThreadState === null
+      ) {
+        applyNativeState(initialState);
+      } else if (turnStates.get(threadId) === state) {
+        tryPublishSettledTurn(threadId, state);
+      }
+    } catch (_) {
+      // A present-but-failing native state API is not evidence of settlement.
+      // Keep the provisional turn running until a subscription value arrives
+      // or process-liveness reconciliation terminates the dead generation.
+    }
+  };
 
   // Best-effort cleanup so the badge doesn't get stuck after the agent exits.
   // We intentionally only hook the `exit` event and do NOT register custom
@@ -401,64 +686,84 @@ export default function (amp: PluginAPI) {
     setStatus("idle", "circle", COLOR.idle);
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
+    discardTurnState(sessionId, turnStates.get(sessionId));
     sendHook("session-start", sessionId, cwdFromEnv());
   });
 
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
-    inFlightTools = 0;
-    turnActive = true;
-    setStatus("thinking", "brain", COLOR.thinking);
-    wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
-    sendHook("prompt-submit", sessionId, cwdFromEnv());
+    discardTurnState(sessionId, turnStates.get(sessionId));
+    const state = makeTurnState(event, sessionId);
+    turnStates.set(sessionId, state);
+    setStatus("thinking", "brain", COLOR.thinking);
+    wsLog("prompt received");
+    sendHook("prompt-submit", sessionId, cwdFromEnv(), {
+      turn_id: state.turnId,
+    });
+    await observeNativeThreadState(sessionId, state, ctx);
   });
 
-  amp.on("tool.call", async (event: ToolCallEvent) => {
-    inFlightTools++;
+  amp.on("tool.call", async (event: ToolCallEvent, ctx) => {
+    const sessionId = threadIdFrom(event, ctx);
+    const state = sessionId ? turnStates.get(sessionId) : undefined;
+    if (state) state.activeToolUseIds.add(event.toolUseID);
     const { label, icon } = detailedToolStatus(event, helpers);
-    if (turnActive) {
+    if (state) {
       setStatus(label, icon, COLOR.active);
     }
     return { action: "allow" as const };
   });
 
-  amp.on("tool.result", async (event: ToolResultEvent) => {
-    inFlightTools = Math.max(0, inFlightTools - 1);
+  amp.on("tool.result", async (event: ToolResultEvent, ctx) => {
+    const sessionId = threadIdFrom(event, ctx);
+    const state = sessionId ? turnStates.get(sessionId) : undefined;
+    if (state) state.activeToolUseIds.delete(event.toolUseID);
     if (event.status === "error") {
       wsLog(`${event.tool} failed`, "error");
     }
-    // Skip status updates after agent.end so a lagging tool.result can't
-    // overwrite the final badge (done/error/interrupted) with "thinking".
-    if (turnActive && inFlightTools === 0) {
+    if (sessionId && state?.pendingEnd) {
+      tryPublishSettledTurn(sessionId, state);
+    } else if (state && state.activeToolUseIds.size === 0) {
       setStatus("thinking", "brain", COLOR.thinking);
     }
   });
 
   amp.on("agent.end", async (event: AgentEndEvent, ctx) => {
-    inFlightTools = 0;
-    turnActive = false;
-    switch (event.status) {
-      case "done":
-        setStatus("done", "checkmark.circle", COLOR.done);
-        wsLog("turn complete", "success");
-        break;
-      case "error":
-        setStatus("error", "xmark.circle", COLOR.error);
-        wsLog("turn errored", "error");
-        break;
-      case "cancelled":
-        setStatus("interrupted", "pause.circle", COLOR.interrupted);
-        wsLog("turn interrupted", "warning");
-        break;
-      default:
-        setStatus(String(event.status ?? "done"), "questionmark.circle", COLOR.interrupted);
-        wsLog(`turn ended with unexpected status: ${event.status}`, "warning");
-        break;
-    }
     const sessionId = threadIdFrom(event, ctx);
+    const cwd = cwdFromEnv();
     if (!sessionId) return;
-    sendHook("stop", sessionId, cwdFromEnv());
+    const currentState = turnStates.get(sessionId);
+    // Current Amp releases require the same message id on agent.start/end.
+    // Older or partially upgraded runtimes may omit it; in that case the
+    // current per-thread turn is the only safe identity to reuse.
+    const incomingTurnId = firstString(event.id)
+      || currentState?.turnId
+      || `${process.pid}:${sessionId}:${Date.now()}:${turnSequence + 1}`;
+    if (currentState && currentState.turnId !== incomingTurnId) {
+      // A late end from a superseded turn must never consume the newer turn's
+      // tool set. Publish it as settled evidence; the shared reconciler rejects
+      // it against the current turn id.
+      sendHook("stop", sessionId, cwd, {
+        turn_id: incomingTurnId,
+        cmux_turn_boundary: "settled",
+        cmux_active_background_work_count: 0,
+      });
+      return;
+    }
+    const state = currentState
+      ?? makeTurnState(event, sessionId, incomingTurnId);
+    turnStates.set(sessionId, state);
+    const pendingEnd = { event, sessionId, cwd };
+    state.pendingEnd = pendingEnd;
+    // agent.end is always provisional. Only PluginThread.state reaching a
+    // terminal boundary, plus an empty structured work set, may emit settled.
+    sendHook("stop", sessionId, cwd, {
+      turn_id: state.turnId,
+      cmux_turn_boundary: "turn_end",
+      cmux_active_background_work_count: state.activeToolUseIds.size,
+    });
+    await observeNativeThreadState(sessionId, state, ctx);
   });
 }
 """#

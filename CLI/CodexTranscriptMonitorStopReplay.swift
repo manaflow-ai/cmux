@@ -9,16 +9,26 @@ struct CodexTranscriptMonitorStopReplay {
         sessionId: String,
         turnId: String?,
         transcriptPath: String?,
-        workspaceId: String,
+        workspaceId: String? = nil,
         surfaceId: String?,
-        lastAssistantMessage: String?
+        lastAssistantMessage: String?,
+        boundary: AgentTurnBoundary
     ) {
-        guard !sessionId.isEmpty, !workspaceId.isEmpty else { return nil }
+        guard !sessionId.isEmpty else { return nil }
+        let workspaceId = workspaceId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let surfaceId = surfaceId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard workspaceId?.isEmpty == false
+                || surfaceId?.isEmpty == false else {
+            return nil
+        }
 
         var object: [String: Any] = [
             "session_id": sessionId,
             "hook_event_name": "Stop",
             "stop_hook_active": false,
+            "cmux_turn_boundary": boundary.rawValue,
         ]
         if let turnId, !turnId.isEmpty {
             object["turn_id"] = turnId
@@ -34,7 +44,10 @@ struct CodexTranscriptMonitorStopReplay {
             return nil
         }
 
-        var commandArguments = ["stop", "--workspace", workspaceId]
+        var commandArguments = ["stop"]
+        if let workspaceId, !workspaceId.isEmpty {
+            commandArguments += ["--workspace", workspaceId]
+        }
         if let surfaceId, !surfaceId.isEmpty {
             commandArguments += ["--surface", surfaceId]
         }

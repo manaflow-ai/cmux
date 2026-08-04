@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
+    nonisolated(unsafe) var requiresAgentProcessGeneration = true
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
     nonisolated(unsafe) var statusClearCall: (
@@ -17,20 +18,20 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         clearStatus: Bool,
         requireOwnedKey: Bool
     )?
-    nonisolated(unsafe) var shellStateCall: (
-        scope: ControlSidebarPanelScope,
-        stateRawValue: String
+    nonisolated(unsafe) var agentPIDRecordCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
+        panelID: UUID?
     )?
-
-    nonisolated func controlSurfaceParseShellActivityState(
-        _ rawState: String
-    ) -> String? {
-        switch rawState {
-        case "prompt": "promptIdle"
-        case "running": "commandRunning"
-        default: nil
-        }
-    }
+    nonisolated(unsafe) var agentLifecycleCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
+        panelID: UUID?
+    )?
 
     nonisolated func controlSidebarScheduleStatusClear(
         target: ControlSidebarTabTarget,
@@ -50,11 +51,60 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         agentPIDClearCall = (target, key, panelID, clearStatus, requireOwnedKey)
     }
 
-    nonisolated func controlSidebarScheduleScopedShellState(
-        scope: ControlSidebarPanelScope,
-        stateRawValue: String
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
+        panelID: UUID?
     ) {
-        shellStateCall = (scope, stateRawValue)
+        agentPIDRecordCall = (
+            target,
+            key,
+            pid,
+            processGeneration,
+            panelID
+        )
+    }
+
+    nonisolated func controlSidebarParseAgentLifecycle(
+        _ raw: String
+    ) -> String? {
+        ["unknown", "running", "idle", "needsInput"].contains(raw)
+            ? raw
+            : nil
+    }
+
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        true
+    }
+
+    nonisolated func controlSidebarRequiresAgentProcessGeneration(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        requiresAgentProcessGeneration
+    }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
+        panelID: UUID?
+    ) {
+        agentLifecycleCall = (
+            target,
+            key,
+            lifecycleRawValue,
+            processGeneration,
+            panelID
+        )
     }
 
     func controlSidebarSetWorkspaceLoading(

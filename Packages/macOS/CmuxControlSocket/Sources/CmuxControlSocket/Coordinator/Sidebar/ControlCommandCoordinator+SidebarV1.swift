@@ -345,43 +345,62 @@ extension ControlCommandCoordinator {
         return (panelId, nil)
     }
 
-    /// Resolves the explicit shell-integration scope when both `--tab` and
-    /// `--panel` are UUIDs. A supplied terminal lifecycle token is parsed as
-    /// part of that same scope so telemetry cannot lose process-generation
-    /// identity while crossing the v1 compatibility path.
-    nonisolated func sidebarExplicitScope(
-        options: [String: String]
-    ) -> (scope: ControlSidebarPanelScope?, invalidTerminalLifecycleScope: Bool) {
-        let rawLifecycleID = options["terminal-lifecycle-id"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let terminalLifecycleID: UUID?
-        if let rawLifecycleID {
-            guard !rawLifecycleID.isEmpty,
-                  let parsedLifecycleID = UUID(uuidString: rawLifecycleID) else {
-                return (nil, true)
-            }
-            terminalLifecycleID = parsedLifecycleID
-        } else {
-            terminalLifecycleID = nil
+    /// Parses an optional all-or-nothing PID generation tuple. Accepting only
+    /// the complete tuple prevents a caller from accidentally downgrading an
+    /// exact process identity back to a recyclable numeric PID.
+    nonisolated func sidebarParseAgentProcessGeneration(
+        options: [String: String],
+        usage: String,
+        strings: ControlSidebarAgentStrings
+    ) -> (
+        generation: ControlSidebarAgentProcessGeneration?,
+        error: String?
+    ) {
+        let rawPID = options["pid"]
+        let rawStartSeconds = options["pid-start-seconds"]
+        let rawStartMicroseconds = options["pid-start-microseconds"]
+        guard rawPID != nil
+                || rawStartSeconds != nil
+                || rawStartMicroseconds != nil else {
+            return (nil, nil)
         }
+        guard let rawPID,
+              let rawStartSeconds,
+              let rawStartMicroseconds,
+              let pid = Int32(rawPID),
+              pid > 0,
+              let startSeconds = Int64(rawStartSeconds),
+              startSeconds >= 0,
+              let startMicroseconds = Int64(rawStartMicroseconds),
+              (0 ..< 1_000_000).contains(startMicroseconds) else {
+            return (
+                nil,
+                strings.invalidProcessGeneration(usage: usage)
+            )
+        }
+        return (
+            ControlSidebarAgentProcessGeneration(
+                pid: pid,
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            ),
+            nil
+        )
+    }
+
+    /// The explicit shell-integration scope when both `--tab` and `--panel`
+    /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
+    /// its unit tests).
+    nonisolated func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,
               let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
               !panelRaw.isEmpty,
               let workspaceId = UUID(uuidString: tabRaw),
               let panelId = UUID(uuidString: panelRaw) else {
-            // A supplied generation must never fall through to an inferred
-            // surface path that cannot preserve its identity.
-            return (nil, rawLifecycleID != nil)
+            return nil
         }
-        return (
-            ControlSidebarPanelScope(
-                workspaceID: workspaceId,
-                panelID: panelId,
-                terminalLifecycleID: terminalLifecycleID
-            ),
-            false
-        )
+        return ControlSidebarPanelScope(workspaceID: workspaceId, panelID: panelId)
     }
 
     /// Splits a metadata-block command line at the first ` -- ` separator
@@ -443,7 +462,7 @@ extension ControlCommandCoordinator {
         }
 
         let target = ControlSidebarPanelMutationTarget(
-            scope: sidebarExplicitScope(options: options).scope,
+            scope: sidebarExplicitScope(options: options),
             tabArg: options["tab"],
             panelID: surfaceIdFromOptions
         )

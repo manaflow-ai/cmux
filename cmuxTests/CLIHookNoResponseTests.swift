@@ -54,7 +54,12 @@ struct CLIHookNoResponseTests {
             FeedHookCase(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
             FeedHookCase(source: "antigravity", event: "PreToolUse", toolName: "Bash", pidKey: "CMUX_ANTIGRAVITY_PID"),
             FeedHookCase(source: "antigravity", event: "PostToolUse", toolName: "run_command", pidKey: "CMUX_ANTIGRAVITY_PID"),
-            FeedHookCase(source: "cursor", event: "beforeShellExecution", toolName: "Bash", pidKey: "CMUX_CURSOR_PID"),
+            FeedHookCase(
+                source: "cursor",
+                event: "preToolUse",
+                toolName: "Shell",
+                pidKey: "CMUX_CURSOR_PID"
+            ),
         ]
 
         for testCase in cases {
@@ -97,9 +102,26 @@ struct CLIHookNoResponseTests {
             ]
             environment[testCase.pidKey] = "626262"
 
-            let input = """
-            {"hook_event_name":"\(testCase.event)","session_id":"\(testCase.source)-session-123","cwd":"\(root.path)","tool_name":"\(testCase.toolName)","tool_input":{"path":"\(root.appendingPathComponent("README.md").path)"}}
-            """
+            let toolInput = testCase.source == "cursor"
+                ? ["command": "printf cursor-hook"]
+                : [
+                    "path": root.appendingPathComponent("README.md").path
+                ]
+            let inputObject: [String: Any] = [
+                "hook_event_name": testCase.event,
+                "session_id": "\(testCase.source)-session-123",
+                "cwd": root.path,
+                "tool_name": testCase.toolName,
+                "tool_use_id": "\(testCase.source)-tool-use",
+                "tool_input": toolInput,
+            ]
+            let inputData = try JSONSerialization.data(
+                withJSONObject: inputObject,
+                options: [.sortedKeys]
+            )
+            let input = try #require(
+                String(data: inputData, encoding: .utf8)
+            )
             let result = Self.runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "feed", "--source", testCase.source, "--event", testCase.event],
