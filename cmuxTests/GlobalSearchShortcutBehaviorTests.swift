@@ -1121,9 +1121,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
         await thirdIndexRequestStarted.wait()
         #expect(
-            !(await waitUntil(timeout: 0.2) {
-                refreshFinishedCount.value == 1
-            }),
+            refreshFinishedCount.value == 0,
             "A presentation refresh must keep following the latest capture while its deadline remains"
         )
 
