@@ -1085,6 +1085,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadResolvedUserShellCommandIfNeeded(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1308,6 +1309,7 @@ class GhosttyApp {
         #else
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
+        loadResolvedUserShellCommandIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
@@ -1357,6 +1359,20 @@ class GhosttyApp {
         ghostty_config_finalize(config)
         return renderingModeChanged
     }
+
+    private func loadResolvedUserShellCommandIfNeeded(_ config: ghostty_config_t) {
+        guard !hasUserGhosttyCommand,
+              let command = TerminalLaunchCommandPolicy()
+                .ghosttyAppCommand(resolvedShell: resolvedUserShell)
+        else { return }
+        loadInlineGhosttyConfig(
+            "command = \(command)",
+            into: config,
+            prefix: "cmux-resolved-user-shell",
+            logLabel: "resolved user shell"
+        )
+    }
+
     func loadGlobalFontMagnificationConfig(_ config: ghostty_config_t) {
         guard !GlobalFontMagnification.isDefault else { return }
         var fontSize: Float32 = 0

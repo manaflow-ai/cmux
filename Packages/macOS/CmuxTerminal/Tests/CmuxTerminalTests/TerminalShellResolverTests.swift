@@ -75,7 +75,10 @@ struct TerminalShellResolverTests {
 
     @Test
     func resolvedZshLaunchesDirectlyAsALoginShell() {
-        let command = TerminalLaunchCommandPolicy().resolve(
+        let policy = TerminalLaunchCommandPolicy()
+
+        let appCommand = policy.ghosttyAppCommand(resolvedShell: "/bin/zsh")
+        let surfaceCommand = policy.resolve(
             initialCommand: nil,
             surfaceCommand: nil,
             hasUserGhosttyCommand: false,
@@ -83,7 +86,53 @@ struct TerminalShellResolverTests {
             resolvedShell: "/bin/zsh"
         )
 
-        #expect(command == "direct:/bin/zsh -l")
+        #expect(appCommand == "direct:/bin/zsh -l")
+        #expect(surfaceCommand == nil)
+    }
+
+    @Test
+    func explicitGhosttyCommandWinsForResolvedZsh() {
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: true,
+            managedShellCommand: "/bin/zsh --init-command source",
+            resolvedShell: "/bin/zsh"
+        )
+
+        #expect(command == nil)
+    }
+
+    @Test
+    func managedZshCommandWinsOverDirectFallback() {
+        let managedCommand = "/bin/zsh --init-command source"
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: false,
+            managedShellCommand: managedCommand,
+            resolvedShell: "/bin/zsh"
+        )
+
+        #expect(command == managedCommand)
+    }
+
+    @Test
+    func zshPathWithWhitespaceKeepsTheSurfaceFallback() {
+        let policy = TerminalLaunchCommandPolicy()
+        let shell = "/Applications/Custom Shell/zsh"
+
+        let appCommand = policy.ghosttyAppCommand(resolvedShell: shell)
+        let surfaceCommand = policy.resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: false,
+            managedShellCommand: nil,
+            resolvedShell: shell
+        )
+
+        #expect(appCommand == nil)
+        #expect(surfaceCommand == shell)
     }
 
     @Test
