@@ -2894,6 +2894,19 @@ struct TextBoxInputContainer: View {
     }
 }
 
+@MainActor
+enum TextBoxInputDelegateInstallation {
+    @discardableResult
+    static func installIfNeeded(
+        _ delegate: any NSTextViewDelegate,
+        on textView: NSTextView
+    ) -> Bool {
+        guard textView.delegate !== delegate else { return false }
+        textView.delegate = delegate
+        return true
+    }
+}
+
 struct TextBoxInputView: NSViewRepresentable {
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
@@ -2981,7 +2994,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = TextBoxInputTextView()
-        textView.delegate = context.coordinator
+        TextBoxInputDelegateInstallation.installIfNeeded(context.coordinator, on: textView)
         textView.onMoveToWindow = onTextViewMovedToWindow
         textView.isRichText = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -3077,7 +3090,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.wantsLayer = true
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
-        textView.delegate = context.coordinator
+        TextBoxInputDelegateInstallation.installIfNeeded(context.coordinator, on: textView)
         textView.onLayoutCompleted = { [weak coordinator] textView, lineFragmentCount in
             coordinator?.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
