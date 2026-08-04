@@ -175,6 +175,47 @@ describe("Code WebView bridge", () => {
     dom.window.close();
   });
 
+  test("withdraws pooled readiness while the real client reconnects", async () => {
+    const messages: unknown[] = [];
+    const dom = installWindow(async (message) => {
+      messages.push(message);
+      return { ok: true };
+    });
+    dom.window.document.body.innerHTML = `
+      <div id="root">
+        <main data-slot="sidebar-wrapper">
+          <div contenteditable="true" role="textbox"></div>
+        </main>
+      </div>
+    `;
+
+    installCodeBridge();
+    markNativeCodeSocketOpened();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const alert = dom.window.document.createElement("div");
+    alert.dataset.slot = "alert";
+    alert.innerHTML = `
+      <div data-slot="alert-action">
+        <button>Reconnecting...</button>
+        <button>Connections</button>
+      </div>
+    `;
+    dom.window.document.querySelector("#root")?.append(alert);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    alert.remove();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(messages).toEqual([
+      { type: "mount" },
+      { type: "ready" },
+      { type: "unready" },
+      { type: "ready" },
+    ]);
+    dom.window.close();
+  });
+
   test("never treats duplicate static markup as actual client readiness", async () => {
     const messages: unknown[] = [];
     const dom = installWindow(async (message) => {
