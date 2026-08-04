@@ -90,6 +90,9 @@ the adapter payload, not in `kind`. The initial agent vocabulary is:
 - `agent.session.started`
 - `agent.turn.started`
 - `agent.turn.completed`
+- `agent.child.spawned`
+- `agent.child.completed`
+- `agent.child.failed`
 - `agent.approval.requested`
 - `agent.question.requested`
 - `agent.plan_review.requested`
@@ -308,8 +311,8 @@ redacted outcome needed for diagnostics.
 An agent adapter maps one agent runtime's native hooks into the semantic event
 vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
 CLI, preserves the complete parsed native value under `payload.native`, and
-stores common session, turn, directory, transcript, tool, and message fields
-under `payload.normalized`. Unknown native events become
+stores common session, turn, directory, transcript, tool, message, and agent
+topology fields under `payload.normalized`. Unknown native events become
 `agent.state.changed`, so adding a provider event never discards its data:
 
 ```bash
@@ -321,6 +324,38 @@ Terminal children inherit stable session and terminal IDs. The adapter adds
 the terminal subject, and journal ingress resolves its tab, pane, screen, and
 workspace ancestors transactionally. Agent hooks outside a TUI terminal may
 omit the terminal subject while retaining their native session identity.
+
+Agent topology is an incremental forest. A stable opaque `agent_tree_id`
+groups one provider root session. `agent_node_id` identifies the emitting or
+spawned agent, and `parent_agent_node_id` records an explicit parent when the
+provider supplies one. The same values are indexed as `agent_tree`,
+`agent_node`, and `agent_parent` subjects. `SubagentStart` and
+`SubagentStop` normalize to `agent.child.spawned` and
+`agent.child.completed`. A consumer updates the tree with constant work per
+record and can fetch one tree through its indexed subject instead of scanning
+payload JSON.
+
+Native agent, parent, root, session, depth, name, and type fields remain in
+the normalized projection while the complete provider object remains under
+`payload.native`. Adapters accept common snake-case, camel-case, and nested
+event/context forms. When a provider omits parent identity, the event is
+marked `agent_relation: "unknown"` and no parent edge is invented. This keeps
+parallel or nested children as explicit orphans until a later provider event
+supplies the relationship.
+
+Provider contracts may supply a safe structural invariant. Claude Code, for
+example, supplies a stable child ID but no parent ID and does not permit its
+subagents to spawn subagents, so its adapter attaches those children to the
+shared session root with `agent_relation: "provider_root"`. This inference is
+adapter-owned and versioned. Providers without that guarantee remain
+orphans; names or event order never become parent evidence.
+
+Coding-agent hooks invoke the purpose-built `cmux-tui-hook` helper. It reads
+at most 1 MiB, shares the core normalizer, sends one mutation over the resident
+session socket, waits for the durable receipt with a bounded timeout, and
+exits. It does not initialize the TUI frontend. The main terminal process owns
+only the bounded socket handler and single-writer journal actor; provider hook
+execution remains in the provider's external process.
 
 A provider-specific adapter manifest declares:
 
@@ -510,7 +545,7 @@ markers.
 | Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
-| Built-in lossless agent-hook ingress and semantic normalization | Implemented in storage v1 |
+| Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1 |
 | Provider-specific agent hook installers and root leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |

@@ -14,6 +14,10 @@ workspace = true
 name = "cmux-tui"
 path = "src/main.rs"
 
+[[bin]]
+name = "cmux-tui-hook"
+path = "src/bin/cmux-tui-hook.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true

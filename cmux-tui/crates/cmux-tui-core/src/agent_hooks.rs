@@ -1,4 +1,5 @@
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::resource::TerminalPublicId;
 use crate::{
@@ -13,10 +14,13 @@ const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
 
-const AGENT_EVENT_KINDS: [&str; 9] = [
+const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
     "agent.turn.started",
     "agent.turn.completed",
+    "agent.child.spawned",
+    "agent.child.completed",
+    "agent.child.failed",
     "agent.approval.requested",
     "agent.question.requested",
     "agent.plan_review.requested",
@@ -34,11 +38,21 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
-    let normalized = normalized_fields(&native);
+    let mut normalized = normalized_fields(&native);
+    add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
-    let mut subjects = Vec::with_capacity(1);
+    let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+    }
+    for (field, kind) in [
+        ("agent_tree_id", "agent_tree"),
+        ("agent_node_id", "agent_node"),
+        ("parent_agent_node_id", "agent_parent"),
+    ] {
+        if let Some(id) = normalized.get(field).and_then(Value::as_str) {
+            subjects.push(JournalSubject { kind: kind.into(), id: id.into() });
+        }
     }
     Ok(JournalIngress {
         producer_id: AGENT_HOOK_PRODUCER_ID.into(),
@@ -151,12 +165,13 @@ fn semantic_kind(
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
         ("opencode", "sessiondeleted") => "agent.session.ended",
+        (_, event) if is_child_spawn(event) => "agent.child.spawned",
+        (_, event) if is_child_completion(event) => "agent.child.completed",
+        (_, "subagentfailed" | "childfailed") => "agent.child.failed",
         // These Claude-compatible runtimes use Notification as their only
         // reliable completed-turn callback.
         ("copilot" | "codebuddy" | "factory", "notification") => "agent.turn.completed",
-        (_, "sessionstart" | "onsessionstart" | "onsessionreset" | "agentspawn") => {
-            "agent.session.started"
-        }
+        (_, "sessionstart" | "onsessionstart" | "onsessionreset") => "agent.session.started",
         (
             _,
             "userpromptsubmit" | "beforesubmitprompt" | "beforeagent" | "prellmcall"
@@ -176,6 +191,32 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_child_spawn(event: &str) -> bool {
+    matches!(
+        event,
+        "subagentstart"
+            | "subagentstarted"
+            | "subagentspawned"
+            | "agentspawn"
+            | "agentspawned"
+            | "childstart"
+            | "childstarted"
+            | "childspawned"
+    )
+}
+
+fn is_child_completion(event: &str) -> bool {
+    matches!(
+        event,
+        "subagentstop"
+            | "subagentended"
+            | "subagentcompleted"
+            | "childstop"
+            | "childended"
+            | "childcompleted"
+    )
 }
 
 fn normalized_fields(native: &Value) -> Map<String, Value> {
@@ -215,6 +256,19 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["event", "messageId"][..],
                 &["context", "turn_id"][..],
                 &["context", "turnId"][..],
+            ][..],
+        ),
+        (
+            "tool_use_id",
+            &[
+                &["tool_use_id"][..],
+                &["toolUseId"][..],
+                &["call_id"][..],
+                &["callId"][..],
+                &["event", "tool_use_id"][..],
+                &["event", "toolUseId"][..],
+                &["event", "call_id"][..],
+                &["event", "callId"][..],
             ][..],
         ),
         (
@@ -273,13 +327,250 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["context", "message"][..],
             ][..],
         ),
+        (
+            "native_agent_id",
+            &[
+                &["agent_id"][..],
+                &["agentId"][..],
+                &["agent", "id"][..],
+                &["event", "agent_id"][..],
+                &["event", "agentId"][..],
+                &["event", "agent", "id"][..],
+                &["context", "agent_id"][..],
+                &["context", "agentId"][..],
+            ][..],
+        ),
+        (
+            "native_child_agent_id",
+            &[
+                &["child_agent_id"][..],
+                &["childAgentId"][..],
+                &["subagent_id"][..],
+                &["subagentId"][..],
+                &["child", "agent_id"][..],
+                &["child", "agentId"][..],
+                &["child", "id"][..],
+                &["event", "child_agent_id"][..],
+                &["event", "childAgentId"][..],
+                &["event", "subagent_id"][..],
+                &["event", "subagentId"][..],
+                &["event", "child", "agent_id"][..],
+                &["event", "child", "agentId"][..],
+                &["event", "child", "id"][..],
+                &["context", "child_agent_id"][..],
+                &["context", "childAgentId"][..],
+            ][..],
+        ),
+        (
+            "native_parent_agent_id",
+            &[
+                &["parent_agent_id"][..],
+                &["parentAgentId"][..],
+                &["parent", "agent_id"][..],
+                &["parent", "agentId"][..],
+                &["parent", "id"][..],
+                &["event", "parent_agent_id"][..],
+                &["event", "parentAgentId"][..],
+                &["event", "parent", "agent_id"][..],
+                &["event", "parent", "agentId"][..],
+                &["event", "parent", "id"][..],
+                &["context", "parent_agent_id"][..],
+                &["context", "parentAgentId"][..],
+            ][..],
+        ),
+        (
+            "native_root_agent_id",
+            &[
+                &["root_agent_id"][..],
+                &["rootAgentId"][..],
+                &["root", "agent_id"][..],
+                &["root", "agentId"][..],
+                &["root", "id"][..],
+                &["event", "root_agent_id"][..],
+                &["event", "rootAgentId"][..],
+                &["event", "root", "agent_id"][..],
+                &["event", "root", "agentId"][..],
+                &["event", "root", "id"][..],
+                &["context", "root_agent_id"][..],
+                &["context", "rootAgentId"][..],
+            ][..],
+        ),
+        (
+            "root_agent_session_id",
+            &[
+                &["root_session_id"][..],
+                &["rootSessionId"][..],
+                &["root_thread_id"][..],
+                &["rootThreadId"][..],
+                &["event", "root_session_id"][..],
+                &["event", "rootSessionId"][..],
+                &["event", "root_thread_id"][..],
+                &["event", "rootThreadId"][..],
+                &["context", "root_session_id"][..],
+                &["context", "rootSessionId"][..],
+            ][..],
+        ),
+        (
+            "parent_agent_session_id",
+            &[
+                &["parent_session_id"][..],
+                &["parentSessionId"][..],
+                &["parent_thread_id"][..],
+                &["parentThreadId"][..],
+                &["event", "parent_session_id"][..],
+                &["event", "parentSessionId"][..],
+                &["event", "parent_thread_id"][..],
+                &["event", "parentThreadId"][..],
+                &["context", "parent_session_id"][..],
+                &["context", "parentSessionId"][..],
+            ][..],
+        ),
+        (
+            "agent_name",
+            &[
+                &["agent_name"][..],
+                &["agentName"][..],
+                &["agent_display_name"][..],
+                &["agentDisplayName"][..],
+                &["event", "agent_name"][..],
+                &["event", "agentName"][..],
+                &["event", "agent_display_name"][..],
+                &["event", "agentDisplayName"][..],
+            ][..],
+        ),
+        (
+            "agent_type",
+            &[
+                &["agent_type"][..],
+                &["agentType"][..],
+                &["event", "agent_type"][..],
+                &["event", "agentType"][..],
+                &["context", "agent_type"][..],
+                &["context", "agentType"][..],
+            ][..],
+        ),
     ] {
         if let Some(value) = first_string_at(native, paths) {
             normalized
                 .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
         }
     }
+    if let Some(depth) = first_value_at(
+        native,
+        &[
+            &["agent_depth"][..],
+            &["agentDepth"][..],
+            &["depth"][..],
+            &["event", "agent_depth"][..],
+            &["event", "agentDepth"][..],
+            &["event", "depth"][..],
+            &["context", "agent_depth"][..],
+            &["context", "agentDepth"][..],
+        ],
+    ) && let Some(depth) = depth.as_u64().or_else(|| depth.as_str()?.parse().ok())
+    {
+        normalized.insert("agent_depth".into(), Value::from(depth));
+    }
     normalized
+}
+
+fn add_agent_topology(
+    source: &str,
+    native_event: &str,
+    terminal_id: Option<&TerminalPublicId>,
+    normalized: &mut Map<String, Value>,
+) {
+    let scope = [
+        "root_agent_session_id",
+        "native_root_agent_id",
+        "parent_agent_session_id",
+        "agent_session_id",
+        "transcript_path",
+    ]
+    .into_iter()
+    .find_map(|field| normalized.get(field).and_then(Value::as_str))
+    .or_else(|| terminal_id.map(TerminalPublicId::as_str));
+    let Some(scope) = scope else { return };
+    let tree_id = stable_topology_id("agenttree", &[source, scope]);
+    normalized.insert("agent_tree_id".into(), Value::String(tree_id.clone()));
+
+    let event = semantic_key(native_event);
+    let child_event = is_child_spawn(&event)
+        || is_child_completion(&event)
+        || matches!(event.as_str(), "subagentfailed" | "childfailed");
+    let native_agent_id = if child_event {
+        normalized
+            .get("native_child_agent_id")
+            .and_then(Value::as_str)
+            .or_else(|| normalized.get("native_agent_id").and_then(Value::as_str))
+    } else {
+        normalized.get("native_agent_id").and_then(Value::as_str)
+    }
+    .map(str::to_owned);
+    let fallback_agent_name =
+        child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
+    let node_key = native_agent_id.as_ref().map(|id| (id.clone(), "native")).or_else(|| {
+        fallback_agent_name.and_then(|name| {
+            let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
+            let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+            if turn.is_empty() && tool.is_empty() {
+                return None;
+            }
+            let key = format!("name:{name}\0turn:{turn}\0tool:{tool}");
+            Some((key, "name_fallback"))
+        })
+    });
+    let (node_id, identity_quality) = match node_key {
+        Some((key, quality)) => {
+            (stable_topology_id("agentnode", &[&tree_id, &key]), quality.to_string())
+        }
+        None if !child_event => {
+            (stable_topology_id("agentnode", &[&tree_id, "root"]), "session_root".into())
+        }
+        None => {
+            normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+            return;
+        }
+    };
+    normalized.insert("agent_node_id".into(), Value::String(node_id));
+    normalized.insert("agent_identity_quality".into(), Value::String(identity_quality));
+
+    if let Some(parent) =
+        normalized.get("native_parent_agent_id").and_then(Value::as_str).map(str::to_owned)
+    {
+        let parent_id = stable_topology_id("agentnode", &[&tree_id, &parent]);
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("explicit".into()));
+    } else if source == "claude" && child_event {
+        // Claude Code's command-hook contract exposes a stable child ID but
+        // no parent ID, and its subagents cannot spawn subagents. The parent
+        // is therefore the root of the shared session tree.
+        let parent_id = stable_topology_id("agentnode", &[&tree_id, "root"]);
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
+    } else if child_event || native_agent_id.is_some() {
+        normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+    } else {
+        normalized.insert("agent_relation".into(), Value::String("root".into()));
+    }
+}
+
+fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    for component in components {
+        digest.update((component.len() as u64).to_be_bytes());
+        digest.update(component.as_bytes());
+    }
+    let digest = digest.finalize();
+    let mut id = String::with_capacity(prefix.len() + 1 + 32);
+    id.push_str(prefix);
+    id.push('_');
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest[..16].iter().copied() {
+        id.push(char::from(HEX[usize::from(byte >> 4)]));
+        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    id
 }
 
 fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
@@ -290,6 +581,12 @@ fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> 
             .map(str::trim)
             .filter(|value| !value.is_empty())
     })
+}
+
+fn first_value_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a Value> {
+    paths
+        .iter()
+        .find_map(|path| path.iter().try_fold(native, |value, component| value.get(*component)))
 }
 
 fn truncate_utf8(value: &str, max_bytes: usize) -> String {
@@ -406,6 +703,136 @@ mod tests {
     }
 
     #[test]
+    fn nested_agent_edges_are_stable_and_indexable_without_payload_scans() {
+        let parent = agent_hook_journal_ingress(
+            "claude",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"child-a",
+                "parent_agent_id":"root-agent",
+                "root_agent_id":"root-agent",
+                "agent_depth":1
+            }),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "claude",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"emitting-parent",
+                "child_agent_id":"child-b",
+                "parent_agent_id":"child-a",
+                "root_agent_id":"root-agent",
+                "agent_depth":2
+            }),
+        )
+        .unwrap();
+        let completed = agent_hook_journal_ingress(
+            "claude",
+            "subagent.completed",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"emitting-parent",
+                "child_agent_id":"child-b",
+                "parent_agent_id":"child-a",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(parent.kind, "agent.child.spawned");
+        assert_eq!(child.kind, "agent.child.spawned");
+        assert_eq!(completed.kind, "agent.child.completed");
+        assert_eq!(child.payload["normalized"]["agent_depth"], 2);
+        assert_eq!(child.payload["normalized"]["native_agent_id"], "emitting-parent");
+        assert_eq!(child.payload["normalized"]["native_child_agent_id"], "child-b");
+        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            parent.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            completed.payload["normalized"]["agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            parent.payload["normalized"]["agent_tree_id"]
+        );
+        for (field, subject_kind) in [
+            ("agent_tree_id", "agent_tree"),
+            ("agent_node_id", "agent_node"),
+            ("parent_agent_node_id", "agent_parent"),
+        ] {
+            let id = child.payload["normalized"][field].as_str().unwrap();
+            assert!(
+                child
+                    .subjects
+                    .iter()
+                    .any(|subject| subject.kind == subject_kind && subject.id == id)
+            );
+        }
+    }
+
+    #[test]
+    fn claude_direct_children_attach_to_the_shared_session_root() {
+        let root = agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            None,
+            json!({"session_id":"claude-session"}),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "claude",
+            "SubagentStart",
+            None,
+            json!({"session_id":"claude-session","agent_id":"child-a"}),
+        )
+        .unwrap();
+
+        assert_eq!(child.payload["normalized"]["agent_relation"], "provider_root");
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+    }
+
+    #[test]
+    fn absent_parent_metadata_stays_an_orphan_instead_of_inventing_an_edge() {
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({"session_id":"child-session","agent_id":"child-a"}),
+        )
+        .unwrap();
+        assert_eq!(child.payload["normalized"]["agent_relation"], "unknown");
+        assert!(child.payload["normalized"].get("parent_agent_node_id").is_none());
+        assert!(!child.subjects.iter().any(|subject| subject.kind == "agent_parent"));
+
+        let ambiguous = agent_hook_journal_ingress(
+            "copilot",
+            "subagentStart",
+            None,
+            json!({"sessionId":"copilot-session","agentName":"Explore"}),
+        )
+        .unwrap();
+        assert_eq!(ambiguous.payload["normalized"]["agent_relation"], "unknown");
+        assert!(ambiguous.payload["normalized"].get("agent_node_id").is_none());
+        assert!(ambiguous.subjects.iter().any(|subject| subject.kind == "agent_tree"));
+    }
+
+    #[test]
     fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true});
@@ -418,10 +845,14 @@ mod tests {
         .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
         assert_eq!(ingress.payload["native"], native);
-        assert_eq!(
-            ingress.subjects,
-            vec![JournalSubject { kind: "terminal".into(), id: terminal.into() }]
+        assert!(
+            ingress
+                .subjects
+                .iter()
+                .any(|subject| subject.kind == "terminal" && subject.id == terminal)
         );
+        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
+        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
     }
 
     #[test]
