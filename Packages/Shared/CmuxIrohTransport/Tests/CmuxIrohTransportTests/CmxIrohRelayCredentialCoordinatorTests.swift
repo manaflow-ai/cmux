@@ -22,6 +22,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: clientIdentity
         )
         let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var hostSeconds: [Int] = []
+        var clientSeconds: [Int] = []
 
         for cycle in 1 ... 8 {
             let refreshAfter = now.addingTimeInterval(TimeInterval(cycle * 240))
@@ -35,12 +37,19 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             )
             let hostSecond = Int(hostDeadline.timeIntervalSince1970) % 60
             let clientSecond = Int(clientDeadline.timeIntervalSince1970) % 60
+            hostSeconds.append(hostSecond)
+            clientSeconds.append(clientSecond)
 
             #expect((0 ... 14).contains(hostSecond))
             #expect((30 ... 44).contains(clientSecond))
+            #expect(hostDeadline >= now)
+            #expect(clientDeadline >= now)
             #expect(hostDeadline <= refreshAfter)
             #expect(clientDeadline <= refreshAfter)
         }
+
+        #expect(Set(hostSeconds).count == 1)
+        #expect(Set(clientSeconds).count == 1)
     }
 
     @Test
