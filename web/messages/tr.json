@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Değişiklik Günlüğü",
       "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
-      "metaTitle": "Değişiklik günlüğü"
+      "metaTitle": "Değişiklik günlüğü",
+      "versionTitle": "cmux {version} · Değişiklik günlüğü",
+      "releaseNavLabel": "cmux {version} civarındaki sürümler",
+      "sections": {
+        "added": "Eklendi",
+        "changed": "Değiştirildi",
+        "fixed": "Düzeltildi",
+        "removed": "Kaldırıldı",
+        "contributors": "Katkıda bulunanlar"
+      }
     },
     "navItems": {
       "gettingStarted": "Başlarken",
