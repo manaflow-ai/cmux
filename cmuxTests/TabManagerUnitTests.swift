@@ -3467,6 +3467,17 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         // synchronously. Settle before asserting the dismissal side effects.
         drainMainQueue()
 
+        // Focus lands synchronously, but the dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast: `FocusSurfaceBroadcaster` defers the post to a
+        // later main-queue turn (issue #5100) and `TabManager` observes it on
+        // `OperationQueue.main`, one hop further out. Wait for the dismissal itself, then assert
+        // what it produced.
+        guard waitForCondition({
+            !store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId)
+        }) else {
+            return
+        }
+
         XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))
         XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
