@@ -878,8 +878,8 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
             )
         )
         let deadline = Date.now.addingTimeInterval(1.0)
-        var overlay: BrowserPortalOmnibarSuggestionsHostingView?
-        var insidePoint: NSPoint?
+        var mountedOverlay: BrowserPortalOmnibarSuggestionsHostingView?
+        var readyInsidePoint: NSPoint?
         var insideHit: NSView?
 
         repeat {
@@ -900,8 +900,8 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
                     )
                 let candidateInsidePoint = candidate.convert(overlayLocalPoint, to: candidate.superview)
 
-                overlay = candidate
-                insidePoint = candidateInsidePoint
+                mountedOverlay = candidate
+                readyInsidePoint = candidateInsidePoint
                 insideHit = candidate.hitTest(candidateInsidePoint)
                 if insideHit != nil { break }
             }
@@ -910,10 +910,10 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
         } while Date.now < deadline
 
         let overlay = try XCTUnwrap(
-            overlay,
+            mountedOverlay,
             "Timed out waiting for the suggestions overlay to mount with final bounds"
         )
-        let insidePoint = try XCTUnwrap(insidePoint)
+        let insidePoint = try XCTUnwrap(readyInsidePoint)
 
         // The overlay is pinned to the slot with constraints, so it only has a
         // usable coordinate space once layout has run. Hit-testing a zero-sized
