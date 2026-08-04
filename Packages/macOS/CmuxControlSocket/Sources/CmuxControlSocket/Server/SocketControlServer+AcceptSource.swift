@@ -124,22 +124,32 @@ extension SocketControlServer {
                 authorizationGeneration: authorization.generation,
                 authorizationRevocationSignal: authorization.revocationSignal
             )
-            if let acceptedConnectionHandler {
-                acceptedConnectionHandler(connection)
-                continue
-            }
-            let yielded = connectionsContinuation.yield(connection)
-            switch yielded {
-            case .enqueued:
-                break
-            case let .dropped(connection):
-                close(connection.socket)
-            case .terminated:
-                close(clientSocket)
-            @unknown default:
-                close(clientSocket)
-            }
+            deliverAcceptedConnection(connection)
         }
+    }
+
+    /// Transfers an accepted descriptor through the configured ingress path.
+    /// Tests use this same entry point for synthetic socket pairs, so switching
+    /// between direct delivery and the AsyncStream fallback cannot strand them
+    /// on an unconsumed transport.
+    @discardableResult
+    nonisolated func deliverAcceptedConnection(_ connection: ControlConnection) -> Bool {
+        if let acceptedConnectionHandler {
+            acceptedConnectionHandler(connection)
+            return true
+        }
+        let yielded = connectionsContinuation.yield(connection)
+        switch yielded {
+        case .enqueued:
+            return true
+        case let .dropped(connection):
+            close(connection.socket)
+        case .terminated:
+            close(connection.socket)
+        @unknown default:
+            close(connection.socket)
+        }
+        return false
     }
 
     private nonisolated func shouldContinueAcceptLoop(listenerSocket: Int32, generation: UInt64) -> Bool {
