@@ -291,6 +291,7 @@ struct RemotePortScanGatingTests {
             "pty.session.token",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
             "pty.session.persistent_daemon",
         ])
         #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
@@ -341,7 +342,10 @@ struct RemotePortScanGatingTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }
@@ -445,6 +449,15 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         lifecycleID: String
     ) throws {}
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool { false }
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? { nil }
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? { nil }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

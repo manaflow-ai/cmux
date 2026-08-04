@@ -114,10 +114,16 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
-            subtitle: String(localized: "settings.mobile.pairDevice.subtitle", defaultValue: "Show a QR code to pair your iPhone or iPad with this Mac.")
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            subtitle: String(
+                localized: "settings.mobile.pairDevice.subtitle",
+                defaultValue: """
+                Devices signed in to the same account connect automatically. \
+                Use this QR only to pair through Tailscale.
+                """
+            )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)

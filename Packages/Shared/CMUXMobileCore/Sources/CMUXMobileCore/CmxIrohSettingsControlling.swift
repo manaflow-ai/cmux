@@ -12,6 +12,9 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Persists the account-level relay preference and safely rebuilds the endpoint.
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws
 
+    /// Persists the device-local path preference and restarts the active runtime.
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws
+
     /// Creates or updates account-visible custom relay metadata and a device-local secret.
     func upsertIrohCustomRelay(
         _ relay: CmxIrohCustomRelayDraft,
@@ -48,6 +51,10 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 }
 
 public extension CmxIrohSettingsControlling {
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws {
         throw CmxIrohSettingsControlError.unsupported
     }

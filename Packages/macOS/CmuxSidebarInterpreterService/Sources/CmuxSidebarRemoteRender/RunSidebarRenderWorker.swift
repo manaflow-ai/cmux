@@ -11,7 +11,9 @@ import Foundation
 /// any of the app's own startup. Never returns: exits when the host closes
 /// stdin (or dies, which closes it too).
 public func runSidebarRenderWorker() -> Never {
-    let channel = LengthPrefixedMessageChannel(readFD: 0, writeFD: 1)
+    guard let channel = try? LengthPrefixedMessageChannel(readFD: 0, writeFD: 1) else {
+        exit(1)
+    }
     let (messages, continuation) = AsyncStream.makeStream(of: RenderWorkerInbound.self)
 
     // Reader thread: blocking framed reads off stdin (same justified pattern

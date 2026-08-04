@@ -106,6 +106,32 @@ final class SidebarRowChecklistAddRow: NSView {
         lastArmWorkspaceId = nil
     }
 
+    /// Detaches the editor without firing model mutations from the current
+    /// AppKit update turn. The returned action commits the draft and consumes
+    /// the activation token after the representable callback has unwound.
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        let postUpdateAction: (@MainActor () -> Void)?
+        if commitEdits, isAdding, let addField {
+            let text = addField.stringValue
+            let commit = onCommit
+            let cancel = onCancel
+            postUpdateAction = {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { commit?(trimmed) }
+                cancel?()
+            }
+        } else {
+            postUpdateAction = nil
+        }
+        addField?.delegate = nil
+        resetForReuse()
+        return postUpdateAction
+    }
+
+    func suspendPresentation(commitEdits: Bool) {
+        detachPresentation(commitEdits: commitEdits)?()
+    }
+
     /// Creates a fresh, empty, focus-grabbing add field (legacy bumps the
     /// field's view identity on every arm/commit for the same effect).
     func rearmField() {
@@ -221,4 +247,3 @@ final class SidebarRowChecklistAddRow: NSView {
         }
     }
 }
-

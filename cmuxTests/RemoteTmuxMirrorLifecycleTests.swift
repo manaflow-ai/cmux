@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -22,7 +23,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         func windowShouldClose(_ sender: NSWindow) -> Bool { false }
     }
 
-    private let ignoreInput: @Sendable (Data) -> Void = { _ in }
+    private let ignoreInput: @Sendable (TerminalManualInput) -> Void = { _ in }
 
     private func mirror(
         controller: RemoteTmuxController,

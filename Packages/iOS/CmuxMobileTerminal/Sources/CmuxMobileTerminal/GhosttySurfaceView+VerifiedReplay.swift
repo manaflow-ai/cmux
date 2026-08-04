@@ -6,6 +6,14 @@ import GhosttyKit
 import QuartzCore
 import UIKit
 
+/// A replay viewport anchor paired with the user-interaction state at capture.
+public struct VerifiedReplayCapturedViewportAnchor: Equatable, Sendable {
+    /// The content-relative viewport position captured before replay.
+    public let anchor: VerifiedReplayViewportAnchor
+    /// The applied user viewport generation reflected by the captured anchor.
+    public let interactionGeneration: UInt64
+}
+
 @MainActor
 extension GhosttySurfaceView {
     nonisolated static func requiresVerifiedReplayPresentedDrain(
@@ -14,8 +22,222 @@ extension GhosttySurfaceView {
         hasPresentedContents
     }
 
-    /// Retains an immutable copy of the last presented pixels and cursor above
-    /// the live renderer while a replacement grid is replayed and verified.
+    /// Captures a content-relative viewport anchor on the serial surface queue.
+    ///
+    /// - Returns: The anchor when the viewport is above bottom; otherwise `nil`.
+    public func captureVerifiedReplayViewportAnchor() async -> VerifiedReplayCapturedViewportAnchor? {
+        guard let surface, !isDismantled else { return nil }
+        let operation = VerifiedReplayViewportSurfaceOperation(
+            surface: surface,
+            generation: surfaceGeneration
+        )
+        let workQueue = outputQueue
+        let gate = viewportRestoreGate
+        return await withCheckedContinuation { continuation in
+            let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
+                continuation: continuation
+            )
+            workQueue.async {
+                var scrollbar = ghostty_surface_scrollbar_s()
+                let captured: VerifiedReplayCapturedViewportAnchor?
+                if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
+                    let interactionGeneration = gate.withLock {
+                        $0.appliedInteractionGeneration
+                    }
+                    captured = VerifiedReplayViewportAnchor(
+                        scrollbarTotal: scrollbar.total,
+                        offset: scrollbar.offset,
+                        len: scrollbar.len
+                    ).map {
+                        VerifiedReplayCapturedViewportAnchor(
+                            anchor: $0,
+                            interactionGeneration: interactionGeneration
+                        )
+                    }
+                } else {
+                    captured = nil
+                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.surface == operation.surface,
+                          self.surfaceGeneration == operation.generation,
+                          !self.isDismantled else {
+                        self.completePendingVerifiedReplayViewportAnchorCapture(
+                            id: operationID,
+                            returning: nil
+                        )
+                        return
+                    }
+                    self.completePendingVerifiedReplayViewportAnchorCapture(
+                        id: operationID,
+                        returning: captured
+                    )
+                }
+            }
+        }
+    }
+
+    /// Restores a verified-replay viewport anchor on the serial surface queue.
+    ///
+    /// - Parameter anchor: The content-relative position captured before replay.
+    /// - Returns: `true` when Ghostty accepted the revision-matched target row.
+    @discardableResult
+    public func restoreVerifiedReplayViewportAnchor(
+        _ captured: VerifiedReplayCapturedViewportAnchor
+    ) async -> Bool {
+        // A replay may finish after newer scroll or typing intent; restoring
+        // its stale anchor would undo that user-driven viewport position.
+        guard userViewportInteractionGeneration == captured.interactionGeneration else {
+            MobileDebugLog.anchormux(
+                "verified_replay.viewport_restore.skipped reason=user_interaction"
+            )
+            return false
+        }
+        guard let surface, !isDismantled else { return false }
+        let anchor = captured.anchor
+        let operation = VerifiedReplayViewportSurfaceOperation(
+            surface: surface,
+            generation: surfaceGeneration
+        )
+        let workQueue = outputQueue
+        let gate = viewportRestoreGate
+        return await withCheckedContinuation { continuation in
+            let operationID = registerPendingVerifiedReplayViewportAnchorRestore(
+                continuation: continuation
+            )
+            workQueue.async {
+                var postReplay = ghostty_surface_scrollbar_s()
+                let readPostReplay = ghostty_surface_scrollbar(
+                    operation.surface,
+                    &postReplay
+                )
+                let targetTopRow = readPostReplay
+                    ? anchor.targetTopRow(
+                        postReplayTotalRows: postReplay.total,
+                        postReplayVisibleRows: postReplay.len
+                    )
+                    : nil
+                let postReplayRevision = postReplay.row_space_revision
+                let claimed = gate.withLock { state -> Bool in
+                    guard state.activeRestoreTicket == operationID,
+                          state.interactionGeneration == captured.interactionGeneration else {
+                        return false
+                    }
+                    state.activeRestoreTicket = nil
+                    return true
+                }
+                var restoredScrollbar = ghostty_surface_scrollbar_s()
+                // A gesture between the claim and C call composes with the
+                // restored frozen viewport, so this unlocked window is benign.
+                let restored = claimed
+                    ? (targetTopRow.map {
+                        ghostty_surface_scroll_to_row_if_revision(
+                            operation.surface,
+                            $0,
+                            postReplayRevision,
+                            &restoredScrollbar
+                        )
+                    } ?? false)
+                    : false
+                if !claimed, targetTopRow != nil {
+                    MobileDebugLog.anchormux(
+                        "verified_replay.viewport_restore.skipped reason=user_interaction_late"
+                    )
+                }
+                if readPostReplay {
+                    MobileDebugLog.anchormux(
+                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preTopDistance=\(anchor.topRowDistanceFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
+                    )
+                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.surface == operation.surface,
+                          self.surfaceGeneration == operation.generation,
+                          !self.isDismantled else {
+                        self.completePendingVerifiedReplayViewportAnchorRestore(
+                            id: operationID,
+                            returning: false
+                        )
+                        return
+                    }
+                    if restored {
+                        self.needsDraw = true
+                        self.scheduleVisibleArtifactCountUpdate()
+                    }
+                    self.completePendingVerifiedReplayViewportAnchorRestore(
+                        id: operationID,
+                        returning: restored
+                    )
+                }
+            }
+        }
+    }
+
+    private func registerPendingVerifiedReplayViewportAnchorCapture(
+        continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingVerifiedReplayViewportAnchorCapture {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            existing.continuation.resume(returning: nil)
+        }
+        pendingVerifiedReplayViewportAnchorCapture = PendingVerifiedReplayViewportAnchorCapture(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingVerifiedReplayViewportAnchorCapture(
+        id: UInt64,
+        returning anchor: VerifiedReplayCapturedViewportAnchor?
+    ) -> Bool {
+        guard let pending = pendingVerifiedReplayViewportAnchorCapture,
+              pending.id == id else {
+            return false
+        }
+        pendingVerifiedReplayViewportAnchorCapture = nil
+        pending.continuation.resume(returning: anchor)
+        return true
+    }
+
+    private func registerPendingVerifiedReplayViewportAnchorRestore(
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingVerifiedReplayViewportAnchorRestore {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            existing.continuation.resume(returning: false)
+        }
+        pendingVerifiedReplayViewportAnchorRestore = PendingVerifiedReplayViewportAnchorRestore(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            continuation: continuation
+        )
+        viewportRestoreGate.withLock { $0.activeRestoreTicket = operationID }
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingVerifiedReplayViewportAnchorRestore(
+        id: UInt64,
+        returning result: Bool
+    ) -> Bool {
+        guard let pending = pendingVerifiedReplayViewportAnchorRestore,
+              pending.id == id else {
+            return false
+        }
+        pendingVerifiedReplayViewportAnchorRestore = nil
+        pending.continuation.resume(returning: result)
+        return true
+    }
+
+    /// Retains an immutable copy of the last presented Ghostty pixels above the
+    /// live renderer while a replacement grid is replayed and verified.
     @discardableResult
     public func freezeVerifiedReplayPresentation(transactionID: UInt64) async -> Bool {
         guard surface != nil, !isDismantled, window != nil, !Task.isCancelled else {
@@ -25,7 +247,6 @@ extension GhosttySurfaceView {
             verifiedReplayFrozenTransactionID = transactionID
             verifiedReplayReadyFence = nil
             verifiedReplayReadyTransactionID = nil
-            cursorOverlayLayer?.isHidden = true
             return true
         }
         guard !verifiedReplayRenderSuppressed,
@@ -52,13 +273,11 @@ extension GhosttySurfaceView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.addSublayer(frozen.layer)
-        cursorOverlayLayer?.isHidden = true
         CATransaction.commit()
 
         verifiedReplayFrozenPresentationLayer = frozen.layer
         verifiedReplayFrozenBackgroundLayer = frozen.backgroundLayer
         verifiedReplayFrozenContentLayer = frozen.contentLayer
-        verifiedReplayFrozenCursorLayer = frozen.cursorLayer
         verifiedReplayFrozenImage = frozen.image
         verifiedReplayFrozenTransactionID = transactionID
         verifiedReplayFrozenViewportRect = frozen.viewportRect
@@ -88,6 +307,23 @@ extension GhosttySurfaceView {
         // zero-sized first target is correctly rejected by its size guard.
         guard !Task.isCancelled, !isDismantled, window != nil else { return nil }
         return makeVerifiedReplayBlankFrozenPresentation()
+    }
+
+    /// Renders the just-restored viewport behind the frozen presentation
+    /// and re-arms the ready fence to that frame, so reveal exposes the
+    /// restored position instead of the replay's bottom reset. Render
+    /// suppression is still active here, so no other frame can replace the
+    /// renderer identity between this present and the reveal.
+    @discardableResult
+    public func presentRestoredVerifiedReplayViewport() async -> Bool {
+        guard verifiedReplayFrozenTransactionID != nil,
+              verifiedReplayReadyTransactionID == verifiedReplayFrozenTransactionID else {
+            return false
+        }
+        return await submitVerifiedReplayRenderAndWait(
+            read: nil,
+            rearmReadyFenceOnPresent: true
+        ) != nil
     }
 
     /// Removes the retained last-good pixels only for the transaction that
@@ -148,7 +384,8 @@ extension GhosttySurfaceView {
             renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
             expectedCursorColor: frame.terminalCursorColor,
-            configuredCursorColor: configuredCursorColor
+            configuredCursorColor: configuredCursorColor,
+            anchor: frame.anchor
         )
         let submission = await submitVerifiedReplayRenderAndWait(read: read)
         guard !Task.isCancelled else { return nil }
@@ -176,14 +413,12 @@ extension GhosttySurfaceView {
         verifiedReplayFrozenPresentationLayer = nil
         verifiedReplayFrozenBackgroundLayer = nil
         verifiedReplayFrozenContentLayer = nil
-        verifiedReplayFrozenCursorLayer = nil
         verifiedReplayFrozenImage = nil
         verifiedReplayFrozenTransactionID = nil
         verifiedReplayFrozenViewportRect = nil
         verifiedReplayReadyFence = nil
         verifiedReplayReadyTransactionID = nil
         verifiedReplayRenderSuppressed = false
-        updateCursorOverlay()
         CATransaction.commit()
     }
 
@@ -294,7 +529,7 @@ extension GhosttySurfaceView {
         ) else {
             return
         }
-        if pending.observedFrame != nil,
+        if pending.observedFrame != nil || pending.rearmReadyFenceOnPresent,
            let transactionID = verifiedReplayFrozenTransactionID {
             verifiedReplayReadyFence = pending.fence
             verifiedReplayReadyTransactionID = transactionID
@@ -329,5 +564,13 @@ extension GhosttySurfaceView {
         )
     }
 
+}
+
+/// One generation-bound pointer used only on its serial Ghostty surface queue.
+private nonisolated struct VerifiedReplayViewportSurfaceOperation: @unchecked Sendable {
+    // Safety: the surface stays owned by GhosttySurfaceView, and every C call
+    // using this pointer is enqueued on that generation's serial output queue.
+    let surface: ghostty_surface_t
+    let generation: UInt64
 }
 #endif
