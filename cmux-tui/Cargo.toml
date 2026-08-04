@@ -28,6 +28,7 @@ members = [
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-tui-iroh",
     "crates/cmux-tui",
 ]
 default-members = [
@@ -43,6 +44,7 @@ default-members = [
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-tui-iroh",
     "crates/cmux-tui",
 ]
 exclude = ["vendor/crossterm"]
@@ -73,6 +75,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
+cmux-tui-iroh = { path = "crates/cmux-tui-iroh" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
@@ -90,11 +93,13 @@ libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
 bytes = "1"
 diffy = "0.4"
+ed25519-dalek = "2"
 fs4 = "1.1.0"
 terminput = "=0.5.11"
 terminput-crossterm = { version = "=0.4.7", default-features = false, features = ["crossterm_0_29"] }
@@ -114,12 +119,14 @@ socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["timeout"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [patch.crates-io]
 # Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated

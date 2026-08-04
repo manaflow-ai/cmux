@@ -27,8 +27,10 @@ use crate::observability::TransportSnapshot;
 
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
-    CMUX_IROH_ALPN, IrohListener, IrohPathMode, IrohProvider, IrohProviderConfig, IrohRoute,
-    ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL, load_or_create_iroh_secret,
+    CMUX_IROH_ALPN, IrohAdmission, IrohListener, IrohListenerLimits, IrohPathMode,
+    IrohPreAuthAdmission, IrohProvider, IrohProviderConfig, IrohRoute, ROUTING_DIRECT_ADDRS,
+    ROUTING_NODE_ID, ROUTING_RELAY_URL, bind_iroh_endpoint, connect_iroh_endpoint,
+    load_or_create_iroh_secret,
 };
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,

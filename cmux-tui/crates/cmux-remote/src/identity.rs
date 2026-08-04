@@ -1999,6 +1999,27 @@ fn atomic_json(path: &Path, value: &impl Serialize) -> Result<(), IdentityError>
     result
 }
 
+/// Atomically persists JSON in a managed owner-only directory.
+///
+/// This is the same durability path used by the remote identity database:
+/// create an owner-only temporary file, sync it, rename it, then sync the
+/// parent directory. Callers should use [`crate::secret_file::read_owner_only`]
+/// when loading the result so the read side retains the same ownership and
+/// symlink checks.
+pub fn write_owner_only_json(path: &Path, value: &impl Serialize) -> Result<(), IdentityError> {
+    atomic_json(path, value)
+}
+
+/// Loads bounded JSON through the hardened owner-only secret-file reader.
+pub fn read_owner_only_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    maximum_bytes: usize,
+) -> Result<T, IdentityError> {
+    let bytes =
+        crate::secret_file::read_owner_only(path, maximum_bytes).map_err(IdentityError::Io)?;
+    serde_json::from_slice(&bytes).map_err(IdentityError::Json)
+}
+
 fn sync_parent_directory(path: &Path) -> Result<(), IdentityError> {
     #[cfg(unix)]
     File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)?;

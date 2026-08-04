@@ -335,16 +335,16 @@ impl IrohProviderConfig {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct IrohListenerLimits {
-    maximum_connections: usize,
-    maximum_connection_overflow: usize,
-    maximum_pending_streams: usize,
-    maximum_pending_stream_overflow: usize,
-    maximum_pending_streams_per_connection: usize,
-    connection_handshake_timeout: Duration,
-    first_stream_timeout: Duration,
-    unauthenticated_timeout: Duration,
-    pre_auth_timeout: Duration,
+pub struct IrohListenerLimits {
+    pub maximum_connections: usize,
+    pub maximum_connection_overflow: usize,
+    pub maximum_pending_streams: usize,
+    pub maximum_pending_stream_overflow: usize,
+    pub maximum_pending_streams_per_connection: usize,
+    pub connection_handshake_timeout: Duration,
+    pub first_stream_timeout: Duration,
+    pub unauthenticated_timeout: Duration,
+    pub pre_auth_timeout: Duration,
 }
 
 impl Default for IrohListenerLimits {
@@ -364,7 +364,7 @@ impl Default for IrohListenerLimits {
 }
 
 impl IrohListenerLimits {
-    fn validate(self) -> Result<Self, ProviderError> {
+    pub fn validate(self) -> Result<Self, ProviderError> {
         if self.maximum_connections == 0
             || self.maximum_pending_streams == 0
             || self.maximum_pending_streams_per_connection == 0
@@ -381,7 +381,7 @@ impl IrohListenerLimits {
     }
 }
 
-struct IrohAdmission {
+pub struct IrohAdmission {
     limits: IrohListenerLimits,
     connections: Arc<Semaphore>,
     connection_overflow: Arc<Semaphore>,
@@ -390,7 +390,7 @@ struct IrohAdmission {
 }
 
 impl IrohAdmission {
-    fn new(limits: IrohListenerLimits) -> Self {
+    pub fn new(limits: IrohListenerLimits) -> Self {
         Self {
             limits,
             connections: Arc::new(Semaphore::new(limits.maximum_connections)),
@@ -401,14 +401,40 @@ impl IrohAdmission {
             )),
         }
     }
+
+    pub fn limits(&self) -> IrohListenerLimits {
+        self.limits
+    }
+
+    pub fn try_reserve_connection(&self) -> Option<IrohPreAuthAdmission> {
+        try_pre_auth_admission(&self.connections, &self.connection_overflow)
+    }
+
+    pub async fn acquire_connection(
+        &self,
+        reservation: IrohPreAuthAdmission,
+    ) -> OwnedSemaphorePermit {
+        reservation.acquire(self.connections.clone()).await
+    }
+
+    pub fn try_reserve_pending_stream(&self) -> Option<IrohPreAuthAdmission> {
+        try_pre_auth_admission(&self.pending_streams, &self.pending_stream_overflow)
+    }
+
+    pub async fn acquire_pending_stream(
+        &self,
+        reservation: IrohPreAuthAdmission,
+    ) -> OwnedSemaphorePermit {
+        reservation.acquire(self.pending_streams.clone()).await
+    }
 }
 
-enum PreAuthAdmission {
+pub enum IrohPreAuthAdmission {
     Ready(OwnedSemaphorePermit),
     Queued(OwnedSemaphorePermit),
 }
 
-impl PreAuthAdmission {
+impl IrohPreAuthAdmission {
     async fn acquire(self, capacity: Arc<Semaphore>) -> OwnedSemaphorePermit {
         match self {
             Self::Ready(permit) => permit,
@@ -455,10 +481,10 @@ impl PreAuthAdmission {
 fn try_pre_auth_admission(
     capacity: &Arc<Semaphore>,
     overflow: &Arc<Semaphore>,
-) -> Option<PreAuthAdmission> {
+) -> Option<IrohPreAuthAdmission> {
     match capacity.clone().try_acquire_owned() {
-        Ok(permit) => Some(PreAuthAdmission::Ready(permit)),
-        Err(_) => overflow.clone().try_acquire_owned().ok().map(PreAuthAdmission::Queued),
+        Ok(permit) => Some(IrohPreAuthAdmission::Ready(permit)),
+        Err(_) => overflow.clone().try_acquire_owned().ok().map(IrohPreAuthAdmission::Queued),
     }
 }
 
@@ -484,7 +510,7 @@ impl IrohProvider {
     }
 
     async fn endpoint(&self) -> Result<&Endpoint, ProviderError> {
-        self.endpoint.get_or_try_init(|| bind_endpoint(&self.config)).await
+        self.endpoint.get_or_try_init(|| bind_iroh_endpoint(&self.config)).await
     }
 
     pub async fn local_node_id(&self) -> Result<NodeId, ProviderError> {
@@ -531,7 +557,8 @@ fn validate_config(config: &IrohProviderConfig) -> Result<(), ProviderError> {
     Ok(())
 }
 
-async fn bind_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, ProviderError> {
+pub async fn bind_iroh_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, ProviderError> {
+    validate_config(config)?;
     use ::iroh::endpoint::presets;
 
     let builder = if config.discovery_n0 {
@@ -553,7 +580,7 @@ async fn bind_endpoint(config: &IrohProviderConfig) -> Result<Endpoint, Provider
         .map_err(|_| ProviderError::Transport("could not bind Iroh endpoint".into()))
 }
 
-async fn connect_iroh_connection(
+pub async fn connect_iroh_endpoint(
     endpoint: &Endpoint,
     node_addr: &NodeAddr,
     alpn: &[u8],
@@ -597,7 +624,7 @@ async fn connect_iroh_for_path_mode(
         && node_addr.ip_addrs().next().is_some()
         && dial_addr.relay_urls().next().is_some();
     if !relay_assisted {
-        return connect_iroh_connection(endpoint, &dial_addr, alpn).await;
+        return connect_iroh_endpoint(endpoint, &dial_addr, alpn).await;
     }
 
     // A relay-first handshake avoids letting an explicitly advertised but
@@ -606,12 +633,12 @@ async fn connect_iroh_for_path_mode(
     // without relay access still falls back to the complete address set.
     match tokio::time::timeout(
         AUTO_RELAY_BOOTSTRAP_TIMEOUT,
-        connect_iroh_connection(endpoint, &dial_addr, alpn),
+        connect_iroh_endpoint(endpoint, &dial_addr, alpn),
     )
     .await
     {
         Ok(Ok(connection)) => Ok(connection),
-        Ok(Err(_)) | Err(_) => connect_iroh_connection(endpoint, node_addr, alpn).await,
+        Ok(Err(_)) | Err(_) => connect_iroh_endpoint(endpoint, node_addr, alpn).await,
     }
 }
 
@@ -722,7 +749,7 @@ impl IrohListener {
         validate_config(&config)?;
         let admission = Arc::new(IrohAdmission::new(limits.validate()?));
         let relay_enabled = !matches!(&config.relay_mode, RelayMode::Disabled);
-        let endpoint = bind_endpoint(&config).await?;
+        let endpoint = bind_iroh_endpoint(&config).await?;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_iroh_listener(
             endpoint.clone(),
@@ -1245,10 +1272,10 @@ mod tests {
         listener: &IrohListener,
         secret_key: SecretKey,
     ) -> (Endpoint, ::iroh::endpoint::Connection) {
-        let endpoint = bind_endpoint(&local_config(secret_key)).await.unwrap();
+        let endpoint = bind_iroh_endpoint(&local_config(secret_key)).await.unwrap();
         let route = listener.route().await.unwrap();
         let connection =
-            connect_iroh_connection(&endpoint, route.node_addr(), CMUX_IROH_ALPN).await.unwrap();
+            connect_iroh_endpoint(&endpoint, route.node_addr(), CMUX_IROH_ALPN).await.unwrap();
         (endpoint, connection)
     }
 
@@ -1659,10 +1686,10 @@ mod tests {
             alpn: CMUX_IROH_ALPN.to_vec(),
             maximum_frame_bytes: 32,
         };
-        let endpoint = bind_endpoint(&config).await.unwrap();
+        let endpoint = bind_iroh_endpoint(&config).await.unwrap();
         let node_addr = NodeAddr::new(server_key.public()).with_ip_addr(direct);
         let connection =
-            connect_iroh_connection(&endpoint, &node_addr, CMUX_IROH_ALPN).await.unwrap();
+            connect_iroh_endpoint(&endpoint, &node_addr, CMUX_IROH_ALPN).await.unwrap();
         let observed_connection = connection.clone();
         let description = format!("iroh://{}", server_key.public());
         let transport = iroh_transport_snapshot(&description, &connection);
@@ -1763,11 +1790,11 @@ mod tests {
         let (first_client, first_connection) = connect_test_client(&listener, secret(34)).await;
         wait_for_available_permits(&listener.admission.connections, 0).await;
 
-        let second_client = bind_endpoint(&local_config(secret(35))).await.unwrap();
+        let second_client = bind_iroh_endpoint(&local_config(secret(35))).await.unwrap();
         let route = listener.route().await.unwrap();
         let second = tokio::time::timeout(
             Duration::from_secs(5),
-            connect_iroh_connection(&second_client, route.node_addr(), CMUX_IROH_ALPN),
+            connect_iroh_endpoint(&second_client, route.node_addr(), CMUX_IROH_ALPN),
         )
         .await
         .expect("excess Iroh connection should be refused promptly");

@@ -49,13 +49,13 @@ Tickets are generation-bound, machine-bound, one use, and memory-only. Expiry, c
 
 1. The listener accepts TLS only under ALPN `cmux/tui/1`. The authenticated initiator EndpointID comes from the completed iroh connection.
 2. Before opening the cmux-tui Unix socket or forwarding an application byte, it reads one admission frame with a 16 KiB limit and a five-second timeout.
-3. It verifies the compact JWS signature using the broker verification keys from a fresh authenticated discovery snapshot.
-4. It requires JWS type `cmux-pair-grant+jwt`, `alg=EdDSA`, TUI ALPN, TUI scope, a canonical UUID `jti`, valid times, and a lifetime no longer than the broker contract.
-5. It requires the grant initiator EndpointID to equal the TLS initiator EndpointID. Every initiator and acceptor field must exactly match the corresponding discovery binding. The acceptor must also exactly match the local persisted binding ID, device ID, tag, platform `linux`, EndpointID, and identity generation.
-6. It requires both exact bindings to exist in one account discovery snapshot, the acceptor to remain pairable, route contract 1, and the discovery relay fleet to equal the installed signed relay fleet.
+3. Before broker traffic, it verifies the compact JWS with the last authenticated discovery key set, including type `cmux-pair-grant+jwt`, `alg=EdDSA`, TUI ALPN, TUI scope, canonical UUIDs, valid times, and the broker lifetime bound.
+4. That local preflight requires the grant initiator EndpointID to equal the TLS initiator EndpointID and the acceptor tuple to equal the persisted local binding. Invalid or cross-endpoint traffic therefore cannot induce authenticated HTTP.
+5. It then obtains one authenticated discovery snapshot. Concurrent valid admissions share a successful snapshot for at most 30 seconds; one mutex coalesces the network fetch.
+6. It re-verifies the signature with that snapshot's key set and requires every initiator and acceptor field to match exactly one corresponding discovery binding. The acceptor must remain pairable, advertise `cmux.tui.attach`, use route contract 1, and the discovery relay fleet must equal the installed signed relay fleet.
 7. Only after all checks pass does it connect to the local session socket, acknowledge admission, and start the byte bridge.
 
-The server revalidates the exact bindings, pairing flag, route contract, and relay fleet at most every 30 seconds, including while idle. Stage 1 fails closed on every authentication, HTTP, timeout, decode, contract, fleet, missing-row, or ambiguous-row failure. It also closes at grant expiry. This is stricter than the accepted policy that permits an already admitted connection to survive a pure broker connectivity failure.
+The server revalidates the exact bindings, pairing flag, route contract, and relay fleet at most 30 seconds after the snapshot fetch, including while idle. The first deadline is inherited from the admission snapshot instead of starting a second 30-second window. Stage 1 fails closed on every authentication, HTTP, timeout, decode, contract, fleet, missing-row, or ambiguous-row failure. An independent deadline closes exactly at grant expiry. This is stricter than the accepted policy that permits an already admitted connection to survive a pure broker connectivity failure.
 
 Admission rejection is sticky for that connection. Retrying requires a new TLS connection and a fresh transport admission frame.
 
@@ -90,7 +90,7 @@ The production and staging trust roots are compiled from the existing Xcode rela
 
 Every endpoint is built with `RelayMode::Custom` from that exact verified set. `RelayMode::Default`, `presets::N0`, public n0 DNS, custom relay flags, and unverified registry hints are absent from the Stage 1 code path.
 
-The relay credential coordinator refreshes before `refresh_after`. It binds a replacement Minimal relay-only endpoint with the same secret, swaps new accepts and dials to it only after the replacement is ready, and lets existing connections drain on the old endpoint. A refresh whose policy or credential verification fails does not install partial state and stops accepting new streams before credential expiry.
+The relay credential coordinator refreshes before `refresh_after`. It validates the complete replacement policy, credential set, and discovery fleet, inserts or replaces those relay configurations on the live Minimal relay-only endpoint, waits for a verified fleet relay to be connected, commits the new runtime generation, then removes retired relays. The EndpointID and application streams do not change. Failed installation rolls relay configurations back, retries with bounded backoff, and stops accepting new streams before the last installed authorization expires.
 
 ## Relationship to cmux-remote
 
@@ -122,11 +122,12 @@ The cmux-remote Noise identity and `dev.cmux.remote/1` protocol are not placed o
 | Grant refresh and expiry are bounded | Provider obtains a grant for each `open_machine`; server closes at its signed expiry. |
 | Tokens never cross iroh | Enrollment, Stack credentials, relay credentials, and provider bearer/ticket stay on HTTPS or owner-only local sockets. Only the signed pair grant crosses the admission stream. |
 | First application stream is admission-only | The first bounded frame is the pair grant. The local session socket is unopened until admission succeeds. |
+| Invalid peers cannot amplify broker traffic | Verify the signed grant, TLS initiator, and exact local acceptor against the last authenticated key set before discovery. Coalesce online discovery behind one 30-second snapshot lease. |
 | Fixed unauthenticated resource limits | Reuse cmux-remote's bounded semaphores, five-second admission timeout, one admitted protocol stream per connection, and bounded frame sizes. |
 | Registration proves endpoint-key possession | Use the exact challenge hash and `cmux/iroh/device-registration/v1` transcript, signed by the persisted endpoint key. |
 | Registration slots and rotation semantics | Persist client-minted device ID and tag. Reboot updates the same `(userId, deviceId, tag)` slot. Key loss creates a new identity; rotation is not guessed. |
 | Secure platform storage | Use cmux-remote owner-only, `O_NOFOLLOW`, atomic persistence under the cmux-tui state root. |
-| Signed relay policy and safe rollout | Verify pins, schema, time, monotonic sequence, exact fleet, and exact credentials before swap. Old connections drain after add-before-remove replacement. |
+| Signed relay policy and safe rollout | Verify pins, schema, time, monotonic sequence, exact fleet, and exact credentials before live add-before-remove replacement. EndpointID and application streams stay unchanged. |
 | Endpoint-bound relay credential | Fetch credentials only after registration and require the broker-returned EndpointID to match the local endpoint. |
 | Custom relays need saved broker metadata | Stage 1 does not support custom relays. |
 | No public development relay in production | There is no default or development relay fallback. Startup fails when signed managed policy or credentials are unavailable. |
@@ -176,7 +177,7 @@ The Docker acceptance script will:
 5. create durable session output, detach, reattach, and confirm the same session state;
 6. restart the container, confirm the same EndpointID, device ID, tag, and binding ID, then attach again;
 7. record timestamps, redacted identity prefixes, broker binding IDs, transport path `relay`, protocol checks, and Docker port mappings in an evidence transcript and terminal recording;
-8. remove the demo container, image, build cache, and unused Docker layers while retaining the source evidence.
+8. remove the exact demo container, volume, image, and temporary host Rust target while retaining the source evidence. It does not globally prune shared Docker caches owned by concurrent work.
 
 Acceptance is complete only when the evidence shows zero published container ports, a catalog-relay path, EndpointID-only remote construction, successful detach and reattach, stable identity across restart, and no credential or full EndpointID disclosure.
 

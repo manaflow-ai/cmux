@@ -5,24 +5,24 @@ use std::path::{Path, PathBuf};
 use fs4::FileExt;
 
 #[derive(Debug)]
-pub(crate) struct OwnerFileLock {
+pub struct OwnerFileLock {
     file: File,
 }
 
 impl OwnerFileLock {
-    pub(crate) fn acquire(path: &Path) -> io::Result<Self> {
+    pub fn acquire(path: &Path) -> io::Result<Self> {
         let file = open_private_lock(path)?;
         FileExt::lock(&file)?;
         Ok(Self { file })
     }
 
-    pub(crate) fn try_acquire(path: &Path) -> io::Result<Self> {
+    pub fn try_acquire(path: &Path) -> io::Result<Self> {
         let file = open_private_lock(path)?;
         FileExt::try_lock(&file).map_err(io::Error::from)?;
         Ok(Self { file })
     }
 
-    pub(crate) async fn acquire_async(path: PathBuf) -> io::Result<Self> {
+    pub async fn acquire_async(path: PathBuf) -> io::Result<Self> {
         tokio::task::spawn_blocking(move || Self::acquire(&path))
             .await
             .map_err(|error| io::Error::other(format!("owner-file lock task failed: {error}")))?
@@ -35,7 +35,7 @@ impl Drop for OwnerFileLock {
     }
 }
 
-pub(crate) fn sibling_lock_path(path: &Path) -> io::Result<PathBuf> {
+pub fn sibling_lock_path(path: &Path) -> io::Result<PathBuf> {
     let file_name = path.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "lock target has no file name")
     })?;
