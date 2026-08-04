@@ -9,6 +9,7 @@ final class GlobalSearchCoordinator {
     private var panelPurgeTaskIDs: [UUID: UUID] = [:]
     private var startupIndexTask: Task<Void, Never>?
     private var indexState: SearchIndexState = .idle
+    private var indexedTitleSnapshots: [UUID: GlobalSearchTitleSnapshot] = [:]
     private lazy var captureManager = GlobalSearchPanelCaptureManager(
         indexProvider: { [weak self] in
             guard let self else { return nil }
@@ -26,6 +27,7 @@ final class GlobalSearchCoordinator {
         startupIndexTask?.cancel()
         startupIndexTask = Task { @MainActor [weak self] in
             guard let self, let index = await self.ensureIndex() else { return }
+            self.indexedTitleSnapshots.removeAll()
             do {
                 try await index.deleteAll()
             } catch {
@@ -81,24 +83,23 @@ final class GlobalSearchCoordinator {
 
     func refreshLiveIndex() async {
         guard let index = await ensureIndex(), let appDelegate = AppDelegate.shared else { return }
+        let contexts = appDelegate.globalSearchPanelContexts()
 
-        for context in appDelegate.globalSearchPanelContexts() {
+        await refreshLivePanelTitles(contexts: contexts, index: index)
+        guard !Task.isCancelled else { return }
+
+        for context in contexts {
             guard !Task.isCancelled else { return }
-            cancelPanelPurge(forPanelID: context.panelID)
-
-            let titleDocument = GlobalSearchDocuments.titleDocument(for: context)
-            do {
-                try await index.upsert(titleDocument)
-            } catch {
-#if DEBUG
-                cmuxDebugLog("globalSearch.title.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
-#endif
-            }
-
-            guard !Task.isCancelled else { return }
-
             await captureManager.refreshPanelContent(for: context, index: index)
         }
+    }
+
+    func refreshLivePanelTitles() async {
+        guard let index = await ensureIndex(), let appDelegate = AppDelegate.shared else { return }
+        await refreshLivePanelTitles(
+            contexts: appDelegate.globalSearchPanelContexts(),
+            index: index
+        )
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
@@ -111,6 +112,7 @@ final class GlobalSearchCoordinator {
 
     func purgePanel(id panelID: UUID) {
         captureManager.cancelCaptures(forPanelID: panelID)
+        indexedTitleSnapshots[panelID] = nil
         panelPurgeTasks[panelID]?.cancel()
 
         let taskID = UUID()
@@ -147,6 +149,34 @@ final class GlobalSearchCoordinator {
         panelPurgeTasks[panelID]?.cancel()
         panelPurgeTasks[panelID] = nil
         panelPurgeTaskIDs[panelID] = nil
+    }
+
+    private func refreshLivePanelTitles(
+        contexts: [GlobalSearchPanelContext],
+        index: SearchIndex
+    ) async {
+        let livePanelIDs = Set(contexts.map(\.panelID))
+        let stalePanelIDs = indexedTitleSnapshots.keys.filter { !livePanelIDs.contains($0) }
+        for panelID in stalePanelIDs {
+            indexedTitleSnapshots[panelID] = nil
+        }
+
+        for context in contexts {
+            guard !Task.isCancelled else { return }
+            cancelPanelPurge(forPanelID: context.panelID)
+
+            let snapshot = GlobalSearchTitleSnapshot(context: context)
+            guard indexedTitleSnapshots[context.panelID] != snapshot else { continue }
+
+            do {
+                try await index.upsert(GlobalSearchDocuments.titleDocument(for: context))
+                indexedTitleSnapshots[context.panelID] = snapshot
+            } catch {
+#if DEBUG
+                cmuxDebugLog("globalSearch.title.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+            }
+        }
     }
 
     private func ensureIndex() async -> SearchIndex? {

@@ -416,10 +416,12 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         appDelegate.toggleGlobalSearchPalette()
-        _ = try #require(waitForSearchPopoverWindow(excluding: window))
+        _ = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The first Search presentation must show before it is closed"
+        )
         GlobalSearchCoordinator.shared.dismissPalette()
         #expect(waitUntilGlobalSearchCloses())
-        RunLoop.main.run(until: Date.now.addingTimeInterval(0.05))
 
         appDelegate.toggleGlobalSearchPalette()
         let reopenedPopoverWindow = try #require(
@@ -442,6 +444,46 @@ extension GlobalSearchShortcutBehaviorTests {
 #else
         Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
 #endif
+    }
+
+    @MainActor
+    @Test func closingSearchPreventsQueuedSearchFromReplacingResults() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        let refreshFinished = GlobalSearchAsyncSignal()
+        let debounce = ControlledGlobalSearchDebounce()
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLivePanelTitles: { refreshFinished.signal() },
+            search: { _ in [] },
+            debounceSleep: { try await debounce.sleep(for: $0) }
+        )
+        defer {
+            presentation.endPresentation()
+            debounce.resume()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        presentation.beginPresentation()
+        await refreshFinished.wait()
+        try #require(
+            !presentation.results.isEmpty,
+            "The fixture must start with browse results that stale search work could replace"
+        )
+        let browseResults = presentation.results
+        presentation.query = "missing\(UUID().uuidString)"
+        await debounce.waitUntilStarted()
+
+        presentation.endPresentation()
+        debounce.resume()
+        await debounce.waitUntilFinished()
+        await Task.yield()
+
+        #expect(debounce.wasCancelled)
+        #expect(
+            presentation.results == browseResults,
+            "Search work released after cleanup must not replace the closed presentation's results"
+        )
     }
 
     @MainActor
@@ -630,5 +672,87 @@ extension GlobalSearchShortcutBehaviorTests {
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
+    }
+}
+
+@MainActor
+private final class GlobalSearchAsyncSignal {
+    private var didSignal = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        didSignal = true
+        let continuations = waiters
+        waiters.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func wait() async {
+        guard !didSignal else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
+@MainActor
+private final class ControlledGlobalSearchDebounce {
+    private var sleepContinuation: CheckedContinuation<Void, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var didStart = false
+    private var didFinish = false
+
+    private(set) var wasCancelled = false
+
+    func sleep(for _: Duration) async throws {
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+
+        await withCheckedContinuation { continuation in
+            sleepContinuation = continuation
+        }
+        defer { finish() }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            wasCancelled = true
+            throw error
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func resume() {
+        sleepContinuation?.resume()
+        sleepContinuation = nil
+    }
+
+    func waitUntilFinished() async {
+        guard !didFinish else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
+        }
+    }
+
+    private func finish() {
+        didFinish = true
+        let waiters = finishWaiters
+        finishWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

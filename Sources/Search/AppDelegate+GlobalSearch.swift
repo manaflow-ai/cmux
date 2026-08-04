@@ -39,9 +39,10 @@ extension AppDelegate {
                 }()
 
                 let orderedPanelIDs = workspace.sidebarOrderedPanelIds()
+                let orderedPanelIDSet = Set(orderedPanelIDs)
                 var seenPanelIDs = Set<UUID>()
                 let remainingPanelIDs = workspace.panels.keys
-                    .filter { !orderedPanelIDs.contains($0) }
+                    .filter { !orderedPanelIDSet.contains($0) }
                     .sorted { $0.uuidString < $1.uuidString }
 
                 for panelID in orderedPanelIDs + remainingPanelIDs where seenPanelIDs.insert(panelID).inserted {

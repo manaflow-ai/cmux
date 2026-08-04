@@ -4,16 +4,14 @@ import SwiftUI
 
 @MainActor
 final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
-    private unowned let coordinator: GlobalSearchCoordinator
     private let popover = NSPopover()
     private let presentation: GlobalSearchPopoverPresentation
 
     var isShown: Bool {
-        popover.isShown
+        presentation.isPresented
     }
 
     init(coordinator: GlobalSearchCoordinator) {
-        self.coordinator = coordinator
         presentation = GlobalSearchPopoverPresentation(coordinator: coordinator)
         super.init()
         popover.behavior = .transient
@@ -22,7 +20,6 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         popover.delegate = self
         popover.contentViewController = NSHostingController(
             rootView: GlobalSearchPaletteView(
-                coordinator: coordinator,
                 presentation: presentation
             )
         )
@@ -31,7 +28,7 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     private var dismissalHandler: (() -> Void)?
 
     func toggle(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
-        if popover.isShown {
+        if presentation.isPresented {
             dismiss()
         } else {
             show(relativeTo: button, onDismiss: onDismiss)
@@ -39,10 +36,9 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     func show(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
-        if popover.isShown {
-            popover.performClose(nil)
-        }
+        guard !isShown else { return }
         dismissalHandler = onDismiss
+        presentation.beginPresentation()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
@@ -50,12 +46,8 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    func popoverWillShow(_ notification: Notification) {
-        presentation.popoverWillShow()
-    }
-
     func popoverDidClose(_ notification: Notification) {
-        presentation.popoverDidClose()
+        presentation.endPresentation()
         let handler = dismissalHandler
         dismissalHandler = nil
         handler?()
@@ -63,21 +55,9 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
 }
 
 private struct GlobalSearchPaletteView: View {
-    let coordinator: GlobalSearchCoordinator
     @Bindable var presentation: GlobalSearchPopoverPresentation
 
-    @State private var query = ""
-    @State private var results: [GlobalSearchResultRow] = []
-    @State private var selectedIndex = 0
-    @State private var isSearching = false
-    @State private var searchGeneration = 0
-    @State private var searchDebounceTimer: DispatchSourceTimer?
-    @State private var searchTask: Task<Void, Never>?
-    @State private var refreshTask: Task<Void, Never>?
     @FocusState private var searchFieldFocused: Bool
-
-    private let searchDebounceMilliseconds = 80
-    private let browseResultLimit = 20
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,7 +70,7 @@ private struct GlobalSearchPaletteView: View {
                         localized: "globalSearch.palette.placeholder",
                         defaultValue: "Search all windows, panels, browser tabs..."
                     ),
-                    text: $query
+                    text: $presentation.query
                 )
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 18, weight: .regular)
@@ -101,9 +81,9 @@ private struct GlobalSearchPaletteView: View {
 
             Divider()
 
-            if results.isEmpty {
+            if presentation.results.isEmpty {
                 GlobalSearchEmptyStateView(
-                    title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    title: presentation.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? String(localized: "globalSearch.empty.noOpenPanels", defaultValue: "No open panels")
                         : String(localized: "globalSearch.empty.noResults", defaultValue: "No results")
                 )
@@ -111,18 +91,18 @@ private struct GlobalSearchPaletteView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(results) { row in
+                        ForEach(presentation.results) { row in
                             GlobalSearchResultRowView(
                                 row: row,
-                                isSelected: selectedIndex == row.index,
+                                isSelected: presentation.selectedIndex == row.index,
                                 action: {
-                                    selectedIndex = row.index
-                                    openSelectedResult()
+                                    presentation.selectResult(at: row.index)
+                                    presentation.activateSelectedResult()
                                 }
                             )
                             .onHover { hovering in
                                 if hovering {
-                                    selectedIndex = row.index
+                                    presentation.selectResult(at: row.index)
                                 }
                             }
                         }
@@ -133,154 +113,9 @@ private struct GlobalSearchPaletteView: View {
         }
         .frame(width: 720, height: 460)
         .background(.regularMaterial)
-        .onChange(of: presentation.presentationGeneration, initial: true) { _, generation in
-            if generation == nil {
-                finishPopoverPresentation()
-            } else {
-                prepareForPopoverPresentation()
-            }
+        .onChange(of: presentation.isPresented, initial: true) { _, isPresented in
+            searchFieldFocused = isPresented
         }
-        .onDisappear {
-            finishPopoverPresentation()
-        }
-        .onChange(of: query) { _, newValue in
-            scheduleSearch(newValue)
-        }
-    }
-
-    private func prepareForPopoverPresentation() {
-        refreshTask?.cancel()
-        refreshTask = nil
-        cancelSearchWork()
-
-        query = ""
-        resetResultsForPopoverOpen()
-        searchFieldFocused = true
-        presentation.handleKeyEvents { event in
-            handleKeyEvent(event)
-        }
-
-        refreshTask = Task { @MainActor in
-            await coordinator.refreshLiveIndex()
-            guard !Task.isCancelled else { return }
-            scheduleSearch(query)
-        }
-    }
-
-    private func finishPopoverPresentation() {
-        searchFieldFocused = false
-        refreshTask?.cancel()
-        refreshTask = nil
-        cancelSearchWork()
-    }
-
-    private func scheduleSearch(_ nextQuery: String) {
-        cancelSearchWork()
-        searchGeneration += 1
-        let generation = searchGeneration
-        let trimmed = nextQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            isSearching = false
-            reloadBrowseResults()
-            return
-        }
-
-        isSearching = true
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(15))
-        timer.setEventHandler {
-            Task { @MainActor in
-                guard searchGeneration == generation else { return }
-                searchDebounceTimer?.cancel()
-                searchDebounceTimer = nil
-
-                searchTask = Task { @MainActor in
-                    defer {
-                        if searchGeneration == generation {
-                            searchTask = nil
-                        }
-                    }
-
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    let hits = await coordinator.search(query: trimmed)
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    results = hits.enumerated().map { offset, hit in
-                        GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
-                    }
-                    selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-                    isSearching = false
-                }
-            }
-        }
-        searchDebounceTimer = timer
-        timer.resume()
-    }
-
-    private func cancelSearchWork() {
-        searchDebounceTimer?.cancel()
-        searchDebounceTimer = nil
-        searchTask?.cancel()
-        searchTask = nil
-    }
-
-    private func resetResultsForPopoverOpen() {
-        selectedIndex = 0
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            reloadBrowseResults()
-            isSearching = false
-        } else {
-            results = []
-            isSearching = true
-        }
-    }
-
-    private func reloadBrowseResults() {
-        let hits = coordinator.browseOpenPanels(limit: browseResultLimit)
-        results = hits.enumerated().map { offset, hit in
-            GlobalSearchResultRow(hit: hit, query: "", index: offset)
-        }
-        selectedIndex = 0
-    }
-
-    private func handleKeyEvent(_ event: GlobalSearchKeyEvent) -> Bool {
-        guard coordinator.isPaletteVisible() else { return false }
-
-        let flags = event.modifierFlags
-        if flags.contains(.command),
-           !flags.contains(.option),
-           !flags.contains(.control),
-           let rawDigit = event.charactersIgnoringModifiers,
-           let digit = Int(rawDigit),
-           (1...9).contains(digit) {
-            openResult(at: digit - 1)
-            return true
-        }
-
-        switch event.keyCode {
-        case 126 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
-            selectedIndex = max(0, selectedIndex - 1)
-            return true
-        case 125 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
-            selectedIndex = min(max(results.count - 1, 0), selectedIndex + 1)
-            return true
-        case 36, 76:
-            openSelectedResult()
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func openSelectedResult() {
-        openResult(at: selectedIndex)
-    }
-
-    private func openResult(at index: Int) {
-        guard results.indices.contains(index) else { return }
-        let row = results[index]
-        coordinator.activate(row.hit, query: row.query)
     }
 }
 
@@ -314,7 +149,7 @@ private struct GlobalSearchEmptyStateView: View {
     }
 }
 
-private struct GlobalSearchResultRow: Identifiable, Equatable {
+struct GlobalSearchResultRow: Identifiable, Equatable {
     let hit: SearchIndexHit
     let query: String
     let index: Int
