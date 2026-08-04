@@ -201,88 +201,91 @@ export function SessionsTable({
         </label>
       </div>
 
-      <table
-        aria-label={t("tableLabel")}
-        className="block overflow-hidden border border-border"
-      >
-        <thead className="block">
-          <tr className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium text-muted">
-            <th scope="col" className="text-left font-medium">
-              {t("agent")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("session")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("cwd")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("rawSize")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("compressedSize")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("snapshots")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("firstUploaded")}
-            </th>
-            <th scope="col" className="text-left font-medium">
-              {t("lastUploaded")}
-            </th>
-          </tr>
-        </thead>
-        <tbody
-          ref={setScrollElement}
-          onScroll={maybeLoadMore}
-          className="relative block h-[calc(100vh-20rem)] min-h-[360px] overflow-auto"
+      <div className="overflow-x-auto border border-border">
+        <table
+          aria-label={t("tableLabel")}
+          className="block w-full min-w-[1216px]"
         >
-          {/* This invisible row supplies the virtual scroll height; the
-              rendered session rows below retain native table semantics. */}
-          <tr
-            className="invisible block min-w-[1040px]"
-            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          <thead className="block">
+            <tr className="grid w-full grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium text-muted">
+              <th scope="col" className="text-left font-medium">
+                {t("agent")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("session")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("cwd")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("rawSize")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("compressedSize")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("snapshots")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("firstUploaded")}
+              </th>
+              <th scope="col" className="text-left font-medium">
+                {t("lastUploaded")}
+              </th>
+            </tr>
+          </thead>
+          <tbody
+            ref={setScrollElement}
+            onScroll={maybeLoadMore}
+            className="relative block h-[calc(100vh-20rem)] min-h-[360px] overflow-x-hidden overflow-y-auto"
           >
-            <td className="block p-0" />
-          </tr>
-          {virtualItems.map((virtualRow) => {
-            const row = rows[virtualRow.index];
-            if (!row) {
+            {/* This invisible row supplies the virtual scroll height; the
+                rendered session rows below retain native table semantics. */}
+            <tr
+              aria-hidden="true"
+              className="invisible block w-full"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              <td className="block p-0" />
+            </tr>
+            {virtualItems.map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              if (!row) {
+                return (
+                  <tr
+                    key="status"
+                    className="absolute left-0 top-0 flex w-full items-center text-muted"
+                    style={{
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <td colSpan={8} className="w-full px-3">
+                      {status}
+                    </td>
+                  </tr>
+                );
+              }
               return (
-                <tr
-                  key="status"
-                  className="absolute left-0 top-0 flex w-full min-w-[1040px] items-center text-muted"
+                <SessionRow
+                  key={row.id}
+                  row={row}
+                  locale={locale}
+                  now={now}
+                  copyLabel={t("copySession")}
+                  copiedLabel={t("copiedSession")}
+                  unknownCwd={t("unknownCwd")}
+                  onNavigate={clearSearchTimer}
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
-                >
-                  <td colSpan={8} className="w-full px-3">
-                    {status}
-                  </td>
-                </tr>
+                />
               );
-            }
-            return (
-              <SessionRow
-                key={row.id}
-                row={row}
-                locale={locale}
-                now={now}
-                copyLabel={t("copySession")}
-                copiedLabel={t("copiedSession")}
-                unknownCwd={t("unknownCwd")}
-                onNavigate={clearSearchTimer}
-                style={{
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              />
-            );
-          })}
-        </tbody>
-      </table>
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -321,28 +324,13 @@ function SessionRow({
   readonly onNavigate: () => void;
   readonly style: React.CSSProperties;
 }) {
-  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const cwd = row.cwd || unknownCwd;
   const basename = pathBasename(row.cwd) || unknownCwd;
-  const openSession = () => {
-    onNavigate();
-    router.push(`/dashboard/vault/sessions/${row.id}`);
-  };
 
   return (
     <tr
-      // The row cannot be an anchor because it contains a nested copy button,
-      // so give it explicit keyboard semantics instead.
-      tabIndex={0}
-      onClick={openSession}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        openSession();
-      }}
-      className="group absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs focus-visible:outline focus-visible:-outline-offset-1 focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+      className="group absolute left-0 top-0 grid w-full grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs hover:bg-foreground hover:text-background"
       style={style}
     >
       <td>
@@ -351,13 +339,17 @@ function SessionRow({
         </span>
       </td>
       <td className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-xs" title={row.agentSessionId}>
+        <Link
+          href={`/dashboard/vault/sessions/${row.id}`}
+          onClick={onNavigate}
+          className="truncate font-mono text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:underline"
+          title={row.agentSessionId}
+        >
           {truncateMiddle(row.agentSessionId, 18)}
-        </span>
+        </Link>
         <button
           type="button"
-          onClick={(event) => {
-            event.stopPropagation();
+          onClick={() => {
             void navigator.clipboard.writeText(row.agentSessionId);
             setCopied(true);
           }}
