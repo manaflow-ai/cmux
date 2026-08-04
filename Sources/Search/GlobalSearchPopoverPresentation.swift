@@ -4,6 +4,12 @@ import Observation
 @MainActor
 @Observable
 final class GlobalSearchPopoverPresentation {
+    typealias DebounceCancellation = @MainActor () -> Void
+    typealias DebounceScheduler = @MainActor (
+        Int,
+        @escaping @MainActor () -> Void
+    ) -> DebounceCancellation
+
     var query = "" {
         didSet {
             guard isPresented, query != oldValue else { return }
@@ -15,34 +21,49 @@ final class GlobalSearchPopoverPresentation {
     private(set) var isPresented = false
 
     @ObservationIgnored private unowned let coordinator: GlobalSearchCoordinator
-    @ObservationIgnored private let refreshLivePanelTitles: @MainActor @Sendable () async -> Void
+    @ObservationIgnored private let refreshLiveIndex: @MainActor @Sendable () async -> Void
     @ObservationIgnored private let search: @MainActor @Sendable (String) async -> [SearchIndexHit]
-    @ObservationIgnored private let debounceSleep: @MainActor @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let scheduleSearchDebounce: DebounceScheduler
     @ObservationIgnored private var presentationGeneration = 0
     @ObservationIgnored private var searchWorkGeneration = 0
+    @ObservationIgnored private var cancelScheduledSearchDebounce: DebounceCancellation?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var keyMonitor: Any?
 
-    private let searchDebounceDuration = Duration.milliseconds(80)
+    private let searchDebounceMilliseconds = 80
     private let browseResultLimit = 20
 
     init(
         coordinator: GlobalSearchCoordinator,
-        refreshLivePanelTitles: (@MainActor @Sendable () async -> Void)? = nil,
+        refreshLiveIndex: (@MainActor @Sendable () async -> Void)? = nil,
         search: (@MainActor @Sendable (String) async -> [SearchIndexHit])? = nil,
-        debounceSleep: @escaping @MainActor @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
+        scheduleSearchDebounce: @escaping DebounceScheduler = { milliseconds, action in
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(
+                deadline: .now() + .milliseconds(max(0, milliseconds)),
+                leeway: .milliseconds(10)
+            )
+            timer.setEventHandler {
+                MainActor.assumeIsolated {
+                    action()
+                }
+            }
+            timer.resume()
+            return {
+                timer.setEventHandler {}
+                timer.cancel()
+            }
         }
     ) {
         self.coordinator = coordinator
-        self.refreshLivePanelTitles = refreshLivePanelTitles ?? { [unowned coordinator] in
-            await coordinator.refreshLivePanelTitles()
+        self.refreshLiveIndex = refreshLiveIndex ?? { [unowned coordinator] in
+            await coordinator.refreshLiveIndex()
         }
         self.search = search ?? { [unowned coordinator] query in
             await coordinator.search(query: query)
         }
-        self.debounceSleep = debounceSleep
+        self.scheduleSearchDebounce = scheduleSearchDebounce
     }
 
     func beginPresentation() {
@@ -56,9 +77,9 @@ final class GlobalSearchPopoverPresentation {
         isPresented = true
         installKeyMonitorIfNeeded()
 
-        let refreshLivePanelTitles = self.refreshLivePanelTitles
+        let refreshLiveIndex = self.refreshLiveIndex
         refreshTask = Task { @MainActor [weak self] in
-            await refreshLivePanelTitles()
+            await refreshLiveIndex()
             guard let self else { return }
             guard !Task.isCancelled,
                   isPresented,
@@ -70,12 +91,14 @@ final class GlobalSearchPopoverPresentation {
         }
     }
 
-    func endPresentation() {
+    @discardableResult
+    func endPresentation() -> Task<Void, Never>? {
         presentationGeneration &+= 1
         isPresented = false
         cancelRefreshWork()
-        cancelSearchWork()
+        let cancelledSearchTask = cancelSearchWork()
         removeKeyMonitor()
+        return cancelledSearchTask
     }
 
     func selectResult(at index: Int) {
@@ -96,19 +119,28 @@ final class GlobalSearchPopoverPresentation {
             return
         }
 
-        let debounceSleep = self.debounceSleep
-        let debounceDuration = searchDebounceDuration
-        searchTask = Task { @MainActor [weak self] in
-            guard !Task.isCancelled else { return }
-            do {
-                try await debounceSleep(debounceDuration)
-            } catch {
-                if let self, searchWorkGeneration == generation {
-                    searchTask = nil
-                }
+        let scheduleSearchDebounce = self.scheduleSearchDebounce
+        cancelScheduledSearchDebounce = scheduleSearchDebounce(searchDebounceMilliseconds) { [weak self] in
+            guard let self,
+                  isPresented,
+                  searchWorkGeneration == generation else {
                 return
             }
+            let cancelDebounce = cancelScheduledSearchDebounce
+            cancelScheduledSearchDebounce = nil
+            cancelDebounce?()
+            startSearch(trimmed, generation: generation)
+        }
+    }
 
+    private func startSearch(_ trimmedQuery: String, generation: Int) {
+        guard isPresented,
+              searchWorkGeneration == generation else {
+            return
+        }
+
+        let search = self.search
+        searchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 if searchWorkGeneration == generation {
@@ -121,16 +153,16 @@ final class GlobalSearchPopoverPresentation {
                   !Task.isCancelled else {
                 return
             }
-            let hits = await search(trimmed)
+            let hits = await search(trimmedQuery)
             guard isPresented,
                   searchWorkGeneration == generation,
                   !Task.isCancelled else {
                 return
             }
             results = hits.enumerated().map { offset, hit in
-                GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
+                GlobalSearchResultRow(hit: hit, query: trimmedQuery, index: offset)
             }
-            selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+            selectedIndex = 0
         }
     }
 
@@ -139,10 +171,15 @@ final class GlobalSearchPopoverPresentation {
         refreshTask = nil
     }
 
-    private func cancelSearchWork() {
+    @discardableResult
+    private func cancelSearchWork() -> Task<Void, Never>? {
         searchWorkGeneration &+= 1
-        searchTask?.cancel()
+        cancelScheduledSearchDebounce?()
+        cancelScheduledSearchDebounce = nil
+        let cancelledSearchTask = searchTask
+        cancelledSearchTask?.cancel()
         searchTask = nil
+        return cancelledSearchTask
     }
 
     private func reloadBrowseResults() {

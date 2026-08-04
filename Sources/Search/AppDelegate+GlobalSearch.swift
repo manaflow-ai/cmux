@@ -49,7 +49,8 @@ extension AppDelegate {
                     guard let panel = workspace.panels[panelID] else { continue }
                     let key = "\(windowID.uuidString):\(workspace.id.uuidString):\(panel.id.uuidString)"
                     guard seenPanelKeys.insert(key).inserted else { continue }
-                    let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let panelTitle = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     contexts.append(
                         GlobalSearchPanelContext(
                             windowID: windowID,
@@ -122,7 +123,8 @@ extension AppDelegate {
                         ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
                         : trimmed
                 }()
-                let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                let panelTitle = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 let context = GlobalSearchPanelContext(
                     windowID: windowID,
                     windowTitle: windowTitle,

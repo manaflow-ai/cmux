@@ -10,6 +10,7 @@ final class GlobalSearchCoordinator {
     private var startupIndexTask: Task<Void, Never>?
     private var indexState: SearchIndexState = .idle
     private var indexedTitleSnapshots: [UUID: GlobalSearchTitleSnapshot] = [:]
+    private var titleIndexGeneration: UInt64 = 0
     private lazy var captureManager = GlobalSearchPanelCaptureManager(
         indexProvider: { [weak self] in
             guard let self else { return nil }
@@ -27,16 +28,18 @@ final class GlobalSearchCoordinator {
         startupIndexTask?.cancel()
         startupIndexTask = Task { @MainActor [weak self] in
             guard let self, let index = await self.ensureIndex() else { return }
-            self.indexedTitleSnapshots.removeAll()
             do {
                 try await index.deleteAll()
             } catch {
+                guard !Task.isCancelled else { return }
 #if DEBUG
                 cmuxDebugLog("globalSearch.index.clear failed error=\(error.localizedDescription)")
 #endif
             }
 
             guard !Task.isCancelled else { return }
+            self.titleIndexGeneration &+= 1
+            self.indexedTitleSnapshots.removeAll()
             await self.refreshLiveIndex()
             if !Task.isCancelled {
                 self.startupIndexTask = nil
@@ -155,6 +158,7 @@ final class GlobalSearchCoordinator {
         contexts: [GlobalSearchPanelContext],
         index: SearchIndex
     ) async {
+        let refreshGeneration = titleIndexGeneration
         let livePanelIDs = Set(contexts.map(\.panelID))
         let stalePanelIDs = indexedTitleSnapshots.keys.filter { !livePanelIDs.contains($0) }
         for panelID in stalePanelIDs {
@@ -162,7 +166,10 @@ final class GlobalSearchCoordinator {
         }
 
         for context in contexts {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  titleIndexGeneration == refreshGeneration else {
+                return
+            }
             cancelPanelPurge(forPanelID: context.panelID)
 
             let snapshot = GlobalSearchTitleSnapshot(context: context)
@@ -170,8 +177,13 @@ final class GlobalSearchCoordinator {
 
             do {
                 try await index.upsert(GlobalSearchDocuments.titleDocument(for: context))
+                guard !Task.isCancelled,
+                      titleIndexGeneration == refreshGeneration else {
+                    return
+                }
                 indexedTitleSnapshots[context.panelID] = snapshot
             } catch {
+                guard !Task.isCancelled else { return }
 #if DEBUG
                 cmuxDebugLog("globalSearch.title.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif

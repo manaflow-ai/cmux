@@ -447,20 +447,28 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
-    @Test func closingSearchPreventsQueuedSearchFromReplacingResults() async throws {
+    @Test func closingSearchPreventsInFlightSearchFromReplacingResults() async throws {
         let appDelegate = try #require(AppDelegate.shared)
         let window = try makeMainWindow(appDelegate: appDelegate)
         let refreshFinished = GlobalSearchAsyncSignal()
-        let debounce = ControlledGlobalSearchDebounce()
+        let searchStarted = GlobalSearchAsyncSignal()
+        let releaseSearch = GlobalSearchAsyncSignal()
+        let debounce = ControlledGlobalSearchDebounceScheduler()
         let presentation = GlobalSearchPopoverPresentation(
             coordinator: GlobalSearchCoordinator.shared,
-            refreshLivePanelTitles: { refreshFinished.signal() },
-            search: { _ in [] },
-            debounceSleep: { try await debounce.sleep(for: $0) }
+            refreshLiveIndex: { refreshFinished.signal() },
+            search: { _ in
+                searchStarted.signal()
+                await releaseSearch.wait()
+                return []
+            },
+            scheduleSearchDebounce: { _, action in
+                debounce.schedule(action)
+            }
         )
         defer {
             presentation.endPresentation()
-            debounce.resume()
+            releaseSearch.signal()
             closeWindow(window, appDelegate: appDelegate)
         }
 
@@ -472,18 +480,169 @@ extension GlobalSearchShortcutBehaviorTests {
         )
         let browseResults = presentation.results
         presentation.query = "missing\(UUID().uuidString)"
-        await debounce.waitUntilStarted()
+        debounce.fire()
+        await searchStarted.wait()
 
-        presentation.endPresentation()
-        debounce.resume()
-        await debounce.waitUntilFinished()
-        await Task.yield()
+        let cancelledSearchTask = try #require(
+            presentation.endPresentation(),
+            "The in-flight search task must remain awaitable after cancellation"
+        )
+        releaseSearch.signal()
+        await cancelledSearchTask.value
 
-        #expect(debounce.wasCancelled)
         #expect(
             presentation.results == browseResults,
-            "Search work released after cleanup must not replace the closed presentation's results"
+            "Canceled search work must finish without replacing the closed presentation's results"
         )
+    }
+
+    @MainActor
+    @Test func everyPresentationRefreshesFullLiveIndex() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        let refreshCount = GlobalSearchCounter()
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLiveIndex: {
+                refreshCount.increment()
+            }
+        )
+        defer {
+            presentation.endPresentation()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        presentation.beginPresentation()
+        #expect(
+            await waitUntil { refreshCount.value == 1 },
+            "The first presentation must refresh the complete live index"
+        )
+        presentation.endPresentation()
+
+        presentation.beginPresentation()
+        #expect(
+            await waitUntil { refreshCount.value == 2 },
+            "A retained popover must refresh the complete live index on every presentation"
+        )
+    }
+
+    @MainActor
+    @Test func newQueryResultsResetSelectionToFirstRow() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        let refreshFinished = GlobalSearchAsyncSignal()
+        let debounce = ControlledGlobalSearchDebounceScheduler()
+        let firstHits = [
+            makeSearchHit(id: "first-0", title: "First zero"),
+            makeSearchHit(id: "first-1", title: "First one")
+        ]
+        let secondHits = [
+            makeSearchHit(id: "second-0", title: "Second zero"),
+            makeSearchHit(id: "second-1", title: "Second one")
+        ]
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLiveIndex: { refreshFinished.signal() },
+            search: { query in
+                query == "first" ? firstHits : secondHits
+            },
+            scheduleSearchDebounce: { _, action in
+                debounce.schedule(action)
+            }
+        )
+        defer {
+            presentation.endPresentation()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        presentation.beginPresentation()
+        await refreshFinished.wait()
+        presentation.query = "first"
+        debounce.fire()
+        #expect(
+            await waitUntil { presentation.results.map(\.hit.id) == firstHits.map(\.id) }
+        )
+        presentation.selectResult(at: 1)
+        #expect(presentation.selectedIndex == 1)
+
+        presentation.query = "second"
+        debounce.fire()
+        #expect(
+            await waitUntil { presentation.results.map(\.hit.id) == secondHits.map(\.id) }
+        )
+        #expect(
+            presentation.selectedIndex == 0,
+            "Replacing ranked results must not retain a selection made in the prior result set"
+        )
+    }
+
+    @MainActor
+    @Test func globalSearchContextsUseWorkspaceOwnedPanelTitles() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeNamedMainWindow(
+            appDelegate: appDelegate,
+            initialWorkspaceTitle: "Workspace"
+        )
+        defer { closeWindow(harness.window, appDelegate: appDelegate) }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: harness.windowID))
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panelID = try #require(workspace.panels.keys.first)
+        let customTitle = "Custom \(UUID().uuidString)"
+        #expect(workspace.setPanelCustomTitle(panelId: panelID, title: customTitle))
+
+        let listedContext = try #require(
+            appDelegate.globalSearchPanelContexts().first(where: {
+                $0.windowID == harness.windowID && $0.panelID == panelID
+            })
+        )
+        let resolvedContext = try #require(
+            appDelegate.globalSearchContext(
+                forPanelID: panelID,
+                preferredWorkspaceID: workspace.id
+            )
+        )
+
+        #expect(listedContext.panelTitle == customTitle)
+        #expect(resolvedContext.panelTitle == customTitle)
+    }
+
+    @MainActor
+    @Test func cancelledIndexDeletionsLeaveDocumentsIntact() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-cancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let panelID = UUID()
+        let panelDocument = makeSearchDocument(
+            id: "panel-document",
+            panelID: panelID,
+            token: "panelcancellationtoken"
+        )
+        let singleDocument = makeSearchDocument(
+            id: "single-document",
+            panelID: UUID(),
+            token: "documentcancellationtoken"
+        )
+        try await index.upsert(panelDocument)
+        try await index.upsert(singleDocument)
+
+        await expectCancelledMutation {
+            try await index.deletePanel(panelID)
+        }
+        await expectCancelledMutation {
+            try await index.deleteDocument(id: singleDocument.id)
+        }
+        await expectCancelledMutation {
+            try await index.deleteAll()
+        }
+
+        #expect(try await index.search("panelcancellationtoken").map(\.id) == [panelDocument.id])
+        #expect(try await index.search("documentcancellationtoken").map(\.id) == [singleDocument.id])
     }
 
     @MainActor
@@ -532,6 +691,75 @@ extension GlobalSearchShortcutBehaviorTests {
 #else
         Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
 #endif
+    }
+
+    private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
+        SearchIndexHit(
+            id: id,
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: UUID(),
+            kind: .title,
+            title: title,
+            location: "Window > Workspace",
+            anchor: "title",
+            snippet: title,
+            rank: 0,
+            timestamp: .now
+        )
+    }
+
+    private func makeSearchDocument(
+        id: String,
+        panelID: UUID,
+        token: String
+    ) -> SearchIndexDocument {
+        SearchIndexDocument(
+            id: id,
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: panelID,
+            kind: .title,
+            title: token,
+            location: "Window > Workspace",
+            anchor: "title",
+            text: token
+        )
+    }
+
+    @MainActor
+    private func expectCancelledMutation(
+        _ mutation: @escaping @MainActor @Sendable () async throws -> Void
+    ) async {
+        let releaseMutation = GlobalSearchAsyncSignal()
+        let task = Task { @MainActor in
+            await releaseMutation.wait()
+            try await mutation()
+        }
+        task.cancel()
+        releaseMutation.signal()
+
+        switch await task.result {
+        case .success:
+            Issue.record("The canceled index mutation unexpectedly committed")
+        case .failure(let error):
+            #expect(error is CancellationError)
+        }
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        } while Date.now < deadline
+        return predicate()
     }
 
     @MainActor
@@ -698,61 +926,30 @@ private final class GlobalSearchAsyncSignal {
 }
 
 @MainActor
-private final class ControlledGlobalSearchDebounce {
-    private var sleepContinuation: CheckedContinuation<Void, Never>?
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
-    private var didStart = false
-    private var didFinish = false
+private final class GlobalSearchCounter {
+    private(set) var value = 0
 
-    private(set) var wasCancelled = false
+    func increment() {
+        value += 1
+    }
+}
 
-    func sleep(for _: Duration) async throws {
-        didStart = true
-        let waiters = startWaiters
-        startWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
+@MainActor
+private final class ControlledGlobalSearchDebounceScheduler {
+    private var scheduledAction: (@MainActor () -> Void)?
 
-        await withCheckedContinuation { continuation in
-            sleepContinuation = continuation
-        }
-        defer { finish() }
-
-        do {
-            try Task.checkCancellation()
-        } catch {
-            wasCancelled = true
-            throw error
+    func schedule(
+        _ action: @escaping @MainActor () -> Void
+    ) -> GlobalSearchPopoverPresentation.DebounceCancellation {
+        scheduledAction = action
+        return { [weak self] in
+            self?.scheduledAction = nil
         }
     }
 
-    func waitUntilStarted() async {
-        guard !didStart else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func resume() {
-        sleepContinuation?.resume()
-        sleepContinuation = nil
-    }
-
-    func waitUntilFinished() async {
-        guard !didFinish else { return }
-        await withCheckedContinuation { continuation in
-            finishWaiters.append(continuation)
-        }
-    }
-
-    private func finish() {
-        didFinish = true
-        let waiters = finishWaiters
-        finishWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
+    func fire() {
+        let action = scheduledAction
+        scheduledAction = nil
+        action?()
     }
 }

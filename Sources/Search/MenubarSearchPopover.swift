@@ -36,6 +36,8 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     func show(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
+        // isPresented stays true until this popover's did-close callback, so a
+        // closing presentation cannot be replaced before its teardown runs.
         guard !isShown else { return }
         dismissalHandler = onDismiss
         presentation.beginPresentation()

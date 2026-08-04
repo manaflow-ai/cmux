@@ -182,6 +182,8 @@ actor SearchIndex {
     }
 
     func deletePanel(_ panelID: UUID) throws {
+        try Task.checkCancellation()
+
         try withStatement("DELETE FROM chunks WHERE panel_id = ?1") { statement in
             try bind(panelID.uuidString, at: 1, in: statement)
             try stepDone(statement)
@@ -189,6 +191,8 @@ actor SearchIndex {
     }
 
     func deleteDocument(id: String) throws {
+        try Task.checkCancellation()
+
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
             try stepDone(statement)
@@ -196,6 +200,7 @@ actor SearchIndex {
     }
 
     func deleteAll() throws {
+        try Task.checkCancellation()
         try execute("DELETE FROM chunks")
     }
 
