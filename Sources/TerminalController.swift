@@ -2368,6 +2368,16 @@ class TerminalController {
         // feedback.open handled by ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
+        case "agent.attention.begin":
+            return v2Result(
+                id: id,
+                self.v2AgentAttentionBegin(params: params)
+            )
+        case "agent.attention.end":
+            return v2Result(
+                id: id,
+                self.v2AgentAttentionEnd(params: params)
+            )
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
@@ -2609,6 +2619,8 @@ class TerminalController {
             "feed.exit_plan.reply",
             "feed.jump",
             "feed.list",
+            "agent.attention.begin",
+            "agent.attention.end",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -11133,7 +11145,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--pid=N --pid-start-seconds=N --pid-start-microseconds=N] - Report generation-bound coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
@@ -13857,99 +13869,6 @@ class TerminalController {
             guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
             guard validSurfaceIds.contains(surfaceId) else { return }
             mutation(tab, surfaceId)
-        }
-        return "OK"
-    }
-
-    private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
-        let parsed = parseOptionsNoStop(args)
-        guard parsed.positional.count >= 2 else { return missingError }
-
-        let key = parsed.positional[0]
-        let value = parsed.positional[1...].joined(separator: " ")
-        let icon = normalizedOptionValue(parsed.options["icon"])
-        let color = normalizedOptionValue(parsed.options["color"])
-
-        let formatRaw = normalizedOptionValue(parsed.options["format"]) ?? SidebarMetadataFormat.plain.rawValue
-        guard let format = parseSidebarMetadataFormat(formatRaw) else {
-            return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
-        }
-
-        let priority: Int
-        if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
-            guard let parsedPriority = Int(rawPriority) else {
-                return "ERROR: Invalid metadata priority '\(rawPriority)' — must be an integer"
-            }
-            priority = max(-9999, min(9999, parsedPriority))
-        } else {
-            priority = 0
-        }
-
-        let parsedURL: URL?
-        if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
-            guard let candidate = URL(string: rawURL),
-                  let scheme = candidate.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
-            }
-            parsedURL = candidate
-        } else {
-            parsedURL = nil
-        }
-
-        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
-        guard let target = targetResolution.target else {
-            return targetResolution.error ?? "ERROR: No tab selected"
-        }
-        let panelResolution = parseOptionalPanelIdOption(
-            options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
-        )
-        if let error = panelResolution.error {
-            return error
-        }
-
-        let pidValue: pid_t? = {
-            if let rawPid = normalizedOptionValue(parsed.options["pid"]),
-               let p = Int32(rawPid), p > 0 {
-                return p
-            }
-            return nil
-        }()
-
-        scheduleSidebarMutation(target: target) { _, tab in
-            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
-                return
-            }
-            guard Self.shouldReplaceStatusEntry(
-                current: tab.statusEntries[key],
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: parsedURL,
-                priority: priority,
-                format: format
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-                }
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: parsedURL,
-                priority: priority,
-                format: format,
-                timestamp: Date()
-            )
-            if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
-            }
         }
         return "OK"
     }

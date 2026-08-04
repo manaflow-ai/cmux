@@ -27,7 +27,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
@@ -1578,7 +1578,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNil(

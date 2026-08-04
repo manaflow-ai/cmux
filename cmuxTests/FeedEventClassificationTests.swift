@@ -1,3 +1,4 @@
+import Darwin
 import Testing
 
 // `FeedEventClassifier` lives in `CLI/FeedEventClassifier.swift`, which is
@@ -18,10 +19,18 @@ import Testing
 /// https://github.com/manaflow-ai/cmux/issues/4985
 @Suite("Feed event classification")
 struct FeedEventClassificationTests {
-    private func classify(_ source: String, _ event: String, tool: String = "")
+    private func classify(
+        _ source: String,
+        _ event: String,
+        tool: String = ""
+    )
         -> (name: String, actionable: Bool)
     {
-        let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
+        let result = FeedEventClassifier.classify(
+            source: source,
+            event: event,
+            toolName: tool
+        )
         return (result.0, result.1)
     }
 
@@ -111,15 +120,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
-    /// so Feed must keep both pre-tool events and permission requests as
-    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
-    @Test func codexPreToolUseIsTelemetry() {
+    /// Codex pre-tool telemetry stays non-blocking, but a dedicated
+    /// `PermissionRequest` must never be swallowed. Once Codex says it is
+    /// waiting for permission, Feed owns surfacing that wait consistently.
+    @Test func codexDedicatedPermissionRequestIsActionable() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PermissionRequest")
+        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
@@ -156,11 +165,150 @@ struct FeedEventClassificationTests {
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)
     }
 
-    /// Antigravity and Cursor tool-start hooks are telemetry, not approval
-    /// requests. Neither integration has a safe blocking bridge contract.
-    @Test func incompatibleToolLifecycleHooksStayTelemetry() {
+    /// Antigravity has not migrated its native tool lifecycle yet, so its raw
+    /// pre-tool signal stays telemetry. Cursor invokes both shell and
+    /// structured tool-start hooks before its native permission evaluation,
+    /// so both stay telemetry regardless of the sandbox execution policy.
+    @Test func cursorShellStartStaysTelemetryUntilNativeApprovalDecision() {
         #expect(classify("antigravity", "PreToolUse", tool: "Bash").actionable == false)
-        #expect(classify("cursor", "beforeShellExecution", tool: "Bash").actionable == false)
+        let shellStart = classify("cursor", "beforeShellExecution", tool: "Bash")
+        #expect(shellStart.name == "PreToolUse")
+        #expect(shellStart.actionable == false)
+        let toolStart = classify("cursor", "preToolUse", tool: "Shell")
+        #expect(toolStart.name == "PreToolUse")
+        #expect(toolStart.actionable == false)
+    }
+
+    @Test func cursorNativeApprovalLogDistinguishesPromptFromAutoApproval() {
+        let requested = CursorNativeApprovalLogClassifier.classify(
+            line: """
+            {"msg":"Shell permissions: requesting shell approval","toolCallId":"call-1"}
+            """,
+            expectedToolCallId: "call-1"
+        )
+        #expect(requested == .approvalRequested(toolCallId: "call-1"))
+
+        let autoApproved = CursorNativeApprovalLogClassifier.classify(
+            line: """
+            {"msg":"Shell permissions: auto-approved shell command","toolCallId":"call-2"}
+            """,
+            expectedToolCallId: "call-2"
+        )
+        #expect(autoApproved == .autoApproved(toolCallId: "call-2"))
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"Shell permissions: requesting shell approval","toolCallId":"other-call"}
+                """,
+                expectedToolCallId: "call-1"
+            ) == nil
+        )
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"running command","command":"printf 'Shell permissions: requesting shell approval'","toolCallId":"call-3"}
+                """
+            ) == nil
+        )
+        #expect(
+            CursorNativeApprovalLogClassifier.classify(
+                line: """
+                {"msg":"Shell permissions: requesting shell approval","command":"printf '\\\"toolCallId\\\":\\\"forged-call\\\"'","toolCallId":"real-call"}
+                """,
+                expectedToolCallId: "real-call"
+            ) == .approvalRequested(toolCallId: "real-call")
+        )
+    }
+
+    /// Every built-in integration must have an explicit approval contract.
+    /// A familiar dedicated permission event from any built-in source is
+    /// therefore actionable; only genuinely unknown third-party sources use
+    /// the neutral telemetry fallback.
+    @Test func everyBuiltInAgentHasMandatoryPermissionSemantics() {
+        for integration in BuiltInAgentIntegration.allCases {
+            let source = integration.feedSourceName
+            let permission = classify(
+                source,
+                "PermissionRequest",
+                tool: "Bash"
+            )
+            #expect(
+                permission.name == "PermissionRequest",
+                "Missing permission mapping for \(source)"
+            )
+            #expect(
+                permission.actionable,
+                "Permission wait was swallowed for \(source)"
+            )
+        }
+    }
+
+    @Test func preToolOnlyAgentsInferSideEffectingApproval() {
+        let integrations = BuiltInAgentIntegration.allCases.filter {
+            $0.approvalDetectionMechanism
+                == .sideEffectingToolStartInference
+        }
+        #expect(
+            !integrations.isEmpty,
+            "The approval inference contract must cover at least one agent."
+        )
+        for integration in integrations {
+            let source = integration.feedSourceName
+            let sideEffecting = classify(
+                source,
+                "PreToolUse",
+                tool: "Bash"
+            )
+            #expect(sideEffecting.name == "PermissionRequest")
+            #expect(sideEffecting.actionable)
+            #expect(
+                classify(
+                    source,
+                    "PreToolUse",
+                    tool: "Read"
+                ).actionable == false
+            )
+        }
+    }
+
+    @Test func ampAndCursorRequireNativePostPolicyApprovalEvidence() {
+        #expect(
+            BuiltInAgentIntegration.amp.approvalDetectionMechanism
+                == .nativePostPolicyObserver
+        )
+        #expect(
+            BuiltInAgentIntegration.cursor.approvalDetectionMechanism
+                == .nativePostPolicyObserver
+        )
+        #expect(classify("amp", "PreToolUse", tool: "Bash").actionable == false)
+        #expect(
+            classify("cursor", "PreToolUse", tool: "Bash").actionable
+                == false
+        )
+    }
+
+    /// `CMUXCLI.agentDefs` maps `genericHookIntegrations` directly, while the
+    /// app lifecycle consumes `allowedStatusKeys`. Verify those shared catalog
+    /// values cover every built-in exactly once.
+    @Test func sharedIntegrationContractProvidesCompleteCatalogs() {
+        let allIntegrations = Set(BuiltInAgentIntegration.allCases)
+        let genericIntegrations = Set(
+            BuiltInAgentIntegration.genericHookIntegrations
+        )
+        #expect(
+            genericIntegrations
+                == allIntegrations.subtracting([.claude])
+        )
+        let statusKeys = BuiltInAgentIntegration.allCases.map(\.statusKey)
+        #expect(
+            Set(statusKeys)
+                == AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+        )
+        #expect(
+            statusKeys.count
+                == AgentHibernationLifecycleStatusKeys.allowedStatusKeys.count,
+            "Every built-in integration must have a unique lifecycle key."
+        )
     }
 
     // MARK: Kiro (camelCase events, no dedicated approval event)
@@ -197,5 +345,116 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "fs_write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
+    }
+}
+
+@Suite("Shared agent turn settlement")
+struct AgentTurnSettlementTests {
+    @Test func prematureAmpEndWithBackgroundWorkStaysRunning() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 1,
+                processLiveness: .live
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
+
+    @Test func settledAmpTurnWithNoBackgroundWorkCompletes() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live
+            )
+        )
+
+        #expect(decision == .settle)
+    }
+
+    @Test func ampTurnEndStillRequiresExplicitSettlementAfterWorkDrains() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
+
+    @Test func codexStopWithStructuredActiveSubagentStaysRunning() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .codex,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 1,
+                processLiveness: .live
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
+
+    @Test func exitedProcessTerminatesWithoutFalseCompletion() {
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .cursor,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .turnEnd,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .exited
+            )
+        )
+
+        #expect(decision == .terminateWithoutCompletion)
+    }
+
+    @Test func reusedPIDGenerationIsNotTreatedAsLive() {
+        let liveness = AgentTurnProcessLiveness.observe(
+            pid: Int(getpid()),
+            expectedStartSeconds: Int64.min,
+            expectedStartMicroseconds: Int64.min
+        )
+
+        #expect(liveness == .exited)
+    }
+
+    @Test func supersededEndCannotClearOrTerminateNewerTurn() {
+        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+            incomingTurnId: "turn-old",
+            activeTurnIds: ["turn-new"],
+            latestTurnId: "turn-new",
+            terminalTurnIds: []
+        )
+        let decision = AgentTurnSettlementReconciler.resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .exited,
+                turnFreshness: freshness
+            )
+        )
+
+        #expect(freshness == .superseded)
+        #expect(decision == .keepRunning)
+    }
+
+    @Test func anonymousActiveDepthDoesNotMakeParentStopStale() {
+        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+            incomingTurnId: "parent-turn",
+            activeTurnIds: [],
+            activeTurnDepth: 1,
+            latestTurnId: "completed-child-turn",
+            terminalTurnIds: ["completed-child-turn"]
+        )
+
+        #expect(freshness == .unknown)
     }
 }

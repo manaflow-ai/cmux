@@ -230390,6 +230390,142 @@
         }
       }
     },
+    "socket.sidebar.agent.invalidLifecycle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Invalid agent lifecycle '%1$@' — usage: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: エージェントのライフサイクル '%1$@' は無効です。使用方法: %2$@"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.invalidProcessGeneration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Invalid agent process generation — usage: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: エージェントプロセス世代が無効です。使用方法: %@"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.processGenerationPIDMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Agent process generation PID does not match <pid>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: エージェントプロセス世代の PID が <pid> と一致しません"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.processGenerationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Agent process generation is required for '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: '%@' にはエージェントプロセス世代が必要です"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.setLifecycleUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.setPIDUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.unsupportedLifecycleKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unsupported agent lifecycle key '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: エージェントのライフサイクルキー '%@' はサポートされていません"
+          }
+        }
+      }
+    },
+    "socket.sidebar.agent.usageError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: 使用方法: %@"
+          }
+        }
+      }
+    },
     "socket.sidebar.custom.invalidName": {
       "extractionState": "manual",
       "localizations": {

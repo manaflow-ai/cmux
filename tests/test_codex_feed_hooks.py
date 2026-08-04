@@ -327,7 +327,7 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                 f"stdout={result.stdout}\nstderr={result.stderr}"
             )
 
-        pids = wait_for_monitor_pids(session_id, present=True, timeout=5)
+        wait_for_monitor_pids(session_id, present=True, timeout=5)
         stop = {
             "session_id": session_id,
             "turn_id": turn_id,
@@ -639,6 +639,35 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
             f"{fake.frames[index:]!r}"
         )
 
+    def wait_for_feed_event(
+        fake: FakeCmuxSocket,
+        index: int,
+        event_name: str,
+    ) -> list[str]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for frame in fake.frames[index:]:
+                if frame.get("method") != "feed.push":
+                    continue
+                params = frame.get("params", {})
+                events = params.get("events")
+                candidates = (
+                    events
+                    if isinstance(events, list)
+                    else [params.get("event")]
+                )
+                if any(
+                    isinstance(event, dict)
+                    and event.get("hook_event_name") == event_name
+                    for event in candidates
+                ):
+                    return raw_commands_after(fake, index)
+            time.sleep(0.05)
+        raise AssertionError(
+            f"Codex pipeline never drained through {event_name!r}: "
+            f"{fake.frames[index:]!r}"
+        )
+
     with FakeCmuxSocket(socket_path, None) as fake:
         try:
             base_payload = {
@@ -671,8 +700,11 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
 
             before_stop = len(fake.frames)
             run_hook(["hooks", "codex", "stop"], base_payload)
-            time.sleep(0.2)
-            premature_commands = raw_commands_after(fake, before_stop)
+            premature_commands = wait_for_feed_event(
+                fake,
+                before_stop,
+                "Stop",
+            )
             if any(
                 "set_agent_lifecycle codex idle" in command
                 or command.startswith("notify_target_async ")
@@ -727,10 +759,10 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
                     "agent_id": work_id,
                 },
             )
-            time.sleep(0.3)
-            old_turn_commands = raw_commands_after(
+            old_turn_commands = wait_for_feed_event(
                 fake,
                 before_old_subagent_stop,
+                "Stop",
             )
             if any(
                 "set_agent_lifecycle codex idle" in command
@@ -769,10 +801,10 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
 
             before_next_stop = len(fake.frames)
             run_hook(["hooks", "codex", "stop"], next_payload)
-            time.sleep(0.2)
-            next_premature_commands = raw_commands_after(
+            next_premature_commands = wait_for_feed_event(
                 fake,
                 before_next_stop,
+                "Stop",
             )
             if any(
                 "set_agent_lifecycle codex idle" in command
@@ -2468,8 +2500,10 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
 ) -> None:
     socket_path = root / "cursor-native-approval.sock"
     cursor_pid = os.getpid()
+    cursor_temporary_directory = root / "cursor-tmp"
+    cursor_temporary_directory.mkdir()
     log_directory = (
-        Path(tempfile.gettempdir())
+        cursor_temporary_directory
         / f"cursor-agent-logs-{os.getuid()}"
     )
     log_directory.mkdir(parents=True, exist_ok=True)
@@ -2488,6 +2522,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["TMPDIR"] = str(cursor_temporary_directory)
 
     def run_cursor_feed(event: str, payload: dict) -> dict:
         result = subprocess.run(
@@ -2517,18 +2552,62 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             )
         return json.loads(result.stdout.strip() or "{}")
 
-    def append_native_decision(message: str, tool_call_id: str) -> None:
+    def append_native_decision(
+        message: str,
+        tool_call_id: str,
+        *,
+        command_padding: int = 0,
+    ) -> None:
+        record = {
+            "msg": message,
+            "toolCallId": tool_call_id,
+        }
+        if command_padding > 0:
+            record["command"] = "x" * command_padding
         with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "msg": message,
-                        "toolCallId": tool_call_id,
-                    }
-                )
-                + "\n"
-            )
+            handle.write(json.dumps(record) + "\n")
             handle.flush()
+
+    def cursor_observer_pids(tool_call_id: str) -> list[int]:
+        result = subprocess.run(
+            ["/bin/ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"ps failed while locating Cursor observer: {result.stderr}"
+            )
+        expected_option = f"--expected-tool-call-id {tool_call_id}"
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            pid_text, separator, command = line.strip().partition(" ")
+            if (
+                separator
+                and "__observe-native-approval" in command
+                and expected_option in command
+            ):
+                pids.append(int(pid_text))
+        return pids
+
+    def wait_for_cursor_observer(
+        tool_call_id: str,
+        *,
+        present: bool,
+    ) -> None:
+        deadline = time.monotonic() + 5
+        last: list[int] = []
+        while time.monotonic() < deadline:
+            last = cursor_observer_pids(tool_call_id)
+            if bool(last) is present:
+                return
+            time.sleep(0.05)
+        state = "start" if present else "exit"
+        raise AssertionError(
+            f"Cursor observer for {tool_call_id} did not {state}: {last!r}"
+        )
 
     def wait_for_method(
         fake: FakeCmuxSocket,
@@ -2591,6 +2670,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             append_native_decision(
                 "Shell permissions: requesting shell approval",
                 "cursor-call-requested",
+                command_padding=20 * 1024,
             )
             attention_begin = wait_for_method(
                 fake,
@@ -2642,11 +2722,12 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 raise AssertionError(
                     f"Cursor auto-approved hook emitted a decision: {auto_stdout!r}"
                 )
+            wait_for_cursor_observer("cursor-call-auto", present=True)
             append_native_decision(
                 "Shell permissions: auto-approved shell command",
                 "cursor-call-auto",
             )
-            time.sleep(0.75)
+            wait_for_cursor_observer("cursor-call-auto", present=False)
             leaked_attention = [
                 frame
                 for frame in fake.frames[before_auto:]
@@ -2672,6 +2753,14 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             }
             run_cursor_feed("preToolUse", concurrent_requested)
             run_cursor_feed("preToolUse", concurrent_auto)
+            wait_for_cursor_observer(
+                "cursor-call-concurrent-requested",
+                present=True,
+            )
+            wait_for_cursor_observer(
+                "cursor-call-concurrent-auto",
+                present=True,
+            )
             # Deliver the decisions in the opposite order. Exact tool-use
             # correlation must keep the auto-approved observer from claiming
             # the real prompt and vice versa.
@@ -2688,7 +2777,14 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "agent.attention.begin",
                 after=concurrent_start,
             )
-            time.sleep(0.5)
+            wait_for_cursor_observer(
+                "cursor-call-concurrent-requested",
+                present=False,
+            )
+            wait_for_cursor_observer(
+                "cursor-call-concurrent-auto",
+                present=False,
+            )
             concurrent_begins = [
                 frame
                 for frame in fake.frames[concurrent_start:]
@@ -2727,6 +2823,64 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
         log_path.unlink(missing_ok=True)
 
 
+def test_cursor_native_approval_observer_rejects_oversized_pid(
+    cli_path: str,
+    root: Path,
+) -> None:
+    environment = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        environment.pop(key, None)
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    result = subprocess.run(
+        [
+            cli_path,
+            "--socket",
+            str(root / "cursor-oversized-pid.sock"),
+            "hooks",
+            "cursor",
+            "__observe-native-approval",
+            "--log-path",
+            str(root / "cursor-agent-logs-oversized.log"),
+            "--offset",
+            "0",
+            "--pid",
+            str(2**31),
+            "--pid-start-seconds",
+            "1",
+            "--pid-start-microseconds",
+            "0",
+            "--scope-id",
+            "cursor-oversized-pid",
+            "--observation-id",
+            "cursor-oversized-pid",
+            "--workspace-id",
+            FAKE_WORKSPACE_ID,
+            "--expected-tool-call-id",
+            "cursor-oversized-pid",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if result.returncode <= 0:
+        raise AssertionError(
+            "Cursor native approval observer crashed or accepted an "
+            f"oversized PID: returncode={result.returncode}"
+        )
+    if "Invalid Cursor native approval observer arguments" not in result.stderr:
+        raise AssertionError(
+            "Cursor oversized PID did not follow normal CLI validation: "
+            f"stderr={result.stderr!r}"
+        )
+
+
 def test_amp_native_attention_helper_publishes_exact_generation(
     cli_path: str,
     root: Path,
@@ -2741,9 +2895,36 @@ def test_amp_native_attention_helper_publishes_exact_generation(
     ):
         environment.pop(key, None)
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    identify = subprocess.run(
+        [
+            cli_path,
+            "hooks",
+            "amp",
+            "__native-attention",
+            "identify",
+            "--pid",
+            str(os.getpid()),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if identify.returncode != 0:
+        raise AssertionError(
+            "Amp native attention identity capture failed "
+            f"exit={identify.returncode} stdout={identify.stdout!r} "
+            f"stderr={identify.stderr!r}"
+        )
+    process_generation = json.loads(identify.stdout)
     common_arguments = [
         "--pid",
         str(os.getpid()),
+        "--pid-start-seconds",
+        str(process_generation["pid_start_seconds"]),
+        "--pid-start-microseconds",
+        str(process_generation["pid_start_microseconds"]),
         "--scope-id",
         "amp-scope-regression",
         "--observation-id",
@@ -2751,6 +2932,37 @@ def test_amp_native_attention_helper_publishes_exact_generation(
     ]
 
     with FakeCmuxSocket(socket_path, None) as fake:
+        bare_pid = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "amp",
+                "__native-attention",
+                "begin",
+                "--pid",
+                str(os.getpid()),
+                "--scope-id",
+                "amp-scope-missing-generation",
+                "--observation-id",
+                "amp-approval-missing-generation",
+                "--workspace-id",
+                FAKE_WORKSPACE_ID,
+                "--surface-id",
+                FAKE_SURFACE_ID,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=10,
+        )
+        if bare_pid.returncode == 0:
+            raise AssertionError(
+                "Amp native attention accepted a recyclable bare PID"
+            )
+
         begin = subprocess.run(
             [
                 cli_path,
@@ -4713,6 +4925,10 @@ def main() -> int:
             test_codex_permission_request_is_actionable(cli_path, root)
             test_codex_permission_decisions_render_supported_hook_output(cli_path, root)
             test_cursor_native_approval_observer_surfaces_only_real_prompt(
+                cli_path,
+                root,
+            )
+            test_cursor_native_approval_observer_rejects_oversized_pid(
                 cli_path,
                 root,
             )

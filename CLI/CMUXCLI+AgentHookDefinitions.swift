@@ -10,9 +10,10 @@ extension CMUXCLI {
     static let feedHookDecisionWaitSeconds = feedHookClientDeadlineSeconds - 3
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
-        let name: String            // CLI name: "cursor", "gemini", etc.
-        let displayName: String     // Human-readable: "Cursor", "Gemini"
-        let statusKey: String       // Key for set_status: "cursor", "gemini"
+        let integration: BuiltInAgentIntegration
+        var name: String { integration.feedSourceName }
+        var displayName: String { integration.displayName }
+        var statusKey: String { integration.statusKey }
         let configDir: String       // Relative to ~: ".cursor", ".gemini"
         let configFile: String      // File name: "hooks.json", "settings.json"
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
@@ -100,7 +101,7 @@ extension CMUXCLI {
                 .path
         }
 
-        init(name: String, displayName: String, statusKey: String,
+        init(integration: BuiltInAgentIntegration,
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
              configDirEnvOverrideSubpath: String? = nil,
              createConfigDirIfMissing: Bool = false,
@@ -114,13 +115,13 @@ extension CMUXCLI {
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil,
              postInstallNote: String? = nil) {
-            self.name = name; self.displayName = displayName; self.statusKey = statusKey
+            self.integration = integration
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
             self.configDirEnvOverrideSubpath = configDirEnvOverrideSubpath
             self.createConfigDirIfMissing = createConfigDirIfMissing
             self.configDirResolver = configDirResolver
-            self.binaryName = binaryName ?? name
+            self.binaryName = binaryName ?? integration.feedSourceName
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.publishesStopNotification = publishesStopNotification
@@ -156,12 +157,13 @@ extension CMUXCLI {
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
-        if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
+        if def.integration == .codex,
+           codexHookCanRunFireAndForget(event.cmuxSubcommand) {
             inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
         } else {
             inline = agentHookShellCommand(command, for: def)
         }
-        if def.name == "codex" {
+        if def.integration == .codex {
             return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
         }
         return inline
@@ -204,14 +206,16 @@ extension CMUXCLI {
                 noOpCommand: noOpCommand
             )
         }
-        if def.name == "codex" {
+        if def.integration == .codex {
             return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
         }
         return inline
     }
 
     private static func feedHookNoOpShellCommand(for def: AgentHookDef, agentEvent: String) -> String {
-        let normalized = (def.name == "codex" ? "posttooluse" : agentEvent)
+        let normalized = (
+            def.integration == .codex ? "posttooluse" : agentEvent
+        )
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
@@ -259,11 +263,13 @@ extension CMUXCLI {
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        def.integration == .grok || def.integration == .antigravity
     }
 
     private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+        def.integration == .antigravity
+            ? antigravityPinnedHookMarker
+            : grokPinnedHookMarker
     }
 
     private static func pinnedAgentHookShellCommand(
@@ -423,7 +429,8 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
-        if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
+        if def.integration == .codex,
+           isCmuxOwnedCodexHookScriptCommand(command) {
             return true
         }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
@@ -459,10 +466,12 @@ extension CMUXCLI {
             return false
         }
 
-        if def.name == "codex", tokens.count >= 2, tokens[1] == "codex-hook" {
+        if def.integration == .codex,
+           tokens.count >= 2,
+           tokens[1] == "codex-hook" {
             return true
         }
-        if def.name == "codex",
+        if def.integration == .codex,
            tokens.count >= 4,
            tokens[1] == "feed-hook",
            tokens[2] == "--source",
@@ -493,7 +502,7 @@ extension CMUXCLI {
         ]
         let fallbackSuffix = " || echo '{}'"
         var body = command
-        if def.name == "grok" {
+        if def.integration == .grok {
             let grokPrefix = "printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { command -v cmux >/dev/null 2>&1 && "
             let grokSuffix = " || echo '{}'; }"
             if body.hasPrefix(grokPrefix), body.hasSuffix(grokSuffix) {
@@ -559,7 +568,7 @@ extension CMUXCLI {
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
         var markers = [def.hookMarker]
-        if def.name == "codex" {
+        if def.integration == .codex {
             markers.append("cmux codex-hook")
         }
         return markers
@@ -569,7 +578,7 @@ extension CMUXCLI {
     /// entries on reinstall or uninstall.
     static func feedHookMarkers(for def: AgentHookDef) -> [String] {
         var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
+        if def.integration == .codex {
             markers.append("cmux feed-hook --source")
         }
         return markers

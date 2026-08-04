@@ -29,7 +29,29 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32?
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
+        let acceptedProcessIdentity = pid.flatMap {
+            AgentPIDProcessIdentity(pid: $0)
+        }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            if let pid {
+                guard owner.recordAgentPID(
+                    key: key,
+                    pid: pid,
+                    panelId: panelID,
+                    acceptedProcessIdentity: acceptedProcessIdentity
+                ).accepted else {
+                    return
+                }
+            } else if AgentHibernationLifecycleStatusKeys.isAllowed(key),
+                      !owner.usesRemoteAgentProcessNamespace(
+                          panelId: panelID
+                      ),
+                      !owner.hasLiveAgentProcess(
+                          statusKey: key,
+                          panelId: panelID
+                      ) {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: owner.statusEntry(key: key, panelId: panelID),
                 key: key,
@@ -40,10 +62,6 @@ extension TerminalController: ControlSidebarContext {
                 priority: priority,
                 format: appFormat
             ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
                 return
             }
             owner.setStatusEntry(SidebarStatusEntry(
@@ -56,9 +74,6 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             ), key: key, panelId: panelID)
-            if let pid {
-                owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
-            }
         }
     }
 
@@ -69,7 +84,13 @@ extension TerminalController: ControlSidebarContext {
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             owner.clearStatusEntry(key: key, panelId: panelID)
-            owner.clearAgentPID(key: key, panelId: panelID, clearStatus: false)
+            _ = owner.clearAgentLifecycle(key: key, panelId: panelID)
+            owner.clearAgentPID(
+                key: key,
+                panelId: panelID,
+                clearStatus: false,
+                requireOwnedKey: true
+            )
         }
     }
 
@@ -77,15 +98,24 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     ) {
+        let acceptedProcessIdentity = processGeneration.map {
+            AgentPIDProcessIdentity(
+                pid: $0.pid,
+                startSeconds: $0.startSeconds,
+                startMicroseconds: $0.startMicroseconds
+            )
+        } ?? AgentPIDProcessIdentity(pid: pid)
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            let didReplaceAgentRuntime = owner.recordAgentPID(
+            let result = owner.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                acceptedProcessIdentity: acceptedProcessIdentity
             )
-            if didReplaceAgentRuntime, let panelID {
+            if result.replacedOtherRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: owner.id,
                     surfaceId: panelID,
@@ -97,6 +127,49 @@ extension TerminalController: ControlSidebarContext {
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+    }
+
+    nonisolated func controlSidebarAgentStrings() -> ControlSidebarAgentStrings {
+        ControlSidebarAgentStrings(
+            usageErrorFormat: String(
+                localized: "socket.sidebar.agent.usageError",
+                defaultValue: "ERROR: Usage: %@"
+            ),
+            setAgentPIDUsage: String(
+                localized: "socket.sidebar.agent.setPIDUsage",
+                defaultValue: "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+            ),
+            setAgentLifecycleUsage: String(
+                localized: "socket.sidebar.agent.setLifecycleUsage",
+                defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--pid=<pid> --pid-start-seconds=<seconds> --pid-start-microseconds=<microseconds>]"
+            ),
+            processGenerationPIDMismatch: String(
+                localized:
+                    "socket.sidebar.agent.processGenerationPIDMismatch",
+                defaultValue:
+                    "ERROR: Agent process generation PID does not match <pid>"
+            ),
+            invalidLifecycleFormat: String(
+                localized: "socket.sidebar.agent.invalidLifecycle",
+                defaultValue:
+                    "ERROR: Invalid agent lifecycle '%1$@' — usage: %2$@"
+            ),
+            unsupportedLifecycleKeyFormat: String(
+                localized: "socket.sidebar.agent.unsupportedLifecycleKey",
+                defaultValue:
+                    "ERROR: Unsupported agent lifecycle key '%@'"
+            ),
+            processGenerationRequiredFormat: String(
+                localized: "socket.sidebar.agent.processGenerationRequired",
+                defaultValue:
+                    "ERROR: Agent process generation is required for '%@'"
+            ),
+            invalidProcessGenerationFormat: String(
+                localized: "socket.sidebar.agent.invalidProcessGeneration",
+                defaultValue:
+                    "ERROR: Invalid agent process generation — usage: %@"
+            )
+        )
     }
 
     /// `nonisolated` so the vault-registry disk IO runs on the calling
@@ -136,18 +209,65 @@ extension TerminalController: ControlSidebarContext {
         return registry.registration(id: key) != nil
     }
 
+    nonisolated func controlSidebarRequiresAgentProcessGeneration(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
+            return false
+        }
+        return v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return true
+            }
+            // Never reconstruct a missing generation from the current numeric
+            // PID: a delayed hook could then bind to a recycled process.
+            return !owner.usesRemoteAgentProcessNamespace(panelId: panelID)
+        }
+    }
+
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
+        let exactProcessGeneration = processGeneration.map {
+            AgentPIDProcessIdentity(
+                pid: $0.pid,
+                startSeconds: $0.startSeconds,
+                startMicroseconds: $0.startMicroseconds
+            )
+        }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            owner.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            if AgentHibernationLifecycleStatusKeys.isAllowed(key),
+               !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                // The parser rejects missing generations for local built-ins;
+                // keep this mutation-boundary guard for replacement races.
+                guard let exactProcessGeneration,
+                      owner.hasLiveAgentProcess(
+                          statusKey: key,
+                          panelId: panelID,
+                          matching: exactProcessGeneration
+                      ) else {
+                    return
+                }
+            }
+            owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                processGeneration: exactProcessGeneration
+            )
         }
     }
 
