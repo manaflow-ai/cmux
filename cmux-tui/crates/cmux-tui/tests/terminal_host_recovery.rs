@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,8 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
+const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
 struct RecoveryHarness {
     child: Option<Child>,
     dir: PathBuf,
@@ -32,6 +35,8 @@ struct RecoveryHarness {
     state: PathBuf,
     session: String,
     host_ready_delay_ms: Option<u64>,
+    reconnect_completion_failures: Option<u64>,
+    adoption_insert_failures: Option<u64>,
 }
 
 impl RecoveryHarness {
@@ -46,6 +51,8 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            reconnect_completion_failures: None,
+            adoption_insert_failures: None,
             dir,
         };
         harness.restart();
@@ -55,6 +62,13 @@ impl RecoveryHarness {
     fn start_with_host_ready_delay(name: &str, delay_ms: u64) -> Self {
         let mut harness = Self::start_unstarted(name);
         harness.host_ready_delay_ms = Some(delay_ms);
+        harness.restart();
+        harness
+    }
+
+    fn start_with_reconnect_completion_failures(name: &str, failures: u64) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.reconnect_completion_failures = Some(failures);
         harness.restart();
         harness
     }
@@ -95,6 +109,8 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            reconnect_completion_failures: None,
+            adoption_insert_failures: None,
             dir,
         }
     }
@@ -117,6 +133,13 @@ impl RecoveryHarness {
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
+        }
+        if let Some(failures) = self.reconnect_completion_failures {
+            command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
+            command.env("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS", "1000");
+        }
+        if let Some(failures) = self.adoption_insert_failures {
+            command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
         }
         command
     }
@@ -203,6 +226,92 @@ impl Drop for RecoveryHarness {
         }
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+#[test]
+fn short_lived_terminal_launch_returns_its_final_snapshot() {
+    let harness = RecoveryHarness::start("short-lived-launch");
+    let marker = format!("short-lived-marker-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", format!("printf '{marker}\\n'")],
+            "new_workspace": true,
+            "name": "short-lived-command",
+        }),
+    );
+    let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+}
+
+#[test]
+fn hosted_exit_detaches_existing_and_later_render_streams() {
+    let harness = RecoveryHarness::start("hosted-exit-detaches-render");
+    let marker = format!("hosted-exit-marker-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                format!("IFS= read -r trigger; printf '{marker}\\n'"),
+            ],
+            "new_workspace": true,
+            "name": "hosted-exit-detach",
+        }),
+    );
+    let surface = created["surface"].as_u64().expect("hosted command returned a surface");
+
+    let attached = transport::connect(&harness.socket).unwrap();
+    attached.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut attached_writer = attached.try_clone_box().unwrap();
+    let mut attached_reader = BufReader::new(attached);
+    writeln!(
+        attached_writer,
+        "{}",
+        serde_json::json!({
+            "id": 2,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "mode": "render",
+        })
+    )
+    .unwrap();
+    wait_for_attach_response(&mut attached_reader, 2);
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "send",
+            "surface": surface,
+            "text": "go\n",
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    wait_for_detached(&mut attached_reader, surface);
+
+    let later = transport::connect(&harness.socket).unwrap();
+    later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut later_writer = later.try_clone_box().unwrap();
+    let mut later_reader = BufReader::new(later);
+    writeln!(
+        later_writer,
+        "{}",
+        serde_json::json!({
+            "id": 4,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "mode": "render",
+        })
+    )
+    .unwrap();
+    wait_for_attach_response(&mut later_reader, 4);
+    wait_for_detached(&mut later_reader, surface);
 }
 
 #[test]
@@ -1576,6 +1685,91 @@ fn transient_startup_adoption_failure_retries_in_process_until_running() {
 }
 
 #[test]
+fn adoption_topology_failures_retry_same_host_without_exited_transition() {
+    let mut harness = RecoveryHarness::start("retry-adopt-topology");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"run",
+            "argv":["/bin/cat"],
+            "new_workspace":true,
+            "cols":80,
+            "rows":24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let before_revision = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"list-terminals"}),
+    )["terminal_revision"]
+        .as_u64()
+        .unwrap();
+    let before = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+
+    harness.sigkill();
+    harness.adoption_insert_failures = Some(3);
+    harness.restart();
+
+    let pending = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(pending["lifecycle"], "adopting");
+    assert_eq!(pending["surface"], serde_json::Value::Null);
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":4,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "terminal never recovered from topology failures");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+
+    let after = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after.host_pid, before.host_pid);
+    assert_eq!(after.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after.incarnation, before.incarnation);
+    let lifecycle_events = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":5,"cmd":"terminal-events","after_revision":before_revision,
+        }),
+    );
+    let kinds = lifecycle_events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["kind"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, vec!["terminal-adopting", "terminal-ready"]);
+
+    let marker = format!("topology-retry-survivor-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id":6,"cmd":"send","surface":surface,"text":format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":7,"cmd":"close-terminal","terminal_id":terminal_id,
+            "terminal_incarnation":incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn client_reserved_create_retry_returns_original_binding_without_second_host() {
     let harness = RecoveryHarness::start("reserved-create");
     let workspace = request(
@@ -1658,7 +1852,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "ttl_ms": 10_000,
         }),
     );
-    let mut stalled = connect_host_detailed(
+    let stalled = connect_host_detailed(
         grant["endpoint"].as_str().unwrap(),
         grant["terminal_id"].as_str().unwrap(),
         grant["token"].as_str().unwrap(),
@@ -1667,64 +1861,28 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     )
     .unwrap();
 
-    let done = format!("overflow-done-{}", std::process::id());
     request(
         &harness.socket,
         serde_json::json!({
             "id": 3,
             "cmd": "send",
             "surface": surface,
-            "text": format!(
-                // Exceed both the host's bounded client queue and Darwin's
-                // dynamically sized Unix-socket buffers. A smaller burst can
-                // fit entirely in the kernel under light load, which does not
-                // represent a stalled writer and made this assertion timing
-                // dependent.
-                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
-            ),
+            // A finite burst can fit in Darwin's dynamically sized socket
+            // buffers under some scheduler interleavings. Keep producing
+            // until the bounded host tap closes this unread renderer.
+            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &done).contains(&done));
-
-    let disconnected_before_drain =
-        match stalled.stream.set_read_timeout(Some(Duration::from_secs(5))) {
-            Ok(()) => false,
-            // Darwin reports EINVAL when setting SO_RCVTIMEO after the peer has
-            // already issued shutdown(2); that is the overflow outcome under test.
-            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => true,
-            Err(error) => panic!("set stalled-renderer timeout: {error}"),
-        };
-    let mut complete_frames = 0usize;
-    if !disconnected_before_drain {
-        loop {
-            match read_frame(&mut stalled.stream, MAX_FRAME_PAYLOAD) {
-                Ok(Some(frame)) => {
-                    assert_eq!(frame.request_id, 0);
-                    assert_eq!(frame.sequence, stalled.next_sequence);
-                    stalled.next_sequence = stalled.next_sequence.wrapping_add(1);
-                    complete_frames += 1;
-                }
-                Ok(None) => break,
-                Err(ProtocolError::Io(error))
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    panic!("stalled renderer silently froze instead of being disconnected")
-                }
-                // Shutdown can interrupt a frame already being copied into the
-                // kernel socket buffer. A clean EOF or truncated final frame are
-                // both explicit disconnects and require a fresh Snapshot.
-                Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
-                Err(error) => panic!("stalled renderer received invalid protocol data: {error}"),
-            }
-        }
-    }
     assert!(
-        disconnected_before_drain || complete_frames > 0,
-        "stalled renderer received no output before disconnect"
+        wait_for_socket_hangup(&stalled.stream, Duration::from_secs(15)),
+        "stalled renderer silently froze instead of being disconnected"
     );
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 31, "cmd": "send", "surface": surface, "text": "\u{3}"}),
+    );
+    std::thread::sleep(Duration::from_millis(50));
 
     // Overflow is isolated to the stalled renderer. The daemon proxy and PTY
     // remain responsive and the durable host record remains adoptable.
@@ -1832,10 +1990,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     )
     .unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-    );
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     assert_eq!(resolved["lifecycle"], "running");
     assert_eq!(resolved["terminal_incarnation"], incarnation);
     let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -1861,6 +2016,75 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
     drain.join().unwrap();
     request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn failed_reconnect_completion_disconnects_and_retries_without_freezing() {
+    let harness = RecoveryHarness::start_with_reconnect_completion_failures("completion-retry", 1);
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let before_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    let terminal_snapshot =
+        request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-terminals"}));
+    let before_revision = terminal_snapshot["terminal_revision"].as_u64().unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let kinds = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let lifecycle_events = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":4,"cmd":"terminal-events","after_revision":before_revision,
+            }),
+        );
+        let kinds = lifecycle_events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let adopting = kinds.iter().filter(|kind| kind.as_str() == "terminal-adopting").count();
+        let ready = kinds.iter().filter(|kind| kind.as_str() == "terminal-ready").count();
+        if resolved["lifecycle"] == "running" && adopting == 2 && ready == 2 {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break kinds;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal never completed its reconnect retry: lifecycle={}, events={kinds:?}",
+            resolved["lifecycle"]
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(kinds.iter().filter(|kind| kind.as_str() == "terminal-adopting").count(), 2);
+    assert_eq!(kinds.iter().filter(|kind| kind.as_str() == "terminal-ready").count(), 2);
+
+    let marker = format!("completion-retry-live-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":5,"cmd":"send","surface":surface,"text":format!("printf '{marker}\\n'\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_record.host_pid, before_record.host_pid);
+    assert_eq!(after_record.host_start_nonce, before_record.host_start_nonce);
+    assert_eq!(after_record.incarnation, before_record.incarnation);
+
+    request(&harness.socket, serde_json::json!({"id":6,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -1961,7 +2185,10 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 6 + KITTY_REPLAY_STATE_ENCODED_LEN);
+    assert_eq!(&resized.payload[alias_count_offset..alias_count_offset + 2], &0u16.to_le_bytes());
+    assert_eq!(&resized.payload[alias_count_offset + 2..alias_count_offset + 6], &[8, 0, 16, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.sequence, renderer.next_sequence);
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
@@ -2012,10 +2239,17 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    let metrics = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"set-cell-pixels","width_px":9,"height_px":18,
+        }),
+    );
+    assert_eq!(metrics["failures"], serde_json::json!([]));
     let grant = request(
         &harness.socket,
         serde_json::json!({
-            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
         }),
     );
     let mut renderer = connect_host_detailed(
@@ -2036,6 +2270,7 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     assert_eq!(resized.kind, MessageKind::Resized);
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
+    assert_eq!(resize_cell_pixels(&resized.payload), (9, 18));
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
 
@@ -2137,6 +2372,50 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(renderer.hello_flags, FLAG_VIEWER_SIZE_ACKS);
     renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
 
+    let mut cell_pixels = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    cell_pixels.request_id = 41;
+    cell_pixels.payload.extend_from_slice(&11u16.to_le_bytes());
+    cell_pixels.payload.extend_from_slice(&22u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &cell_pixels).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(resized.request_id, 0);
+    assert_eq!(resized.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    assert_eq!(resize_cell_pixels(&resized.payload), (11, 22));
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.request_id, 0);
+    assert_eq!(colors.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
+    assert_eq!(ack.request_id, 41);
+    assert_eq!(ack.sequence, 0);
+    assert_eq!(ack.payload, vec![11, 0, 22, 0]);
+
+    let resnapshot_grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let resnapshot = connect_host_detailed(
+        resnapshot_grant["endpoint"].as_str().unwrap(),
+        resnapshot_grant["terminal_id"].as_str().unwrap(),
+        resnapshot_grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot_cell_pixels(&resnapshot.snapshot.payload),
+        (11, 22),
+        "a reconnect snapshot must expose the host's committed cell geometry"
+    );
+    drop(resnapshot);
+
     let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
     unchanged.request_id = 42;
     unchanged.payload.extend_from_slice(&80u16.to_le_bytes());
@@ -2162,7 +2441,10 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
     assert_eq!(&resized.payload[..4], &[70, 0, 20, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 6 + KITTY_REPLAY_STATE_ENCODED_LEN);
+    assert_eq!(&resized.payload[alias_count_offset..alias_count_offset + 2], &0u16.to_le_bytes());
+    assert_eq!(&resized.payload[alias_count_offset + 2..alias_count_offset + 6], &[11, 0, 22, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.flags, 0);
@@ -2180,7 +2462,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
     assert_eq!(ack.payload, changed_ack);
 
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2250,6 +2532,173 @@ fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
             "id":4,"cmd":"close-terminal","terminal_id":terminal_id,
             "terminal_incarnation":incarnation,
         }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
+    let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-retry", 2_000);
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        })
+    )
+    .unwrap();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let endpoint = PathBuf::from(&record.endpoint);
+    let held_endpoint = endpoint.with_extension("held-for-interrupted-creation");
+    let terminal_id = record.terminal_id.clone();
+    let incarnation = record.incarnation.clone();
+    let host_pid = record.host_pid;
+    harness.sigkill();
+    drop(writer);
+    drop(stream);
+    fs::rename(&endpoint, &held_endpoint).unwrap();
+    let restore_endpoint = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        fs::rename(held_endpoint, endpoint).unwrap();
+    });
+    let started = Instant::now();
+    harness.restart();
+    restore_endpoint.join().unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(400),
+        "daemon served before interrupted host adoption settled"
+    );
+
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    let surface = resolved["surface"].as_u64().expect("recovered terminal has a surface");
+    assert_eq!(resolved["lifecycle"], "running");
+    assert_eq!(resolved["terminal_incarnation"], incarnation);
+    let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(adopted.host_pid, host_pid);
+    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
+    let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
+    let create = serde_json::json!({
+        "protocol":"cmux.protocol/1",
+        "type":"request",
+        "id":"public-create-request",
+        "operation":"workspace.create",
+        "idempotency_key":"public-create-attempt",
+        "params":{
+            "machine":"current",
+            "session":"current",
+            "name":"Recovered public workspace",
+            "initial_content":"terminal",
+            "correlation_key":"public-create-correlation",
+        },
+    });
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    writeln!(writer, "{create}").unwrap();
+    let (_, before) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    drop(writer);
+    drop(stream);
+    harness.restart();
+
+    let first_resolution = resource_request(
+        &harness.socket,
+        "public-create-resolution-one",
+        "session.creation.resolve",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "correlation_key":"public-create-correlation",
+        }),
+        None,
+    );
+    assert_eq!(first_resolution["state"], "created");
+    assert_eq!(first_resolution["revision"], "1");
+    let created_path = first_resolution["created_path"].clone();
+    for field in ["workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"] {
+        assert!(created_path[field].as_str().is_some(), "{field}");
+    }
+    let first_snapshot = resource_request(
+        &harness.socket,
+        "public-create-snapshot-one",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert_eq!(first_snapshot["cursor"]["revision"], "1");
+    assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
+    let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_first_restart.host_pid, before.host_pid);
+    assert_eq!(after_first_restart.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after_first_restart.incarnation, before.incarnation);
+
+    harness.sigkill();
+    harness.restart();
+
+    let second_resolution = resource_request(
+        &harness.socket,
+        "public-create-resolution-two",
+        "session.creation.resolve",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "correlation_key":"public-create-correlation",
+        }),
+        None,
+    );
+    assert_eq!(second_resolution, first_resolution);
+    let replay = resource_request(
+        &harness.socket,
+        "public-create-replay",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Recovered public workspace",
+            "initial_content":"terminal",
+            "correlation_key":"public-create-correlation",
+        }),
+        Some("public-create-attempt"),
+    );
+    assert_eq!(replay["value"], created_path);
+    assert_eq!(replay["revision"], "1");
+    assert_eq!(replay["replayed"], true);
+    let second_snapshot = resource_request(
+        &harness.socket,
+        "public-create-snapshot-two",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert_eq!(second_snapshot["cursor"]["revision"], "1");
+    assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
+    let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_second_restart.host_pid, before.host_pid);
+    assert_eq!(after_second_restart.host_start_nonce, before.host_start_nonce);
+    assert_eq!(after_second_restart.incarnation, before.incarnation);
+
+    resource_request(
+        &harness.socket,
+        "public-create-close",
+        "terminal.close",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":created_path["terminal_id"],
+        }),
+        Some("public-create-close"),
     );
     wait_for_no_host_records(&harness.host_root());
 }
@@ -2400,6 +2849,31 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+fn resource_request(
+    path: &Path,
+    id: &str,
+    operation: &str,
+    params: serde_json::Value,
+    idempotency_key: Option<&str>,
+) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "protocol":"cmux.protocol/1",
+        "type":"request",
+        "id":id,
+        "operation":operation,
+        "params":params,
+    });
+    if let Some(idempotency_key) = idempotency_key {
+        value["idempotency_key"] = serde_json::json!(idempotency_key);
+    }
+    let response = request_response(path, value);
+    assert_eq!(response["protocol"], "cmux.protocol/1", "request failed: {response}");
+    assert_eq!(response["type"], "response", "request failed: {response}");
+    assert_eq!(response["id"], id, "request failed: {response}");
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response["result"].clone()
+}
+
 fn wait_for_socket(path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
@@ -2448,6 +2922,65 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+        let timeout_ms =
+            remaining.min(Duration::from_millis(100)).as_millis().clamp(1, i32::MAX as u128) as i32;
+        // SAFETY: descriptor points to one initialized pollfd and the stream
+        // remains borrowed for the duration of poll.
+        let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            panic!("poll stalled renderer: {error}");
+        }
+        if descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            return true;
+        }
+        if ready > 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+fn wait_for_terminal_lifecycle(
+    socket: &Path,
+    terminal_id: &str,
+    expected: &str,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            socket,
+            serde_json::json!({
+                "cmd":"resolve-terminal",
+                "terminal_id":terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == expected {
+            return resolved;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal_id} remained in lifecycle {:?}, expected {expected}",
+            resolved["lifecycle"],
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
@@ -2566,6 +3099,30 @@ fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
     let state: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(state["event"], "vt-state", "unexpected attach probe: {state}");
     state
+}
+
+fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, request_id: u64) {
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("attach stream closed before response");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == request_id {
+            assert_eq!(value["ok"], true, "attach failed: {value}");
+            return;
+        }
+    }
+}
+
+fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("timed out waiting for hosted detach");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["event"] == "detached" {
+            assert_eq!(value["surface"], surface);
+            return;
+        }
+    }
 }
 
 fn wait_for_host_cursor_snapshot(
@@ -2728,6 +3285,38 @@ fn snapshot_replay(payload: &[u8]) -> &[u8] {
     let end = 12usize.checked_add(replay_len).expect("Snapshot replay length overflow");
     assert!(end <= payload.len(), "Snapshot replay was truncated");
     &payload[12..end]
+}
+
+fn snapshot_cell_pixels(payload: &[u8]) -> (u16, u16) {
+    assert!(
+        payload.len() >= 4 + KITTY_REPLAY_STATE_ENCODED_LEN,
+        "Snapshot payload omitted cell geometry"
+    );
+    let offset = payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN - 4;
+    (
+        u16::from_le_bytes(payload[offset..offset + 2].try_into().unwrap()),
+        u16::from_le_bytes(payload[offset + 2..offset + 4].try_into().unwrap()),
+    )
+}
+
+fn resize_cell_pixels(payload: &[u8]) -> (u16, u16) {
+    assert!(payload.len() >= 8, "Resized payload was truncated");
+    let replay_len = u32::from_le_bytes(payload[4..8].try_into().unwrap()) as usize;
+    let alias_count_offset = 8usize.checked_add(replay_len).expect("replay length overflow");
+    assert!(alias_count_offset + 2 <= payload.len(), "Resized payload omitted Kitty alias count");
+    let alias_count =
+        u16::from_le_bytes(payload[alias_count_offset..alias_count_offset + 2].try_into().unwrap())
+            as usize;
+    let offset = alias_count_offset + 2 + alias_count * 8;
+    assert_eq!(
+        payload.len(),
+        offset + 4 + KITTY_REPLAY_STATE_ENCODED_LEN,
+        "Resized payload has an invalid suffix"
+    );
+    (
+        u16::from_le_bytes(payload[offset..offset + 2].try_into().unwrap()),
+        u16::from_le_bytes(payload[offset + 2..offset + 4].try_into().unwrap()),
+    )
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

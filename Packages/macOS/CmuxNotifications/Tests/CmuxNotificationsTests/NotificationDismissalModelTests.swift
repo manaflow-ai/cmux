@@ -37,6 +37,10 @@ private final class FakeHost: NotificationDismissalHosting {
         focusedPanelIds[workspaceId]
     }
 
+    func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool {
+        selectedWorkspaceId == workspaceId
+    }
+
     func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
         focusedSurfaceIds[workspaceId]
     }
@@ -251,7 +255,7 @@ struct NotificationDismissalModelTests {
         #expect(host.log.contains("notificationFlash"))
     }
 
-    @Test func focusedWorkspaceDismissalUsesProjectedSurfaceIdentity() {
+    @Test func focusedWorkspaceDismissalStartsWithProjectedSurfaceIdentity() {
         let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let containerId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let projectedSurfaceId = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
@@ -269,8 +273,11 @@ struct NotificationDismissalModelTests {
             context: .explicitWorkspaceResume
         )
 
-        #expect(host.log.contains("markRead:3333"))
-        #expect(!host.log.contains("markRead:2222"))
+        #expect(host.log == [
+            "markRead:3333", "markRead:2222",
+            "clearFocusedRead:3333", "clearFocusedRead:2222",
+            "notificationFlash",
+        ])
     }
 
     @Test func pendingSelectionContextTakeClearsIt() {

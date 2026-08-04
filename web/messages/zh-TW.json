@@ -867,6 +867,8 @@
       "concepts": "概念",
       "anchorTitle": "錨點工作區",
       "anchorDesc": "每個群組都恰好由一個稱為錨點的工作區擁有。側邊欄中的群組標頭即是錨點的呈現方式——它沒有獨立的列。點按標頭名稱區域會聚焦於錨點的面板；點按箭號則切換折疊狀態。",
+      "anchorNew": "群組的錨點在建立時一律是全新的工作區；無論將所選工作區分組或建立群組，都不會把任何現有工作區提升為錨點。（之後關閉錨點時，確實會提升群組中第一個仍保留的成員，請見下文。）將所選工作區分組時，錨點的工作目錄會繼承自第一個選取的工作區；透過 CLI 建立且未指定 --cwd 時，則繼承自目前使用中的工作區。",
+      "anchorClose": "關閉錨點工作區時，只會關閉該工作區，並將群組中第一個仍保留的成員（依群組順序仍存在的成員中最前面的一個）提升為新錨點，因此群組和其他成員會維持不變（獲提升的成員之後會在標頭顯示群組名稱）。當錨點是群組中唯一的工作區時，群組會被移除。若要將群組展開為未分組的工作區，請使用取消工作區群組；若要關閉群組中的所有工作區，請使用刪除群組。",
       "identityTitle": "群組識別",
       "identityDesc": "群組具有名稱、圖示（一個 SF Symbol，預設為 folder.fill），以及一個選用的自訂顏色。這些都獨立於錨點工作區本身的自訂設定。錨點的顏色和圖示在建立時會以群組為種子值，但之後可以各自不同。",
       "pinningTitle": "釘選",
@@ -3523,7 +3525,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
+    "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
+    "signedOutSignIn": "登入"
   },
   "platforms": {
     "macos": "macOS",
@@ -3600,6 +3604,37 @@
       "primaryCta": "下載 .deb",
       "requirements": "Debian 或 Ubuntu · x64",
       "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "歡迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感謝你加入 cmux Pro！完整的 Pro 體驗仍在完善中，Cloud 存取也即將推出。",
+      "cloudStatus": "Cloud 存取上線後，我們會根據你的訂閱月數，將使用額度加入帳戶。",
+      "currentBenefit": "在此期間，你的 Pro 權益是搶先體驗 cmux iOS 版。請透過下方連結註冊，完成後 Apple 會寄出 TestFlight 邀請。",
+      "testflightLink": "註冊 TestFlight：{url}",
+      "testflightLinkLabel": "註冊 TestFlight",
+      "signoff": "很高興有你加入！\ncmux 團隊"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已啟用",
+    "title": "歡迎加入 cmux Pro",
+    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手機上使用 cmux。",
+        "action": "加入 iOS 測試版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、發票與取消選項。",
+        "action": "管理方案"
+      }
     }
   }
 }

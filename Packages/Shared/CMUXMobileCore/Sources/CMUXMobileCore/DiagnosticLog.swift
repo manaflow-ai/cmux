@@ -45,6 +45,9 @@ public final class DiagnosticLog: Sendable {
     /// The inner actor owning the ring buffer and the wall-clock anchor.
     private let store: Store
 
+    /// The optional live observer, delivered retained events on the drain task.
+    private let tap: TapBox
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -94,12 +97,16 @@ public final class DiagnosticLog: Sendable {
             commandContinuation: commandContinuation
         )
         self.ingress = ingress
+        let tap = TapBox()
+        self.tap = tap
         self.drainTask = Task {
             for await command in commandStream {
                 switch command {
                 case let .events(events):
-                    for await event in events {
-                        await store.append(event)
+                    for await sequenced in events {
+                        if await store.append(sequenced.event) {
+                            tap.deliver(sequenced)
+                        }
                     }
                 case let .clear(
                     anchorWallNanos,
@@ -112,8 +119,10 @@ public final class DiagnosticLog: Sendable {
                         anchorMonotonicNanos: anchorMonotonicNanos
                     )
                     acknowledgement.resume()
-                    for await event in nextEvents {
-                        await store.append(event)
+                    for await sequenced in nextEvents {
+                        if await store.append(sequenced.event) {
+                            tap.deliver(sequenced)
+                        }
                     }
                 }
             }
@@ -122,6 +131,26 @@ public final class DiagnosticLog: Sendable {
 
     deinit {
         ingress.finish()
+    }
+
+    /// Sets the single live event observer, replacing any previous one.
+    ///
+    /// The observer runs on the internal drain task, after the event is retained
+    /// in the ring, so it adds no work to the hot-path ``record(_:)`` call and
+    /// sees events in ring order. Events consumed but not retained (the repeated
+    /// ``DiagnosticEventCode/selectedPathChanged`` dedup) are not delivered.
+    /// Events recorded before the observer is set are never delivered, even
+    /// when they are still queued on the drain task at install time (each
+    /// event carries an ingress admission sequence, and only events admitted
+    /// after installation pass the tap). A consumer that needs history
+    /// snapshots the ring via ``export()`` or ``snapshot(generatedAt:)``.
+    ///
+    /// The observer must be fast and must not block: it shares the drain task
+    /// with ring appends. Forward into your own queue or task for slow work.
+    ///
+    /// - Parameter observer: The observer, or `nil` to remove the current one.
+    public func setEventTap(_ observer: (@Sendable (DiagnosticEvent) -> Void)?) {
+        tap.set(observer, notBefore: ingress.lastAdmittedSeq())
     }
 
     /// Record one event. Non-blocking and safe from any thread.
@@ -207,13 +236,51 @@ public final class DiagnosticLog: Sendable {
     /// once full and would starve the drain task during the exact lag bursts this
     /// log captures).
     private enum DrainCommand: Sendable {
-        case events(AsyncStream<DiagnosticEvent>)
+        case events(AsyncStream<SequencedEvent>)
         case clear(
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64,
-            nextEvents: AsyncStream<DiagnosticEvent>,
+            nextEvents: AsyncStream<SequencedEvent>,
             acknowledgement: CheckedContinuation<Void, Never>
         )
+    }
+
+    /// One admitted event with its ingress admission sequence number. The tap
+    /// compares the number against its activation floor so an observer never
+    /// receives an event that was admitted (recorded) before it was installed,
+    /// even when that event is still queued on the drain task at install time.
+    private struct SequencedEvent: Sendable {
+        let seq: UInt64
+        let event: DiagnosticEvent
+    }
+
+    /// Holds the settable live observer without retaining the log, so the drain
+    /// task can capture it while ``DiagnosticLog/deinit`` stays reachable.
+    private final class TapBox: Sendable {
+        private struct State: Sendable {
+            var observer: (@Sendable (DiagnosticEvent) -> Void)?
+            /// Only events admitted after this ingress sequence are delivered.
+            var notBefore: UInt64 = 0
+        }
+
+        // lint:allow lock - deliver runs on the drain task and set is rare; the
+        // critical region only reads or writes one closure reference + floor.
+        private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+        func set(_ newObserver: (@Sendable (DiagnosticEvent) -> Void)?, notBefore: UInt64) {
+            state.withLock {
+                $0.observer = newObserver
+                $0.notBefore = notBefore
+            }
+        }
+
+        func deliver(_ sequenced: SequencedEvent) {
+            let current = state.withLock { state -> (@Sendable (DiagnosticEvent) -> Void)? in
+                guard sequenced.seq > state.notBefore else { return nil }
+                return state.observer
+            }
+            current?(sequenced.event)
+        }
     }
 
     /// Serializes event-segment rotation without suspending callers. Event
@@ -224,15 +291,18 @@ public final class DiagnosticLog: Sendable {
         private struct State: Sendable {
             let capacity: Int
             let commandContinuation: AsyncStream<DrainCommand>.Continuation
-            var eventContinuation: AsyncStream<DiagnosticEvent>.Continuation?
+            var eventContinuation: AsyncStream<SequencedEvent>.Continuation?
             var isFinished = false
+            /// Monotonic admission counter; the last value handed to a
+            /// recorded event. Read at tap install time as the delivery floor.
+            var lastAdmittedSeq: UInt64 = 0
         }
 
         private enum ClearEnqueueResult: Sendable {
-            case enqueued(previous: AsyncStream<DiagnosticEvent>.Continuation?)
+            case enqueued(previous: AsyncStream<SequencedEvent>.Continuation?)
             case terminated(
-                previous: AsyncStream<DiagnosticEvent>.Continuation?,
-                next: AsyncStream<DiagnosticEvent>.Continuation
+                previous: AsyncStream<SequencedEvent>.Continuation?,
+                next: AsyncStream<SequencedEvent>.Continuation
             )
         }
 
@@ -258,8 +328,19 @@ public final class DiagnosticLog: Sendable {
         func record(_ event: DiagnosticEvent) {
             state.withLock { state in
                 guard !state.isFinished else { return }
-                state.eventContinuation?.yield(event)
+                state.lastAdmittedSeq += 1
+                state.eventContinuation?.yield(SequencedEvent(
+                    seq: state.lastAdmittedSeq,
+                    event: event
+                ))
             }
+        }
+
+        /// The admission sequence of the most recently recorded event, used as
+        /// the tap's activation floor so already-admitted events are never
+        /// delivered to a newly installed observer.
+        func lastAdmittedSeq() -> UInt64 {
+            state.withLock { $0.lastAdmittedSeq }
         }
 
         func clear(
@@ -307,7 +388,7 @@ public final class DiagnosticLog: Sendable {
 
         func finish() {
             let continuations: (
-                AsyncStream<DiagnosticEvent>.Continuation?,
+                AsyncStream<SequencedEvent>.Continuation?,
                 AsyncStream<DrainCommand>.Continuation
             )? = state.withLock { state in
                 guard !state.isFinished else { return nil }
@@ -322,7 +403,7 @@ public final class DiagnosticLog: Sendable {
 
         private static func makeEventSegment(
             capacity: Int
-        ) -> (AsyncStream<DiagnosticEvent>, AsyncStream<DiagnosticEvent>.Continuation) {
+        ) -> (AsyncStream<SequencedEvent>, AsyncStream<SequencedEvent>.Continuation) {
             AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(capacity))
         }
     }
@@ -357,10 +438,14 @@ public final class DiagnosticLog: Sendable {
             self.slots = Array(repeating: nil, count: clamped)
         }
 
-        func append(_ event: DiagnosticEvent) {
+        /// Appends one event, returning whether it was retained (`false` for the
+        /// repeated selected-path dedup) so the drain task can skip observer
+        /// delivery for events the ring itself discards.
+        @discardableResult
+        func append(_ event: DiagnosticEvent) -> Bool {
             totalProcessed += 1
             if let nextPathKind = event.diagnosticPathKind {
-                guard nextPathKind != selectedPathKind else { return }
+                guard nextPathKind != selectedPathKind else { return false }
                 selectedPathKind = nextPathKind
             }
             slots[head] = event
@@ -368,6 +453,7 @@ public final class DiagnosticLog: Sendable {
             if filled < capacity {
                 filled += 1
             }
+            return true
         }
 
         func count() -> Int {
