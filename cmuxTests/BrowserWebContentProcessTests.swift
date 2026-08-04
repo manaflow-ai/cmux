@@ -958,43 +958,70 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webAuthnPresentationAnchorDoesNotAccumulateFallbackWindows() {
-        let previouslyVisibleWindows = NSApp.windows.filter(\.isVisible)
-        let previouslyKeyWindow = NSApp.keyWindow
-        previouslyVisibleWindows.forEach { $0.orderOut(nil) }
-        defer {
-            previouslyVisibleWindows.forEach { $0.orderFront(nil) }
-            previouslyKeyWindow?.makeKey()
-        }
+    func webAuthnPresentationAnchorDoesNotAccumulateFallbackWindows() async {
+        weak var retiredCoordinator: BrowserWebAuthnCoordinator?
+        weak var delegateRetiredAnchor: NSWindow?
+        weak var teardownRetiredAnchor: NSWindow?
+        weak var deinitRetiredAnchor: NSWindow?
 
-        #expect(NSApp.keyWindow == nil)
-        #expect(NSApp.mainWindow == nil)
+        autoreleasepool {
+            let coordinator = BrowserWebAuthnCoordinator(
+                existingPresentationWindowProvider: { nil }
+            )
+            retiredCoordinator = coordinator
+            let authorizationRequest = ASAuthorizationAppleIDProvider().createRequest()
+            let controller = ASAuthorizationController(authorizationRequests: [authorizationRequest])
 
-        let windowsBefore = Set(NSApp.windows.map(ObjectIdentifier.init))
-        var coordinator: BrowserWebAuthnCoordinator? = BrowserWebAuthnCoordinator()
-        let authorizationRequest = ASAuthorizationAppleIDProvider().createRequest()
-        let controller = ASAuthorizationController(authorizationRequests: [authorizationRequest])
-        let anchors = (0..<3).map { _ in
-            coordinator!.presentationAnchor(for: controller)
-        }
-        defer {
-            anchors.forEach {
-                $0.isReleasedWhenClosed = false
-                $0.orderOut(nil)
-                $0.close()
+            autoreleasepool {
+                let anchors = (0..<3).map { _ in
+                    coordinator.presentationAnchor(for: controller)
+                }
+                #expect(Set(anchors.map(ObjectIdentifier.init)).count == 1)
+                #expect(anchors.first?.isVisible == false)
+                #expect(anchors.first?.canBecomeKey == false)
+                #expect(anchors.first?.ignoresMouseEvents == true)
+                #expect(anchors.first?.isExcludedFromWindowsMenu == true)
+
+                delegateRetiredAnchor = anchors.first
             }
+
+            #expect(delegateRetiredAnchor != nil)
+            autoreleasepool {
+                coordinator.authorizationController(
+                    controller: controller,
+                    didCompleteWithError: NSError(
+                        domain: "BrowserWebContentProcessTests",
+                        code: 1
+                    )
+                )
+            }
+            #expect(delegateRetiredAnchor == nil)
+
+            let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            coordinator.install(on: webView)
+            autoreleasepool {
+                let anchor = coordinator.presentationAnchor(for: controller)
+                teardownRetiredAnchor = anchor
+            }
+
+            #expect(teardownRetiredAnchor != nil)
+            autoreleasepool {
+                coordinator.tearDown(from: webView)
+            }
+            #expect(teardownRetiredAnchor == nil)
+
+            autoreleasepool {
+                let anchor = coordinator.presentationAnchor(for: controller)
+                deinitRetiredAnchor = anchor
+            }
+            #expect(deinitRetiredAnchor != nil)
         }
 
-        let newWindows = NSApp.windows.filter {
-            !windowsBefore.contains(ObjectIdentifier($0))
+        #expect(retiredCoordinator == nil)
+        for _ in 0..<10 where deinitRetiredAnchor != nil {
+            await Task.yield()
         }
-        #expect(Set(anchors.map(ObjectIdentifier.init)).count == 1)
-        #expect(newWindows.count == 1)
-        #expect(newWindows.first === anchors.first)
-
-        coordinator = nil
-
-        #expect(!NSApp.windows.contains { $0 === anchors.first })
+        #expect(deinitRetiredAnchor == nil)
     }
 
     @Test
