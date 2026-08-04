@@ -104,6 +104,11 @@ struct MobilePrimaryTabScaffold<
                    newValue.searchScope != nil {
                     searchCoordinator.deactivateCurrentSearch()
                 }
+                // A primary-tab tap and a following Search tap can arrive
+                // before onChange runs. Set the scope first so Search never
+                // mounts the previous tab's destination and replaces it while
+                // native presentation is activating.
+                searchCoordinator.synchronizeSelection(newValue)
                 selection = newValue
             }
         )
