@@ -22,7 +22,7 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
 
     var body: some View {
         if isMinimalMode {
-            HiddenTitlebarSidebarControlsView(
+            NativeHiddenTitlebarSidebarControlsBridge(
                 unreadModel: unreadModel,
                 layoutModel: layoutModel,
                 onToggleSidebar: onToggleSidebar,

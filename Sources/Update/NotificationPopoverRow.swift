@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxFoundation
 
 @MainActor
@@ -203,4 +204,449 @@ final class NotificationPopoverRowNativeView: NSView {
     @objc private func openNotification(_ sender: Any?) { onOpen() }
     @objc private func clearNotification(_ sender: Any?) { onClear() }
     @objc private func toggleRead(_ sender: Any?) { onToggleRead() }
+}
+
+@MainActor
+private final class NotificationsPopoverRowsView: NSView {
+    var rows: [NotificationPopoverRowNativeView] = [] {
+        didSet {
+            for view in subviews where !rows.contains(where: { $0 === view }) {
+                view.removeFromSuperview()
+            }
+            for row in rows where row.superview !== self {
+                addSubview(row)
+            }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: rows.reduce(0) { $0 + $1.intrinsicContentSize.height }
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        var y: CGFloat = 0
+        for row in rows {
+            let height = row.intrinsicContentSize.height
+            row.frame = NSRect(x: 0, y: y, width: bounds.width, height: height)
+            y += height
+        }
+        if frame.height != y {
+            frame.size.height = y
+        }
+    }
+}
+
+@MainActor
+final class NotificationsPopoverViewController: NSViewController {
+    private static let widthDefaultsKey = "cmux.notifications.popover.width"
+    private static let heightDefaultsKey = "cmux.notifications.popover.height"
+    private static let screenMargin: CGFloat = 80
+
+    private let notificationStore: TerminalNotificationStore
+    private let onDismiss: () -> Void
+    private let defaults: UserDefaults
+    private let headerView = NSView()
+    private let titleField = NSTextField(labelWithString: "")
+    private let unreadBadge = NSTextField(labelWithString: "")
+    private let jumpButton = NSButton()
+    private let clearButton = NSButton()
+    private let divider = NSBox()
+    private let scrollView = NSScrollView()
+    private let rowsView = NotificationsPopoverRowsView()
+    private let emptyStateView = NSView()
+    private let emptyImageView = NSImageView()
+    private let emptyTitleField = NSTextField(labelWithString: "")
+    private let emptySubtitleField = NSTextField(wrappingLabelWithString: "")
+    private let resizeGripper = ResizeGripperNSView()
+    private var cancellables: Set<AnyCancellable> = []
+    private var observers: [NSObjectProtocol] = []
+    private var loadedWorkspaceTitles: [UUID: String] = [:]
+    private var liveSize: NSSize?
+
+    init(
+        notificationStore: TerminalNotificationStore,
+        defaults: UserDefaults = .standard,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.notificationStore = notificationStore
+        self.defaults = defaults
+        self.onDismiss = onDismiss
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    override func loadView() {
+        let root = NSView(frame: NSRect(origin: .zero, size: clampedStoredSize))
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        view = root
+        preferredContentSize = root.frame.size
+        configureViews()
+        observeModels()
+        refreshWorkspaceTitles()
+        refreshContent()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let bounds = view.bounds
+        let headerHeight: CGFloat = 48
+        headerView.frame = NSRect(x: 0, y: bounds.height - headerHeight, width: bounds.width, height: headerHeight)
+        divider.frame = NSRect(x: 0, y: headerView.frame.minY - 1, width: bounds.width, height: 1)
+        let contentFrame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, divider.frame.minY))
+        scrollView.frame = contentFrame
+        emptyStateView.frame = contentFrame
+        resizeGripper.frame = NSRect(x: bounds.maxX - 16, y: 0, width: 16, height: 16)
+        layoutHeader()
+        layoutEmptyState()
+        rowsView.frame.size.width = scrollView.contentSize.width
+        rowsView.needsLayout = true
+        rowsView.layoutSubtreeIfNeeded()
+    }
+
+    private var clampedStoredSize: NSSize {
+        let savedWidth = defaults.object(forKey: Self.widthDefaultsKey) as? Double
+            ?? Double(NotificationsPopoverMetrics.defaultWidth)
+        let savedHeight = defaults.object(forKey: Self.heightDefaultsKey) as? Double
+            ?? Double(NotificationsPopoverMetrics.defaultHeight)
+        return clamp(size: NSSize(width: savedWidth, height: savedHeight))
+    }
+
+    private func clamp(size: NSSize) -> NSSize {
+        let screen = viewIfLoaded?.window?.screen ?? NSApp.keyWindow?.screen ?? NSScreen.main
+        let screenWidth = screen?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
+        let screenHeight = screen?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
+        let maxWidth = min(
+            NotificationsPopoverMetrics.maxWidth,
+            max(NotificationsPopoverMetrics.minWidth, screenWidth - Self.screenMargin)
+        )
+        let maxHeight = min(
+            NotificationsPopoverMetrics.maxHeight,
+            max(NotificationsPopoverMetrics.minHeight, screenHeight - Self.screenMargin)
+        )
+        return NSSize(
+            width: min(maxWidth, max(NotificationsPopoverMetrics.minWidth, size.width)),
+            height: min(maxHeight, max(NotificationsPopoverMetrics.minHeight, size.height))
+        )
+    }
+
+    private func configureViews() {
+        view.addSubview(headerView)
+        view.addSubview(divider)
+        view.addSubview(scrollView)
+        view.addSubview(emptyStateView)
+        view.addSubview(resizeGripper)
+
+        titleField.stringValue = String(localized: "notifications.title", defaultValue: "Notifications")
+        titleField.font = .systemFont(ofSize: 14, weight: .semibold)
+        headerView.addSubview(titleField)
+
+        unreadBadge.font = .systemFont(ofSize: 11, weight: .semibold)
+        unreadBadge.textColor = .white
+        unreadBadge.alignment = .center
+        unreadBadge.wantsLayer = true
+        headerView.addSubview(unreadBadge)
+
+        jumpButton.bezelStyle = .rounded
+        jumpButton.controlSize = .small
+        jumpButton.image = NSImage(
+            systemSymbolName: "arrow.down.to.line",
+            accessibilityDescription: String(
+                localized: "notifications.jumpToLatest",
+                defaultValue: "Jump to Latest"
+            )
+        )
+        jumpButton.imagePosition = .imageLeading
+        jumpButton.target = self
+        jumpButton.action = #selector(jumpToLatestUnread(_:))
+        jumpButton.setAccessibilityIdentifier("notificationsPopover.jumpToLatest")
+        headerView.addSubview(jumpButton)
+
+        clearButton.bezelStyle = .rounded
+        clearButton.controlSize = .small
+        clearButton.title = String(localized: "notifications.clearAll", defaultValue: "Clear All")
+        clearButton.target = self
+        clearButton.action = #selector(clearAll(_:))
+        clearButton.setAccessibilityIdentifier("notificationsPopover.clearAll")
+        headerView.addSubview(clearButton)
+
+        divider.boxType = .separator
+
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = rowsView
+
+        emptyImageView.imageScaling = .scaleProportionallyDown
+        emptyImageView.contentTintColor = .secondaryLabelColor
+        emptyStateView.addSubview(emptyImageView)
+        emptyTitleField.alignment = .center
+        emptyTitleField.font = .systemFont(ofSize: 14, weight: .medium)
+        emptyStateView.addSubview(emptyTitleField)
+        emptySubtitleField.alignment = .center
+        emptySubtitleField.font = .systemFont(ofSize: 12)
+        emptySubtitleField.textColor = .secondaryLabelColor
+        emptySubtitleField.maximumNumberOfLines = 2
+        emptyStateView.addSubview(emptySubtitleField)
+
+        resizeGripper.setAccessibilityLabel(
+            String(localized: "notifications.resize", defaultValue: "Resize notifications")
+        )
+        resizeGripper.setAccessibilityHelp(
+            String(
+                localized: "notifications.resize.hint",
+                defaultValue: "Drag to resize the notifications popover"
+            )
+        )
+        resizeGripper.onBegin = { [weak self] in
+            guard let self else { return (0, 0) }
+            return (view.bounds.width, view.bounds.height)
+        }
+        resizeGripper.onDrag = { [weak self] startWidth, startHeight, dx, dy in
+            guard let self else { return }
+            let next = clamp(size: NSSize(width: startWidth + dx, height: startHeight + dy))
+            liveSize = next
+            apply(size: next)
+        }
+        resizeGripper.onEnd = { [weak self] in
+            guard let self, let liveSize else { return }
+            defaults.set(Double(liveSize.width), forKey: Self.widthDefaultsKey)
+            defaults.set(Double(liveSize.height), forKey: Self.heightDefaultsKey)
+            self.liveSize = nil
+        }
+    }
+
+    private func observeModels() {
+        notificationStore.$notifications
+            .combineLatest(notificationStore.$notificationMenuSnapshot)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                guard let self else { return }
+                self.refreshWorkspaceTitles()
+                self.refreshContent()
+            }
+            .store(in: &cancellables)
+
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            .workspaceTitleDidChange,
+            .workspaceGroupNameDidChange,
+            .workspaceOrderDidChange,
+            KeyboardShortcutSettings.didChangeNotification,
+        ]
+        for name in names {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if notification.name == KeyboardShortcutSettings.didChangeNotification {
+                        self.refreshHeader()
+                    } else {
+                        self.refreshWorkspaceTitles(ifRelevantTo: notification)
+                        self.refreshRows()
+                    }
+                }
+            })
+        }
+    }
+
+    private func layoutHeader() {
+        let padding: CGFloat = 14
+        titleField.sizeToFit()
+        titleField.frame.origin = NSPoint(
+            x: padding,
+            y: (headerView.bounds.height - titleField.frame.height) / 2
+        )
+
+        unreadBadge.sizeToFit()
+        let badgeWidth = max(22, unreadBadge.frame.width + 12)
+        unreadBadge.frame = NSRect(
+            x: titleField.frame.maxX + 8,
+            y: (headerView.bounds.height - 18) / 2,
+            width: badgeWidth,
+            height: 18
+        )
+        unreadBadge.layer?.cornerRadius = 9
+        unreadBadge.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+
+        clearButton.sizeToFit()
+        clearButton.frame.origin = NSPoint(
+            x: headerView.bounds.maxX - padding - clearButton.frame.width,
+            y: (headerView.bounds.height - clearButton.frame.height) / 2
+        )
+        jumpButton.sizeToFit()
+        jumpButton.frame.origin = NSPoint(
+            x: clearButton.frame.minX - 8 - jumpButton.frame.width,
+            y: (headerView.bounds.height - jumpButton.frame.height) / 2
+        )
+    }
+
+    private func layoutEmptyState() {
+        let centerX = emptyStateView.bounds.midX
+        let centerY = emptyStateView.bounds.midY
+        emptyImageView.frame = NSRect(x: centerX - 16, y: centerY + 20, width: 32, height: 32)
+        emptyTitleField.frame = NSRect(x: 24, y: centerY - 4, width: max(0, emptyStateView.bounds.width - 48), height: 20)
+        emptySubtitleField.frame = NSRect(x: 24, y: centerY - 42, width: max(0, emptyStateView.bounds.width - 48), height: 34)
+    }
+
+    private func apply(size: NSSize) {
+        preferredContentSize = size
+        view.frame.size = size
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private func refreshContent() {
+        refreshHeader()
+        refreshRows()
+    }
+
+    private func refreshHeader() {
+        let snapshot = notificationStore.notificationMenuSnapshot
+        unreadBadge.stringValue = String(snapshot.unreadCount)
+        unreadBadge.isHidden = snapshot.unreadCount == 0
+
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
+        let baseTitle = String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+        jumpButton.title = shortcut.displayString.isEmpty
+            ? baseTitle
+            : "\(baseTitle)  \(shortcut.displayString)"
+        jumpButton.isEnabled = snapshot.hasUnreadNotifications
+        jumpButton.setAccessibilityValue(shortcut.displayString)
+        jumpButton.toolTip = KeyboardShortcutSettings.Action.jumpToUnread.tooltip(baseTitle)
+        clearButton.isEnabled = snapshot.hasNotifications
+        layoutHeader()
+    }
+
+    private func refreshRows() {
+        let notifications = notificationStore.notifications
+        if notifications.isEmpty {
+            rowsView.rows = []
+            scrollView.isHidden = true
+            emptyStateView.isHidden = false
+            let snapshot = notificationStore.notificationMenuSnapshot
+            let imageName = snapshot.hasNotifications ? "bell.badge" : "bell.slash"
+            emptyImageView.image = NSImage(systemSymbolName: imageName, accessibilityDescription: nil)
+            emptyTitleField.stringValue = snapshot.hasNotifications
+                ? snapshot.stateHintTitle
+                : String(localized: "notifications.empty.title", defaultValue: "No notifications yet")
+            emptySubtitleField.stringValue = snapshot.hasNotifications
+                ? ""
+                : String(
+                    localized: "notifications.empty.subtitle",
+                    defaultValue: "Desktop notifications will appear here."
+                )
+            emptySubtitleField.isHidden = emptySubtitleField.stringValue.isEmpty
+            view.needsLayout = true
+            return
+        }
+
+        emptyStateView.isHidden = true
+        scrollView.isHidden = false
+        rowsView.rows = notifications.map { notification in
+            let row = NotificationPopoverRowNativeView()
+            row.update(
+                notification: notification,
+                workspaceTitle: loadedWorkspaceTitles[notification.tabId],
+                onOpen: { [weak self] in self?.open(notification) },
+                onClear: { [weak self] in self?.notificationStore.remove(id: notification.id) },
+                onToggleRead: { [weak self] in self?.toggleRead(notification) }
+            )
+            return row
+        }
+        rowsView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: scrollView.contentSize.width,
+            height: rowsView.intrinsicContentSize.height
+        )
+        rowsView.needsLayout = true
+    }
+
+    private func currentWorkspaceTitles() -> [UUID: String] {
+        let ids = Set(notificationStore.notifications.map(\.tabId))
+        return AppDelegate.shared?.tabTitlesByTabId(for: ids) ?? [:]
+    }
+
+    private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
+        let notificationWorkspaceIDs = Set(notificationStore.notifications.map(\.tabId))
+        guard let notification else {
+            loadedWorkspaceTitles = currentWorkspaceTitles()
+            return
+        }
+        guard let manager = notification.object as? TabManager else { return }
+
+        let changedWorkspaceIDs: Set<UUID>
+        let changedTitles: [UUID: String]
+        switch notification.name {
+        case .workspaceTitleDidChange:
+            guard let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            changedWorkspaceIDs = [workspaceID]
+            changedTitles = manager.resolvedWorkspaceDisplayTitle(forWorkspaceId: workspaceID)
+                .map { [workspaceID: $0] } ?? [:]
+        case .workspaceGroupNameDidChange:
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: notificationWorkspaceIDs)
+            changedWorkspaceIDs = Set(changedTitles.keys)
+        case .workspaceOrderDidChange:
+            changedWorkspaceIDs = Set(
+                notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            )
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: changedWorkspaceIDs)
+        default:
+            return
+        }
+
+        for workspaceID in changedWorkspaceIDs.intersection(notificationWorkspaceIDs) {
+            if let title = changedTitles[workspaceID] {
+                loadedWorkspaceTitles[workspaceID] = title
+            } else {
+                loadedWorkspaceTitles.removeValue(forKey: workspaceID)
+            }
+        }
+    }
+
+    private func toggleRead(_ notification: TerminalNotification) {
+        if notification.isRead {
+            notificationStore.markUnread(id: notification.id)
+        } else {
+            notificationStore.markRead(id: notification.id)
+            if let surfaceID = notification.surfaceId {
+                notificationStore.clearFocusedReadIndicator(
+                    forTabId: notification.tabId,
+                    surfaceId: surfaceID
+                )
+            }
+        }
+    }
+
+    private func open(_ notification: TerminalNotification) {
+        _ = AppDelegate.shared?.openTerminalNotification(notification)
+        onDismiss()
+    }
+
+    @objc private func jumpToLatestUnread(_ sender: Any?) {
+        AppDelegate.shared?.jumpToLatestUnread()
+        onDismiss()
+    }
+
+    @objc private func clearAll(_ sender: Any?) {
+        notificationStore.clearAll()
+    }
 }

@@ -173,7 +173,7 @@ final class CLISocketSentryTelemetry {
         }
         let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
         let envelope = SentryEnvelope(id: scrubbedEvent.eventId, singleItem: envelopeItem)
-        PrivateSentrySDKOnly.store(envelope)
+        SentrySDK.internal.envelope.store(envelope)
         // `store` is the durable step. A zero-timeout flush only schedules the
         // SDK's cached-envelope sender without waiting for network completion.
         SentrySDK.flush(timeout: 0)
@@ -290,7 +290,9 @@ final class CLISocketSentryTelemetry {
         }
         let crumb = Breadcrumb(level: .info, category: "cmux.cli")
         crumb.message = message
-        crumb.data = payload
+        for (key, value) in payload {
+            crumb.setData(value: value, key: key)
+        }
         return crumb
     }
 #endif

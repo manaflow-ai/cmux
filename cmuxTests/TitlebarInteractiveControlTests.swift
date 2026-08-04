@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -213,7 +212,7 @@ struct TitlebarInteractiveControlTests {
         )
     }
 
-    @Test func registeredSwiftUIAccessoryControlRegionIsNonDraggable() {
+    @Test func registeredNativeAccessoryControlRegionIsNonDraggable() {
         _ = NSApplication.shared
 
         let window = NSWindow(
@@ -227,22 +226,21 @@ struct TitlebarInteractiveControlTests {
         let container = TitlebarAccessoryContainerView(frame: NSRect(x: 0, y: 0, width: 180, height: 44))
         window.contentView = container
 
-        let hostingView = NonDraggableHostingView(rootView: Color.clear)
-        hostingView.frame = container.bounds
-        container.addSubview(hostingView)
+        let contentView = TitlebarAccessoryContentView(frame: container.bounds)
+        container.addSubview(contentView)
 
         let region = TitlebarInteractiveControlRegion.RegisteredView(
             frame: NSRect(x: 130, y: 8, width: 24, height: 24)
         )
-        hostingView.addSubview(region)
+        contentView.addSubview(region)
 
         guard let hitView = container.hitTest(NSPoint(x: region.frame.midX, y: region.frame.midY)) else {
-            Issue.record("Expected registered SwiftUI titlebar control chrome to receive a non-draggable hit")
+            Issue.record("Expected registered native titlebar control chrome to receive a non-draggable hit")
             return
         }
         #expect(
             !hitView.mouseDownCanMoveWindow,
-            "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
+            "Registered native titlebar controls must not degrade into content-view drag hits."
         )
     }
 }

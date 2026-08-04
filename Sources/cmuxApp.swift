@@ -3831,9 +3831,9 @@ private struct SplitButtonLayoutDebugView: View {
                                     .cmuxFont(.caption)
                                     .foregroundColor(.secondary)
                                     .frame(width: 72, alignment: .leading)
-                                TitlebarNewWorkspaceCloudSplitButton(
+                                NativeTitlebarSplitButtonBridge(
                                     config: style.config,
-                                    foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0)),
+                                    foregroundColor: titlebarControlForegroundNSColor(opacity: 1.0),
                                     onNewTab: { plusClicks += 1 }
                                 )
                                 if isCurrentStyle {

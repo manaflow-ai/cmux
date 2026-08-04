@@ -1204,6 +1204,31 @@ struct SidebarWidthLeadingPaddingModifier: ViewModifier {
     }
 }
 
+@MainActor
+struct TitlebarControlAnchorView: NSViewRepresentable {
+    let onResolve: @MainActor (NSView) -> Void
+
+    init(_ onResolve: @escaping @MainActor (NSView) -> Void) {
+        self.onResolve = onResolve
+    }
+
+    func makeNSView(context: Context) -> AnchorNSView {
+        let view = AnchorNSView()
+        view.onLayout = { [weak view] in
+            guard let view else { return }
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: AnchorNSView, context: Context) {
+        view.onLayout = { [weak view] in
+            guard let view else { return }
+            onResolve(view)
+        }
+    }
+}
+
 /// Transitional mount for the native pointer event host while the root
 /// workspace hierarchy is still hosted by the legacy renderer.
 @MainActor
@@ -1460,6 +1485,115 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
         view.onAction = onAction
     }
 }
+
+struct NativeTitlebarControlsBridge: NSViewRepresentable {
+    let unreadModel: SidebarUnreadModel
+    let layoutModel: TitlebarControlsLayoutModel
+    let viewModel: TitlebarControlsViewModel
+    let onToggleSidebar: () -> Void
+    let onToggleNotifications: () -> Void
+    let onNewTab: () -> Void
+    let onFocusHistoryBack: () -> Void
+    let onFocusHistoryForward: () -> Void
+    let visibilityMode: TitlebarControlsVisibilityMode
+
+    func makeNSView(context: Context) -> TitlebarControlsView {
+        TitlebarControlsView(
+            unreadModel: unreadModel,
+            layoutModel: layoutModel,
+            viewModel: viewModel,
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward,
+            visibilityMode: visibilityMode
+        )
+    }
+
+    func updateNSView(_ view: TitlebarControlsView, context: Context) {
+        view.update(
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward,
+            visibilityMode: visibilityMode
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: TitlebarControlsView,
+        context: Context
+    ) -> CGSize? {
+        nsView.intrinsicContentSize
+    }
+}
+
+struct NativeHiddenTitlebarSidebarControlsBridge: NSViewRepresentable {
+    let unreadModel: SidebarUnreadModel
+    let layoutModel: TitlebarControlsLayoutModel
+    let onToggleSidebar: () -> Void
+    let onToggleNotifications: (NSView?) -> Void
+    let onNewTab: () -> Void
+    let onFocusHistoryBack: () -> Void
+    let onFocusHistoryForward: () -> Void
+
+    func makeNSView(context: Context) -> HiddenTitlebarSidebarControlsView {
+        HiddenTitlebarSidebarControlsView(
+            unreadModel: unreadModel,
+            layoutModel: layoutModel,
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward
+        )
+    }
+
+    func updateNSView(_ view: HiddenTitlebarSidebarControlsView, context: Context) {
+        view.update(
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: onToggleNotifications,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: onFocusHistoryBack,
+            onFocusHistoryForward: onFocusHistoryForward
+        )
+    }
+}
+
+#if DEBUG
+struct NativeTitlebarSplitButtonBridge: NSViewRepresentable {
+    let config: TitlebarControlsStyleConfig
+    let foregroundColor: NSColor
+    let onNewTab: () -> Void
+
+    func makeNSView(context: Context) -> TitlebarNewWorkspaceCloudSplitButton {
+        TitlebarNewWorkspaceCloudSplitButton(
+            config: config,
+            foregroundColor: foregroundColor,
+            onNewTab: onNewTab
+        )
+    }
+
+    func updateNSView(_ view: TitlebarNewWorkspaceCloudSplitButton, context: Context) {
+        view.update(
+            config: config,
+            foregroundColor: foregroundColor,
+            onNewTab: onNewTab
+        )
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: TitlebarNewWorkspaceCloudSplitButton,
+        context: Context
+    ) -> CGSize? {
+        nsView.intrinsicContentSize
+    }
+}
+#endif
 
 struct TitlebarInteractiveControlRegion: NSViewRepresentable {
     typealias RegisteredView = TitlebarInteractiveControlRegionView

@@ -2042,7 +2042,7 @@ struct ContentView: View {
             : Color.white.opacity(0.82)
     }
     private var fullscreenControls: some View {
-        TitlebarControlsView(
+        NativeTitlebarControlsBridge(
             unreadModel: sidebarUnread,
             layoutModel: titlebarControlsLayoutModel,
             viewModel: fullscreenControlsViewModel,

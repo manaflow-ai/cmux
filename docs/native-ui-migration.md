@@ -70,11 +70,12 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 16 importing files remaining under `Sources`, including the
-    application root and remaining titlebar/sidebar auxiliaries. Workspace,
-    terminal, browser, Vault, Feed, the right-sidebar root, and the browser
-    design-mode composer are native AppKit. The installed-extension sidebar
-    host, permission review, provider picker, and XPC renderer are also native.
+  - [ ] Replace the 13 importing files remaining under `Sources`, including the
+    application root and remaining sidebar auxiliaries. Workspace, terminal,
+    browser, Vault, Feed, titlebar controls, notifications popover, the
+    right-sidebar root, and the browser design-mode composer are native AppKit.
+    The installed-extension sidebar host, permission review, provider picker,
+    and XPC renderer are also native.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (172 import files; notification feed, terminal
@@ -103,8 +104,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] Remove the PostHog SDK and retain the two desktop activity metrics with
     a small actor-isolated URLSession transport. Feature flags use the existing
     first-party async control plane.
-  - [ ] Replace or strip Sentry UI integrations while retaining required crash
-    reporting behavior.
+  - [x] Strip Sentry UI integrations in the `manaflow-ai/sentry-cocoa` fork
+    while retaining crash and error reporting behavior.
   - [ ] Confirm every linked third-party product has no SwiftUI object-code
     dependency.
 - [ ] Examples, tests, tooling, and documentation
