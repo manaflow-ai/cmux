@@ -140,8 +140,21 @@ extension CmxIrohHostRuntime {
                       snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
-                authoritativeDiscovery = embedded
-                discovery = embedded
+                if embedded.bindings.contains(where: {
+                    $0.bindingID == registration.binding.bindingID
+                }) {
+                    authoritativeDiscovery = embedded
+                    discovery = embedded
+                } else {
+                    // Legacy registration responses embed only the first
+                    // discovery page. Once an account has enough dev builds,
+                    // the binding just registered can land on a later page.
+                    // Resolve the complete snapshot instead of misclassifying
+                    // pagination as a replaced local identity.
+                    discovery = try await discoverAuthoritatively(
+                        minimumRevision: registration.revision
+                    )
+                }
             } else {
                 discovery = try await discoverAuthoritatively(
                     minimumRevision: registration.revision
