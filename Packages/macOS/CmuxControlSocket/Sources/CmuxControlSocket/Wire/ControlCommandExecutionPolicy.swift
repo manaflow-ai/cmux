@@ -155,6 +155,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        // DEBUG readiness validation awaits the exact mobile connection actor;
+        // it has no UI mutation and must not make the main actor wait.
+        "debug.mobile.readiness.validate",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

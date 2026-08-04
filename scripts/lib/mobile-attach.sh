@@ -132,6 +132,13 @@ print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-dogfood-client:{bundle_id}:{targ
 PY
 }
 
+# Fresh process identity for one dogfood launch. Unlike the stable client id,
+# this UUID must never be reused across app restarts because retained readiness
+# events from the prior process are replayable by design.
+cmux_attach_new_launch_id() {
+  /usr/bin/python3 -c 'import uuid; print(uuid.uuid4())'
+}
+
 # The tagged Mac app's debug socket path.
 cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
@@ -220,12 +227,52 @@ for line in sys.stdin:
   printf '%s' "$cursor"
 }
 
+# Uses the retained event only to identify a candidate connection. The exact
+# tuple is accepted only when the current connection actor validates its live
+# subscription and positive workspace evidence through the DEBUG socket.
+# Args: <tag> <repo_root> <event_json> <expected_client_id>
+#       <expected_launch_id>.
+cmux_attach_validate_readiness_claim() {
+  local tag="$1" repo_root="$2" event_json="$3"
+  local expected_client_id="$4" expected_launch_id="$5"
+  local claim response slug
+  claim="$(printf '%s' "$event_json" | /usr/bin/python3 -c '
+import json
+import sys
+
+expected_client_id, expected_launch_id = sys.argv[1:]
+event = json.load(sys.stdin)
+payload = event.get("payload")
+if event.get("name") != "mobile.rpc.ready" or not isinstance(payload, dict):
+    raise SystemExit(1)
+required = ("connection_id", "client_id", "launch_id", "stream_id", "transport")
+if any(not isinstance(payload.get(key), str) or not payload[key] for key in required):
+    raise SystemExit(1)
+if payload["client_id"] != expected_client_id or payload["launch_id"] != expected_launch_id:
+    raise SystemExit(1)
+print(json.dumps({key: payload[key] for key in required}, separators=(",", ":")))
+' "$expected_client_id" "$expected_launch_id")" || return 1
+  slug="$(cmux_attach__slug "$tag")"
+  response="$(
+    CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" \
+      rpc debug.mobile.readiness.validate "$claim"
+  )" || return 1
+  printf '%s' "$response" | /usr/bin/python3 -c '
+import json
+import sys
+
+result = json.load(sys.stdin)
+raise SystemExit(0 if result.get("valid") is True else 1)
+'
+}
+
 # Waits on the host's explicit usable-RPC event after the launch baseline.
 # Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>
-#       <expected_client_id>.
+#       <expected_client_id> <expected_launch_id>.
 cmux_attach_wait_for_usable_session() {
   local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
-  local expected_client_id="$5" event event_client_id event_sequence
+  local expected_client_id="$5" expected_launch_id="$6"
+  local event event_client_id event_launch_id event_sequence
   local started_ms deadline_ms remaining_ms remaining_seconds cursor
   started_ms="$(cmux_attach_monotonic_milliseconds)"
   deadline_ms="$((started_ms + timeout * 1000))"
@@ -253,7 +300,18 @@ payload = frame.get("payload")
 value = payload.get("client_id") if isinstance(payload, dict) else None
 print(value if isinstance(value, str) else "")
 ')"
-    if [[ "$event_client_id" == "$expected_client_id" ]]; then
+    event_launch_id="$(printf '%s' "$event" | /usr/bin/python3 -c '
+import json
+import sys
+frame = json.load(sys.stdin)
+payload = frame.get("payload")
+value = payload.get("launch_id") if isinstance(payload, dict) else None
+print(value if isinstance(value, str) else "")
+')"
+    if [[ "$event_client_id" == "$expected_client_id" ]] \
+        && [[ "$event_launch_id" == "$expected_launch_id" ]] \
+        && cmux_attach_validate_readiness_claim \
+          "$tag" "$repo_root" "$event" "$expected_client_id" "$expected_launch_id"; then
       printf '%s\n' "$event"
       return 0
     fi
@@ -309,7 +367,13 @@ payload = event.get("payload")
 if event.get("name") != "mobile.rpc.ready" or not isinstance(payload, dict):
     raise SystemExit("invalid mobile.rpc.ready event")
 
-required_strings = ("connection_id", "client_id", "stream_id", "transport")
+required_strings = (
+    "connection_id",
+    "client_id",
+    "launch_id",
+    "stream_id",
+    "transport",
+)
 for key in required_strings:
     if not isinstance(payload.get(key), str) or not payload[key]:
         raise SystemExit(f"missing readiness field: {key}")
@@ -318,7 +382,7 @@ if isinstance(workspace_count, bool) or not isinstance(workspace_count, int) or 
     raise SystemExit("invalid readiness field: workspace_count")
 
 receipt = {
-    "schema": "cmux-ios-dogfood-readiness-v1",
+    "schema": "cmux-ios-dogfood-readiness-v2",
     "git_sha": git_sha,
     "tag": tag,
     "bundle_id": bundle_id,
@@ -330,6 +394,7 @@ receipt = {
     "attempt_count": int(attempt_count),
     "connection_id": payload["connection_id"],
     "client_id": payload["client_id"],
+    "launch_id": payload["launch_id"],
     "workspace_count": workspace_count,
     "stream_id": payload["stream_id"],
     "transport": payload["transport"],

@@ -124,6 +124,7 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 2
 fi
+DOGFOOD_LAUNCH_ID="$(cmux_attach_new_launch_id)"
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_load --credentials-file "$AUTH_CREDENTIALS_FILE" || exit $?
 elif [[ "$AGENT" -eq 1 ]]; then
@@ -246,6 +247,7 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
+  SIMCTL_CHILD_CMUX_DOGFOOD_LAUNCH_ID="$DOGFOOD_LAUNCH_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
@@ -273,6 +275,7 @@ else
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
+  DEVICECTL_CHILD_CMUX_DOGFOOD_LAUNCH_ID="$DOGFOOD_LAUNCH_ID" \
     xcrun devicectl device process launch --terminate-existing \
       --device "$DEVICE_ID" "$BUNDLE_ID"
 fi
@@ -283,7 +286,8 @@ if [[ -n "$READINESS_CURSOR" ]]; then
       "$REPO_ROOT" \
       "$READINESS_CURSOR" \
       "$ATTACH_READY_TIMEOUT_SECONDS" \
-      "$DOGFOOD_CLIENT_ID")"; then
+      "$DOGFOOD_CLIENT_ID" \
+      "$DOGFOOD_LAUNCH_ID")"; then
     exit 1
   fi
   READINESS_FINISHED_MS="$(cmux_attach_monotonic_milliseconds)"

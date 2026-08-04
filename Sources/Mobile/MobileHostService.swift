@@ -1867,6 +1867,7 @@ actor MobileHostConnection {
         let topics: Set<String>
         let transport: MobileHostEventTransport
         let clientID: String?
+        let launchID: String?
     }
 
     private struct ResponseTask: Sendable {
@@ -2476,7 +2477,8 @@ actor MobileHostConnection {
                 streamID: streamID,
                 topics: topics,
                 transport: selectedTransport,
-                clientID: request.params["client_id"] as? String
+                clientID: request.params["client_id"] as? String,
+                launchID: request.params["launch_id"] as? String
             )
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
@@ -2530,6 +2532,7 @@ actor MobileHostConnection {
             topics: Set((request.params["topics"] as? [String]) ?? []),
             streamID: object["stream_id"] as? String,
             clientID: request.params["client_id"] as? String,
+            launchID: request.params["launch_id"] as? String,
             transport: object["event_transport"] as? String
         )
     }
@@ -2553,17 +2556,21 @@ actor MobileHostConnection {
         guard await onUsableSession(), !isClosed else { return }
         readinessTracker.markPublished()
         let subscription = readiness.eventSubscription
+        var payload: [String: Any] = [
+            "connection_id": id.uuidString,
+            "workspace_count": readiness.workspaceCount,
+            "stream_id": subscription.streamID,
+            "client_id": subscription.clientID,
+            "transport": subscription.transport,
+        ]
+        if let launchID = subscription.launchID {
+            payload["launch_id"] = launchID
+        }
         CmuxEventBus.shared.publish(
             name: "mobile.rpc.ready",
             category: "mobile",
             source: "mobile.host",
-            payload: [
-                "connection_id": id.uuidString,
-                "workspace_count": readiness.workspaceCount,
-                "stream_id": subscription.streamID,
-                "client_id": subscription.clientID,
-                "transport": subscription.transport,
-            ]
+            payload: payload
         )
     }
 
@@ -2588,13 +2595,15 @@ actor MobileHostConnection {
         streamID: String,
         topics: Set<String>,
         transport: MobileHostEventTransport = .control,
-        clientID: String? = nil
+        clientID: String? = nil,
+        launchID: String? = nil
     ) {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
             transport: transport,
-            clientID: clientID
+            clientID: clientID,
+            launchID: launchID
         )
         readinessTracker.discardEventSubscription(unless: isLive)
         eventQueue.updateSubscribedTopics(currentSubscribedTopics())
@@ -2859,7 +2868,8 @@ actor MobileHostConnection {
             subscriptions[streamID] = EventSubscription(
                 topics: subscription.topics,
                 transport: .control,
-                clientID: subscription.clientID
+                clientID: subscription.clientID,
+                launchID: subscription.launchID
             )
         }
         readinessTracker.discardEventSubscription(unless: isLive)
@@ -2870,6 +2880,7 @@ actor MobileHostConnection {
     ) -> Bool {
         guard let current = subscriptions[subscription.streamID],
               current.clientID == subscription.clientID,
+              current.launchID == subscription.launchID,
               current.transport.rawValue == subscription.transport else {
             return false
         }
@@ -2954,6 +2965,28 @@ extension MobileHostConnection {
 
     func debugQueuedEventCountForTesting() -> Int {
         eventQueue.count
+    }
+
+    /// Atomically validates one retained readiness claim against this actor's
+    /// current connection, subscription, and workspace evidence.
+    func debugValidateReadiness(
+        connectionID: UUID,
+        clientID: String,
+        launchID: String,
+        streamID: String,
+        transport: String
+    ) -> Bool {
+        guard !isClosed, id == connectionID else { return false }
+        let claim = MobileRPCReadinessTracker.EventSubscription(
+            streamID: streamID,
+            clientID: clientID,
+            launchID: launchID,
+            transport: transport
+        )
+        return readinessTracker.hasCurrentUsableSession(
+            matching: claim,
+            whereEventSubscriptionIsLive: isLive
+        )
     }
 }
 #endif

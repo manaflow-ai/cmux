@@ -1498,6 +1498,34 @@ class TerminalController {
                     "closed_count": closed.count,
                 ])
             }
+        case "debug.mobile.readiness.validate":
+            guard let connectionIDValue = request.params["connection_id"] as? String,
+                  let connectionID = UUID(uuidString: connectionIDValue),
+                  let clientID = request.params["client_id"] as? String,
+                  !clientID.isEmpty,
+                  let launchID = request.params["launch_id"] as? String,
+                  UUID(uuidString: launchID) != nil,
+                  let streamID = request.params["stream_id"] as? String,
+                  !streamID.isEmpty,
+                  let transport = request.params["transport"] as? String,
+                  !transport.isEmpty else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "connection_id, client_id, launch_id, stream_id, and transport are required"
+                )
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                let valid = await MobileHostConnectionRegistry.shared
+                    .debugValidateReadiness(
+                        connectionID: connectionID,
+                        clientID: clientID,
+                        launchID: launchID,
+                        streamID: streamID,
+                        transport: transport
+                    )
+                return .ok(["valid": valid])
+            }
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1512,7 +1540,8 @@ class TerminalController {
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "debug.mobile.readiness.validate" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif

@@ -12,13 +12,21 @@ public struct MobileRPCReadinessTracker: Sendable {
         public let streamID: String
         /// Stable mobile client identifier supplied during subscription.
         public let clientID: String
+        /// Optional process-launch nonce for DEBUG dogfood admission.
+        public let launchID: String?
         /// Negotiated event delivery transport.
         public let transport: String
 
         /// Creates a protocol-level event registration observation.
-        public init(streamID: String, clientID: String, transport: String) {
+        public init(
+            streamID: String,
+            clientID: String,
+            launchID: String? = nil,
+            transport: String
+        ) {
             self.streamID = streamID
             self.clientID = clientID
+            self.launchID = launchID
             self.transport = transport
         }
     }
@@ -70,6 +78,7 @@ public struct MobileRPCReadinessTracker: Sendable {
         topics: Set<String>,
         streamID: String?,
         clientID: String?,
+        launchID: String? = nil,
         transport: String?
     ) -> Contribution? {
         guard method == "mobile.events.subscribe" else { return nil }
@@ -90,6 +99,7 @@ public struct MobileRPCReadinessTracker: Sendable {
         return .eventSubscription(EventSubscription(
             streamID: streamID,
             clientID: clientID,
+            launchID: launchID,
             transport: transport
         ))
     }
@@ -125,8 +135,39 @@ public struct MobileRPCReadinessTracker: Sendable {
     public func usableSession(
         whereEventSubscriptionIsLive isLive: (EventSubscription) -> Bool
     ) -> UsableSession? {
-        guard !didPublish,
-              let workspaceCount,
+        guard !didPublish else { return nil }
+        return currentUsableSession(
+            whereEventSubscriptionIsLive: isLive
+        )
+    }
+
+    /// Validates an exact claim against the current positive readiness state.
+    ///
+    /// Unlike publication, validation remains available after the one-shot
+    /// event fires so DEBUG launch tooling can reject retained stale events by
+    /// consulting the live connection actor.
+    public func hasCurrentUsableSession(
+        matching expectedSubscription: EventSubscription,
+        whereEventSubscriptionIsLive isLive: (EventSubscription) -> Bool
+    ) -> Bool {
+        guard let current = currentUsableSession(
+            whereEventSubscriptionIsLive: isLive
+        ) else {
+            return false
+        }
+        return current.eventSubscription == expectedSubscription
+    }
+
+    /// Marks the connection's usable-session event as published.
+    public mutating func markPublished() {
+        didPublish = true
+    }
+
+    private func currentUsableSession(
+        whereEventSubscriptionIsLive isLive: (EventSubscription) -> Bool
+    ) -> UsableSession? {
+        guard let workspaceCount,
+              workspaceCount > 0,
               let eventSubscription,
               isLive(eventSubscription) else {
             return nil
@@ -135,10 +176,5 @@ public struct MobileRPCReadinessTracker: Sendable {
             workspaceCount: workspaceCount,
             eventSubscription: eventSubscription
         )
-    }
-
-    /// Marks the connection's usable-session event as published.
-    public mutating func markPublished() {
-        didPublish = true
     }
 }

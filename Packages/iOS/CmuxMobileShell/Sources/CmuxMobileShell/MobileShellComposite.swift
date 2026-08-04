@@ -751,6 +751,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
+    /// Optional DEBUG process-launch nonce carried only by the primary event
+    /// subscription used for dogfood readiness admission.
+    let dogfoodLaunchID: String?
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -1339,6 +1342,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
+        dogfoodLaunchID: String? = nil,
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
@@ -1409,6 +1413,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // here — by the time it resolves, the value is already persisted, so its
         // `created` flag is always false and is intentionally not read.
         self.clientID = clientIDRepository.resolveClientID().id
+        self.dogfoodLaunchID = dogfoodLaunchID
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
@@ -1552,11 +1557,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
-        terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock()
+        terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
+        dogfoodLaunchID: String? = nil
     ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
+            dogfoodLaunchID: dogfoodLaunchID,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
             terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
         )
@@ -10176,6 +10183,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "stream_id": terminalEventStreamID,
                 "topics": topics,
             ]
+            if let dogfoodLaunchID {
+                params["launch_id"] = dogfoodLaunchID
+            }
             // Negotiate screen-anchored render grids: the Mac then emits frames
             // anchored to the active area (with exact scrolled-row counts) so
             // this device owns a deep local scrollback and scrolls it locally.

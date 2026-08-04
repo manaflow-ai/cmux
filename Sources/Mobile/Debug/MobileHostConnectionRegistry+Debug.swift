@@ -2,6 +2,27 @@
 import Foundation
 
 extension MobileHostConnectionRegistry {
+    /// Resolves the exact connection, then asks that actor to validate the
+    /// complete current readiness claim without introducing parallel state.
+    func debugValidateReadiness(
+        connectionID: UUID,
+        clientID: String,
+        launchID: String,
+        streamID: String,
+        transport: String
+    ) async -> Bool {
+        guard let connection = connection(id: connectionID) else {
+            return false
+        }
+        return await connection.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: clientID,
+            launchID: launchID,
+            streamID: streamID,
+            transport: transport
+        )
+    }
+
     /// Closes one selected mobile transport, or every mobile transport when
     /// no id is supplied, through the production connection-owned close path.
     func debugCloseConnections(connectionID: UUID?) async -> [UUID] {
