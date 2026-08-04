@@ -41,6 +41,37 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func deferredThemeRefreshOwnerCoalescesWithoutPublishingViewState() {
+        let owner = WorkspaceDeferredThemeRefreshOwner()
+        owner.record(WorkspaceDeferredThemeRefresh(
+            reason: "first",
+            backgroundOverride: .red,
+            backgroundEventId: 1,
+            backgroundSource: "test.first",
+            notificationPayloadHex: "ff0000",
+            forceInitialApply: true
+        ))
+        owner.record(WorkspaceDeferredThemeRefresh(
+            reason: "second",
+            backgroundOverride: .blue,
+            backgroundEventId: 2,
+            backgroundSource: "test.second",
+            notificationPayloadHex: "0000ff",
+            forceInitialApply: false
+        ))
+
+        let refresh = owner.takePending()
+        #expect(refresh?.reason == "second")
+        #expect(refresh?.backgroundOverride == .blue)
+        #expect(refresh?.backgroundEventId == 2)
+        #expect(refresh?.backgroundSource == "test.second")
+        #expect(refresh?.notificationPayloadHex == "0000ff")
+        #expect(refresh?.forceInitialApply == true)
+        #expect(owner.takePending() == nil)
+    }
+
+    @Test
+    @MainActor
     func ghosttyAppearanceSignatureChangesWhenTerminalFontSizeChanges() {
         var first = GhosttyConfig()
         first.fontSize = 13
