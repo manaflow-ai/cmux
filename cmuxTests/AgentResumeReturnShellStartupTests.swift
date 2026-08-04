@@ -86,6 +86,134 @@ struct AgentResumeReturnShellStartupTests {
         }
     }
 
+    @MainActor
+    @Test("cwd-less restorable agents keep the owning shell in the session directory")
+    func cwdlessRestorableAgentUsesSessionDirectory() throws {
+        for recordedWorkingDirectory in [nil, "", "  \n"] as [String?] {
+            let fixture = try makeAutoResumeFixture(prefix: "cwdless-agent")
+            defer { fixture.cleanUp() }
+            let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+            source.currentDirectory = fixture.projectDirectory.path
+            let sourcePanelID = try #require(source.focusedPanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+            let sessionID = UUID().uuidString.lowercased()
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .custom("cwdless-agent"),
+                    sessionId: sessionID,
+                    workingDirectory: recordedWorkingDirectory,
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        launcher: "cwdless-agent",
+                        executablePath: "/usr/local/bin/cwdless-agent",
+                        arguments: ["/usr/local/bin/cwdless-agent", "--session", sessionID],
+                        workingDirectory: recordedWorkingDirectory,
+                        environment: [:]
+                    )
+                ),
+                panelId: sourcePanelID
+            )
+
+            let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+            restored.restoreSessionSnapshot(source.sessionSnapshot(includeScrollback: false))
+            let restoredPanelID = try #require(restored.focusedPanelId)
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+            #expect(
+                restoredPanel.surface.debugInitialInputForTesting()
+                    == " cmux restore cwdless-agent \(sessionID)\n"
+            )
+            #expect(restoredPanel.requestedWorkingDirectory == fixture.projectDirectory.path)
+        }
+    }
+
+    @MainActor
+    @Test("cwd-less surface bindings keep the owning shell in the session directory")
+    func cwdlessSurfaceBindingUsesSessionDirectory() throws {
+        for recordedWorkingDirectory in [nil, "", "  \n"] as [String?] {
+            let fixture = try makeAutoResumeFixture(prefix: "cwdless-binding")
+            defer { fixture.cleanUp() }
+            let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+            source.currentDirectory = fixture.projectDirectory.path
+            let sourcePanelID = try #require(source.focusedPanelId)
+            let binding = SurfaceResumeBindingSnapshot(
+                name: "CWD-less binding",
+                kind: "command",
+                command: "/usr/bin/true",
+                cwd: recordedWorkingDirectory,
+                source: "process-detected",
+                autoResume: true
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                .init(workspaceId: source.id, panelId: sourcePanelID): binding,
+            ])
+
+            let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+            restored.restoreSessionSnapshot(source.sessionSnapshot(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            ))
+            let restoredPanelID = try #require(restored.focusedPanelId)
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+            #expect(
+                restoredPanel.surface.debugInitialInputForTesting()
+                    == " cmux restore --surface\n"
+            )
+            #expect(restoredPanel.requestedWorkingDirectory == fixture.projectDirectory.path)
+        }
+    }
+
+    @MainActor
+    @Test("cwd-ignore auto-resume gives the owning shell a safe home fallback")
+    func cwdIgnoreAutoResumeUsesHomeFallback() throws {
+        let fixture = try makeAutoResumeFixture(prefix: "cwd-ignore")
+        defer { fixture.cleanUp() }
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        source.currentDirectory = fixture.projectDirectory.path
+        let sourcePanelID = try #require(source.focusedPanelId)
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+        let sessionID = UUID().uuidString.lowercased()
+        let registration = CmuxVaultAgentRegistration(
+            id: "cwd-ignore-agent",
+            name: "CWD Ignore Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "cwd-ignore-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "cwd-ignore-agent --session {{sessionId}}",
+            cwd: .ignore
+        )
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .custom(registration.id),
+                sessionId: sessionID,
+                workingDirectory: nil,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    processDetectedLauncher: registration.id,
+                    executablePath: "/usr/local/bin/cwd-ignore-agent",
+                    arguments: ["/usr/local/bin/cwd-ignore-agent", "--session", sessionID],
+                    workingDirectory: fixture.projectDirectory.path,
+                    environment: [:]
+                ),
+                registration: registration
+            ),
+            panelId: sourcePanelID
+        )
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        restored.restoreSessionSnapshot(source.sessionSnapshot(includeScrollback: false))
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(
+            restoredPanel.surface.debugInitialInputForTesting()
+                == " cmux restore cwd-ignore-agent \(sessionID)\n"
+        )
+        #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelID] == nil)
+        #expect(
+            restoredPanel.requestedWorkingDirectory == FileManager.default.homeDirectoryForCurrentUser.path,
+            "The outer host shell needs an explicit safe cwd even though the agent's cwd policy remains ignored"
+        )
+    }
+
     @Test("non-restore one-shot launchers retain their storage policy")
     func nonRestoreOneShotLauncherStoragePolicy() throws {
         let fileManager = FileManager.default
@@ -127,5 +255,31 @@ struct AgentResumeReturnShellStartupTests {
         ).intValue & 0o777
         #expect(directoryMode == 0o700)
         #expect(launcherMode == 0o600)
+    }
+
+    private struct AutoResumeFixture {
+        let defaults: UserDefaults
+        let defaultsSuiteName: String
+        let projectDirectory: URL
+
+        func cleanUp() {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+            try? FileManager.default.removeItem(at: projectDirectory)
+        }
+    }
+
+    private func makeAutoResumeFixture(prefix: String) throws -> AutoResumeFixture {
+        let defaultsSuiteName = "cmux-5391-\(prefix)-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        let projectDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-5391-\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true)
+        return AutoResumeFixture(
+            defaults: defaults,
+            defaultsSuiteName: defaultsSuiteName,
+            projectDirectory: projectDirectory
+        )
     }
 }
