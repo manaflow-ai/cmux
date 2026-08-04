@@ -26,11 +26,12 @@ final class GlobalSearchPanelCaptureManager {
         self.cancelPanelPurge = cancelPanelPurge
     }
 
-    /// Indexes content first discovered during live reconciliation.
+    /// Reconciles content during each Search presentation.
     ///
-    /// Browser URL/title callbacks and Markdown content/file callbacks own
-    /// subsequent dirty captures, so reopening Search does not rescan panels
-    /// whose content is already represented in the index.
+    /// Markdown content/file callbacks own subsequent dirty captures. Browser
+    /// panels are recaptured once per reconciliation because same-document DOM
+    /// changes do not emit a reliable browser lifecycle callback; the per-panel
+    /// debounce keeps rapid refreshes coalesced to one active capture.
     func refreshPanelContent(for context: GlobalSearchPanelContext) async {
         if let markdownPanel = context.panel as? MarkdownPanel {
             guard !indexedMarkdownPanelIDs.contains(context.panelID) else {
@@ -38,10 +39,6 @@ final class GlobalSearchPanelCaptureManager {
             }
             await captureInitialMarkdownPanel(markdownPanel, context: context)
         } else if let browserPanel = context.panel as? BrowserPanel {
-            guard !indexedBrowserPanelIDs.contains(context.panelID),
-                  browserCaptureTaskIDs[context.panelID] == nil else {
-                return
-            }
             captureBrowserPanel(browserPanel)
         }
     }
