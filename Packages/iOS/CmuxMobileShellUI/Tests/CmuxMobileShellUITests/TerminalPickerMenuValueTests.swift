@@ -133,6 +133,33 @@ import Testing
         )
     }
 
+    @Test func browserSurfacesLeaveMacSurfacesWhenTheMacStreamsBrowsers() {
+        let browser = MobileSurfacePreview(id: "surface-web", kind: .browser, title: "cmux.com")
+        let markdown = MobileSurfacePreview(id: "surface-md", kind: .markdown, title: "README")
+        func value(snapshotRows: [TerminalPickerMenuRow], supportsBrowserStream: Bool) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [],
+                liveSurfaces: [browser, markdown],
+                snapshotRows: snapshotRows,
+                selectedID: nil,
+                canCreateWorkspace: true,
+                hasActiveBrowser: false,
+                isChatMode: false,
+                supportsBrowserStream: supportsBrowserStream
+            )
+        }
+
+        // Live rows and snapshot rows must obey the same policy: with browser
+        // streaming, the pane lives in "Mac Browsers", not "Mac Surfaces".
+        let snapshot = [TerminalPickerMenuRow(browser), TerminalPickerMenuRow(markdown)]
+        for rows in [[], snapshot] {
+            let streaming = value(snapshotRows: rows, supportsBrowserStream: true)
+            #expect(streaming.macSurfaceRows.map(\.id) == [.macSurface(markdown.id)])
+            let legacyMac = value(snapshotRows: rows, supportsBrowserStream: false)
+            #expect(legacyMac.macSurfaceRows.map(\.id) == [.macSurface(browser.id), .macSurface(markdown.id)])
+        }
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],

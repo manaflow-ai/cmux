@@ -26,14 +26,9 @@ struct TerminalPickerMenuValue: Equatable {
         supportsBrowserStream: Bool = false,
         activeBrowserStreamPanelID: String? = nil
     ) {
-        // Browser panes get their own "Mac Browsers" section (streamed
-        // rendering) on Macs that support it; only Macs without browser
-        // streaming fall back to a browser row in Mac Surfaces.
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
-                + liveSurfaces.filter {
-                    !$0.kind.isTerminal && !(supportsBrowserStream && $0.kind == .browser)
-                }.map(TerminalPickerMenuRow.init)
+                + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
             : snapshotRows
         rows = resolvedRows
         let selection = resolvedRows.resolvedTerminalPickerSelection(selectedID: selectedID)
@@ -68,7 +63,15 @@ struct TerminalPickerMenuValue: Equatable {
         rows.filter { if case .terminal = $0.id { true } else { false } }
     }
 
+    /// Mac-surface rows for the "Mac Surfaces" section. Browser panes are
+    /// excluded whenever the Mac supports browser streaming — they get their
+    /// own "Mac Browsers" section — and only fall back to a surface row on
+    /// Macs without streaming. Filtered here (not at row construction) so
+    /// snapshot-built rows obey the same policy as live ones.
     var macSurfaceRows: [TerminalPickerMenuRow] {
-        rows.filter { if case .macSurface = $0.id { true } else { false } }
+        rows.filter {
+            guard case .macSurface = $0.id else { return false }
+            return !(supportsBrowserStream && $0.surfaceKind == .browser)
+        }
     }
 }
