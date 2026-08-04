@@ -117,6 +117,45 @@ describe("hosted Subrouter client", () => {
     ).rejects.toMatchObject({ status: 502 });
   });
 
+  test("rejects duplicated hosted tenant capabilities", async () => {
+    const client = createHostedSubrouterClient({
+      baseUrl: "https://sr.example",
+      tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+      fetch: (async () =>
+        Response.json({
+          tenantId: "team-1",
+          tenantName: "Acme",
+          tenantKey: "srt_0123456789abcdef0123456789abcdef",
+          proxyUrl:
+            "https://sr.example/t/srt_0123456789abcdef0123456789abcdef",
+          capabilities: ["use", "use"],
+        })) as typeof fetch,
+    });
+
+    await expect(
+      client.exchangeTeam("stack-access", {
+        teamId: "team-1",
+        teamName: "Acme",
+        use: true,
+        manageAccounts: true,
+      }),
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
+  test("rejects insecure or credential-bearing hosted Subrouter URLs", () => {
+    for (const baseUrl of [
+      "http://sr.example",
+      "https://user:secret@sr.example",
+    ]) {
+      expect(() =>
+        createHostedSubrouterClient({
+          baseUrl,
+          tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+        })
+      ).toThrow("invalid hosted Subrouter URL");
+    }
+  });
+
   test("rejects an unexpected tenant deletion route 404", async () => {
     const client = createHostedSubrouterClient({
       baseUrl: "https://sr.example",

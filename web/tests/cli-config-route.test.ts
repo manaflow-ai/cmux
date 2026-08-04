@@ -142,4 +142,20 @@ describe("CLI config route", () => {
       },
     );
   });
+
+  test("returns 503 instead of advertising an insecure hosted Subrouter", async () => {
+    await withCliConfigEnvironment(
+      {
+        ...testEnvironment,
+        SUBROUTER_HOSTED_URL: "http://subrouter.example.test",
+      },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "cli_auth_unavailable",
+        });
+      },
+    );
+  });
 });
