@@ -13230,10 +13230,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let chars = KeyboardLayout.normalizedCharacters(for: event)
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
         let hasOption = flags.contains(.option)
+        let eventCharacterResolver = hasCommand
+            ? shortcutEventCharacterResolver(for: event)
+            : nil
+        let chars: String = {
+            if let eventCharacterResolver,
+               hasOption || hasControl {
+                return (eventCharacterResolver.primaryCharacters ?? "").lowercased()
+            }
+            if let eventCharacterResolver {
+                return KeyboardLayout.normalizedCharacters(
+                    for: event,
+                    characterResolver: eventCharacterResolver
+                )
+            }
+            return KeyboardLayout.normalizedCharacters(for: event)
+        }()
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
@@ -13429,7 +13444,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
 
-        let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
+        let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(
+            for: event,
+            characterResolver: eventCharacterResolver
+        )
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
@@ -15666,7 +15684,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
-        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
+        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(
+            for: event,
+            characterResolver: shortcutEventCharacterResolver(for: event)
+        ) { [self] action in
             shortcutWhenClauseAllows(action: action, event: event)
         }
     }
@@ -16034,11 +16055,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Match a shortcut stroke against an event, handling normal keys.
     func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        stroke.matches(
+            event: event,
+            characterResolver: shortcutEventCharacterResolver(for: event)
+        )
     }
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        shortcut.matches(
+            event: event,
+            characterResolver: shortcutEventCharacterResolver(for: event)
+        )
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
@@ -16173,7 +16200,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasUsableASCIIEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
             && (eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true)
         if !hasUsableASCIIEventChars || numberKeyDigit != nil {
-            let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+            let layoutCharacter = shortcutEventCharacterResolver(
+                for: event
+            ).asciiFallbackCharacters
             if let digit = numberedShortcutDigit(
                 eventCharacter: layoutCharacter,
                 applyShiftSymbolNormalization: false,
