@@ -607,7 +607,7 @@ struct WorkspaceDetailView: View {
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
-                selectBrowserStream: selectBrowserStreamFromToolbar,
+                selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -851,15 +851,36 @@ struct WorkspaceDetailView: View {
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Opens (or reveals the existing) browser pane for this workspace. The
-        // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        // New Browser creates a real Mac browser pane and streams it, so it
+        // shows the same surface as the Mac Browsers rows. The phone-local
+        // WKWebView pane remains only as a fallback for Macs that cannot
+        // create panels (older builds, disconnected, or creation rejected).
+        guard store.supportsBrowserStreamCreate else {
+            openLocalBrowserFallback()
+            return
+        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        Task {
+            guard let descriptor = await store.createMobileBrowserPanel(workspaceID: workspaceID) else {
+                openLocalBrowserFallback()
+                return
+            }
+            selectBrowserStreamFromToolbar(descriptor.panelID, dismissKeyboard: false)
+        }
+    }
+
+    /// Opens (or reveals) the phone-local browser pane for this workspace. The
+    /// detail view flips to the browser because `activeBrowser` becomes
+    /// non-nil; the picker shows a check next to "New Browser" while it is up.
+    private func openLocalBrowserFallback() {
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String) {
-        dismissTerminalKeyboardForChrome()
+    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+        if dismissKeyboard {
+            dismissTerminalKeyboardForChrome()
+        }
         browserStore.closeBrowser(for: workspace.id.rawValue)
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }

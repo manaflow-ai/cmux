@@ -39,6 +39,7 @@ extension MobileHostService {
             MobileBrowserStreamCapability.identifier,
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
+            MobileBrowserStreamCapability.createIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
