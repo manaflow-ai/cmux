@@ -30,7 +30,7 @@ impl DescriptorCleanup {
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
     let mut master_fd = -1;
     let mut slave_fd = -1;
-    let mut window_size = libc::winsize {
+    let window_size = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: size.pixel_width,
@@ -42,7 +42,7 @@ pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, 
             &mut slave_fd,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut window_size,
+            &window_size,
         )
     };
     if result != 0 {

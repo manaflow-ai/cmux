@@ -15700,7 +15700,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 113), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 114), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
