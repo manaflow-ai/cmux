@@ -594,6 +594,57 @@ struct FileExplorerStoreTests {
         )
     }
 
+    // MARK: - Outline refresh
+
+    @Test
+    func testOutlineReplacesNestedRowsWhenContentRevisionChangesWithoutCountChanges() async throws {
+        let rootPath = "/home/user/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("initial root loaded") { store.rootNodes.count == 1 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("initial nested file loaded") {
+            sourceNode.children?.map(\.name) == ["Removed.swift"]
+        }
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+        #expect((outlineView.item(atRow: 1) as? FileExplorerNode)?.name == "Removed.swift")
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested file") {
+            store.rootNodes.first?.children?.map(\.name) == ["Added.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["Sources", "Added.swift"])
+        _ = container
+    }
+
     // MARK: - Collapse/Expand
 
     @Test
