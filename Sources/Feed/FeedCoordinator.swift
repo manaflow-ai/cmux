@@ -35,6 +35,15 @@ final class FeedCoordinator: @unchecked Sendable {
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
 
+    /// The workspace each workstream was last seen writing checklist rows to.
+    ///
+    /// A fast path only: when it already names the workspace being written,
+    /// there is nothing stranded elsewhere and the app-wide retirement scan is
+    /// skipped. Correctness never depends on it — the scan is driven by the
+    /// `agentTaskRef` persisted on each row, so a restart that empties this
+    /// map costs one sweep, not a missed retirement.
+    @MainActor var lastTodoWorkspaceByWorkstream: [String: UUID] = [:]
+
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process

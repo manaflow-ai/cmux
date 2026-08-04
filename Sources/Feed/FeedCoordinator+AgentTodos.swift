@@ -68,7 +68,7 @@ extension FeedCoordinator {
         // are recreated in the new one below, so retire the copies it left
         // behind or they linger there forever, skewing that workspace's
         // progress with tasks no later delta will ever touch.
-        Self.retireAgentTodos(forWorkstream: workstreamId, excluding: workspace.id)
+        retireAgentTodos(forWorkstream: workstreamId, excluding: workspace.id)
         let tasks = todos.map { todo in
             WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: workstreamId),
@@ -94,7 +94,13 @@ extension FeedCoordinator {
     /// behind — a surface that moves while cmux is restarting would otherwise
     /// strand a full copy of the plan in its old workspace.
     @MainActor
-    private static func retireAgentTodos(forWorkstream workstreamId: String, excluding current: UUID) {
+    private func retireAgentTodos(forWorkstream workstreamId: String, excluding current: UUID) {
+        // Steady state is one cheap dictionary check: once this workstream has
+        // been seen writing to `current`, there is nowhere else to sweep. The
+        // full scan runs only on its first delta of a process, or after it
+        // moves, which is exactly when rows can be stranded elsewhere.
+        if lastTodoWorkspaceByWorkstream[workstreamId] == current { return }
+        defer { lastTodoWorkspaceByWorkstream[workstreamId] = current }
         guard let appDelegate = AppDelegate.shared else { return }
         for workspace in appDelegate.allWorkspacesForAgentTodoRetirement where workspace.id != current {
             guard workspace.todoState.checklist.contains(where: {
