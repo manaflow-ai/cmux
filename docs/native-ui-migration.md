@@ -100,8 +100,9 @@ The counts are discovery metrics. Completion is determined by the gates below.
     `manaflow-ai/ghostty` before updating cmux's pointer.
 - [ ] External dependencies
   - [ ] Remove the stale MarkdownUI and NetworkImage package products.
-  - [ ] Replace or strip PostHog UI integrations while retaining required
-    analytics behavior.
+  - [x] Remove the PostHog SDK and retain the two desktop activity metrics with
+    a small actor-isolated URLSession transport. Feature flags use the existing
+    first-party async control plane.
   - [ ] Replace or strip Sentry UI integrations while retaining required crash
     reporting behavior.
   - [ ] Confirm every linked third-party product has no SwiftUI object-code

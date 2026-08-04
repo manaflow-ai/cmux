@@ -478,14 +478,7 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
-    func flushPolicyIncludesDailyAndHourlyActiveEvents() {
-        #expect(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
-        #expect(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
-        #expect(!PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
-    }
-
-    @Test
-    func activeEventCaptureFlushesBeforeShutdown() throws {
+    func activeEventCaptureSendsOneImmediateBatch() async throws {
         let suiteName = "cmux.posthog.analytics.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
@@ -499,33 +492,23 @@ struct PostHogAnalyticsPropertiesTests {
             day: 21,
             hour: 14
         )))
-        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.capture")
-        var capturedEvents: [(event: String, properties: [String: Any])] = []
-        let eventsCaptured = DispatchSemaphore(value: 0)
-        let flushCalled = DispatchSemaphore(value: 0)
+        let capture = PostHogCaptureProbe()
         let analytics = PostHogAnalytics.makeForTesting(
-            workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
             userDefaults: defaults,
             now: { fixedDate },
-            capturePostHog: { event, properties in
-                capturedQueue.sync {
-                    capturedEvents.append((event: event, properties: properties))
-                    if capturedEvents.count == 2 {
-                        eventsCaptured.signal()
-                    }
-                }
-            },
-            flushPostHog: {
-                flushCalled.signal()
+            captureEvents: { events, distinctID, _, _ in
+                await capture.record(events: events, distinctID: distinctID)
             }
         )
 
-        analytics.trackActive(reason: "didBecomeActive")
-        #expect(eventsCaptured.wait(timeout: .now() + .seconds(1)) == .success)
-        #expect(flushCalled.wait(timeout: .now() + .seconds(1)) == .success)
-        let events = capturedQueue.sync { capturedEvents }
-        #expect(events.map(\.event) == ["cmux_daily_active", "cmux_hourly_active"])
+        await analytics.trackActive(reason: "didBecomeActive")
+        let batches = await capture.batches
+        let batch = try #require(batches.first)
+        #expect(batches.count == 1)
+        #expect(batch.events.map(\.name) == ["cmux_daily_active", "cmux_hourly_active"])
+        #expect(batch.distinctID.hasPrefix("cmux-desktop-"))
+        let events = batch.events
         let dailyEvent = try #require(events.first)
         let hourlyEvent = try #require(events.dropFirst().first)
         #expect(dailyEvent.properties["day_utc"] as? String == "2026-02-21")
@@ -535,13 +518,7 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
-    func activeFlushDoesNotBlockMainThreadWhenSDKFlushBlocks() throws {
-        let suiteName = "cmux.posthog.analytics.tests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
+    func nativeBatchRequestMatchesPostHogWireContract() throws {
         let fixedDate = try #require(Calendar(identifier: .iso8601).date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0),
             year: 2026,
@@ -549,48 +526,42 @@ struct PostHogAnalyticsPropertiesTests {
             day: 21,
             hour: 14
         )))
-        let flushStarted = DispatchSemaphore(value: 0)
-        let flushCanReturn = DispatchSemaphore(value: 0)
-        let flushReturned = DispatchSemaphore(value: 0)
-        let flushRanOnMainThread = DispatchSemaphore(value: 0)
-        let flushRanOffMainThread = DispatchSemaphore(value: 0)
-        let callerReturned = DispatchSemaphore(value: 0)
-        let analytics = PostHogAnalytics.makeForTesting(
-            workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
-            didStart: true,
-            userDefaults: defaults,
-            now: { fixedDate },
-            capturePostHog: { _, _ in },
-            flushPostHog: {
-                if Thread.isMainThread {
-                    flushRanOnMainThread.signal()
-                } else {
-                    flushRanOffMainThread.signal()
-                }
-                flushStarted.signal()
-                _ = flushCanReturn.wait(timeout: .now() + .seconds(5))
-                flushReturned.signal()
-            }
+        let event = PostHogAnalytics.Event(
+            name: "cmux_daily_active",
+            properties: ["platform": "cmuxterm"],
+            timestamp: fixedDate
         )
+        let request = try #require(PostHogAnalytics.batchRequest(
+            events: [event],
+            distinctID: "cmux-desktop-00000000-0000-0000-0000-000000000000",
+            apiKey: "public-key",
+            host: try #require(URL(string: "https://posthog.test"))
+        ))
+        let body = try #require(request.httpBody)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let batch = try #require(payload["batch"] as? [[String: Any]])
+        let wireEvent = try #require(batch.first)
+        let properties = try #require(wireEvent["properties"] as? [String: Any])
 
-        let trackActiveOnMainThread = {
-            analytics.trackActive(reason: "didBecomeActive")
-            callerReturned.signal()
-        }
+        #expect(request.url?.absoluteString == "https://posthog.test/batch/")
+        #expect(request.httpMethod == "POST")
+        #expect(payload["api_key"] as? String == "public-key")
+        #expect(wireEvent["event"] as? String == "cmux_daily_active")
+        #expect(properties["platform"] as? String == "cmuxterm")
+        #expect(properties["distinct_id"] as? String == "cmux-desktop-00000000-0000-0000-0000-000000000000")
+    }
+}
 
-        if Thread.isMainThread {
-            trackActiveOnMainThread()
-        } else {
-            DispatchQueue.main.async(execute: trackActiveOnMainThread)
-        }
+private actor PostHogCaptureProbe {
+    struct Batch: Sendable {
+        let events: [PostHogAnalytics.Event]
+        let distinctID: String
+    }
 
-        #expect(callerReturned.wait(timeout: .now() + .seconds(1)) == .success)
-        #expect(flushStarted.wait(timeout: .now() + .seconds(1)) == .success)
-        #expect(flushRanOffMainThread.wait(timeout: .now() + .seconds(1)) == .success)
-        #expect(flushRanOnMainThread.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
-        #expect(flushReturned.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
-        flushCanReturn.signal()
-        #expect(flushReturned.wait(timeout: .now() + .seconds(1)) == .success)
+    private(set) var batches: [Batch] = []
+
+    func record(events: [PostHogAnalytics.Event], distinctID: String) {
+        batches.append(Batch(events: events, distinctID: distinctID))
     }
 }
 

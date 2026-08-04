@@ -37,7 +37,7 @@ cat >"$LOG" <<'LOG'
 2026-04-28T09:40:13.8874600Z /Users/example/cmux/Sources/AppDelegate.swift:44:9: warning: capture of 'observer' with non-Sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure; this is an error in the Swift 6 language mode
 2026-04-28T09:40:13.8874610Z /Users/example/cmux/Sources/AppDelegate.swift:44:9: warning: capture of 'observer' with non-sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure
 /Users/example/cmux/vendor/bonsplit/Sources/Bonsplit/Public/BonsplitView.swift:1:1: warning: ignored vendor warning
-/tmp/cmux/SourcePackages/checkouts/posthog-ios/PostHog/PostHogSDK.swift:1:1: warning: ignored package warning
+/tmp/cmux/SourcePackages/checkouts/example-package/Sources/Example/File.swift:1:1: warning: ignored package warning
 warning: Run script build phase 'Run Script' will be run during every build
 LOG
 

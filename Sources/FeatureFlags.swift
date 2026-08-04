@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import PostHog
 import os
 
 struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
@@ -12,10 +11,9 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
     let defaultWhenUnavailable: Bool
 }
 
-/// PostHog-backed runtime feature flags for the macOS app (PostHog project
-/// 244066, same public key analytics uses). Values are cached in memory and
-/// refreshed when the SDK reports a flag payload, so gated UI can be toggled
-/// from the PostHog dashboard without shipping a build.
+/// Runtime feature flags for the macOS app. Values are fetched through cmux's
+/// first-party control plane, cached in memory, and can be changed from the
+/// PostHog dashboard without shipping a build.
 ///
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
@@ -300,7 +298,7 @@ final class CmuxFeatureFlags {
     init(
         defaults: UserDefaults = .standard,
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
-        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
+        remoteFlagValueProvider: @escaping (String) -> Any? = { _ in nil },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
         publishesOffMainSnapshot: Bool = false
     ) {

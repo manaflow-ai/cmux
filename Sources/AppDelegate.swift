@@ -1497,8 +1497,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if telemetryEnabled && !isRunningUnderXCTest {
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.begin")
-            PostHogAnalytics.shared.startIfNeeded()
-            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
+            Task {
+                await PostHogAnalytics.shared.startIfNeeded()
+                StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
+            }
         }
         if !isRunningUnderXCTest {
             CmuxFeatureFlags.shared.start()
@@ -1884,7 +1886,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "tabCount": tabManager?.tabs.count ?? 0
         ])
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
-            PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
+            Task {
+                await PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
+            }
         }
 
         guard let notificationStore else { return }
