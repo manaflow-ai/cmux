@@ -927,6 +927,92 @@ extension GlobalSearchShortcutBehaviorTests {
 #endif
     }
 
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func liveRefreshStopsFollowingRepeatedMarkdownSupersessions() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-markdown-churn-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("notes.md")
+        try "# Notes\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let panel = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let firstIndexRequestStarted = GlobalSearchAsyncSignal()
+        let secondIndexRequestStarted = GlobalSearchAsyncSignal()
+        let thirdIndexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseFirstIndexRequest = GlobalSearchAsyncSignal()
+        let releaseSecondIndexRequest = GlobalSearchAsyncSignal()
+        let releaseThirdIndexRequest = GlobalSearchAsyncSignal()
+        let indexRequestCount = GlobalSearchCounter()
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestCount.increment()
+                switch indexRequestCount.value {
+                case 1:
+                    firstIndexRequestStarted.signal()
+                    await releaseFirstIndexRequest.wait()
+                case 2:
+                    secondIndexRequestStarted.signal()
+                    await releaseSecondIndexRequest.wait()
+                case 3:
+                    thirdIndexRequestStarted.signal()
+                    await releaseThirdIndexRequest.wait()
+                default:
+                    break
+                }
+                return index
+            },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            releaseFirstIndexRequest.signal()
+            releaseSecondIndexRequest.signal()
+            releaseThirdIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: UUID(),
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+        let refreshFinishedCount = GlobalSearchCounter()
+        let refreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+            refreshFinishedCount.increment()
+        }
+
+        await firstIndexRequestStarted.wait()
+        captureManager.captureMarkdownPanel(panel)
+        releaseFirstIndexRequest.signal()
+
+        await secondIndexRequestStarted.wait()
+        captureManager.captureMarkdownPanel(panel)
+        releaseSecondIndexRequest.signal()
+
+        await thirdIndexRequestStarted.wait()
+        #expect(
+            await waitUntil(timeout: 1) {
+                refreshFinishedCount.value == 1
+            },
+            "A presentation refresh must stop following repeated event-owned captures"
+        )
+
+        releaseThirdIndexRequest.signal()
+        await refreshTask.value
+    }
+
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
         SearchIndexHit(
             id: id,
