@@ -1057,17 +1057,49 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
-  test("fails before mutation when hosted tenant deletion is not configured", async () => {
-    delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+  test("fails before mutation when hosted tenant deletion is missing in a managed deployment", async () => {
+    const originalVercel = process.env.VERCEL;
+    const originalVercelEnv = process.env.VERCEL_ENV;
+    try {
+      process.env.VERCEL = "1";
+      process.env.VERCEL_ENV = "production";
+      delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
 
-    const response = await DELETE(accountDeletionRequest());
+      const response = await DELETE(accountDeletionRequest());
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(postHogDeleteRequests).toHaveLength(0);
-    expect(hostedTenantDeleteRequests).toHaveLength(0);
-    expect(updateStackUser).not.toHaveBeenCalled();
-    expect(deleteStackUser).not.toHaveBeenCalled();
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "account_delete_failed" });
+      expect(postHogDeleteRequests).toHaveLength(0);
+      expect(hostedTenantDeleteRequests).toHaveLength(0);
+      expect(updateStackUser).not.toHaveBeenCalled();
+      expect(deleteStackUser).not.toHaveBeenCalled();
+    } finally {
+      restoreEnv("VERCEL", originalVercel);
+      restoreEnv("VERCEL_ENV", originalVercelEnv);
+    }
+  });
+
+  test("deletes an account when hosted Subrouter has never been enabled", async () => {
+    const originalVercel = process.env.VERCEL;
+    const originalVercelEnv = process.env.VERCEL_ENV;
+    const originalHostedUrl = process.env.SUBROUTER_HOSTED_URL;
+    try {
+      delete process.env.VERCEL;
+      delete process.env.VERCEL_ENV;
+      delete process.env.SUBROUTER_HOSTED_URL;
+      delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+
+      const response = await DELETE(accountDeletionRequest());
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+      expect(hostedTenantDeleteRequests).toHaveLength(0);
+      expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnv("VERCEL", originalVercel);
+      restoreEnv("VERCEL_ENV", originalVercelEnv);
+      restoreEnv("SUBROUTER_HOSTED_URL", originalHostedUrl);
+    }
   });
 
   test("blocks Stack deletion when PostHog reports partial deletion errors", async () => {
