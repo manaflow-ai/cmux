@@ -503,29 +503,35 @@ final class GlobalSearchPanelCaptureManager {
         panelRevision: UInt64
     ) async {
         let panelID = panel.id
-        guard let resolvedContext = context ?? AppDelegate.shared?.globalSearchContext(
-            forPanelID: panel.id,
-            preferredWorkspaceID: panel.workspaceId
-        ),
-            let index = await indexProvider() else {
+        // A memory-discarded panel exposes its unloaded replacement WebView
+        // until restore commits. Keep the stable indexed document during that
+        // gap instead of replacing it with the about:blank shell.
+        guard !panel.hiddenWebViewDiscardManager.isDiscardedForMemory,
+              let resolvedContext = context ?? AppDelegate.shared?.globalSearchContext(
+                  forPanelID: panel.id,
+                  preferredWorkspaceID: panel.workspaceId
+              ),
+              let index = await indexProvider() else {
             return
         }
 
-        guard isCurrentBrowserCapture(
-            panelID: panelID,
-            taskID: taskID,
-            generation: generation,
-            panelRevision: panelRevision
-        ) else {
+        guard !panel.hiddenWebViewDiscardManager.isDiscardedForMemory,
+              isCurrentBrowserCapture(
+                  panelID: panelID,
+                  taskID: taskID,
+                  generation: generation,
+                  panelRevision: panelRevision
+              ) else {
             return
         }
         let payload = await browserPagePayload(for: panel)
-        guard isCurrentBrowserCapture(
-            panelID: panelID,
-            taskID: taskID,
-            generation: generation,
-            panelRevision: panelRevision
-        ) else {
+        guard !panel.hiddenWebViewDiscardManager.isDiscardedForMemory,
+              isCurrentBrowserCapture(
+                  panelID: panelID,
+                  taskID: taskID,
+                  generation: generation,
+                  panelRevision: panelRevision
+              ) else {
             return
         }
         let fallbackTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
