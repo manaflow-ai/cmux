@@ -13,13 +13,18 @@ CMUX_CONTAINER_BROKER_FORWARD="${CMUX_CONTAINER_BROKER_FORWARD:-}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-$REPO_ROOT/docs/evidence/iroh-tui-stage1-sol}"
 demo_root="$(mktemp -d "${TMPDIR:-/tmp}/cmux-iroh-stage1-sol.XXXXXX")"
 image="cmux-iroh-stage1-sol:$(date +%s)-$$"
+builder_image="cmux-iroh-stage1-sol-builder:$(date +%s)-$$"
 container="cmux-iroh-stage1-sol-$$"
 volume="cmux-iroh-stage1-sol-state-$$"
 provider_socket="$demo_root/provider.sock"
 provider_log="$demo_root/provider.log"
 transcript="$demo_root/transcript.txt"
-host_target="$demo_root/target"
+host_target="$demo_root/host-target"
 host_binary="$host_target/debug/cmux-tui-iroh"
+linux_target="$demo_root/linux-target"
+linux_cargo_home="$demo_root/linux-cargo-home"
+linux_zig_cache="$demo_root/linux-zig-cache"
+runtime_context="$demo_root/runtime-context"
 build_commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then
     build_commit="${build_commit}-dirty"
@@ -34,6 +39,7 @@ cleanup() {
     docker rm -f "$container" >/dev/null 2>&1 || true
     docker volume rm "$volume" >/dev/null 2>&1 || true
     docker image rm "$image" >/dev/null 2>&1 || true
+    docker image rm "$builder_image" >/dev/null 2>&1 || true
     rm -rf "$demo_root"
 }
 trap cleanup EXIT
@@ -78,7 +84,14 @@ wait_for_container_ready_count() {
     return 1
 }
 
-mkdir -p "$EVIDENCE_DIR"
+mkdir -p \
+    "$EVIDENCE_DIR" \
+    "$linux_target" \
+    "$linux_cargo_home" \
+    "$linux_zig_cache/global" \
+    "$linux_zig_cache/local" \
+    "$runtime_context/bin" \
+    "$runtime_context/lib"
 record "iroh TUI Stage 1 acceptance"
 record "broker=$CMUX_BROKER_URL relay_environment=$CMUX_RELAY_ENVIRONMENT"
 record "source=$build_commit"
@@ -87,9 +100,41 @@ record "build_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker build \
     --progress plain \
     --file "$REPO_ROOT/scripts/iroh-tui-stage1/Dockerfile" \
+    --tag "$builder_image" \
+    "$REPO_ROOT"
+
+docker run --rm \
+    --env "CARGO_HOME=/build/cargo-home" \
+    --env "CARGO_TARGET_DIR=/build/target" \
+    --env "CMUX_TUI_BUILD_COMMIT=$build_commit" \
+    --env "ZIG_GLOBAL_CACHE_DIR=/build/zig-cache/global" \
+    --env "ZIG_LOCAL_CACHE_DIR=/build/zig-cache/local" \
+    --mount "type=bind,source=$REPO_ROOT,target=/source,readonly" \
+    --mount "type=bind,source=$linux_cargo_home,target=/build/cargo-home" \
+    --mount "type=bind,source=$linux_target,target=/build/target" \
+    --mount "type=bind,source=$linux_zig_cache,target=/build/zig-cache" \
+    --workdir /source \
+    "$builder_image" \
+    cargo build \
+        --manifest-path /source/cmux-tui/Cargo.toml \
+        --locked \
+        --release \
+        -p cmux-tui \
+        -p cmux-tui-iroh
+
+cp "$linux_target/release/cmux-tui" "$runtime_context/bin/"
+cp "$linux_target/release/cmux-tui-iroh" "$runtime_context/bin/"
+find "$linux_target/release/build" -path '*/out/ghostty-vt/lib/libghostty-vt.so*' \
+    -exec cp {} "$runtime_context/lib/" \;
+cp "$REPO_ROOT/scripts/iroh-tui-stage1/container-entrypoint.sh" \
+    "$runtime_context/container-entrypoint.sh"
+
+docker build \
+    --progress plain \
+    --file "$REPO_ROOT/scripts/iroh-tui-stage1/Dockerfile.runtime" \
     --build-arg "CMUX_TUI_BUILD_COMMIT=$build_commit" \
     --tag "$image" \
-    "$REPO_ROOT"
+    "$runtime_context"
 
 cargo build \
     --manifest-path "$REPO_ROOT/cmux-tui/Cargo.toml" \
