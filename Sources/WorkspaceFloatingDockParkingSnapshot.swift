@@ -26,7 +26,7 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
     init(
         restoreFrame: CGRect,
         visibleScreenFrame: CGRect,
-        availableScreenFrames: [CGRect] = [],
+        availableScreenFrames _: [CGRect] = [],
         parkedMinY: CGFloat? = nil,
         hoverTargetMinY: CGFloat? = nil,
         hoverTargetHeight: CGFloat? = nil
@@ -41,23 +41,17 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
             windowHeight: restoreFrame.height,
             visibleScreenFrame: visibleScreenFrame
         )
-        let neighboringScreenFrames = Self.neighboringScreenFrames(
-            visibleScreenFrame: visibleScreenFrame,
-            availableScreenFrames: availableScreenFrames
-        )
         let parkedFrame = Self.parkedFrame(
             windowSize: restoreFrame.size,
             minY: y,
             visibleWidth: parkedVisibleWidth,
-            visibleScreenFrame: visibleScreenFrame,
-            neighboringScreenFrames: neighboringScreenFrames
+            visibleScreenFrame: visibleScreenFrame
         )
         let revealedFrame = Self.parkedFrame(
             windowSize: restoreFrame.size,
             minY: y,
             visibleWidth: revealedVisibleWidth,
-            visibleScreenFrame: visibleScreenFrame,
-            neighboringScreenFrames: neighboringScreenFrames
+            visibleScreenFrame: visibleScreenFrame
         )
         self.restoreFrame = restoreFrame
         self.visibleScreenFrame = visibleScreenFrame
@@ -201,47 +195,14 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         windowSize: CGSize,
         minY: CGFloat,
         visibleWidth: CGFloat,
-        visibleScreenFrame: CGRect,
-        neighboringScreenFrames: [CGRect]
+        visibleScreenFrame: CGRect
     ) -> CGRect {
-        let offscreenFrame = CGRect(
+        CGRect(
             x: visibleScreenFrame.maxX - visibleWidth,
             y: minY,
             width: windowSize.width,
             height: windowSize.height
         )
-        guard intersectionArea(of: offscreenFrame, with: neighboringScreenFrames) > 0 else {
-            return offscreenFrame
-        }
-        // A full-size window cannot live beyond an internal display boundary
-        // without appearing on the neighboring monitor. Keep the actual window
-        // on the owner's right edge and compact only its parked presentation;
-        // `restoreFrame` remains the user's full-size geometry.
-        return CGRect(
-            x: visibleScreenFrame.maxX - visibleWidth,
-            y: minY,
-            width: visibleWidth,
-            height: windowSize.height
-        )
-    }
-
-    private static func neighboringScreenFrames(
-        visibleScreenFrame: CGRect,
-        availableScreenFrames: [CGRect]
-    ) -> [CGRect] {
-        availableScreenFrames.filter { frame in
-            intersectionArea(visibleScreenFrame, frame) == 0
-        }
-    }
-
-    private static func intersectionArea(of frame: CGRect, with screens: [CGRect]) -> CGFloat {
-        screens.reduce(0) { $0 + intersectionArea(frame, $1) }
-    }
-
-    private static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let intersection = lhs.intersection(rhs)
-        guard !intersection.isNull, !intersection.isEmpty else { return 0 }
-        return intersection.width * intersection.height
     }
 
     private static func clampedMinY(
