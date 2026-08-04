@@ -738,6 +738,56 @@ extension GlobalSearchShortcutBehaviorTests {
         )
     }
 
+    @MainActor
+    @Test func reopeningSearchRecapturesDynamicBrowserContent() async throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let firstToken = "browserfirst\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let secondToken = "browsersecond\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let html = "<html><head><title>Dynamic page</title></head><body>\(firstToken)</body></html>"
+        let encodedHTML = try #require(html.data(using: .utf8)).base64EncodedString()
+        let initialURL = try #require(URL(string: "data:text/html;base64,\(encodedHTML)"))
+        let harness = try makeNamedMainWindow(
+            appDelegate: appDelegate,
+            initialWorkspaceTitle: "Browser workspace"
+        )
+        defer { closeWindow(harness.window, appDelegate: appDelegate) }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: harness.windowID))
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let browserPanelID = try #require(
+            tabManager.openBrowser(
+                inWorkspace: workspace.id,
+                url: initialURL,
+                preferSplitRight: true
+            )
+        )
+        let browserPanel = try #require(workspace.browserPanel(for: browserPanelID))
+
+        #expect(
+            await waitForBrowserBody(firstToken, panel: browserPanel),
+            "The browser fixture must finish its initial same-document load"
+        )
+        await GlobalSearchCoordinator.shared.refreshLiveIndex()
+        #expect(
+            await waitForSearchHit(query: firstToken, workspaceID: workspace.id),
+            "The first browser content capture must become searchable"
+        )
+
+        let updatedBody = try await browserPanel.evaluateJavaScript(
+            "document.body.textContent = '\(secondToken)'; document.body.textContent"
+        ) as? String
+        #expect(updatedBody == secondToken)
+
+        await GlobalSearchCoordinator.shared.refreshLiveIndex()
+        #expect(
+            await waitForSearchHit(query: secondToken, workspaceID: workspace.id),
+            "Reopening Search must recapture same-document browser DOM changes"
+        )
+#else
+        Issue.record("Dynamic browser indexing coverage requires a DEBUG app-host build")
+#endif
+    }
+
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
         SearchIndexHit(
             id: id,
@@ -797,13 +847,14 @@ extension GlobalSearchShortcutBehaviorTests {
         timeout: TimeInterval = 2,
         _ predicate: @escaping @MainActor () -> Bool
     ) async -> Bool {
-        let deadline = Date.now.addingTimeInterval(timeout)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
         repeat {
             if predicate() {
                 return true
             }
             await Task.yield()
-        } while Date.now < deadline
+        } while clock.now < deadline
         return predicate()
     }
 
@@ -893,6 +944,30 @@ extension GlobalSearchShortcutBehaviorTests {
         } while Date.now < deadline
         let hits = await GlobalSearchCoordinator.shared.search(query: query)
         return hits.contains(where: { $0.workspaceID == workspaceID })
+    }
+
+    @MainActor
+    private func waitForBrowserBody(
+        _ token: String,
+        panel: BrowserPanel,
+        timeout: TimeInterval = 5
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        repeat {
+            if let body = try? await panel.evaluateJavaScript(
+                "document.body?.textContent ?? ''"
+            ) as? String,
+               body.contains(token) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        } while clock.now < deadline
+
+        let body = try? await panel.evaluateJavaScript(
+            "document.body?.textContent ?? ''"
+        ) as? String
+        return body?.contains(token) == true
     }
 
     @MainActor
