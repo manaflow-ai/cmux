@@ -148,6 +148,9 @@ fn semantic_kind(
         ("grok" | "antigravity" | "hermes-agent", "sessionend" | "onsessionend") => {
             "agent.turn.completed"
         }
+        ("opencode", "sessioncreated") => "agent.session.started",
+        ("opencode", "sessionidle") => "agent.turn.completed",
+        ("opencode", "sessiondeleted") => "agent.session.ended",
         // These Claude-compatible runtimes use Notification as their only
         // reliable completed-turn callback.
         ("copilot" | "codebuddy" | "factory", "notification") => "agent.turn.completed",
@@ -157,18 +160,20 @@ fn semantic_kind(
         (
             _,
             "userpromptsubmit" | "beforesubmitprompt" | "beforeagent" | "prellmcall"
-            | "preinvocation" | "agentstart",
+            | "preinvocation" | "agentstart" | "turnstart" | "beforeagentstart",
         ) => "agent.turn.started",
         (
             _,
             "stop" | "afteragent" | "afteragentresponse" | "postllmcall" | "oncomplete"
-            | "turncompletion" | "agentend" | "taskcompleted",
+            | "turncompletion" | "agentend" | "taskcompleted" | "turnend" | "agentsettled",
         ) => "agent.turn.completed",
         (_, "permissionrequest" | "preapprovalrequest" | "ontoolpermission") => {
             "agent.approval.requested"
         }
         (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
-        (_, "sessionend" | "onsessionend" | "onsessionfinalize") => "agent.session.ended",
+        (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
+            "agent.session.ended"
+        }
         _ => "agent.state.changed",
     }
 }
@@ -188,6 +193,12 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["properties", "sessionID"][..],
                 &["properties", "sessionId"][..],
                 &["properties", "info", "id"][..],
+                &["event", "session_id"][..],
+                &["event", "sessionId"][..],
+                &["event", "thread", "id"][..],
+                &["context", "session_id"][..],
+                &["context", "sessionId"][..],
+                &["context", "thread", "id"][..],
             ][..],
         ),
         (
@@ -198,6 +209,12 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["message_id"][..],
                 &["messageId"][..],
                 &["tool_use_id"][..],
+                &["event", "turn_id"][..],
+                &["event", "turnId"][..],
+                &["event", "message_id"][..],
+                &["event", "messageId"][..],
+                &["context", "turn_id"][..],
+                &["context", "turnId"][..],
             ][..],
         ),
         (
@@ -208,11 +225,23 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["workspace", "root"][..],
                 &["properties", "cwd"][..],
                 &["properties", "info", "directory"][..],
+                &["event", "cwd"][..],
+                &["event", "directory"][..],
+                &["context", "cwd"][..],
+                &["context", "directory"][..],
             ][..],
         ),
         (
             "transcript_path",
-            &[&["transcript_path"][..], &["transcriptPath"][..], &["transcript", "path"][..]][..],
+            &[
+                &["transcript_path"][..],
+                &["transcriptPath"][..],
+                &["transcript", "path"][..],
+                &["event", "transcript_path"][..],
+                &["event", "transcriptPath"][..],
+                &["context", "transcript_path"][..],
+                &["context", "transcriptPath"][..],
+            ][..],
         ),
         (
             "tool_name",
@@ -222,6 +251,11 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["tool", "name"][..],
                 &["properties", "tool"][..],
                 &["properties", "tool_name"][..],
+                &["event", "tool_name"][..],
+                &["event", "toolName"][..],
+                &["event", "tool", "name"][..],
+                &["context", "tool_name"][..],
+                &["context", "toolName"][..],
             ][..],
         ),
         (
@@ -232,6 +266,11 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["response"][..],
                 &["summary"][..],
                 &["properties", "message"][..],
+                &["event", "message"][..],
+                &["event", "last_assistant_message"][..],
+                &["event", "response"][..],
+                &["event", "summary"][..],
+                &["context", "message"][..],
             ][..],
         ),
     ] {
@@ -333,6 +372,37 @@ mod tests {
             agent_hook_journal_ingress("hermes-agent", "on_session_finalize", None, json!({}))
                 .unwrap();
         assert_eq!(finalized.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn provider_envelopes_normalize_nested_fields_without_losing_native_data() {
+        let native = json!({
+            "event": {
+                "thread": {"id":"amp-thread-1"},
+                "turnId":"turn-7",
+                "tool":{"name":"Bash"},
+                "last_assistant_message":"done"
+            },
+            "context":{"cwd":"/tmp/project"},
+            "provider_only":{"opaque":42}
+        });
+        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
+        assert_eq!(ingress.kind, "agent.turn.completed");
+        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
+        assert_eq!(ingress.payload["normalized"]["message"], "done");
+    }
+
+    #[test]
+    fn opencode_idle_is_a_completed_turn_not_a_session_end() {
+        let idle = agent_hook_journal_ingress("opencode", "session.idle", None, json!({})).unwrap();
+        assert_eq!(idle.kind, "agent.turn.completed");
+        let deleted =
+            agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
+        assert_eq!(deleted.kind, "agent.session.ended");
     }
 
     #[test]
