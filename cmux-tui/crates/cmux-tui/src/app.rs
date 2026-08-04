@@ -19480,6 +19480,45 @@ mod tests {
     }
 
     #[test]
+    fn rapid_split_close_input_is_retained_past_the_old_deferred_queue_limit() {
+        let mux = Mux::new("semantic-split-close-burst-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let cycles = super::DEFERRED_INPUT_CAPACITY / 2 + 44;
+
+        for _ in 0..cycles {
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('b'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+                shifted_key: Some('%'),
+                base_layout_key: Some('5'),
+                text: "%".to_string(),
+            })))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('d'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+        }
+
+        assert!(!app.prefix_armed);
+        assert_eq!(
+            app.deferred_input.len(),
+            cycles * 2,
+            "every split intent and dependent Ctrl-D must remain ordered under burst input"
+        );
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().terminal.deferred_input_queue_full)
+        );
+    }
+
+    #[test]
     fn failed_semantic_destination_discards_only_its_dependent_input() {
         let (mux, surface) = test_mux("semantic-failure-scope-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
