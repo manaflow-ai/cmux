@@ -57,6 +57,7 @@ extension MobileHostService {
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
+            "panel.artifact.v1",
             "workspace.actions.v1",
             "workspace.surfaces.v1",
             "surface.focus.v1",
