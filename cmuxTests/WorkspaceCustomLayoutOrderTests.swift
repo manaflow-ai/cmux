@@ -10,7 +10,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceCustomLayoutOrderTests {
-    private enum CapturePath: Sendable {
+    enum CapturePath: Sendable {
         case savedLayout
         case configAction
     }
