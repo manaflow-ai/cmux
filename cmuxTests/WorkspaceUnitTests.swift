@@ -6570,7 +6570,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertGreaterThan(
             (snapshot.forkCommand.map { $0 + "\n" } ?? "").utf8.count,
-            SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+            900
         )
         let forkPanel = try XCTUnwrap(
             workspace.forkAgentConversation(
@@ -6713,7 +6713,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertGreaterThan(
             (snapshot.forkCommand.map { $0 + "\n" } ?? "").utf8.count,
-            SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+            900
         )
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
         XCTAssertNil(

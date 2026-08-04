@@ -85,13 +85,21 @@ export const accountDeletionTombstones = pgTable(
   {
     userIdHash: text("user_id_hash").primaryKey(),
     userId: text("user_id"),
-    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    status: text("status").$type<"pending" | "in_progress" | "legacy_delete_pending" | "hosted_delete_pending" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
     attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    legacySubrouterRetiredTenantIds: jsonb("legacy_subrouter_retired_tenant_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    hostedSubrouterDeletedTeamIds: jsonb("hosted_subrouter_deleted_team_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     errorMessage: text("error_message"),
   },
   (table) => [
@@ -173,6 +181,21 @@ export const accountAnalyticsForwardLeases = pgTable(
     index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
     index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
     index("account_analytics_forward_leases_operation_idx").on(table.operationId),
+  ],
+);
+
+export const accountMutationLeases = pgTable(
+  "account_mutation_leases",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_mutation_leases_expiry_idx").on(table.expiresAt),
+    index("account_mutation_leases_operation_idx").on(table.operationId),
   ],
 );
 
@@ -378,6 +401,30 @@ export const notificationSendEvents = pgTable(
   ],
 );
 
+// Hosted Subrouter owns live tenant state. This legacy mapping remains only so
+// account deletion can purge credential-bearing rows retained for recovery.
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    // Durable recovery marker for the external source-finalization phase.
+    hostedFinalizationStartedAt: timestamp("hosted_finalization_started_at", {
+      withTimezone: true,
+    }),
+    // The hosted control plane must not serve a mapped legacy tenant until
+    // the credential-safe operator has verified its hosted copy.
+    hostedReadyAt: timestamp("hosted_ready_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
 export const stripeCustomers = pgTable(
   "stripe_customers",
   {
@@ -434,6 +481,24 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const proWelcomeFulfillments = pgTable(
+  "pro_welcome_fulfillments",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
@@ -448,21 +513,6 @@ export const billingEmailClaims = pgTable(
   },
   (table) => [
     index("billing_email_claims_email_idx").on(table.email),
-  ],
-);
-
-export const subrouterTenants = pgTable(
-  "subrouter_tenants",
-  {
-    teamId: text("team_id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
-    tenantName: text("tenant_name").notNull(),
-    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
   ],
 );
 
@@ -701,11 +751,13 @@ export const irohAccountSecurityStates = pgTable(
   {
     userId: text("user_id").primaryKey(),
     lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    routeRevision: bigint("route_revision", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+    check("iroh_account_security_states_route_revision_check", sql`${table.routeRevision} >= 0`),
   ],
 );
 

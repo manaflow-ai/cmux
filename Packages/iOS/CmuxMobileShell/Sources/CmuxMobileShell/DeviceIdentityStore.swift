@@ -1,4 +1,5 @@
 import Foundation
+internal import os
 import Security
 
 /// The outcome of reading the persisted device id.
@@ -48,6 +49,76 @@ protocol DeviceIdentityStoring: Sendable {
     /// `UserDefaults` mirror would hold it, so a delete/reinstall would mint a
     /// different id and strand the binding this store exists to preserve.
     func createOrAdopt(_ desired: String) -> String?
+}
+
+/// Authoritative device-id storage for an iOS Simulator process.
+///
+/// Unsigned simulator apps do not have an application identifier entitlement,
+/// so data-protection Keychain operations fail even after the simulated device
+/// is unlocked. Simulator identity therefore lives in the app's defaults
+/// domain. A launcher-provided deterministic seed survives app-container
+/// recreation by being adopted on the next launch, while an ordinary
+/// SpringBoard relaunch reads the value persisted by the first launch.
+/// The simulator deliberately uses the legacy mirror key as its authoritative
+/// key because simulator app containers do not provide the physical device's
+/// reinstall-stable Keychain boundary. This behavior is simulator-only.
+///
+/// This type is compiled for tests on macOS, but production selection is
+/// guarded by `targetEnvironment(simulator)`. Physical devices continue to use
+/// ``KeychainDeviceIdentityStore`` and its fail-closed semantics.
+final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Sendable {
+    // This synchronous compare-and-set spans callers that cannot share an
+    // actor boundary. DeviceIdentityStoring has synchronous requirements, so
+    // actor isolation is not a drop-in replacement. The lock protects only one
+    // UserDefaults read/write pair.
+    private static let processLock = OSAllocatedUnfairLock(initialState: ())
+    private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults, seededDeviceID: String? = nil) {
+        self.defaults = defaults
+        if let seededDeviceID = Self.usable(seededDeviceID) {
+            _ = createOrAdopt(seededDeviceID)
+        }
+    }
+
+    func read() -> DeviceIdentityReadResult {
+        Self.processLock.withLock { _ in
+            readLocked()
+        }
+    }
+
+    func createOrAdopt(_ desired: String) -> String? {
+        Self.processLock.withLock { _ in
+            switch readLocked() {
+            case .found(let winner):
+                return winner
+            case .absent:
+                guard let candidate = Self.usable(desired) else { return nil }
+                defaults.set(candidate, forKey: Self.deviceIDKey)
+                return Self.usable(defaults.string(forKey: Self.deviceIDKey))
+            case .unavailable:
+                // UserDefaults has no temporarily-locked state.
+                return nil
+            }
+        }
+    }
+
+    private func readLocked() -> DeviceIdentityReadResult {
+        if let persisted = Self.usable(defaults.string(forKey: Self.deviceIDKey)) {
+            return .found(persisted)
+        }
+        return .absent
+    }
+
+    private static func usable(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
 }
 
 /// Device-only Keychain storage for the device-registry id.

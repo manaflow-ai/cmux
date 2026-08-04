@@ -99,7 +99,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "概要",
       "accountGroup": "アカウント",
@@ -136,20 +135,24 @@
         "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
         "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
-        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
       },
       "pro": {
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
-        "pendingBody": "プランは{date}に終了する予定です。"
+        "pendingBody": "プランは{date}に終了する予定です。",
+        "monthlyPrice": "$30/月",
+        "annualPrice": "$24/月（年払い）",
+        "legacyAnnualPrice": "$20/月（年払い）"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月"
+        "price": "$35/シート/月",
+        "annualPrice": "$28/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -187,13 +190,13 @@
         "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
         "left": "iOS TestFlightグループから退出しました。",
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
-        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
         "unavailable": "現在、TestFlight登録は利用できません。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
-        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+        "body": "iOS TestFlightアクセスは、有効な個人Proサブスクリプションのユーザーが利用できます。"
       },
       "needsEmail": {
         "title": "確認済みメールが必要です",
@@ -233,6 +236,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
+      "migrationPendingTitle": "アカウントを移行中です",
+      "migrationPendingBody": "共有アカウントは移行が完了するまで一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
@@ -400,7 +405,16 @@
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
+    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
+    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
+    "billingPeriod": "請求期間",
+    "monthly": "月払い",
+    "annual": "年払い",
+    "saveAnnual": "{discount}%割引",
+    "annualComparePrice": "${monthly}/月",
+    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -658,7 +672,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月額 $30、または年額 $240(年払いでは月あたり約 $20)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -666,7 +680,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     },
@@ -678,6 +692,9 @@
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
+    "signedOutSignIn": "サインイン",
+    "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {
@@ -4732,6 +4749,19 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro へようこそ！",
+      "fallbackName": "お客様",
+      "greeting": "{name} さん、こんにちは！",
+      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の全体的な体験を準備しており、Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "Cloud アクセスの提供開始時に、それまで Pro を購読いただいた月数に応じた利用クレジットをアカウントに付与します。",
+      "currentBenefit": "それまでの Pro 特典は cmux iOS の先行アクセスです。下のリンクから登録すると、登録完了後に Apple から TestFlight の招待が届きます。",
+      "testflightLink": "TestFlight に登録する：{url}",
+      "testflightLinkLabel": "TestFlight に登録する",
+      "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    }
+  },
   "tui": {
     "marketing": {
       "sectionLabel": "TUI",
@@ -4869,19 +4899,9 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "body": "Pro の機能は現在も開発中です。Cloud アクセスは近日提供予定で、継続して購読した月数に応じた利用クレジットを付与します。現在の Pro には cmux iOS TestFlight アクセスが含まれます。",
     "done": "ダッシュボードへ",
     "steps": {
-      "modelGateway": {
-        "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
-        "action": "モデルゲートウェイを開く"
-      },
-      "aiAccounts": {
-        "title": "AI アカウントを接続",
-        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
-        "action": "プロバイダーを接続"
-      },
       "iosApp": {
         "title": "cmux iOS アプリ",
         "body": "スマートフォンで cmux を使えます。",

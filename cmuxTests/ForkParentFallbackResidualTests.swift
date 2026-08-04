@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import SQLite3
@@ -157,16 +158,10 @@ struct ForkParentFallbackResidualTests {
                 .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
-        let resumeInput = try #require(snapshot.resumeStartupInput(
-            fileManager: fixture.fileManager,
-            temporaryDirectory: fixture.root
-        ))
-        let resumeWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(resumeInput).map(\.value)
-        #expect(resumeWords.first == "/bin/zsh")
-        let resumeScriptPath = try #require(resumeWords.dropFirst().first)
-        let resumeScript = try String(contentsOfFile: resumeScriptPath, encoding: .utf8)
+        let resumeInput = try #require(snapshot.resumeStartupInput())
         #expect(
-            resumeScript.contains("/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=codex:\(sessionId)'")
+            resumeInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
         )
         #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)

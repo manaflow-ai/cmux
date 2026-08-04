@@ -867,6 +867,8 @@
       "concepts": "Konzepte",
       "anchorTitle": "Anker-Workspace",
       "anchorDesc": "Jede Gruppe gehört genau einem Workspace, dem sogenannten Anker. Die Gruppenkopfzeile in der Seitenleiste ist die Repräsentation des Ankers – es gibt keine separate Zeile dafür. Ein Klick auf den Namensbereich der Kopfzeile fokussiert die Bereiche des Ankers; ein Klick auf das Chevron schaltet das Zusammenklappen um.",
+      "anchorNew": "Der Anker einer Gruppe ist beim Erstellen immer ein völlig neuer Workspace; weder beim Gruppieren einer Auswahl noch beim Erstellen einer Gruppe wird einer Ihrer vorhandenen Workspaces zum Anker hochgestuft. (Beim späteren Schließen des Ankers wird jedoch das erste verbleibende Gruppenmitglied hochgestuft; siehe unten.) Das Arbeitsverzeichnis des Ankers wird beim Gruppieren einer Auswahl vom zuerst ausgewählten Workspace übernommen oder beim Erstellen über die CLI ohne --cwd vom aktiven Workspace.",
+      "anchorClose": "Beim Schließen des Anker-Workspaces wird nur dieser Workspace geschlossen und das erste verbleibende Mitglied der Gruppe (das in der Gruppenreihenfolge am weitesten vorne stehende) zum neuen Anker hochgestuft. Dadurch bleiben die Gruppe und ihre übrigen Mitglieder erhalten (das hochgestufte Mitglied zeigt anschließend den Gruppennamen als Kopfzeile an). Ist der Anker der einzige Workspace der Gruppe, wird die Gruppe entfernt. Verwenden Sie „Arbeitsbereiche auflösen“, um eine Gruppe in nicht gruppierte Workspaces umzuwandeln, und „Gruppe löschen“, um alle Workspaces einer Gruppe zu schließen.",
       "identityTitle": "Gruppenidentität",
       "identityDesc": "Eine Gruppe hat einen Namen, ein Symbol (ein SF Symbol, standardmäßig folder.fill) und eine optionale benutzerdefinierte Farbe. Diese sind unabhängig von den eigenen Anpassungen des Anker-Workspace. Die Farbe und das Symbol des Ankers werden bei der Erstellung von der Gruppe übernommen, können danach aber abweichen.",
       "pinningTitle": "Anheften",
@@ -3524,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut."
+    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
+    "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
+    "signedOutSignIn": "Anmelden"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3605,37 @@
       "primaryCta": ".deb herunterladen",
       "requirements": "Debian oder Ubuntu · x64",
       "installBody": "Lade das Debian-Paket herunter und installiere es mit deiner Paketverwaltung. Wähle die portable ZIP-Datei für eine benutzerspezifische Installation und Updates innerhalb der App."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Willkommen bei cmux Pro 🎉",
+      "fallbackName": "cmux-Fan",
+      "greeting": "Hallo {name},",
+      "thanks": "Vielen Dank, dass Sie cmux Pro abonniert haben! Wir arbeiten noch am vollständigen Pro-Erlebnis, und der Cloud-Zugang ist unterwegs.",
+      "cloudStatus": "Sobald der Cloud-Zugang startet, schreiben wir Ihrem Konto Nutzungsguthaben für jeden Monat Ihrer bisherigen Mitgliedschaft gut.",
+      "currentBenefit": "Bis dahin erhalten Sie mit Pro vorzeitigen Zugriff auf cmux für iOS. Melden Sie sich über den Link unten an. Nach der Registrierung sendet Apple Ihnen Ihre TestFlight-Einladung.",
+      "testflightLink": "Für TestFlight anmelden: {url}",
+      "testflightLinkLabel": "Für TestFlight anmelden",
+      "signoff": "Schön, dass Sie dabei sind!\nDas cmux-Team"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro ist aktiv",
+    "title": "Willkommen bei cmux Pro",
+    "body": "Die Pro-Funktionen werden noch entwickelt. Der Cloud-Zugang kommt bald, mit Nutzungsguthaben für jeden Monat Ihres Abonnements. Derzeit umfasst Pro den TestFlight-Zugang zu cmux für iOS.",
+    "done": "Zum Dashboard",
+    "steps": {
+      "iosApp": {
+        "title": "cmux für iOS",
+        "body": "Nutzen Sie cmux auf Ihrem Smartphone.",
+        "action": "An der iOS-Beta teilnehmen"
+      },
+      "billing": {
+        "title": "Abo verwalten",
+        "body": "Verwalten Sie Ihr Abo, Ihre Rechnungen und Ihre Kündigungsoptionen.",
+        "action": "Abo verwalten"
+      }
     }
   }
 }

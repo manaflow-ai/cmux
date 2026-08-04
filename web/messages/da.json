@@ -867,6 +867,8 @@
       "concepts": "Koncepter",
       "anchorTitle": "Anker-workspace",
       "anchorDesc": "Hver gruppe ejes af præcis ét workspace kaldet ankeret. Gruppens header i sidebaren er ankerets repræsentation — der er ingen separat række til det. Klik på headerens navneområde fokuserer ankerets paneler; klik på chevronen skifter sammenklapning til/fra.",
+      "anchorNew": "En gruppes anker er altid et helt nyt workspace på oprettelsestidspunktet; gruppering af en markering eller oprettelse af en gruppe gør aldrig et af dine eksisterende workspaces til ankeret. (Hvis ankeret senere lukkes, bliver gruppens første tilbageværende medlem dog gjort til anker; se nedenfor.) Ankerets arbejdsmappe arves fra det første valgte workspace, når en markering grupperes, eller fra det aktive workspace ved oprettelse via CLI uden --cwd.",
+      "anchorClose": "Når anker-workspacet lukkes, lukkes kun dette workspace, og gruppens første tilbageværende medlem (det første, der stadig findes i gruppens rækkefølge) gøres til det nye anker, så gruppen og dens øvrige medlemmer forbliver intakte (det nye anker viser derefter gruppens navn som header). Når ankeret er gruppens eneste workspace, fjernes gruppen. Brug Opdel arbejdsområder til at opløse en gruppe til ugrupperede workspaces; brug Slet gruppe til at lukke alle workspaces i en gruppe.",
       "identityTitle": "Gruppeidentitet",
       "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri brugerdefineret farve. Disse er uafhængige af anker-workspacets egne tilpasninger. Ankerets farve og ikon udledes fra gruppen ved oprettelse, men de kan afvige bagefter.",
       "pinningTitle": "Fastgørelse",
@@ -3521,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere."
+    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
+    "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
+    "signedOutSignIn": "Log ind"
   },
   "platforms": {
     "macos": "macOS",
@@ -3598,6 +3602,37 @@
       "primaryCta": "Download .deb",
       "requirements": "Debian eller Ubuntu · x64",
       "installBody": "Download Debian-pakken, og installer den med din pakkehåndtering. Vælg den transportable ZIP til installation pr. bruger og opdateringer i appen."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Velkommen til cmux Pro 🎉",
+      "fallbackName": "der",
+      "greeting": "Hej {name},",
+      "thanks": "Tak, fordi du har valgt cmux Pro! Vi er stadig ved at gøre hele Pro-oplevelsen klar, og cloudadgang er på vej.",
+      "cloudStatus": "Når cloudadgang lanceres, føjer vi brugskreditter til din konto baseret på, hvor mange måneder du har været abonnent.",
+      "currentBenefit": "Indtil da giver Pro dig tidlig adgang til cmux på iOS. Tilmeld dig via linket nedenfor, så sender Apple din TestFlight-invitation, når du er registreret.",
+      "testflightLink": "Tilmeld dig TestFlight: {url}",
+      "testflightLinkLabel": "Tilmeld dig TestFlight",
+      "signoff": "Dejligt at have dig med!\ncmux-teamet"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro er aktiv",
+    "title": "Velkommen til cmux Pro",
+    "body": "Pro-funktionerne er stadig under udvikling. Cloudadgang kommer snart med brugskreditter, der optjenes for hver måned, du abonnerer. Lige nu omfatter Pro adgang til cmux på iOS via TestFlight.",
+    "done": "Gå til kontrolpanelet",
+    "steps": {
+      "iosApp": {
+        "title": "cmux til iOS",
+        "body": "Brug cmux på din telefon.",
+        "action": "Deltag i iOS-betaen"
+      },
+      "billing": {
+        "title": "Administrer dit abonnement",
+        "body": "Se dit abonnement, dine fakturaer og muligheder for opsigelse.",
+        "action": "Administrer abonnement"
+      }
     }
   }
 }

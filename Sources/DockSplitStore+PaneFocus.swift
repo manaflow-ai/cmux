@@ -51,11 +51,20 @@ extension DockSplitStore {
     }
 
     /// Applies the complete user-interaction focus transaction for a Dock panel.
-    /// Model selection and window-scoped shortcut intent move together so AppKit
-    /// focus cannot point at one panel while Dock selection points at another.
+    /// Model selection, window-scoped shortcut intent, and notification
+    /// dismissal move together so AppKit focus, Dock selection, and read state
+    /// converge on the same panel.
     func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
         noteKeyboardFocusIntent(window: window)
         focusPanel(panelId)
+        guard let appDelegate = AppDelegate.shared,
+              let tabManager = appDelegate.dockReferenceTabManager(for: self) else {
+            return
+        }
+        _ = tabManager.dismissNotificationOnDirectInteraction(
+            tabId: workspaceId,
+            surfaceId: panelId
+        )
     }
 
     /// Resolves both workspace and per-window Docks through their shared live
@@ -75,7 +84,8 @@ extension DockSplitStore {
     }
 
     func focusFirstControl() -> Bool {
-        guard let paneId = bonsplitController.allPaneIds.first else { return false }
+        guard let paneId = bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first else { return false }
         bonsplitController.focusPane(paneId)
         guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let panelId = surfaceIdToPanelId[tabId],

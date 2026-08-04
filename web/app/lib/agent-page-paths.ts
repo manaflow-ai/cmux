@@ -12,6 +12,7 @@ import {
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
+import { genericCodingAgents } from "../../i18n/coding-agents";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -82,7 +83,6 @@ const blockedPrefixes = [
   "/handler",
 ];
 const englishOnlyPages = [
-  "/company-information",
   "/privacy-policy",
   "/terms-of-service",
   "/eula",
@@ -229,11 +229,18 @@ export const agentReadablePages = [
   { path: "/agents/claude-code", title: "Terminal for Claude Code" },
   { path: "/agents/codex", title: "Terminal for Codex CLI" },
   { path: "/agents/opencode", title: "Terminal for OpenCode" },
+  {
+    path: "/agents/pi",
+    title: "Best terminal for Pi",
+  },
+  ...genericCodingAgents.map((agent) => ({
+    path: `/agents/${agent.slug}`,
+    title: `Best terminal for ${agent.seoName ?? agent.name}`,
+  })),
   { path: "/agents/gemini-cli", title: "Terminal for Gemini CLI" },
   { path: "/agents/aider", title: "Terminal for Aider" },
   { path: "/agents/amp", title: "Terminal for Amp" },
   { path: "/agents/cursor-cli", title: "Terminal for Cursor CLI" },
-  { path: "/company-information", title: "Company Information" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },
