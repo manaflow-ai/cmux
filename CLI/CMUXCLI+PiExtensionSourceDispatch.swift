@@ -423,10 +423,14 @@ class PiCmuxCommandDispatcher {
       });
 
       try {
-        const includeAutoNamingProviderEnv =
-          args[0] === "hooks" && args[1] === "pi" && args[2] === "stop";
-        const child = spawn(cmuxExecutable(), args, {
-          env: hookEnvironment(cwd, true, includeAutoNamingProviderEnv),
+        const cmux = resolveCmuxExecutable();
+        const isPiStop = args[0] === "hooks" && args[1] === "pi" && args[2] === "stop";
+        const child = spawn(cmux.executable, args, {
+          env: hookEnvironment(
+            cwd,
+            cmux.trustedForCredentials,
+            isPiStop && cmux.trustedForCredentials,
+          ),
           stdio: ["pipe", "pipe", "pipe"],
         });
         child.stdout.setEncoding("utf8");

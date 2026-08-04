@@ -294,9 +294,13 @@ const piAutoNamingProviderEnvKeys = new Set([
   "ANT_LING_API_KEY",
   "AWS_ACCESS_KEY_ID",
   "AWS_BEARER_TOKEN_BEDROCK",
+  "AWS_BEDROCK_FORCE_CACHE",
+  "AWS_BEDROCK_FORCE_HTTP1",
+  "AWS_BEDROCK_SKIP_AUTH",
   "AWS_CONTAINER_CREDENTIALS_FULL_URI",
   "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
   "AWS_DEFAULT_REGION",
+  "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
   "AWS_PROFILE",
   "AWS_REGION",
   "AWS_SECRET_ACCESS_KEY",
@@ -342,6 +346,14 @@ const piAutoNamingProviderEnvKeys = new Set([
   "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
   "ZAI_API_KEY",
   "ZAI_CODING_CN_API_KEY",
+  "ALL_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
 ]);
 
 function safePiEnvKey(key: string): boolean {
@@ -575,8 +587,31 @@ function warn(
   }
 }
 
-function cmuxExecutable(): string {
-  return process.env.CMUX_PI_CMUX_BIN || "cmux";
+interface CmuxExecutableResolution {
+  executable: string;
+  trustedForCredentials: boolean;
+}
+
+function trustedBundledCmuxExecutable(): string | null {
+  const configured = firstString(process.env.CMUX_BUNDLED_CLI_PATH);
+  if (!configured || !path.isAbsolute(configured)) return null;
+  try {
+    const resolved = fs.realpathSync(configured);
+    if (!fs.statSync(resolved).isFile()) return null;
+    fs.accessSync(resolved, fs.constants.X_OK);
+    return resolved;
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveCmuxExecutable(): CmuxExecutableResolution {
+  const bundled = trustedBundledCmuxExecutable();
+  if (bundled) return { executable: bundled, trustedForCredentials: true };
+  return {
+    executable: process.env.CMUX_PI_CMUX_BIN || "cmux",
+    trustedForCredentials: false,
+  };
 }
 
 interface PiFeedCommand {

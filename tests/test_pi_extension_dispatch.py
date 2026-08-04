@@ -30,6 +30,7 @@ def run_extension(
     env = os.environ.copy()
     env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
     env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
+    env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
     env["CMUX_SURFACE_ID"] = "00000000-0000-0000-0000-000000008672"
     env["CMUX_WORKSPACE_ID"] = "00000000-0000-0000-0000-000000008673"
     env.update(extra_env)
